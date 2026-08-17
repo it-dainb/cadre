@@ -72,10 +72,12 @@ src/          the plugin — this, and only this, is what installs
 test/         node --test suite, run against ../src
 harness/      budgets, measurement, benchmark
 out-of-scope/ what was declined, and why
-refs/         vendored prior art (submodules)
+refs/         prior art — gitignored, developer machines only
 ```
 
-The marketplace entry points at `src/`, so the harness, the tests and the reference submodules stay in the repo and out of every install.
+The marketplace entry points at `src/`, so the harness and the tests stay in the repo and out of the installed plugin.
+
+`refs/` holds nothing cadre needs to run and is not committed. It was five git submodules until a GitHub install proved they break one: `marketplace add` clones the repo with `--recurse-submodules` — it has to, since `marketplace.json` is at the root and `"source": "./src"` resolves inside that clone — and the add pulled ~110M and then died on `Clone succeeded, but checkout failed`, registering no marketplace. `refs/README.md` is tracked and names every repo, its URL and the commit it was pinned at. Only `harness/spawn-cost.sh` and `harness/bench/run.sh` need one back; `./harness/ci.sh` is green on a bare clone.
 
 Every row must be demonstrably failable — break it on purpose before trusting it. The budget table is the acceptance test, and it is the only mechanism observed to resist re-bloat over time.
 

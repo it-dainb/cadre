@@ -41,7 +41,8 @@ trap cleanup EXIT
 # install. Same stale-path breakage the flatten left in ci.sh.
 SUBJECT="$REPO/refs/oh-my-claudecode"
 [ -f "$SUBJECT/.claude-plugin/marketplace.json" ] || {
-  echo "missing submodule $SUBJECT — run: git submodule update --init refs/oh-my-claudecode" >&2
+  echo "missing reference tree $SUBJECT — see refs/README.md, or run:" >&2
+  echo "  git clone https://github.com/Yeachan-Heo/oh-my-claudecode.git $SUBJECT" >&2
   exit 1
 }
 

@@ -14,6 +14,20 @@ OUT=${BENCH_OUT:-$ROOT/.omc/bench}
 TRIALS=${TRIALS:-1}
 ARMS=${ARMS:-vanilla omc cadre}
 TASKS=${TASKS:-$(ls "$TASKS_DIR")}
+
+# `refs/` is gitignored, so the omc arm's plugin tree may simply not be here.
+# Docker would bind-mount an empty directory, the plugin would install nothing,
+# and the arm would silently report as plain Claude Code — the exact
+# failure-that-looks-like-a-result this benchmark has already produced once.
+# Refuse up front: this run costs hours and real money.
+case " $ARMS " in
+  *" omc "*)
+    [ -f "$ROOT/refs/oh-my-claudecode/.claude-plugin/marketplace.json" ] || {
+      echo "omc arm requested but $ROOT/refs/oh-my-claudecode is missing — see refs/README.md, or run:" >&2
+      echo "  git clone https://github.com/Yeachan-Heo/oh-my-claudecode.git $ROOT/refs/oh-my-claudecode" >&2
+      exit 1
+    } ;;
+esac
 MAX_TURNS=${MAX_TURNS:-60}
 TIMEOUT=${TIMEOUT:-900}
 

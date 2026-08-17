@@ -1,2 +1,15 @@
 dist/
 .omc/
+
+# Reference checkouts — developer machines only, never committed.
+#
+# These were git submodules until a GitHub install proved they break it:
+# `marketplace add` clones the repo with --recurse-submodules, and the checkout
+# failed outright ("Clone succeeded, but checkout failed", no marketplace
+# registered) while pulling ~110M to deliver an 833-token plugin.
+#
+# refs/README.md is the exception: it is tracked, and it names every repo and
+# the commit it was pinned at, so the trees are reproducible without shipping
+# them to anyone who only wants the plugin.
+refs/*
+!refs/README.md

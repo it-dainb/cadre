@@ -169,15 +169,26 @@ row "harness or reference dirs inside the shipped plugin" \
 # there installs nothing, and the arm reports as plain Claude Code. After the
 # flatten, `bench/run.sh` mounted the repo root as the oh-my-claudecode
 # marketplace and `spawn-cost.sh` staged cadre to install `oh-my-claudecode@omc`.
+#
+# The scripts must NAME the right paths — checked always, since that is text in
+# a file and needs nothing downloaded.
 MOUNTS=0
-for p in "$REPO/src" "$REPO/refs/oh-my-claudecode"; do
-  [ -e "$p" ] || { echo "    missing harness mount source: $p"; MOUNTS=$((MOUNTS + 1)); }
-done
-# ...and the scripts must actually name them, or the check above guards nothing.
 grep -q 'ROOT/src:/plugins/cadre' "$REPO/harness/bench/run.sh" || MOUNTS=$((MOUNTS + 1))
 grep -q 'refs/oh-my-claudecode:/plugins/omc' "$REPO/harness/bench/run.sh" || MOUNTS=$((MOUNTS + 1))
 grep -q 'SUBJECT="$REPO/refs/oh-my-claudecode"' "$REPO/harness/spawn-cost.sh" || MOUNTS=$((MOUNTS + 1))
+[ -e "$REPO/src" ] || MOUNTS=$((MOUNTS + 1))
 row "harness scripts with a stale plugin path" "$MOUNTS" 0
+
+# Whether the reference trees are actually PRESENT is a different question, and
+# not a build failure: `refs/` is gitignored, so a bare clone has none of them
+# and a contributor touching only `src/` should not be told to download 66M to
+# get a green board. Report it, do not fail on it. The scripts that need the
+# tree exit non-zero themselves, naming the clone command.
+if [ -d "$REPO/refs/oh-my-claudecode" ]; then
+  printf '  %-42s %8s  ok\n' "refs/oh-my-claudecode (harness arms)" "present"
+else
+  printf '  %-42s %8s  --\n' "refs/oh-my-claudecode (harness arms)" "skipped"
+fi
 
 # `marketplace add` needs the directory holding `.claude-plugin/marketplace.json`,
 # which for cadre is the repo — NOT `src/`. Mounting the plugin directory instead
