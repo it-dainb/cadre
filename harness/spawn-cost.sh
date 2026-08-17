@@ -33,11 +33,23 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The subject is oh-my-claudecode, not cadre: this measures the `tools:` defect
+# on the plugin cadre replaces, so both arms must be the SAME agent differing
+# only in frontmatter. Staging cadre's own repo here installed nothing —
+# `oh-my-claudecode@omc` is not in cadre's marketplace and cadre ships no
+# code-reviewer agent — so every arm silently measured a plugin that failed to
+# install. Same stale-path breakage the flatten left in ci.sh.
+SUBJECT="$REPO/refs/oh-my-claudecode"
+[ -f "$SUBJECT/.claude-plugin/marketplace.json" ] || {
+  echo "missing submodule $SUBJECT — run: git submodule update --init refs/oh-my-claudecode" >&2
+  exit 1
+}
+
 # Two copies of the plugin, minus the heavy reference trees (`claude plugin
 # install` copies everything, so excluding refs/ keeps each arm fast).
 for arm in a b; do
   mkdir -p "$STAGE/$arm"
-  tar -C "$REPO" --exclude=.git --exclude=refs --exclude=node_modules --exclude=dist -cf - . \
+  tar -C "$SUBJECT" --exclude=.git --exclude=refs --exclude=node_modules --exclude=dist -cf - . \
     | tar -C "$STAGE/$arm" -xf -
 done
 

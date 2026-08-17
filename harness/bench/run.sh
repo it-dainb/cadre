@@ -80,8 +80,8 @@ run_one() {
   docker rm -f "$c" >/dev/null 2>&1
   docker run -d --name "$c" \
     -v /home/it-dainb/.claude/.credentials.json:/home/node/.claude/.credentials.json:ro \
-    -v "$ROOT/cadre:/plugins/cadre:ro" \
-    -v "$ROOT:/plugins/omc:ro" \
+    -v "$ROOT/src:/plugins/cadre:ro" \
+    -v "$ROOT/refs/oh-my-claudecode:/plugins/omc:ro" \
     -v "$w:/project" \
     "${SESSION_ENV[@]}" \
     cadre-harness:latest -c "sleep infinity" >/dev/null || { emit "$task" "$arm" "$trial" harness_error 0 "docker run failed"; return; }
@@ -187,7 +187,7 @@ run_one() {
   # — "no worktree, no spec file, no handoff" — is the *default, most common*
   # path per work/SKILL.md ("most tasks end at step 1") and never touches it.
   # The old check read the common case as a harness error. Confirmed by
-  # reading cadre/agents/doer.md and cadre/skills/work/SKILL.md, not assumed.
+  # reading src/agents/doer.md and src/skills/work/SKILL.md, not assumed.
   if [ "$arm" = cadre-work ] || [ "$arm" = cadre-auto ]; then
     engaged=$(python3 -c "import json;print(json.load(open('$rundir/trace-summary.json')).get('engaged', False))" 2>/dev/null || echo False)
     if [ "$engaged" != "True" ]; then

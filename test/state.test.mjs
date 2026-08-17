@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, existsSync, utimesSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { writeJsonAtomic, patchJsonLocked, readJson, taskDir, recoverActive, LOCK_TTL_MS } from './state.mjs';
+import { writeJsonAtomic, patchJsonLocked, readJson, taskDir, recoverActive, LOCK_TTL_MS } from '../src/state.mjs';
 
 let root;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'cadre-')); });

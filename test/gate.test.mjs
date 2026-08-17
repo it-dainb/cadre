@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyWrite, validatePlan, classifyDelegation } from './gate.mjs';
+import { classifyWrite, validatePlan, classifyDelegation } from '../src/gate.mjs';
 
 const WT = '/repo/.claude/worktrees/agent-abc';
 

@@ -13,4 +13,10 @@ Ask two questions, write `.cadre/config.json`, stop.
 
 **Threshold.** How many files a task may touch before the gate trips. Default 3. Destructive operations — merge, push, history rewrite, mass delete, dependency change, migration — always gate regardless of this number.
 
-Write the config with `writeConfig`, which validates both values. An unknown mode or a non-numeric threshold fails here rather than silently defaulting and surprising someone at merge time.
+Write it with:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/cli.mjs" setup --mode adaptive --threshold 3
+```
+
+Both values are validated on the way in. An unknown mode or a non-numeric threshold exits non-zero here rather than silently defaulting and surprising someone at merge time.

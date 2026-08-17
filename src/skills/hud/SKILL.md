@@ -5,11 +5,15 @@ description: Show what cadre currently has in flight — active task, its state,
 
 # hud
 
-Read and report:
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/cli.mjs" status
+```
 
-- `.cadre/active-task` — the current task, or nothing if idle
-- that task's `status.json` — `in_progress`, `blocked`, `completed` or `cancelled`, and the question if blocked
-- `.cadre/config.json` — mode and threshold
+One call instead of three file reads. It returns:
+
+- `task` — the active task, or `null` if idle
+- `status` — `in_progress`, `blocked`, `completed` or `cancelled`, and the question if blocked
+- `config` — mode and threshold
 
 Report it in a few lines. This is a read; it changes nothing.
 

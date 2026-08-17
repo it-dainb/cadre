@@ -4,7 +4,7 @@ A small trained core that directs a larger force.
 
 cadre plans work, dispatches workers into isolated git worktrees, reviews what they produce, and merges. The lead never edits code — that is what keeps its context flat no matter how much the workers do.
 
-**~783 tokens always-on.** Nine skills, four agents, four hooks, zero MCP servers.
+**~833 tokens always-on.** Nine skills, five agents, four hooks, zero MCP servers.
 
 ## Why
 
@@ -65,13 +65,23 @@ All `PreToolUse`. They deny; they never inject.
 
 ## Budgets
 
-From a checkout of this repo, `./harness/ci.sh` fails the build on regression; `--full` adds a fresh-install measurement. It runs in CI on every change to `cadre/`. The harness lives at the repo root and is not part of the installed plugin.
+From a checkout of this repo, `./harness/ci.sh` fails the build on regression; `--full` adds a fresh-install measurement. It runs in CI on every change to `src/`.
+
+```
+src/          the plugin — this, and only this, is what installs
+test/         node --test suite, run against ../src
+harness/      budgets, measurement, benchmark
+out-of-scope/ what was declined, and why
+refs/         vendored prior art (submodules)
+```
+
+The marketplace entry points at `src/`, so the harness, the tests and the reference submodules stay in the repo and out of every install.
 
 Every row must be demonstrably failable — break it on purpose before trusting it. The budget table is the acceptance test, and it is the only mechanism observed to resist re-bloat over time.
 
 ## Declined
 
-`cadre/out-of-scope/` records what was turned down and why: external CLI workers, background task queues, journals, LLM self-review as a gate, MCP tools for memory. Every entry names its reason, so the same proposal does not arrive again as a fresh idea.
+`out-of-scope/` records what was turned down and why: external CLI workers, background task queues, journals, LLM self-review as a gate, MCP tools for memory. Every entry names its reason, so the same proposal does not arrive again as a fresh idea.
 
 Design ported from [agent-hive](https://github.com/tctinh/agent-hive) (MIT + Commons Clause) — architecture only, code written from scratch.
 
@@ -79,9 +89,17 @@ Design ported from [agent-hive](https://github.com/tctinh/agent-hive) (MIT + Com
 
 1.0.0. What that does and does not mean here.
 
-**Verified:** 118 tests, every module mutation-checked. The gates are proven live and *attributably* so — the absolute-path write is denied with cadre's own error text, and the same write succeeds once cadre is uninstalled. Always-on cost is measured from a fresh install that is asserted to be enabled before any number is read off it. Every CI budget row has been broken on purpose to confirm it fails.
+**Verified:** 115 tests, every module mutation-checked. The gates are proven live and *attributably* so — the absolute-path write is denied with cadre's own error text, and the same write succeeds once cadre is uninstalled. Always-on cost is measured from a fresh install that is asserted to be enabled before any number is read off it. Every CI budget row has been broken on purpose to confirm it fails.
 
 **1.0.0 shipped broken and was fixed.** `plugin.json` re-declared `hooks/hooks.json`, which the CLI already loads by convention; the duplicate registration made the plugin report `failed to load`. Two checks now exist because neither did: `measure.sh` refuses to report tokens for a plugin that is not enabled, and CI fails a manifest that re-declares the auto-loaded hooks file. The earlier live-gate proof was also unattributable — its control tried to disable the gate by editing a cached copy that nothing executes.
+
+**The budget table was measuring nothing, and said GREEN.** After the tree was flattened, `ci.sh` still pointed at a `cadre/` subdirectory that no longer existed. Every plugin-side row read a missing path, and `node --test "$CADRE"/*.test.mjs` passed its unmatched glob through as a literal — zero tests run, exit 0. The claim that all 118 tests pass was unverifiable from a checkout for as long as that stood. This is the third instance of the same failure recorded on this page: a check that runs, reports success, and inspects nothing. The suite now aborts if the plugin directory is absent and fails if the run reports zero tests.
+
+What the repaired board then found, on the one row that had been reporting correctly into the noise: `spec.mjs` and `budget.mjs` were dead. Both fully tested, neither reachable from any hook, skill or agent — the cheap dispatch ladder in `work/SKILL.md` had replaced the spec-file flow and nothing removed the modules. `write-gate.mjs` was still enforcing a 60,000-character ceiling on a `spec.md` that nothing in cadre wrote. All of it is deleted; the test count fell from 118 to 115 accordingly.
+
+**Always-on is 833 tokens, not 783.** The old figure was measured when there were four agents; there are five, and the fifth costs ~50. The number now comes from a fresh install on every `--full` run and is asserted byte-stable across two of them, so a stale headline figure fails the build rather than sitting in the README.
+
+Three skills had the same defect in prose form. `cancel`, `setup` and `hud` named `cancelTask()` and `writeConfig` as though a skill could call a JavaScript function — the plugin installs outside the project tree and shipped no entry point. They now invoke `cli.mjs`, and CI fails a skill that references a `cli.mjs` the plugin does not ship.
 
 **Not verified, and worth knowing before you rely on it:**
 
@@ -100,7 +118,7 @@ Design ported from [agent-hive](https://github.com/tctinh/agent-hive) (MIT + Com
 
   An earlier version of this section reported cadre at parity with plain. That measurement was of a plugin that was installed and never invoked: with a plain prompt, 8 of 10 runs never spawned a worker or wrote any `.cadre/` state. The arm was plain Claude Code plus the always-on tax. Skills are description-triggered, and in headless mode nothing triggered them — the runs now invoke `/cadre:work` explicitly and assert that state was written.
 
-  The always-on saving (~781 tok vs ~3,169) is real and cheap to keep. It is also, on this evidence, the only cost advantage cadre currently has, and it is small enough that per-task spend buries it.
+  The always-on saving (~833 tok vs ~3,169) is real and cheap to keep. It is also, on this evidence, the only cost advantage cadre currently has, and it is small enough that per-task spend buries it.
 
   An earlier version of this table reported cadre 27% cheaper. It was wrong twice over. The runner invoked its checker with `docker exec` and no `-i`, so the check read an empty script and exited 0 — every task "passed" without ever being verified. And cadre's apparent win was its merge gate halting on the word "migration" and never doing the work, because the gate matched the bare substring and a task file was called `migrate.mjs`. The cheapest run is always the one that does nothing. The gate now matches schema-migration tooling (`db:migrate`, `prisma migrate`, `alembic upgrade`, and similar) rather than the word; the runner copies the checker in and, on every run, re-runs it against a pristine copy of the task and fails the run if that passes.
 

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyCommand, DEFAULT_THRESHOLD, nextWorkerSpec } from './merge.mjs';
+import { classifyCommand, DEFAULT_THRESHOLD, nextWorkerSpec } from '../src/merge.mjs';
 
 describe('merge gate — blast radius', () => {
   it('lets an ordinary command through', () => {

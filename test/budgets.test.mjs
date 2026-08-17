@@ -15,7 +15,9 @@ import assert from 'node:assert/strict';
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
-const CADRE = new URL('.', import.meta.url).pathname;
+// The plugin, not the repo. Scanning the repo root would walk `refs/` — four
+// vendored submodules — and report their volatile calls as cadre's own.
+const CADRE = new URL('../src/', import.meta.url).pathname;
 
 /** Volatile calls break prompt-cache prefixes when they reach assembled text. */
 const VOLATILE = [/\bDate\.now\s*\(/, /\bMath\.random\s*\(/, /\brandomUUID\s*\(/, /\bperformance\.now\s*\(/, /new Date\s*\(\s*\)/];
@@ -28,8 +30,6 @@ const VOLATILE = [/\bDate\.now\s*\(/, /\bMath\.random\s*\(/, /\brandomUUID\s*\(/
 const ALLOWLIST = {
   'state.mjs':
     'Date.now() gates lock staleness (TTL) and never reaches assembled prompt text — lock files are process coordination, not content.',
-  'budgets.test.mjs': 'Test file: the patterns appear as the regexes being searched for.',
-  'state.test.mjs': 'Test file: constructs a deliberately stale lock mtime.',
 };
 
 function sourceFiles(dir) {

@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const HOOKS = new URL('./hooks/', import.meta.url).pathname;
+const HOOKS = new URL('../src/hooks/', import.meta.url).pathname;
 
 /** Run a hook exactly as Claude Code does: JSON on stdin, JSON on stdout. */
 function runHook(script, event) {

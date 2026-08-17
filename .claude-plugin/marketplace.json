@@ -10,7 +10,7 @@
       "name": "cadre",
       "description": "A small trained core that directs a larger force: plan, dispatch worktree-isolated workers, review, merge. Capability is addressable, not resident.",
       "version": "1.0.0",
-      "source": "./",
+      "source": "./src",
       "category": "productivity"
     }
   ],

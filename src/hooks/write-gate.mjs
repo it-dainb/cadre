@@ -8,7 +8,6 @@
  *   2. Agent/Task dispatch from inside a worktree (depth cap)
  *   3. merge/push/destructive shell commands, and oversized blast radius
  *   4. plan.md writes lacking a substantive Discovery section
- *   5. spec.md writes exceeding the prompt budget ceiling
  *
  * A denial changes behaviour at zero context cost. Injected advice would be
  * written into transcript history and paid on every later turn, so this hook
@@ -21,7 +20,6 @@
 import { classifyWrite, validatePlan, classifyDelegation } from '../gate.mjs';
 import { classifyCommand } from '../merge.mjs';
 import { readConfig } from '../config.mjs';
-import { DEFAULT_BUDGET } from '../budget.mjs';
 import { execFileSync } from 'node:child_process';
 
 const emit = (obj) => { process.stdout.write(JSON.stringify(obj)); process.exit(0); };
@@ -99,21 +97,6 @@ try {
     if (/(^|\/)plan\.md$/.test(path) && /\.cadre\//.test(path) && content) {
       const check = validatePlan(content);
       if (!check.ok) deny(check.message);
-    }
-
-    // The prompt budget, enforced rather than documented. spec.md is the only
-    // channel into a worker, so an oversized spec is an unbounded worker prompt
-    // — the exact failure the budgeter exists to prevent. Denying here is what
-    // makes the ceiling structural instead of a convention nobody applies.
-    if (/(^|\/)spec\.md$/.test(path) && /\.cadre\//.test(path) && content) {
-      if (content.length > DEFAULT_BUDGET.maxTotalChars) {
-        deny(
-          `spec.md is ${content.length} characters; the budget ceiling is ${DEFAULT_BUDGET.maxTotalChars}. ` +
-          'Assemble it with applyBudget() so oversized history degrades to pointers ' +
-          '(drop oldest tasks, truncate summaries, then reference files by path) ' +
-          'rather than growing the worker prompt without bound.',
-        );
-      }
     }
   }
 

@@ -28,7 +28,7 @@ git -C "$WORK" add -A
 git -C "$WORK" -c user.email=t@t -c user.name=t commit -qm init
 
 docker run -d --name "$NAME" \
-  -v "$REPO/cadre":/plugin:ro \
+  -v "$REPO/src":/plugin:ro \
   -v "$CREDS":/home/node/.claude/.credentials.json:ro \
   -v "$WORK":/project \
   "$IMAGE" -c "sleep infinity" >/dev/null

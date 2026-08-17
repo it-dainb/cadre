@@ -10,8 +10,21 @@
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CADRE="$REPO/cadre"
+# The plugin is `src/`; the repo root also holds the harness, the reference
+# submodules and the tests, none of which install. This pointed at `$REPO/cadre`
+# after the tree was flattened, so every plugin-side row below read a path that
+# did not exist — and the suite still printed GREEN.
+CADRE="$REPO/src"
+TESTS="$REPO/test"
 FAIL=0
+
+# `$CADRE` must exist before anything reads it. Every check that follows either
+# greps or globs a path under it, and both degrade to a silent pass when the
+# directory is missing rather than failing loudly.
+if [ ! -d "$CADRE" ]; then
+  echo "FATAL: plugin directory $CADRE does not exist — every budget row below would read nothing." >&2
+  exit 1
+fi
 
 row() { # name actual ceiling
   local name=$1 actual=$2 ceiling=$3
@@ -35,8 +48,21 @@ tok_to_int() {
 }
 
 echo "== unit + hook contract =="
-if node --test "$CADRE"/*.test.mjs >/tmp/cadre-tests.log 2>&1; then
-  echo "  $(grep -oE '^# pass [0-9]+|pass [0-9]+' /tmp/cadre-tests.log | head -1) tests"
+# An unmatched glob passes straight through as a literal, which node --test
+# reports as zero tests and exit 0 — indistinguishable from a green suite.
+# Count the files first and require the suite to actually run some.
+shopt -s nullglob
+TEST_FILES=("$TESTS"/*.test.mjs)
+shopt -u nullglob
+if [ "${#TEST_FILES[@]}" -eq 0 ]; then
+  echo "  FAIL — no test files under $TESTS"; FAIL=1
+elif node --test "${TEST_FILES[@]}" >/tmp/cadre-tests.log 2>&1; then
+  PASSED=$(grep -oE '(^# pass|pass) [0-9]+' /tmp/cadre-tests.log | grep -oE '[0-9]+' | head -1)
+  if [ -z "$PASSED" ] || [ "$PASSED" -eq 0 ]; then
+    echo "  FAIL — suite exited 0 having run no tests"; FAIL=1
+  else
+    echo "  $PASSED tests"
+  fi
 else
   echo "  FAIL — see /tmp/cadre-tests.log"; FAIL=1
 fi
@@ -81,22 +107,29 @@ else
   FAIL=1
 fi
 
-# The budgeter must be reachable from a hook, not just from its own tests.
-# A well-tested module nothing calls is gen2's failure mode with better coverage.
-if grep -q "budget.mjs" "$CADRE"/hooks/*.mjs 2>/dev/null; then
-  printf '  %-42s %8s  ok\n' "budgeter wired to a hook" "yes"
-else
-  printf '  %-42s %8s  FAIL\n' "budgeter wired to a hook" "no"
-  FAIL=1
-fi
-
-# Every .mjs must be imported by something other than its own test.
+# Every module must be reachable from something that actually runs — a hook, or
+# a skill body invoking cli.mjs. A well-tested module nothing calls is gen2's
+# failure mode with better coverage, and it is not hypothetical: this row caught
+# spec.mjs and budget.mjs, both fully tested, neither reachable from anywhere.
+#
+# Skills count because cli.mjs exists only for them. They are prose, so the only
+# honest check is that the file is named in one — an import grep would score the
+# plugin's single entry point as dead.
 DEAD=$(for f in "$CADRE"/*.mjs; do
   b=$(basename "$f")
-  case "$b" in *.test.mjs) continue;; esac
-  if ! grep -rq "from '\.\./$b'\|from '\./$b'" "$CADRE"/hooks/*.mjs "$CADRE"/*.mjs 2>/dev/null; then echo "$b"; fi
+  if grep -rq "from '\.\./$b'\|from '\./$b'" "$CADRE"/hooks/*.mjs "$CADRE"/*.mjs 2>/dev/null; then continue; fi
+  if grep -rq "$b" "$CADRE"/skills "$CADRE"/agents 2>/dev/null; then continue; fi
+  echo "$b"
 done | wc -l)
 row "modules reachable only from tests" "$DEAD" 0
+
+# cli.mjs is the skills' only way into these modules, and a skill that names a
+# path the plugin does not ship is the bug this replaced: three skills
+# documenting `cancelTask()` and `writeConfig` with no callable path anywhere.
+CLI_REFS=$(grep -rlo 'CLAUDE_PLUGIN_ROOT}/cli.mjs' "$CADRE"/skills | wc -l)
+[ -f "$CADRE/cli.mjs" ] || { echo "  cli.mjs missing but referenced by $CLI_REFS skill(s)   FAIL"; FAIL=1; }
+row "skills invoking a cli.mjs that is not shipped" \
+  "$([ -f "$CADRE/cli.mjs" ] && echo 0 || echo "$CLI_REFS")" 0
 
 # hooks/hooks.json is loaded by convention. Declaring it in the manifest too
 # registers it twice and the plugin refuses to load — it still installs, so
@@ -108,6 +141,54 @@ paths = [h] if isinstance(h, str) else (h or [])
 print(sum(1 for p in paths if str(p).lstrip('./') == 'hooks/hooks.json'))
 " 2>/dev/null || echo 1)
 row "manifest re-declares auto-loaded hooks" "$DUP" 0
+
+# The marketplace must point at the plugin, not the repo. With `source: "./"` an
+# install carried the harness, the tests and four reference submodules — while
+# the README claimed the harness "is not part of the installed plugin".
+SRC=$(python3 -c "
+import json
+m = json.load(open('$REPO/.claude-plugin/marketplace.json'))
+print(next((p.get('source') for p in m['plugins'] if p['name'] == 'cadre'), ''))
+" 2>/dev/null || echo ERROR)
+if [ "$SRC" = "./src" ]; then
+  printf '  %-42s %8s  ok\n' "marketplace source points at the plugin" "./src"
+else
+  printf '  %-42s %8s  FAIL\n' "marketplace source points at the plugin" "$SRC"
+  FAIL=1
+fi
+
+# ...and the plugin directory must stay clean, or the pointer above buys nothing.
+row "test files inside the shipped plugin" \
+  "$(find "$CADRE" -name '*.test.mjs' | wc -l)" 0
+row "harness or reference dirs inside the shipped plugin" \
+  "$(find "$CADRE" -maxdepth 1 \( -name harness -o -name refs -o -name docs -o -name out-of-scope \) | wc -l)" 0
+
+# Every host path a harness script mounts or stages must exist. These only run
+# with docker and credentials, so a stale path costs a whole measurement run
+# before anyone sees it — and it fails quietly: a plugin directory that isn't
+# there installs nothing, and the arm reports as plain Claude Code. After the
+# flatten, `bench/run.sh` mounted the repo root as the oh-my-claudecode
+# marketplace and `spawn-cost.sh` staged cadre to install `oh-my-claudecode@omc`.
+MOUNTS=0
+for p in "$REPO/src" "$REPO/refs/oh-my-claudecode"; do
+  [ -e "$p" ] || { echo "    missing harness mount source: $p"; MOUNTS=$((MOUNTS + 1)); }
+done
+# ...and the scripts must actually name them, or the check above guards nothing.
+grep -q 'ROOT/src:/plugins/cadre' "$REPO/harness/bench/run.sh" || MOUNTS=$((MOUNTS + 1))
+grep -q 'refs/oh-my-claudecode:/plugins/omc' "$REPO/harness/bench/run.sh" || MOUNTS=$((MOUNTS + 1))
+grep -q 'SUBJECT="$REPO/refs/oh-my-claudecode"' "$REPO/harness/spawn-cost.sh" || MOUNTS=$((MOUNTS + 1))
+row "harness scripts with a stale plugin path" "$MOUNTS" 0
+
+# `marketplace add` needs the directory holding `.claude-plugin/marketplace.json`,
+# which for cadre is the repo — NOT `src/`. Mounting the plugin directory instead
+# fails with "Marketplace file not found" and the whole measurement run dies
+# before a number is read. Introduced by the src/ move and caught in a container,
+# not by this file; the row exists so the next person does not have to.
+MEASURE_OK=0
+grep -q 'MARKET_DIR' "$REPO/harness/measure.sh" || MEASURE_OK=1
+grep -q 'marketplace add /market' "$REPO/harness/measure.sh" || MEASURE_OK=1
+grep -q 'MARKET_DIR="$REPO"' "$REPO/harness/ci.sh" || MEASURE_OK=1
+row "measure.sh mounts a dir with no marketplace.json" "$MEASURE_OK" 0
 
 # harness/bench/run.sh's SESSION_ENV must carry these exact var names — matched
 # by name, not by count, since counting `-e` flags passes even when every name
@@ -445,7 +526,7 @@ if [ "${1:-}" = "--full" ]; then
   echo "== fresh-install smoke test =="
   # agent-hive shipped a plugin that passed every automated check and would
   # not install. The only check that catches that is a real install.
-  if PLUGIN_DIR="$CADRE" PLUGIN_ID=cadre@cadre "$REPO/harness/measure.sh" >/tmp/cadre-measure.log 2>&1; then
+  if MARKET_DIR="$REPO" PLUGIN_ID=cadre@cadre "$REPO/harness/measure.sh" >/tmp/cadre-measure.log 2>&1; then
     TOK=$(grep -oE 'Always-on:[[:space:]]+~?([0-9,]+) tok' /tmp/cadre-measure.log | grep -oE '[0-9,]+' | tr -d ,)
     if [ -n "$TOK" ]; then
       row "always-on tokens (fresh install)" "$TOK" 1000
@@ -461,7 +542,7 @@ if [ "${1:-}" = "--full" ]; then
     # figure tracks each component's catalog `description:` line, not full
     # file bytes, so this row won't catch an always-on file whose body grows
     # without its description changing.
-    if PLUGIN_DIR="$CADRE" PLUGIN_ID=cadre@cadre "$REPO/harness/measure.sh" >/tmp/cadre-measure2.log 2>&1; then
+    if MARKET_DIR="$REPO" PLUGIN_ID=cadre@cadre "$REPO/harness/measure.sh" >/tmp/cadre-measure2.log 2>&1; then
       TOK2=$(grep -oE 'Always-on:[[:space:]]+~?([0-9,]+) tok' /tmp/cadre-measure2.log | grep -oE '[0-9,]+' | tr -d ,)
       if [ -n "$TOK2" ]; then
         row "always-on tokens (stable across 2 installs)" "$(( TOK > TOK2 ? TOK - TOK2 : TOK2 - TOK ))" 0
@@ -472,7 +553,7 @@ if [ "${1:-}" = "--full" ]; then
       echo "  FAIL — plugin did not install on second run; see /tmp/cadre-measure2.log"; FAIL=1
     fi
 
-    # cadre/skills/work/SKILL.md, read off the same `claude plugin details`
+    # src/skills/work/SKILL.md, read off the same `claude plugin details`
     # on-invoke figure measure.sh already captured above — not a local
     # character-count estimate, which would pass even if the real
     # measurement had bloated past ceiling.

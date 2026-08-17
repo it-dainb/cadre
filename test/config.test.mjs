@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readConfig, writeConfig, DEFAULT_CONFIG, cancelTask } from './config.mjs';
-import { classifyCommand } from './merge.mjs';
+import { readConfig, writeConfig, DEFAULT_CONFIG, cancelTask } from '../src/config.mjs';
+import { classifyCommand } from '../src/merge.mjs';
 
 let root;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'cadre-cfg-')); });

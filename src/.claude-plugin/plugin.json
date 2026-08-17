@@ -2,5 +2,8 @@
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "cadre",
   "description": "Lean multi-agent orchestration: a small trained core that plans, dispatches worktree-isolated workers, and merges.",
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "author": {
+    "name": "it.dainb"
+  }
 }
