@@ -1,0 +1,5 @@
+{
+  "id": "multi-file-rename",
+  "prompt": "Rename the cache API in src/cache.mjs: `getCachedThing` becomes `readEntry` and `setCachedThing` becomes `writeEntry`. Update every call site. The old names must no longer be exported. Run `node test.mjs` to check your work.",
+  "note": "Three files, two of which import the symbol. Tests that the agent greps for callers instead of editing only the definition."
+}

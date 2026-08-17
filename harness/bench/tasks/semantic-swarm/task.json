@@ -1,0 +1,5 @@
+{
+  "id": "semantic-swarm",
+  "prompt": "Every module in src/ has a bug. Each file's `// spec:` comment states what it should do. Fix all of them. Run `node test.mjs` to check your work.",
+  "note": "24 distinct semantic bugs, no shared pattern — not fixable by sed or a single regex. Reading all 24 is the cost, which is what a fan-out can divide and a single agent cannot."
+}

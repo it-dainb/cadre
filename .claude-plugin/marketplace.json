@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "cadre",
+  "description": "Lean multi-agent orchestration for Claude Code",
+  "owner": {
+    "name": "it.dainb"
+  },
+  "plugins": [
+    {
+      "name": "cadre",
+      "description": "A small trained core that directs a larger force: plan, dispatch worktree-isolated workers, review, merge. Capability is addressable, not resident.",
+      "version": "1.0.0",
+      "source": "./",
+      "category": "productivity"
+    }
+  ],
+  "version": "1.0.0"
+}

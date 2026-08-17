@@ -1,0 +1,5 @@
+{
+  "id": "hidden-contract",
+  "prompt": "Add a `role` field to the user model. Existing behaviour must not regress. Find and run the project's tests to check your work.",
+  "note": "Discriminator: three files must agree (validator whitelist, explicit serialiser, fixture) and the test command is only stated in README. Editing schema.mjs alone passes nothing."
+}

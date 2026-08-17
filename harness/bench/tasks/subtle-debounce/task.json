@@ -1,0 +1,5 @@
+{
+  "id": "subtle-debounce",
+  "prompt": "src/debounce.mjs has a broken debounce implementation. Fix it so it behaves like a correct debounce. Run `node test.mjs` to check your work.",
+  "note": "Depth discriminator. The naive fix (clearTimeout + re-set) is close but the stale-args and reset semantics are easy to get subtly wrong."
+}

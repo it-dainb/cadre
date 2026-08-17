@@ -1,0 +1,5 @@
+{
+  "id": "fix-off-by-one",
+  "prompt": "The function `lastN(arr, n)` in lib.mjs is supposed to return the last n elements. It has a bug. Fix it. Run `node test.mjs` to check your work.",
+  "note": "Single-file, single-bug. Deliberately easy — this is the pilot's canary: if an arm fails this, the harness is broken, not the model."
+}

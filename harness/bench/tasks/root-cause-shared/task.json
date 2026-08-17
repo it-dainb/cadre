@@ -1,0 +1,5 @@
+{
+  "id": "root-cause-shared",
+  "prompt": "Read REPORT.md and fix the bug it describes. Run `node test.mjs` to check your work.",
+  "note": "Discriminator: the report names only the invoice path. A symptom-level fix in invoice.mjs passes the reported case and fails the three sibling callers. Rewards grepping for callers before editing."
+}

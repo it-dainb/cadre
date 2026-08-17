@@ -1,0 +1,5 @@
+{
+  "id": "wide-migration",
+  "prompt": "src/log.mjs deprecates `logMsg(level, text)` in favour of `emit({ level, text, at })`, where `at` is required. Migrate every caller in src/modules/ to the new API. Use any sensible value for `at`. Run `node test.mjs` to check your work.",
+  "note": "Discriminator by breadth: 28 mechanical edits, no hard reasoning. Failure mode is missing one, which is exactly what fan-out is supposed to prevent."
+}
