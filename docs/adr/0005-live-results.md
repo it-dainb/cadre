@@ -185,3 +185,9 @@ Found and fixed in the first run:
 - `done` rows were missing from the log (level 0).
 
 The second run confirmed all five.
+
+### Ask, then resume: git identity (0.6.1)
+`NO_GIT_IDENT=1 tui.sh` (container with no git identity: `git var GIT_AUTHOR_IDENT` exits 128).
+- `/cadre init`, `a`: nothing ran. The card `init 1/8 repo · needs you` showed the reason and the `Name:` / `Email:` fields. I typed `Ann Lee`, Tab, `ann@example.com`, Enter. The global git config was set, stage 1 finished (initial commit authored `Ann Lee <ann@example.com>`), and the stage 2 card followed.
+- `/cadre setup`: the card listed "1. setting your git identity" plus the fields. A bad email (`bo-at-nowhere`) was refused on the card (`! email needs a form like you@example.com`). After I retyped it, Enter ran all three actions and the report shows `[OK] git identity set`.
+- One quirk: after a refused submit, the engine's Input drew the field empty although the prefill value was passed. The typed value is still kept in `cadre.ui.fields`, but the human sees an empty field and retypes it.

@@ -8,7 +8,8 @@ Root cause: stage 1 ran `git init`, `git add -A` and `git commit` in one go. The
 The suspected cause was ruled out: "files changed since the diff" re-reads the targets *before* applying, so a stage's own writes (`.git/info/exclude` created by `git init`) cannot trip it.
 Fix:
 - Stage 1 detects an unborn repo (`git rev-parse --verify HEAD` fails) and proposes `+ initial commit on <default>`. Apply runs `git init` only when there is no repo, and add + commit only while `HEAD` is unborn, so a retry finishes what a failed press started.
-- A press either completes the stage or says why. A failed apply re-proposes the same stage with a fresh code, and the card's first line is `! last try: <reason>`. A missing identity is named, with the `git config --global user.name/user.email` fix.
+- A press either completes the stage or says why. A failed apply re-proposes the same stage with a fresh code, and the card's first line is `! last try: <reason>`.
+- A missing git identity is not a failure the human has to fix in a terminal: stage 1 checks it (`git var`) before running anything, and asks for it (see "Ask, then resume").
 Regression test: `tests/init.test.ts` "a failed first commit leaves an unborn repo …". It fails before the fix, because the retry proposal lacks `initial commit on main` and the confirm never completes.
 
 ## Command text is one line (UI-DESIGN D2)
@@ -26,3 +27,14 @@ The card reads "Claude is working on the mission…" / "…on discovery…" mean
 
 ## Log
 The pane LOG shows `init: stage 1 repo proposed` / `done` (the event carries an optional `name`). `done` and `pending` are level 1 (log and band, no toast), `proposed` stays level 2. Every event kind has a short text; none falls back to raw JSON. An `init.stage` with the same state as the board is not emitted again (one `proposed` per proposal).
+
+## Ask, then resume (0.6.1)
+When a step is blocked on something only the human can supply, cadre asks on the card and resumes the SAME step. The human never re-runs anything. The mechanism is generic: `Decision.fields` and the resume contract (CONTRACTS, "How to ask the human").
+- The card draws one engine `Input` per field (UI-16), prefilled. Tab moves between fields and Enter submits. Typed values live in `cadre.ui.fields`. The press passes them as `k=v` argv elements to the option's command.
+- The typed fallback is one line: `/cadre init resume 1 name="Ann Lee" email="ann@example.com"`. Quoted values become one argv element; nothing reaches a shell.
+- Validation: a name is required, and the email needs the form `you@example.com`. A refusal is shown on the card (`! email needs …`) with the typed values kept. For setup, nothing runs and the code is not burned.
+- Git identity: commits the mod makes (the initial commit, wip checkpoints, squash, merges, the release) land on the user's branches. They now carry the user's identity. The made-up `cadre <cadre@localhost>` (`core/git IDENT`) is gone, so cadre never guesses an identity.
+  - Stage 1 asks Name/Email, prefilled from `git config` or `GIT_AUTHOR_*`. It runs `git config --global user.name/user.email` (argv), then finishes the confirmed stage (the diff signature must still match) and advances.
+  - `/cadre setup` and `/cadre doctor` show a `git identity` row (ok/crit). Setup's card carries the same two fields, and its act sets them after Fix all.
+- Press toasts are pointers of at most 60 characters (`cadre: init: stage 1/8 repo failed: git… · see the card`). The reason stays on the card.
+Live (`NO_GIT_IDENT=1 harness/tui.sh`, haiku): see ADR 0005.
