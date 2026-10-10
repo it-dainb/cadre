@@ -8,7 +8,7 @@ import { emit } from './events'
 import { nextAction } from './render'
 
 export const LEASE = 600_000
-interface DriveRec { on: boolean; level: 'epic'; epicId: string; turns: number; usd0: number; startedAt: number; lastSeq: number; idle: number; lease: { session: string; until: number } }
+interface DriveRec { on: boolean; level: 'epic'; epicId: string; turns: number; cost: number; last: number; sess: string; startedAt: number; lastSeq: number; idle: number; lease: { session: string; until: number } }
 // CAS on the control issue: fn sees the current record and returns the next one (undefined = no write); a revision race retries (sync writes the same issue)
 export async function casDrive(h: Host, store: TaskStore, fn: (r: DriveRec | undefined) => DriveRec | undefined): Promise<DriveRec | undefined> {
   const ctl = await controlOf(h, store)
@@ -54,10 +54,11 @@ export async function drive(h: Host, cfg: any, usd: number | undefined) {
   const out = await casDrive(h, store, r => {
     o.rec = r; if (!r?.on || r.epicId !== s.epic || held(r, me, now)) return undefined
     const idle = seq > r.lastSeq || !r.turns ? 0 : r.idle + 1
-    o.cost = usd === undefined ? d.costUsd : +(usd - r.usd0).toFixed(2)
+    const last = r.last ?? usd ?? 0, delta = usd === undefined || r.sess !== me ? 0 : usd >= last ? usd - last : usd   // a new session starts at its own baseline; a usage that went down was reset: count it from 0
+    o.cost = +((r.cost ?? 0) + delta).toFixed(2)
     o.bound = r.turns >= dc.maxTurns ? `max turns ${dc.maxTurns}` : o.cost >= dc.maxCostUsd ? `cost $${o.cost} ≥ $${dc.maxCostUsd}` : now - r.startedAt > dc.maxWallMinutes * 60_000 ? `max ${dc.maxWallMinutes} min` : idle >= dc.noProgressTurns ? `no progress in ${idle} turns` : null
     o.go = !o.bound && nx !== 'wait'
-    return { ...r, turns: r.turns + (o.go ? 1 : 0), lastSeq: seq, idle: o.go ? idle : r.idle, lease: { session: me, until: now + LEASE } }
+    return { ...r, cost: o.cost, last: usd ?? last, sess: me, turns: r.turns + (o.go ? 1 : 0), lastSeq: seq, idle: o.go ? idle : r.idle, lease: { session: me, until: now + LEASE } }
   })
   const rec = o.rec
   if (!rec?.on || rec.epicId !== s.epic) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, on: false } })))
@@ -78,7 +79,7 @@ ROUTES.drive = async (h, c) => {
     await h.board.update(x => ({ ...x, drive: { ...x.drive, on: false, paused: undefined } })); await driveEvent(h, 'off'); return { text: 'Drive off.' }
   }
   if (sub !== 'on') return { text: 'usage: /cadre drive on|off|status' }
-  const usd = (await h.usage?.())?.cost?.usd ?? 0, fresh: DriveRec = { on: true, level: 'epic', epicId: s.epic, turns: 0, usd0: usd, startedAt: now, lastSeq: 0, idle: 0, lease: { session: me, until: now + LEASE } }
+  const usd = (await h.usage?.())?.cost?.usd ?? 0, fresh: DriveRec = { on: true, level: 'epic', epicId: s.epic, turns: 0, cost: 0, last: usd, sess: me, startedAt: now, lastSeq: 0, idle: 0, lease: { session: me, until: now + LEASE } }
   const r = await casDrive(h, store, x => (x?.on && held(x, me, now) ? undefined : fresh))
   if (r !== fresh) return { text: `refused: drive: held by ${r!.lease.session}` }
   await h.board.update(x => ({ ...x, drive: { on: true, level: 'epic', epicId: s.epic, turns: 0, costUsd: 0, startedAt: now } }))

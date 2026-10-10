@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { CadreEvent, EventType, Host, UiOps } from '../types'
-import { TABLE } from '../core/events'
+import { TABLE, ring as rebuildRing } from '../core/events'
 import { humanView } from '../core/board'
 import { band } from '../ui/band'
 import { dag } from '../ui/epic'
@@ -140,7 +140,24 @@ describe('replay: pure fold of the ring at the cursor', () => {
   test('the board at 50 min: a3 in review, a2 implementing, a5 still pending, a6 waiting', async () => {
     const b = at(view(62, { t: 50 })), s = (id: string) => b.tasks.find(t => t.id === id)!
     expect([s('a3').state, s('a3').step, s('a2').state, s('a2').step, s('a5').state, s('a6').state, s('a1').state]).toEqual(['review', 'reviewer', 'active', 'worker', 'todo', 'todo', 'done'])
-    expect(at(view(62, { t: 50 })).tasks).toEqual(at(view(62, { t: 50 })).tasks)
+  })
+  test('fold at t = now equals the live board: the independent final state of every task (not the fold again)', async () => {
+    const live = view(62).b, folded = at(view(62, { t: 62 })), pick = (b: typeof live) => b.tasks.map(t => [t.id, t.state, t.step, t.flags.length])
+    expect(pick(folded)).toEqual(pick(live))
+    expect(pick(folded).filter(r => r[1] !== 'todo').length).toBeGreaterThan(3)   // a vacuous all-todo fold would also be "equal"
+  })
+  test('ring rebuilt from records + journal (after /clear) replays the DAG: states at past times', async () => {
+    const m = 60_000, h = fakeHost({ t0: 100 * m }), rec = (k: string, min: number, x = '') => [`cadre.rec.${k}`, `${k} @${min * m} ${x}`]
+    const tk = (id: string, meta: string[][]) => ({ id, meta: Object.fromEntries(meta) })
+    const store: any = { list: async () => [tk('a1', [rec('red', 15), rec('report', 29), rec('review', 35, 'verdict: pass')]), tk('a2', [rec('red', 25)])],
+      events: async () => ({ events: [['a1', 'todo', 1], ['a1', 'active', 10], ['a1', 'review', 30], ['a1', 'done', 40], ['a2', 'todo', 1], ['a2', 'active', 20]].map(([id, category, min]) => ({ id, category, at: (min as number) * m })) }) }
+    await h.board.update(b => ({ ...b, epic: 'p3', tasks: ['a1', 'a2'].map(id => ({ id, title: id, type: 'feat', kind: 'code', merges: true, state: 'todo', step: '', phaseSince: 0, deps: [], flags: [] })) as any }))
+    expect(await rebuildRing(h, store, 'p3')).toBe(8)
+    const v = await read(h), f = (min: number) => at({ ...v, t: min * m }).tasks.map(t => `${t.id}:${t.state}/${t.step}`).join(' ')
+    expect(f(12)).toBe('a1:active/ a2:todo/')
+    expect(f(22)).toBe('a1:active/worker a2:active/')
+    expect(f(32)).toBe('a1:review/reviewer a2:active/worker')
+    expect(f(50)).toBe('a1:done/merge a2:active/worker')
   })
   test('header [REPLAY t-12m], actions off, future spans ╌, keys h/l/b/f/e still live', async () => {
     const p = pane(view(62, { t: 50 }), 58, 40, NOOP), t = txt(p.before).join('\n')

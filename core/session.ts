@@ -74,7 +74,7 @@ export const warm = (h: Host) => safe(h, 'rehydrate', () => rehydrate(h))
 export async function start(h: Host): Promise<void> {
   const cfg = await cfgOf(h), root = await h.cwd(), home = await h.home(), repo = (await h.stat(root, { resolve: true }))?.realPath ?? root
   await setPolicy(h, { repo, wtRoot: `${await realRoot(h, await wtRootOf(h, cfg))}/${repoKeyOf(root)}`, home, mcpAllow: cfg.mcpAllow,
-    protect: [cfg.branches.main || 'main', cfg.branches.dev], effectCheck: cfg.effectCheck })   // locks are kept: core/tdd owns them
+    protect: [cfg.branches.main || 'main', cfg.branches.dev], effectCheck: cfg.effectCheck, epicPrefix: cfg.branches.epicPrefix, changelog: cfg.changelog.path })   // locks are kept: core/tdd owns them
   await h.ui.update(u => ({ ...u, cfg: { ...(u.cfg as object | undefined), glyphs: cfg.ui.glyphs, maxTurns: cfg.drive.maxTurns } }))
   await safe(h, 'prune', () => prune(h))
 }

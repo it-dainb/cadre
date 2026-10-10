@@ -15,7 +15,7 @@ import { validate as regErrors, defaults as regDefaults } from '../task-manageme
 import type { TypeRegistry } from '../task-management/registry'
 import { spec } from '../agents'
 import * as D from '../core/discover'
-import { setPolicy } from '../policy/guards'
+import { realRoot, setPolicy } from '../policy/guards'
 import { wtRootOf } from '../core/branches'
 
 // Wired by later waves: the beads TaskStore factory and sync add (11.3). Defaults refuse loudly.
@@ -166,7 +166,7 @@ const SANDBOX = (wt: string, repo: string) => ({
   sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: true,
     filesystem: { allowWrite: [wt], denyWrite: [repo] } },   // ref entries are redundant under the repo-level deny (ADR 0001 S24)
 })
-const wtOf = async (c: Ctx) => `${await wtRootOf(c.h, c.cfg)}/${c.rk}`
+const wtOf = async (c: Ctx) => `${await realRoot(c.h, await wtRootOf(c.h, c.cfg))}/${c.rk}`   // realpath'd like contain()'s wtRoot (symlinked ~/.cache)
 const S5: Stage = {
   n: 5, name: 'containment',
   async done(c) { if ((await c.h.board.read()).init.some(i => i.stage === 5 && i.state === 'done')) return true   // $.settings.read() is this session's: it shows the new file only after a restart

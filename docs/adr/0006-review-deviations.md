@@ -22,3 +22,12 @@ Every model-visible text (agent prompts/files, briefs, plan rules, cards incl. t
 
 ## Removed config keys `tdd.enforce`, `changelog.enforce`
 DESIGN §12 lists them as S keys, but nothing read them: the TDD and changelog gates are pipeline steps (type registry, §3.1) and `strictness: advisory` already turns their denies into warnings. Keeping a second off-switch would be a dead flag. Removed (review round 2); re-add only with a concrete use.
+
+## 6. Accepted deviations from the verification round (G6, G7, G9)
+- **Degraded containment (review-sec L3):** no spawn refusal while degraded. Degraded means L3 audits every call (DESIGN §13.1) plus a `[CRIT]` band item. The `$HOME` audit is not done: file tools are jailed by the positive fence (§1) and Bash escapes are the sandbox's.
+- **Re-entry spawn:** `judgeSpawn` judges from the event alone: a prompt carrying a `TASK-`/`bd-` marker is denied, a marker-less one passes (the board is unreadable on re-entry, so a bare known id cannot be matched).
+- **Send isolation:** cadre's own queued resumes are exempt (`ui.drainTo`, set around `sendTo` in the drain); a model SendMessage naming another task is still refused.
+- **Conflict `accept`:** the pulled remote value is kept in the task's meta (`cadre.remote.<field>`, `cadre.remote.status`) and `/cadre resolve <id> accept` re-applies it with `store.update`. Drift `accept` adopts the remote status through the machine for `cancelled`, `blocked`, `done`; an illegal move or any other status is refused with the reason and the flag stays.
+- **Drive USD bound** is accumulated in the control-issue record as deltas of `$.session.usage()` against a per-session baseline (`cost`, `last`, `sess`): a usage reset or `/clear` neither loses nor double counts it.
+- **Config-derived protection:** epic refs use `branches.epicPrefix`; `changelog.path` is mod-owned and protected alongside `CHANGELOG.md` (policy keys `epicPrefix`, `changelog`).
+

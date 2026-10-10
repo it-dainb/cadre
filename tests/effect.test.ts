@@ -75,6 +75,12 @@ describe('L3 effect (13.1)', () => {
     expect(Object.values(w.refs).includes(SHA('8'))).toBe(true); expect(await flags()).toEqual([])
     await sweep(h); expect(await flags()).toEqual([])   // re-baselined: no repeat flag
   })
+  test('G7: epic refs are protected by the configured prefix, not a hard-coded epic/', async () => {
+    const { w, h, flags } = await mk(); await setPolicy(h, { epicPrefix: 'feat/' })
+    w.refs['refs/heads/epic/x'] = SHA('4'); await sweep(h); expect(await flags()).toEqual([])
+    w.refs['refs/heads/feat/p1'] = SHA('5'); await sweep(h); expect(await flags()).toEqual([])   // a new branch has no old tip: not a move
+    w.refs['refs/heads/feat/p1'] = SHA('6'); w.refs['refs/heads/epic/x'] = SHA('7'); await sweep(h); expect(await flags()).toEqual(['git:feat/p1'])
+  })
   test('restore is CAS: a ref that moved again is not clobbered', async () => {
     const { w, h } = await mk()
     await callBy(h, 'w1', 'Bash', 'c1', () => { w.refs['refs/heads/main'] = SHA('8') })

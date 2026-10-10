@@ -101,9 +101,10 @@ test('pull + 3-way merge: remote edit pulled (+sync, flag edited); both changed 
   advance(40_000); await L.tick(h)
   const t2 = remote(file).tasks[rid(1)]; assert.equal((await store.get(ids[1])).title, 'local two'); assert.equal(t2.fields.title, 'local two'); assert.match(t2.comments[0], /beads value was kept/)
   assert.ok((await h.board.read()).tasks[1].flags.includes('conflict'))
+  assert.equal((await store.get(ids[1])).meta['cadre.remote.title'], 'remote two', 'the pulled value is kept for /cadre resolve accept')
   edit(file, s => { s.tasks[rid(0)].fields.status = 'Closed'; s.tasks[rid(0)].etag = '10'; s.tasks[rid(0)].seq = ++s.seq })
   advance(40_000); await L.tick(h)
-  assert.ok((await h.board.read()).tasks[0].flags.includes('drift')); assert.equal(remote(file).tasks[rid(0)].fields.status, 'todo', 'beads wins: status pushed back')
+  assert.ok((await store.get(ids[0])).meta['cadre.remote.status']); assert.ok((await h.board.read()).tasks[0].flags.includes('drift')); assert.equal(remote(file).tasks[rid(0)].fields.status, 'todo', 'beads wins: status pushed back')
 })
 
 test('lease: a live lease of another session skips the target; expired takes over', async () => {

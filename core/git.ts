@@ -6,7 +6,7 @@ export type Run = (argv: readonly string[], init?: { cwd?: string; env?: Record<
 export const IDENT = ['-c', 'user.name=cadre', '-c', 'user.email=cadre@localhost']   // the one git identity for commits the mod makes
 // paths the mod owns in a repo: agents never change them (close refuses, guards fence, the brief names them)
 export const PROTECTED = ['.git/', '.cadre/', '.beads/', '.claude/', '.mcp.json', 'CHANGELOG.md']
-export const isProt = (p: string) => PROTECTED.some(x => (x.endsWith('/') ? p.startsWith(x) : p === x))
+export const isProt = (p: string, changelog?: string) => [...PROTECTED, ...(changelog ? [changelog] : [])].some(x => (x.endsWith('/') ? p.startsWith(x) : p === x))   // changelog: the configured changelog.path (repo-relative)
 
 // git -C <cwd> <args>: stdout trimmed; a non-zero exit throws with git's own stderr (P6: facts only, never parsed for decisions).
 export async function git(run: Run, cwd: string, args: readonly string[]): Promise<string> {

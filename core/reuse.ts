@@ -42,7 +42,9 @@ async function sendMine(h: Host, store: TaskStore | undefined, cfg: any) {
     if (store && !leaseLive(await store.get(r.taskId), now)) continue   // stale lease: that agent is gone; the rebind handoff replaces it (8.4)
     if (!b || b.retired) continue
     if (stale(b, now, cfg)) { await retire(h, r.agentId, b, `context ${ctxPct(b)}%`); continue }
-    const delta = await drainDelta(h, r.agentId), res = await h.sendTo!(r.agentId, delta ? `${r.text}\n\n${delta}` : r.text)
+    const delta = await drainDelta(h, r.agentId)
+    await h.ui.update(u => ({ ...u, drainTo: r.agentId }))   // marks cadre's own send so policy/guards.send does not isolate it (reviewer findings quote other ids)
+    const res = await h.sendTo!(r.agentId, delta ? `${r.text}\n\n${delta}` : r.text).finally(() => h.ui.update(u => ({ ...u, drainTo: undefined })))
     if (!res.isDelivered) await retire(h, r.agentId, b, res.reason ?? 'not delivered')
   }
 }

@@ -2,11 +2,12 @@ import { describe, expect, test } from 'claude-code/testing'
 import { compact, drain, queueResume, step, submit } from '../core/reuse'
 import { UI } from '../core/board'
 import { checkpoint } from '../core/effect'
-import { drive, goal } from '../core/drive'
+import { casDrive, drive, goal } from '../core/drive'
 import { prune, rehydrate } from '../core/session'
 import { tick } from '../core/admission'
 import { wrap } from '../core/effect'
 import { ROUTES } from '../core/dispatch'
+import '../core/close'   // registers ROUTES.resolve
 import { pushDelta } from '../core/briefs'
 import { emit } from '../core/events'
 import { viewHash, modelView } from '../core/board'
@@ -17,6 +18,7 @@ import { fakeHost, task } from './support'
 import { repoKeyOf, scoped } from '../commands/init'
 import type { Binding } from '../types'
 import { guard, setPolicy } from '../policy/guards'
+import { send as guardSend } from '../policy/guards'
 import { controlOf } from '../task-management/sync-engine/loop'
 
 const B = (taskId: string, sessionId: string, o: Partial<Binding> = {}): Binding => ({ taskId, role: 'worker', step: 'worker', worktree: `/wt/${taskId}`, sessionId, ctxTokens: 1000, startedAt: 1000, ...o })
@@ -40,6 +42,24 @@ async function mk(o: { session?: string; usd?: number; pct?: number; dirty?: str
 }
 const turn = (h: any, e: any, order: string[] = []) => drain(h, e, async () => { order.push('next'); return { text: 'done' } })
 
+describe('G9 /cadre resolve accept (UI-DESIGN 5.4)', () => {
+  const accept = (h: any, id: string) => ROUTES.resolve!(h, { cmd: 'resolve', args: [id, 'accept'] } as any)
+  const flagged = async (h: any, id: string, flags: string[]) => h.board.update((s: any) => ({ ...s, tasks: s.tasks.map((t: any) => (t.id === id ? { ...t, flags } : t)) }))
+  test('conflict: accept re-applies the remote value kept in the flag record; the flag clears', async () => {
+    const { h, store, a } = await mk(); await store.setMeta(a, { 'cadre.remote.title': 'Remote title', 'cadre.remote.priority': '1' }, 'sync'); await flagged(h, a, ['conflict'])
+    expect((await store.get(a)).title).toBe('login'); const r = await accept(h, a)
+    expect(r.text).toContain('flags cleared'); expect(await store.get(a)).toMatchObject({ title: 'Remote title', priority: 1 }); expect((await h.board.read()).tasks.find((t: any) => t.id === a).flags).toEqual([])
+  })
+  test('drift: accept adopts the remote status through the machine; an illegal move is refused and keeps the flag', async () => {
+    const { h, store, a } = await mk(); await h.store.set(`cadre:${repoKeyOf('/repo')}:actor`, 'me'); await flagged(h, a, ['drift'])   // the claimer is this actor
+    await store.setMeta(a, { 'cadre.remote.status': 'done' }, 'sync'); expect((await accept(h, a)).text).toMatch(/refused: .*illegal/)   // active·worker cannot close
+    expect((await h.board.read()).tasks.find((t: any) => t.id === a).flags).toEqual(['drift'])
+    await store.setMeta(a, { 'cadre.remote.status': 'blocked' }, 'sync'); expect((await accept(h, a)).text).toContain('flags cleared')
+    const t = (await h.board.read()).tasks.find((x: any) => x.id === a); expect([t.state, t.flags]).toEqual(['blocked', []]); expect((await store.get(a)).category).toBe('blocked')
+    await flagged(h, a, ['drift']); await store.setMeta(a, { 'cadre.remote.status': 'weird' }, 'sync'); expect((await accept(h, a)).text).toMatch(/refused: .*cannot be adopted/)
+  })
+})
+
 describe('resume queue + drain (#1, 4.4)', () => {
   test('queued resumes go out only after next, only for this session; other sessions\' entries stay (S31-style)', async () => {
     const { h, a, b, sent, order } = await mk()
@@ -53,6 +73,15 @@ describe('resume queue + drain (#1, 4.4)', () => {
     expect(left.map((x: any) => x.agentId)).toEqual(['ag2'])
     expect((await h.board.read()).resumesQueued).toBe(0)
     await turn(h, { reason: 'answer', agentId: 'ag1' }); expect(sent.length).toBe(1)   // drained once: no loop
+  })
+  test('G6b: the drain\'s own resume may quote another task id (guards.send exempts it); a model send naming it is still refused; the mark is cleared', async () => {
+    const { h, a, b, sent } = await mk(), pass = async () => ({ isDelivered: true })
+    h.sendTo = async (id: string, text: string) => { const r = await guardSend(h, { to: id, text }, pass); if ((r as any).isDelivered) sent.push([id, text]); return r }
+    await h.bind.update(() => ({ ag1: B(a, 'S1') }))
+    await queueResume(h, { agentId: 'ag1', taskId: a, text: `reviewer found: also breaks ${b}` })
+    await turn(h, { reason: 'answer' })
+    expect(sent).toEqual([['ag1', `reviewer found: also breaks ${b}`]]); expect((await h.ui.read()).drainTo).toBeUndefined()
+    expect(await guardSend(h, { to: 'ag1', text: `look at ${b}` }, pass)).toMatchObject({ isDelivered: false })
   })
   test('one entry per agent (texts merge); a resume to another task is refused; deltas ride the resume', async () => {
     const { h, a, b, sent } = await mk()
@@ -207,9 +236,18 @@ describe('drive (9)', () => {
     for (let i = 0; i < 4; i++) await turn(two.h, { reason: 'answer' })
     expect((await two.h.board.read()).drive.paused).toMatch(/^no progress/); expect(two.submitted.length).toBe(2)
   })
+  test('G9: the USD bound survives a usage reset and /clear (deltas against a per-session baseline)', async () => {
+    const { h, store, cfg, submitted } = await mk({ usd: 1, cfg: c => { c.drive.maxCostUsd = 10 } }), usage = (usd: number) => { h.usage = async () => ({ cost: { usd } }) }
+    await ROUTES.drive(h, { schemaVersion: 1, cmd: 'drive', args: ['on'], origin: { kind: 'composer' } })
+    usage(5); await turn(h, { reason: 'answer' }); expect((await h.board.read()).drive.costUsd).toBe(4)
+    usage(2); await turn(h, { reason: 'answer' }); expect((await h.board.read()).drive.costUsd).toBe(6)   // usage reset to 0 then 2: +2, not -3
+    await casDrive(h, store, r => r && { ...r, lease: { ...r.lease, session: 'S2' } }); await h.secret.update((s: any) => ({ ...s, session: 'S2' }))   // /clear: new session, lease moved
+    usage(3); await turn(h, { reason: 'answer' }); expect((await h.board.read()).drive.costUsd).toBe(6)   // new baseline 3
+    usage(9); await turn(h, { reason: 'answer' }); expect((await h.board.read()).drive.paused).toMatch(/^cost \$12/); expect(cfg.drive.maxCostUsd).toBe(10)
+  })
   test('lease in beads: another session holding a live lease is refused and never drives', async () => {
     const { h, store, epic, submitted } = await mk({ session: 'S1' })
-    await store.setMeta(await controlOf(h, store), { 'cadre.drive': JSON.stringify({ on: true, level: 'epic', epicId: epic, turns: 0, usd0: 0, startedAt: 1000, lastSeq: 0, idle: 0, lease: { session: 'S2', until: 9e15 } }) }, 'x')
+    await store.setMeta(await controlOf(h, store), { 'cadre.drive': JSON.stringify({ on: true, level: 'epic', epicId: epic, turns: 0, cost: 0, last: 0, sess: 'S2', startedAt: 1000, lastSeq: 0, idle: 0, lease: { session: 'S2', until: 9e15 } }) }, 'x')
     expect((await ROUTES.drive(h, { schemaVersion: 1, cmd: 'drive', args: ['on'], origin: { kind: 'composer' } })).text).toBe('refused: drive: held by S2')
     await h.board.update((s: any) => ({ ...s, drive: { ...s.drive, on: true } }))
     await turn(h, { reason: 'answer' })

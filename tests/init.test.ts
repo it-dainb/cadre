@@ -194,6 +194,16 @@ describe('stage 5 containment', () => {
   })
 })
 
+describe('stage 5 with a symlinked cache dir (G8)', () => {
+  test('allowWrite and policy wtRoot use the realpath, matching contain()', async () => {
+    const { h, files, code } = mk(); const stat = h.stat
+    h.stat = async (p, o) => (p === `${HOME}/.cache` ? { kind: 'dir', realPath: o?.resolve ? '/data/cache' : undefined } : p.startsWith(`${HOME}/.cache/`) ? undefined : stat(p, o))
+    await run(h, ['5']); expect(await run(h, ['confirm', await code()])).toContain('contained')
+    const real = `/data/cache/cadre/wt/${RK}`
+    expect(JSON.parse(files[`${ROOT}/.claude/settings.local.json`]).sandbox.filesystem.allowWrite).toEqual([real]); expect((await policyOf(h)).wtRoot).toBe(real)
+  })
+})
+
 describe('stage 6 workflow profile', () => {
   test('an invalid pipeline is refused (no code issued); defaults shown in full; valid saves types + roles', async () => {
     const bad = mk({ files: { [`${ROOT}/.cadre/config.json`]: JSON.stringify({ types: { x: { commit: 'feat', changelog: null, pipeline: ['worker', 'red'], contract: 'none' } } }) } })

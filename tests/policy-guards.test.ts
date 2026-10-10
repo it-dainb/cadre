@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { check, configSet, realRoot, guard, inputPath, judge, send, setPolicy } from '../policy/guards'
+import { check, configSet, realRoot, guard, inputPath, judge, judgeSpawn, send, setPolicy } from '../policy/guards'
+import { isProt } from '../core/git'
 import { idsIn } from '../core/briefs'
 import { fakeHost, task } from './support'
 import type { Binding, Role } from '../types'
@@ -104,6 +105,16 @@ describe('judge, send, configSet', () => {
     const k = new Set(['bd-a1', 'bd-a1.1', 'bd-a1.10'])
     expect(idsIn('see bd-a1.1', k)).toEqual(['bd-a1.1']); expect(idsIn('bd-a1.10 ok', k)).toEqual(['bd-a1.10'])
     expect(idsIn('done with bd-a1.', k)).toEqual(['bd-a1']); expect(idsIn('xbd-a1 bd-a1-x', k)).toEqual([]); expect(idsIn('TASK-bd-a1', k)).toEqual(['bd-a1'])
+  })
+  test('G7: the configured changelog.path is mod-owned like CHANGELOG.md; isProt takes it too', async () => {
+    const h = await mk(); await setPolicy(h, { changelog: 'docs/CHANGES.md' })
+    expect(denied(await call(h, { tool: 'Write', agentId: 'w1', file_path: '/x/bd-a1/docs/CHANGES.md' }))).toBe(true)
+    expect(denied(await call(h, { tool: 'Write', agentId: 'w1', file_path: '/x/bd-a1/src/CHANGES.md' }))).toBe(false)
+    expect(isProt('docs/CHANGES.md')).toBe(false); expect(isProt('docs/CHANGES.md', 'docs/CHANGES.md')).toBe(true); expect(isProt('CHANGELOG.md')).toBe(true)
+  })
+  test('G6a: re-entry spawn judged from the event: a task marker is refused, marker-less passes', () => {
+    expect(judgeSpawn({ prompt: 'implement TASK-bd-a1' })).toMatch(/refused/); expect(judgeSpawn({ prompt: 'do bd-a7 now' })).toMatch(/refused/)
+    expect(judgeSpawn({ prompt: 'where is the login code?' })).toBeUndefined()
   })
   test('SendMessage naming another id is not delivered', async () => {
     const h = await mk()

@@ -7,7 +7,7 @@ import { LIFECYCLE } from '../native/tasks'
 import { ROUTES } from './dispatch'
 import { resolveDeps, type Deps } from './admission'
 import { agentsOf, unbindAgent } from './board'
-import { apply, STEP_CAT } from './machine'
+import { apply, STEP_CAT, transition } from './machine'
 import { emit } from './events'
 import { card, comment, commitMessage, noReportCard, type Rec } from './render'
 import { queueResume } from './reuse'
@@ -78,7 +78,7 @@ async function numstat(h: Host, wt: string, range: string) {
 async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any, auto = false): Promise<string> {
   const task = await d.store.get(t.id), wt = b.worktree, base = task.meta['cadre.base'], pol = await policyOf(h)
   const dirty = (await G.git(h.run, wt, ['status', '--porcelain'])).split('\n').filter(Boolean).flatMap(l => l.slice(3).split(' -> ')), changed = new Set([...dirty, ...(await G.git(h.run, wt, ['diff', '--name-only', `${task.meta['cadre.specCommit'] ?? base}..HEAD`])).split('\n').filter(Boolean)])   // since the red commit: the spec files it added are the worker's baseline, not its edits
-  const locked = pol.locks?.[t.id] ?? [], bad = [...changed].filter(p => G.isProt(p) || locked.includes(`${wt}/${p}`))
+  const locked = pol.locks?.[t.id] ?? [], bad = [...changed].filter(p => G.isProt(p, d.cfg.changelog.path) || locked.includes(`${wt}/${p}`))
   if (bad.length) throw new Error(`protected or locked paths changed: ${bad.join(', ')}. Restore them (git checkout ${sha7(base)} -- <path>) and report again`)
   const sum = String(r.summary ?? '').split('\n')[0].slice(0, 60)
   const C = (await G.op(h, () => G.commitAll(h.run, wt, `wip(${t.id}): ${sum || 'work'}`))) ?? (await G.tip(h.run, wt, 'HEAD'))
@@ -226,7 +226,7 @@ export async function closeTask(h: Host, d: Deps, id: string): Promise<string | 
   if (await G.git(h.run, wt, ['status', '--porcelain'])) return `${id}: the worktree has uncommitted changes`
   if (!task.meta['cadre.changelog']) return `${id}: no changelog decision`
   const files = (await G.git(h.run, wt, ['diff', '--name-only', `${base}..${C}`])).split('\n').filter(Boolean), spc = task.meta['cadre.specCommit']
-  const bad = [...files.filter(G.isProt), ...(spc ? await lockedViolations(h.run, wt, spc, JSON.parse(task.meta['cadre.locked'] ?? '[]'), C) : [])]; if (bad.length) return `${id}: protected or locked paths differ: ${bad.join(', ')}`
+  const bad = [...files.filter(p => G.isProt(p, d.cfg.changelog.path)), ...(spc ? await lockedViolations(h.run, wt, spc, JSON.parse(task.meta['cadre.locked'] ?? '[]'), C) : [])]; if (bad.length) return `${id}: protected or locked paths differ: ${bad.join(', ')}`
   const rep = task.meta['cadre.report'] ? JSON.parse(task.meta['cadre.report']).summary : undefined
   const msg = commitMessage({ type: spec.commit ?? 'chore', scope: task.meta['cadre.scope'] || undefined, breaking: task.meta['cadre.breaking'] === 'true', description: t.title, summary: rep, id, reviewSha: C, checks: task.meta['cadre.checks'] ? [task.meta['cadre.checks']] : [] })
   let sha = '', fail = ''
@@ -288,6 +288,24 @@ LIFECYCLE.pending = wrapL((h, d, id) => releaseTask(h, d, id))
 LIFECYCLE.deleted = wrapL(async (h, d, id, e) => (id === (await h.board.read()).epic ? 'the epic cannot be deleted; reject the plan instead' : cancelTask(h, d, id, String(e.metadata?.reason ?? 'deleted by main'))))
 LIFECYCLE.decision = wrapL((h, d, id, e) => (typeof e.metadata?.decision === 'string' && e.metadata.decision.trim() ? decide(h, d, id, e.metadata.decision) : Promise.resolve('metadata.decision: expected the human\'s answer as a string')))
 
+// accept on a sync flag: conflict -> re-apply the remote values kept in the task's meta; drift -> adopt the remote status through the machine (refused when illegal)
+async function acceptRemote(h: Host, d: Deps, t: SnapTask): Promise<string | null> {
+  const task = await d.store.get(t.id), rem = (f: string) => task.meta[`cadre.remote.${f}`]
+  const up: Record<string, string | number> = {}
+  for (const f of ['title', 'description', 'acceptance', 'priority']) if (t.flags.includes('conflict') && rem(f) !== undefined) up[f] = f === 'priority' ? Number(rem(f)) : rem(f)
+  if (t.flags.includes('drift') && rem('status') !== undefined) {
+    const to = rem('status'), kind = ({ cancelled: 'cancel', blocked: 'block', done: 'close' } as const)[to as 'done'], pp = pipe(d)
+    if (!kind) return `the tracker's status "${to}" cannot be adopted; use keep, or move the task through its pipeline`
+    const m = transition(await h.board.read(), { kind, id: t.id, at: await h.now(), actor: 'human' }, pp); if (!m.ok) return m.error
+    await patch(h, t.id, x => ({ ...x, flags: x.flags.filter(f => f !== 'drift') }))   // apply refuses a task with an open sync flag
+    if (kind === 'cancel') { const e = await cancelTask(h, d, t.id, 'cancelled on the tracker'); if (e) return e } else {
+    const r = await apply(h, { kind, id: t.id, at: await h.now(), actor: 'human' }, pp); if (!r.ok) return r.error
+    if (kind === 'block') await d.store.move(t.id, 'blocked', d.actor); else await d.store.close(t.id, { outcome: 'done', note: 'adopted from the tracker', session: d.session }) }
+  }
+  if (Object.keys(up).length) await d.store.update(t.id, up as any, d.actor)
+  return null
+}
+
 // ---- /cadre resolve <id> keep|accept|reject|cancel · resolve git keep|restore [flag] ----
 ROUTES.resolve = async (h, c) => {
   const [a, b, f] = c.args
@@ -307,6 +325,7 @@ ROUTES.resolve = async (h, c) => {
   const out = async (e: Promise<string | null>) => ({ text: (await e) ?? `${a}: ${b} done` })
   if (b === 'cancel' || (b === 'reject' && t.flags.some(x => x.startsWith('rework:')))) return out(cancelTask(h, d, a, 'ended by the human'))
   if (t.flags.includes('spec_change') && (b === 'accept' || b === 'reject')) { const r = await resolveSpec(h, a, b); if (/accepted|rejected/.test(r.text)) await clear(h, a, 'spec_change'); return r }
+  if (b === 'accept' && t.flags.some(x => x === 'conflict' || x === 'drift')) { const e = await acceptRemote(h, d, t); if (e) return { text: `refused: ${e}` } }
   await patch(h, a, x => ({ ...x, flags: x.flags.filter(y => y.startsWith('git:')) })); await emit(h, 'flag.resolved', { taskId: a, flag: t.flags.join(',') || b }, { taskId: a })   // keep: accept the state, clear the task's flags
   return { text: `${a}: flags cleared (${b})` }
 }

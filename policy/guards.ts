@@ -8,7 +8,7 @@ import { idsIn } from '../core/briefs'
 import { strictOf } from '../config/index'
 
 // Paths the guards need, written to $.store `cadre:<repoKey>:policy` by init/session.start/tdd (absolute, realpath'd). Absent keys disable the rule they feed.
-export interface Policy { repo?: string; wtRoot?: string; home?: string; mcpAllow?: string[]; locks?: Record<string, string[]>; protect?: string[]; effectCheck?: string }
+export interface Policy { repo?: string; wtRoot?: string; home?: string; mcpAllow?: string[]; locks?: Record<string, string[]>; protect?: string[]; effectCheck?: string; epicPrefix?: string; changelog?: string }
 export const policyKey = async (h: Host) => `cadre:${repoKeyOf(await h.cwd())}:policy`   // per repo (13.5): two repos never share one
 export const policyOf = async (h: Host): Promise<Policy> => ((await h.store.get(await policyKey(h))) as Policy | undefined) ?? {}
 export const setPolicy = async (h: Host, patch: Policy) => h.store.set(await policyKey(h), { ...(await policyOf(h)), ...patch })
@@ -17,9 +17,9 @@ const SHELL = ['Bash', 'PowerShell', 'Monitor'], FILE = ['Read', 'Grep', 'Glob',
 const MOD_DIRS = PROTECTED.filter(p => p.endsWith('/')).map(p => p.slice(0, -1)), MOD_FILES = PROTECTED.filter(p => !p.endsWith('/'))
 const under = (p: string, root?: string) => !!root && (p === root || p.startsWith(root.replace(/\/$/, '') + '/'))
 const join = (cwd: string, p: string) => (p.startsWith('/') ? p : `${cwd.replace(/\/$/, '')}/${p}`)
-const modOwned = (real: string, home?: string) => {
+const modOwned = (real: string, home?: string, changelog?: string) => {
   const seg = real.split('/')
-  return seg.some(s => MOD_DIRS.includes(s)) || MOD_FILES.includes(seg[seg.length - 1]) || (!!home && /^cadre\.json$|^settings.*\.json$/.test(seg[seg.length - 1]) && under(real, home + '/.claude'))
+  return (!!changelog && (real === changelog || real.endsWith(`/${changelog}`))) || seg.some(s => MOD_DIRS.includes(s)) || MOD_FILES.includes(seg[seg.length - 1]) || (!!home && /^cadre\.json$|^settings.*\.json$/.test(seg[seg.length - 1]) && under(real, home + '/.claude'))
 }
 
 // Step 0 of the fence: the path a file tool will touch, per tool (input fields). Glob with an absolute pattern: its non-glob base dir.
@@ -75,7 +75,7 @@ async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, 
   const own = w.owner && under(real, w.b!.worktree)
   if (!w.main && !own) return under(real, (await h.env()).TMPDIR || '/tmp') ? 'tmp' : 'write only inside your working directory (or $TMPDIR)'   // positive jail: file tools are not OS-sandboxed (ADR 0006)
   if (!own && (under(real, pol.repo) || under(real, pol.wtRoot))) return 'project files are edited by the task agent only; spawn it for the task'
-  if (modOwned(real, pol.home)) return 'that path is managed for you and cannot be edited; leave it alone'
+  if (modOwned(real, pol.home, pol.changelog)) return 'that path is managed for you and cannot be edited; leave it alone'
   if (w.owner && w.task?.step === 'worker' && (pol.locks?.[w.b!.taskId] ?? []).some(l => real === l || under(real, l))) return 'locked spec test: do not edit it; if it is wrong, report outcome "spec_change"'
 }
 
@@ -130,11 +130,14 @@ export const check: Hook = async (h, e, next) => {
 export const send: Hook = async (h, e, next) => {
   const b = (await h.bind.read())
   const own = (e.agentId && b[e.agentId]) || b[e.to]
-  if (!own) return next(e)
+  if (!own || (await h.ui.read()).drainTo === e.to) return next(e)   // cadre's own queued resume (core/reuse.sendMine) is exempt
   const known = new Set((await h.board.read()).tasks.map(t => t.id))
   const other = idsIn(`${e.to} ${e.text}`, known).find(id => id !== own.taskId)
   return other ? { isDelivered: false, reason: `you work on ${own.taskId} only; do not name ${other}` } : next(e)
 }
+
+// Re-entry (fail-closed .catch, 13.3): the board is unreadable, so judge a spawn from the event: a task marker in the prompt is refused, marker-less passes.
+export const judgeSpawn = (e: any): string | undefined => /\b(TASK|bd)-[A-Za-z0-9]/.test(String(e.prompt ?? '')) ? 'refused: temporary failure; retry once, then ask the human' : undefined
 
 // config.set: refuse strictness changes while tasks run.
 export const configSet: Hook = async (h, e, next) => {

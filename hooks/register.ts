@@ -13,7 +13,7 @@ import { observe } from '../core/close'
 import '../core/integrate'   // registers ROUTES.release
 import { admit, tick as heartbeat } from '../core/admission'
 import { contain } from '../policy/containment'
-import { check, guard, send, judge, configSet } from '../policy/guards'
+import { check, guard, send, judge, judgeSpawn, configSet } from '../policy/guards'
 import { answer, describe } from '../native/tasks'
 import { wrap } from '../core/effect'
 import { handle, SPECS } from '../tools/index'
@@ -101,7 +101,7 @@ function host($): Host {
 const FAIL = 'refused: temporary failure; retry once, then ask the human'
 const why = ($, next) => { if (next.error && next.error.kind !== 're-entry') void $.ui.log(`cadre: hook failed: ${next.error.kind}: ${next.error.message}`); return FAIL }   // the engine redacts the error in its own log: keep the reason in ours
 function denyCall($, e, next) { return next.error?.kind === 're-entry' ? (judge(e) ? { deny: judge(e) } : next(e)) : next.called ? next(e) : { deny: why($, next) } }
-function denySpawn($, e, next) { return next.error?.kind === 're-entry' ? next(e) : next.called ? next(e) : { deny: why($, next) } }
+function denySpawn($, e, next) { return next.error?.kind === 're-entry' ? (judgeSpawn(e) ? { deny: judgeSpawn(e) } : next(e)) : next.called ? next(e) : { deny: why($, next) } }
 function denyCheck($, e, next) { return next.error?.kind === 're-entry' || !next.called ? { decision: 'deny', reason: why($, next) } : next(e) }
 // prompt.submit / session.compact only add context or a summary: on failure fall back to the engine's own (deliberate fail-open). /cadre never acts on failure.
 function passOn($, e, next) { return next(e) }

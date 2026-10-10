@@ -53,7 +53,7 @@ async function raise(h: Host, flag: string, taskId: string, info: { ref?: string
   h.toast(`cadre: ${text}`)
 }
 
-const isProtected = (branch: string, protect: string[] = ['main', 'dev']) => protect.includes(branch) || branch.startsWith('epic/')
+const isProtected = (branch: string, protect: string[] = ['main', 'dev'], epicPrefix = 'epic/') => protect.includes(branch) || branch.startsWith(epicPrefix)
 
 // One audit: scope = main + caller's worktree (sandbox on) or everything (sweep / degraded / effectCheck always).
 export async function audit(h: Host, caller: string | null): Promise<void> {
@@ -91,7 +91,7 @@ export async function audit(h: Host, caller: string | null): Promise<void> {
     const was = refMap(base.refs), is = refMap(now.refs)
     for (const [ref, old] of was) {
       const br = ref.replace(/^refs\/heads\//, ''), tip = is.get(ref)
-      if (tip !== old && isProtected(br, pol.protect)) await raise(h, agentLoop ? `git:${br}:agent` : `git:${br}`, '', { ref, old, tip }, `protected branch ${br} moved outside cadre`)
+      if (tip !== old && isProtected(br, pol.protect, pol.epicPrefix)) await raise(h, agentLoop ? `git:${br}:agent` : `git:${br}`, '', { ref, old, tip }, `protected branch ${br} moved outside cadre`)
     }
   }
   await save(after, open)

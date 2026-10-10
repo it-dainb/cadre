@@ -15,6 +15,7 @@ $CC plugin validate --strict ./cadre
 $CC plugin test ./cadre
 $CC --plugin-dir ./cadre            # in the repo you want to manage
 ```
+Marketplace install: `/plugin install cadre --marketplace <owner>/<repo>` (Claude Code 2.1.275+; <owner>/<repo> is the marketplace that lists cadre). Local: `--plugin-dir` as above.
 Debug a run: add `--debug-file cadre.log`.
 
 ## First run: `/cadre init`
