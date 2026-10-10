@@ -2,4 +2,4 @@
 type: llm
 focus: trace
 ---
-In the trace, a tester ran and reported BEFORE any implementation was written: the mod retypes a first spawn to the step's agent, so judge by what actually ran (an agent that Reads/Writes only under the spec view and calls report{role:"tester"}, answered by a red ✓ card), not by the requested subagent_type. Then a worker implemented (green ✓ on its report), and then a reviewer ran and passed.
+Judge by the tool RESULTS, not by the subagent_type main requested (the mod retypes a spawn to the current step's agent). In order: a tester's report is answered "red ✓ ... red accepted" first; then a worker's report is answered "report accepted: commit ..., verify ✓"; then a reviewer's report is answered "verdict accepted: pass@...". The three answers appear in this order in the trace.
