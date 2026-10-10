@@ -28,8 +28,7 @@ export async function worktreeAdd(run: Run, root: string, path: string, branch: 
   const args = ['worktree', 'add', '-b', branch, path, base]
   const r = await run(['git', '-C', root, ...args])
   if (!r.exitCode) return
-  if (/lock/i.test(r.stderr)) { await git(run, root, args); return }
-  throw new Error(`git worktree add failed: ${r.stderr.trim().slice(0, 300)}`)
+  await git(run, root, args)   // once more: a concurrent worktree add can hold the lock
 }
 // recovery (8.4): the directory is gone but the branch is not
 export async function worktreeReadd(run: Run, root: string, path: string, branch: string): Promise<void> {

@@ -5,7 +5,7 @@ import { ROUTES, cfgOf, storeOf } from './dispatch'
 import { emit } from './events'
 import { epicNext } from './machine'
 import { cut, insert } from './changelog'
-import { casRef, exists, git, op, overlayJail, tip, worktreeRemove, writableJail } from './git'
+import { casRef, checkRun, exists, git, jailMode, op, tip, worktreeRemove, writableJail } from './git'
 import { inferVersion, landDev, lastTag, mergeEpic, release, wtPath } from './branches'
 import { repoKeyOf } from '../commands/init'
 
@@ -16,9 +16,11 @@ const setPlan = (h: Host, ev: string, patch: Record<string, unknown> = {}) =>
   h.board.update(b => { const n = b.plan && epicNext(b.plan.state, ev); return n ? { ...b, plan: { ...b.plan!, ...patch, state: n } } : b })
 const gitFlags = async (h: Host) => Object.keys((await h.git.read()).flags ?? {}).filter(f => f.startsWith('git:'))
 const tail = (r: { stdout: string; stderr: string }) => `${r.stdout}\n${r.stderr}`.trim().slice(-400)
-// a branch checked out clean in the repo root has its working tree refreshed after the ref moves under it
-const cleanOn = async (h: Host, root: string, br: string) => (await h.run(['git', '-C', root, 'symbolic-ref', '-q', 'HEAD'])).stdout.trim() === `refs/heads/${br}` && !(await git(h.run, root, ['status', '--porcelain']))
-const refresh = (h: Host, root: string, clean: boolean) => clean ? op(h, () => git(h.run, root, ['reset', '--hard', '-q'])).catch(() => {}) : undefined
+// a branch checked out in the repo root follows its ref by a two-tree merge: unrelated human edits stay, conflicting ones refuse (never reset --hard: it eats them)
+const checkedOut = async (h: Host, root: string, br: string) => (await h.run(['git', '-C', root, 'symbolic-ref', '-q', 'HEAD'])).stdout.trim() === `refs/heads/${br}`
+const refresh = async (h: Host, root: string, br: string, was: boolean, old: string) => {
+  if (was) await op(h, async () => git(h.run, root, ['read-tree', '-m', '-u', old, await tip(h.run, root, br)])).catch(() => h.toast(`${br} moved, but your checkout has conflicting edits: commit or stash them, then run git checkout -f ${br}`))
+}
 const commitPaths = async (h: Host, wt: string, paths: string[], msg: string, amend = false) => {
   await git(h.run, wt, ['add', '--', ...paths]); await git(h.run, wt, [...ID, 'commit', '--no-verify', ...(amend ? ['--amend', '--no-edit'] : ['-m', msg])]); return tip(h.run, wt, 'HEAD')
 }
@@ -27,17 +29,16 @@ const commitPaths = async (h: Host, wt: string, paths: string[], msg: string, am
 async function runSuites(h: Host, cfg: any, wt: string, files: string[] | null, epicId: string): Promise<string | null> {
   const pkgs: any[] = cfg.packages ?? [], owner = (f: string) => pkgs.reduce<any>((best, p) => (p.root === '.' || f === p.root || f.startsWith(`${p.root}/`)) && (!best || p.root.length > best.root.length) ? p : best, null)
   const hit = new Set(files?.map(owner)), touched = pkgs.filter(p => !files || hit.has(p))
-  const bw = /(\d+)\.(\d+)/.exec((await h.run(['bwrap', '--version']).catch(() => undefined))?.stdout ?? ''), jailed = cfg.jail !== 'off' && !!bw && (+bw[1] > 0 || +bw[2] >= 8)
+  const mode = cfg.jail === 'off' ? 'none' as const : await jailMode(h.run)
   const scratch = `${wt}-scratch`; await h.run(['mkdir', '-p', scratch])
   try {
     for (const p of touched) {
       const dir = p.root === '.' ? wt : `${wt}/${p.root}`, j = { wt, scratch, pkgRoot: dir }
-      const go = (mk: typeof overlayJail, argv: string[]) => h.run(jailed ? mk({ ...j, argv }) : argv, { cwd: dir, timeoutMs: 600000 })
-      if (p.setup?.length) { const r = await go(writableJail, p.setup); if (r.exitCode) return `${p.root}: setup failed: ${tail(r)}` }
+      if (p.setup?.length) { const r = await h.run(mode === 'none' ? p.setup : writableJail({ ...j, argv: p.setup }), { cwd: dir, timeoutMs: 600000 }); if (r.exitCode) return `${p.root}: setup failed: ${tail(r)}` }
       const want = Array.isArray(cfg.suites?.integration) ? cfg.suites.integration : Object.keys(p.checks ?? {})
       for (const n of want) {
         if (!p.checks?.[n] || p.knownRed?.includes(n)) continue
-        const r = await go(overlayJail, p.checks[n]); await emit(h, 'check.ran', { taskId: epicId, name: `${p.root}:${n}`, ok: !r.exitCode, exit: r.exitCode })
+        const r = await checkRun(h.run, mode, { ...j, argv: p.checks[n], writable: cfg.jailWritable }); await emit(h, 'check.ran', { taskId: epicId, name: `${p.root}:${n}`, ok: !r.exitCode, exit: r.exitCode })
         if (r.exitCode) return `${p.root}:${n} failed (exit ${r.exitCode}): ${tail(r)}`
       }
     }
@@ -85,9 +86,9 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
     }
     const files = (await git(h.run, tmp, ['diff', '--name-only', `${m.devTip}..${sha}`])).split('\n').filter(Boolean)
     const red = await runSuites(h, cfg, tmp, files, epicId); if (red) return await fail(red, true)
-    const clean = await cleanOn(h, root, dev)
+    const on = await checkedOut(h, root, dev)
     if (!(await landDev(h, { dev, sha, old: m.devTip, tmp, epic: p.epicBranch }))) return await fail(`${dev} moved during integration; call TaskUpdate completed again`, false)
-    await refresh(h, root, clean)
+    await refresh(h, root, dev, on, m.devTip)
     const at = await h.now()
     await setPlan(h, 'land', { landed: { dev, sha, at }, flags: (p.flags ?? []).filter(f => f !== 'integration-failed') })
     await emit(h, 'plan.landed', { planId: epicId, sha })
@@ -114,18 +115,18 @@ export async function releaseDev(h: Host, want?: string): Promise<string> {
   if (await exists(h.run, root, `refs/tags/v${version}`)) return no(`tag v${version} already exists`)
   const wtr = cfg.worktrees.root || `${home}/.cache/cadre/wt`, key = repoKeyOf(root), tmp = wtPath(wtr, key, `rel-${version}`)
   await op(h, () => git(h.run, root, ['worktree', 'add', '--detach', tmp, devTip]))
-  let cdev = '', cleanDev = false, cleanMain = false
+  let cdev = ''
   try {
     const red = await runSuites(h, cfg, tmp, null, s.epic ?? ''); if (red) return no(`${dev} is not green: ${red}`)
     await git(h.run, tmp, ['reset', '--hard', '-q', devTip]); await git(h.run, tmp, ['clean', '-fdq'])   // drop what setup left behind
     await h.write(`${tmp}/${cfg.changelog.path}`, cutText); cdev = await commitPaths(h, tmp, [cfg.changelog.path], `chore(release): v${version}`)
   } finally { await op(h, () => worktreeRemove(h.run, root, tmp)) }
-  [cleanDev, cleanMain] = [await cleanOn(h, root, dev), await cleanOn(h, root, main)]
+  const [onDev, onMain, mainWas] = [await checkedOut(h, root, dev), await checkedOut(h, root, main), await tip(h.run, root, main)]
   if (!(await op(h, () => casRef(h.run, root, `refs/heads/${dev}`, cdev, devTip)))) return no(`${dev} moved during release; retry`)
   let sha: string
   try { sha = await release(h, { dev, main, version, tmp: wtPath(wtr, key, `relm-${version}`), msg: `release v${version}` }) }
   catch (e) { await op(h, () => casRef(h.run, root, `refs/heads/${dev}`, devTip, cdev)); return no(`merge into ${main} failed: ${(e as Error).message}; ${dev} restored`) }
-  await refresh(h, root, cleanDev); await refresh(h, root, cleanMain)
+  await refresh(h, root, dev, onDev, devTip); await refresh(h, root, main, onMain, mainWas)
   if (s.plan?.state === 'done-on-dev') await setPlan(h, 'release', { released: { version, at: await h.now() } })
   await h.ui.update(({ rel: _r, ...u }) => u)
   await emit(h, 'plan.released', { version, sha })

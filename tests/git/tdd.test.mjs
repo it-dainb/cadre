@@ -67,11 +67,11 @@ const worktree = async w => { const wt = join(w.d.wtRoot, 'wt1'); mkdirSync(w.d.
 
 test('spec view golden: no source bodies, no symlinks, tdd.paths + viewInclude + rendered docs, a hash per file; audit lists writes outside tdd.paths', async () => {
   const w = world(), wt = await worktree(w), view = await V.buildView(w.h, w.d, await mkTask(w), wt)
-  assert.deepEqual(readdirSync(view).sort(), ['INTERFACE.md', 'SCENARIOS.md', 'docs', 'test'])
+  assert.deepEqual(readdirSync(view).sort(), ['FILES.md', 'INTERFACE.md', 'SCENARIOS.md', 'docs', 'test'])
   assert.equal(existsSync(join(view, 'src')), false); assert.equal(existsSync(join(view, 'test/link.ts')), false)   // symlink skipped, source body absent
   for (const f of ['test/old.json', 'docs/guide.md', 'SCENARIOS.md', 'INTERFACE.md']) assert.ok(lstatSync(join(view, f)).isFile())
   assert.match(readFileSync(join(view, 'INTERFACE.md'), 'utf8'), /\[new\] function login/)
-  const man = JSON.parse(w.meta['cadre.view']); assert.deepEqual(Object.keys(man).sort(), ['INTERFACE.md', 'SCENARIOS.md', 'docs/guide.md', 'test/old.json'])
+  const man = JSON.parse(w.meta['cadre.view']); assert.deepEqual(Object.keys(man).sort(), ['FILES.md', 'INTERFACE.md', 'SCENARIOS.md', 'docs/guide.md', 'test/old.json'])
   assert.equal(man['docs/guide.md'], sh(w.root, 'rev-parse', 'HEAD:docs/guide.md'))   // content hash == git blob hash
   await V.logCall(w.h, 'ag1', { tool: 'Read', path: 'test/old.json', outcome: 'ok' }); await V.logCall(w.h, 'ag1', { tool: 'Read', path: '../x', outcome: 'denied' })
   writeFileSync(join(view, 'test/new.json'), '{}'); writeFileSync(join(view, 'notes.txt'), 'x'); writeFileSync(join(view, 'SCENARIOS.md'), 'tampered')
@@ -152,4 +152,11 @@ test('spec_change: owner report blocks; reject resumes the worker, accept rewind
     assert.match(w.meta['cadre.decision'], how === 'accept' ? /accepted: the contract/ : /rejected/); assert.equal(w.meta['cadre.blocked'], '')
     assert.match((await T.resolveSpec(w.h, 'm-1', how)).text, /not waiting/)
   }
+})
+
+test('a refused red leaves no copy-in commit; the identical retry reaches the gate again', async () => {
+  const w = world(), files = { 'test/s.json': tc('a', 'passed') }, { wt, view, res } = await tester(w, files, ['a']), pre = sh(wt, 'rev-parse', 'HEAD')
+  assert.equal(res.ok, false); assert.match(res.why, /pass at the spec commit/); assert.equal(sh(wt, 'rev-parse', 'HEAD'), pre); assert.equal(existsSync(join(wt, 'test/s.json')), false); assert.equal(sh(wt, 'status', '--porcelain'), '')
+  const again = await T.testerDone(w.h, w.d, await mkTask(w), wt, view, [{ path: 'test/s.json', name: 'a' }])
+  assert.match(again.why, /pass at the spec commit/)   // not "identical to the base; nothing to lock"
 })

@@ -15,11 +15,11 @@ const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1)
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()
 const commit = (d, f, body, msg) => { writeFileSync(join(d, f), body); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', msg) }
 
-function world(check = ['test', '-f', 'c.txt']) {
+function world(check = ['test', '-f', 'c.txt'], jail = 'off') {
   const d = mkdtempSync(join(tmpdir(), 'cadre-int-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
   commit(d, 'CHANGELOG.md', skeleton(), 'chore: init'); sh(d, 'branch', 'dev'); sh(d, 'branch', 'epic/p3-auth', 'dev')
   sh(d, 'checkout', '-q', 'epic/p3-auth'); commit(d, 'c.txt', 'c\n', 'feat: login'); sh(d, 'checkout', '-q', 'main')
-  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.packages = [{ root: '.', setup: ['true'], checks: { test: check } }]; cfg.jail = 'off'
+  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.packages = [{ root: '.', setup: ['true'], checks: { test: check } }]; cfg.jail = jail
   const comments = [], h = fakeHost()
   Object.assign(h, { cwd: async () => d, home: async () => d, run, config: async () => cfg, readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } }, write: async (p, t) => writeFileSync(p, t),
     taskStore: async () => ({ list: async () => [{ id: 'm-2', category: 'done', meta: { 'cadre.changelog': JSON.stringify({ category: 'Added', entry: 'Login' }) } }], comment: async (...a) => { comments.push(a) } }) })
@@ -65,4 +65,26 @@ test('release refuses: empty [Unreleased], bad version, open flag, existing tag;
   assert.match(await releaseDev(h), /nothing to release/); assert.match(await releaseDev(h, '1.x'), /expected x\.y\.z/)
   await h.git.update(g => ({ ...g, flags: { 'git:dev': {} } })); assert.match(await releaseDev(h), /git:dev is open/)
   assert.equal(sh(d, 'rev-parse', 'dev'), dev); assert.equal(sh(d, 'tag', '--list'), '')
+})
+
+test('integration on bwrap < 0.11 (no --overlay-src): suites run in the copy jail, never an overlay', async () => {
+  const { d, h } = await world(['test', '-f', 'c.txt'], 'auto'), seen = []
+  const ok = { exitCode: 0, stdout: '', stderr: '' }
+  h.run = async (argv, o = {}) => {
+    if (argv[0] !== 'bwrap') return run(argv, o)
+    seen.push(argv); if (argv.includes('--help')) return { ...ok, stdout: 'Usage: bwrap [OPTION...] COMMAND\n  --unshare-net\n' }
+    if (argv.includes('--overlay-src')) return { exitCode: 1, stdout: '', stderr: 'bwrap: Unknown option --overlay-src' }
+    const i = argv.indexOf('--'); return i < 0 ? ok : run(argv.slice(i + 1), { cwd: argv[argv.indexOf('--chdir') + 1] })
+  }
+  assert.equal(await integrateEpic(h, 'p3'), null); assert.ok(seen.length > 2 && !seen.some(a => a.includes('--overlay-src') && !a.includes('--help')))
+  assert.equal(sh(d, 'show', 'dev:c.txt'), 'c')
+})
+test('integration refreshes a dev checkout that has human edits: unrelated edits stay, the tree follows; conflicting edits refuse with a toast', async () => {
+  for (const conflict of [false, true]) {
+    const { d, h } = await world(); sh(d, 'checkout', '-q', 'dev'); writeFileSync(join(d, conflict ? 'c.txt' : 'notes.txt'), 'mine\n')
+    assert.equal(await integrateEpic(h, 'p3'), null)
+    assert.equal(readFileSync(join(d, conflict ? 'c.txt' : 'notes.txt'), 'utf8'), 'mine\n')   // never reset --hard
+    if (conflict) assert.match(h.toasts.join('\n'), /conflicting edits/)
+    else { assert.equal(readFileSync(join(d, 'c.txt'), 'utf8'), 'c\n'); assert.match(sh(d, 'status', '--porcelain'), /^\?\? notes\.txt$/) }   // c.txt checked out, nothing staged as a revert
+  }
 })

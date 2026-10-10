@@ -31,12 +31,13 @@ export function errorOk(text: string, syms: Sym[], skeleton: boolean): boolean {
 }
 
 // ---- running a package check offline (G.checkRun: overlay, else a copy of the tree) ----
-const verifyOf = (p: Pkg) => (p.verify?.length ? p.verify : [p.checks.test ? 'test' : Object.keys(p.checks)[0]])
+export const verifyOf = (p: Pkg) => (p.verify?.length ? p.verify : [p.checks.test ? 'test' : Object.keys(p.checks)[0]])
 const redOf = (p: Pkg) => p.tdd?.check ?? (verifyOf(p).includes('test') ? 'test' : verifyOf(p)[0])
 async function runCheck(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, name: string) {
   const argv = pkg.checks[name]; if (!argv) throw new Error(`${pkg.root}: no check "${name}"`)
   const mode = await modeOf(h, d), scratch = `${d.wtRoot}/${d.key}.scratch/${task.id}-chk`, rp = pkg.tdd?.report
   await h.run(['rm', '-rf', scratch]); await h.run(['mkdir', '-p', `${scratch}/cadre`])
+  if (rp && mode === 'none') await h.run(['rm', '-f', rp])   // unjailed: the report path is shared across tasks; a stale file must not pass the gate
   const t0 = await h.now(), r = await G.checkRun(h.run, mode, { wt, scratch, pkgRoot: rootOf(pkg) ? `${wt}/${pkg.root}` : wt, argv, writable: d.cfg.jailWritable })
   const xml = rp && name === redOf(pkg) ? await h.readText(mode === 'none' ? rp : `${scratch}${rp.slice(4)}`) : null
   await h.run(['rm', '-rf', scratch])
@@ -119,10 +120,11 @@ export async function lockedViolations(run: G.Run, wt: string, spec: string, loc
 export async function testerDone(h: Host, d: Deps, task: Task, wt: string, view: string, tests: { path: string; name: string }[], agentId?: string): Promise<Gate> {
   const pkg = pkgOf(d, task); if (!pkg?.tdd) return { ok: false, why: 'its package has no tdd config', card: 'red ✗ no tdd config' }
   const pipe = pipeOf(d.reg), steps = pipe(task.type), hasRed = steps.includes('red'), au = await auditView(h, d, task, view, agentId)
+  const pre = await G.tip(h.run, wt, 'HEAD'), undo = () => G.op(h, async () => { await G.git(h.run, wt, ['reset', '--hard', '-q', pre]); await G.git(h.run, wt, ['clean', '-fdq']) }).catch(() => {})   // a refused gate must not leave the copy-in behind (a retry would see "identical")
   let spec: string
-  try { spec = await copyIn(h, d, task, wt, view, pkg) } catch (e) { return { ok: false, why: String((e as Error).message), card: `red ✗ ${(e as Error).message}` } }
+  try { spec = await copyIn(h, d, task, wt, view, pkg) } catch (e) { await undo(); return { ok: false, why: String((e as Error).message), card: `red ✗ ${(e as Error).message}` } }
   const g = await red(h, d, task, wt, pkg, tests, !hasRed), card = `${g.card}\n${au.text}`
-  if (!g.ok) return { ...g, card }
+  if (!g.ok) { await undo(); return { ...g, card } }
   const base = task.meta['cadre.base'] ?? spec, locked = await lockedOf(h.run, wt, base, spec, pkg)
   await setLocks(h, task.id, locked.map(p => `${wt}/${p}`))
   await d.store.setMeta(task.id, { 'cadre.specCommit': spec, 'cadre.red': card, 'cadre.specTests': JSON.stringify(g.tests ?? []), 'cadre.locked': JSON.stringify(locked), ...(steps.includes('worker') ? {} : { 'cadre.sourceCommit': spec }) }, d.actor)

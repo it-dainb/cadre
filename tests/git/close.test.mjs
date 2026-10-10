@@ -143,3 +143,27 @@ test('followups become drafts in the lazily created cadre-backlog epic with a di
   await w.h.board.update(b => ({ ...b, plan: { ...b.plan, flags: ['integration-failed'] } }))
   assert.match((await ROUTES.resolve(w.h, { schemaVersion: 1, cmd: 'resolve', args: ['p1', 'keep'], origin: { kind: 'composer' } })).text, /plan flags cleared/); assert.deepEqual((await w.h.board.read()).plan.flags, [])
 })
+
+// a reviewed task whose epic then moved (another task landed): returns the pieces to close it
+async function movedEpic(file, body) {
+  const w = await world(), id = w.ids[0]; await w.spawn(id); const wt = (await w.store.get(id)).meta['cadre.worktree']; edit(wt)
+  await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }); await w.spawn(id); await w.rep('ag2', w.pass)
+  const e = `${w.d}-e`; sh(w.d, 'worktree', 'add', '-q', e, 'epic/p1-x'); writeFileSync(join(e, file), body); sh(e, 'add', '-A'); sh(e, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'other'); sh(w.d, 'worktree', 'remove', '--force', e)
+  return { ...w, id, wt, branch: (await w.store.get(id)).meta['cadre.branch'] }
+}
+test('close: a moved epic is verified with the package checks (no check named "verify" needed); red blocks the merge', async () => {
+  const w = await movedEpic('other.txt', 'o\n'), old = sh(w.d, 'rev-parse', 'epic/p1-x')
+  Object.assign(w.dep.cfg.packages[0], { verify: undefined, checks: { test: ['false'] } })
+  assert.match(String(await C.closeTask(w.h, w.dep, w.id)), /verify \(test\) failed/); assert.equal(sh(w.d, 'rev-parse', 'epic/p1-x'), old)
+})
+test('close: a package with no verify check at all fails a moved-epic merge instead of passing it', async () => {
+  const w = await movedEpic('other.txt', 'o\n'); Object.assign(w.dep.cfg.packages[0], { verify: undefined, checks: {} })
+  assert.match(String(await C.closeTask(w.h, w.dep, w.id)), /verify \(.*\) failed/)
+})
+test('close: a failed squash (conflict, or merge-red) returns the worker to its branch with its files', async () => {
+  for (const red of [false, true]) {
+    const w = await movedEpic(red ? 'other.txt' : 'b.txt', 'theirs\n'); if (red) Object.assign(w.dep.cfg.packages[0], { verify: ['verify'], checks: { verify: ['false'] } })
+    assert.ok(await C.closeTask(w.h, w.dep, w.id)); assert.equal(sh(w.wt, 'symbolic-ref', 'HEAD'), `refs/heads/${w.branch}`)
+    assert.equal(readFileSync(join(w.wt, 'b.txt'), 'utf8'), 'b\n'); assert.equal(sh(w.wt, 'status', '--porcelain'), ''); assert.equal(sh(w.wt, 'rev-parse', 'HEAD'), (await w.store.get(w.id)).meta['cadre.sourceCommit'])
+  }
+})
