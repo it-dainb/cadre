@@ -56,7 +56,7 @@ export interface Secret {
   dcode?: Record<string, string>                      // decision id -> the code its run/fallback templates need
   nonce?: string; initNonce?: string; token?: string; adoptTried?: boolean; active?: boolean; root?: string   // root: the main session's cwd, set at session.start
   session?: string                                      // this session's id (core/admission.sessionOf; resume queue key)
-  setupFix?: { n: number; text?: string }               // /cadre setup handed n issues to main; text = waiting for the next turn.complete (commands/doctor)
+  setupFix?: { n: number; text: string; sent?: boolean; turn?: string }   // /cadre setup handed n issues to main: the brief, sent or waiting for a turn.complete, and the id of the turn it started (commands/doctor)
   ctx?: { key: string; card?: string }                  // main context: last-sent diff key; a queued one-time resume card (core/briefs)
 }
 export interface Binding {

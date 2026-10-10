@@ -112,17 +112,39 @@ async function card(h: Host, P: Plan, fixing?: number, ran = false): Promise<voi
   await ask(h, { id: `init:${SETUP}`, kind: 'init', title: fixing !== undefined ? 'setup · Claude is fixing it' : 'setup · needs you', short: 'setup needs you', lines, hash: fnv1a64(P.hash + lines.join('\n')), tab: 'epic', fallback: '/cadre setup confirm {code}',
     options: [...(ok ? [{ key: 'a', label: 'Fix all', verb: 'approve', run: 'setup confirm {code}' }] : []), { key: 'r', label: 'Re-check', verb: 'change', run: 'setup' }, { key: 'x', label: 'Cancel', verb: 'reject', run: 'setup cancel' }] }, code)
 }
-// one hand-off per run. A press has no turn held, so the prompt goes now; typed in a command it is refused, so it waits for the next turn.complete (afterFix).
+type Failed = { label: string; argv: string[]; out: string[] }
+// the plan's actions in order; the first failure stops the run (its last output lines are the evidence)
+async function runActs(h: Host, P: Plan, path: string): Promise<{ st: string[][]; failed?: Failed }> {
+  const st: string[][] = P.acts.map(a => [a.label, '']), tail: string[] = []
+  for (const [i, a] of P.acts.entries()) {
+    st[i][1] = 'run'; await shown(h, P, { acts: st }); h.toast(`setup: ${a.label}`)
+    let bad = ''
+    if (a.settings) await mapply({ readText: h.readText, writeText: h.write }, path, PATCH).catch((e: Error) => { bad = e.message })
+    else { const x = await h.run(a.argv!, { timeoutMs: 300000 }).catch((e: Error) => ({ exitCode: 1, stdout: '', stderr: e.message })); if (x.exitCode) { bad = `exit ${x.exitCode}`; tail.push(...`${x.stdout}\n${x.stderr}`.split('\n').filter(Boolean).slice(-8)) } }
+    st[i][1] = bad ? 'fail' : 'ok'
+    if (bad) return { st, failed: { label: a.label, argv: a.argv ?? ['write', 'user settings'], out: tail.length ? tail : [bad] } }
+  }
+  return { st }
+}
+// one hand-off per run. A press holds no turn, so the prompt goes now; typed in a command it is refused, so it waits for the next turn.complete.
+// setupFix = {n, text (the brief), sent, turn}: `turn` is the id of the turn our brief started (turnStarted, below); only THAT turn's end re-checks.
 async function handOff(h: Host, text: string, n: number): Promise<void> {
-  await h.secret.update(s => ({ ...s, setupFix: { n } }))
+  await h.secret.update(s => ({ ...s, setupFix: { n, text, sent: true } }))
   void Promise.resolve().then(() => h.submit!(text)).catch(() => h.secret.update(s => ({ ...s, setupFix: { n, text } })))
 }
-// main's turn.complete: send a queued hand-off, else (Claude finished) re-check on our own, update the card, stamp if clean. Never hands off again.
-export async function afterFix(h: Host): Promise<void> {
-  const f = (await h.secret.read()).setupFix as { n: number; text?: string } | undefined
+// turn.start (every turn, any caller of $.prompt.submit: a press's own call is invisible to our prompt.submit hook, G6): the turn whose text IS our stored brief is the fix turn
+export async function turnStarted(h: Host, e: { text?: string; turnId?: string }): Promise<void> {
+  const f = (await h.secret.read()).setupFix
+  if (f?.sent && !f.turn && e.turnId && e.text === f.text) await h.secret.update(s => ({ ...s, setupFix: { ...f, turn: e.turnId } }))
+}
+// main's turn.complete: send a queued brief; at the end of the fix turn run the scripted actions it skipped, then re-check (card, stamp). Never hands off again.
+export async function afterFix(h: Host, e: { turnId?: string } = {}): Promise<void> {
+  const f = (await h.secret.read()).setupFix
   if (!f) return
+  if (!f.sent) { await h.secret.update(s => ({ ...s, setupFix: { ...f, sent: true } })); return void (await h.submit?.(f.text!).catch(() => h.secret.update(({ setupFix: _f, ...s }) => s))) }
+  if (!f.turn || f.turn !== e.turnId) return   // another turn ended (the one that was running when the brief was queued, or the brief has not started): no early re-check
   await h.secret.update(({ setupFix: _f, ...s }) => s)
-  if (f.text) { await h.secret.update(s => ({ ...s, setupFix: { n: f.n } })); return void (await h.submit?.(f.text).catch(() => h.secret.update(({ setupFix: _f, ...s }) => s))) }
+  const P = await preflight(h, await cfgOf(h)); if (P.acts.length) await runActs(h, P, await userPath(h))
   await setup(h, [])
 }
 export async function setup(h: Host, args: string[]): Promise<string> {
@@ -134,15 +156,8 @@ export async function setup(h: Host, args: string[]): Promise<string> {
     if (P.hash !== was) note = 'setup: the plan changed since it was shown; nothing ran; confirm again with the new code'
     else {
       await h.ui.update(({ 'setup.pending': _p, ...u }) => u)
-      const st: string[][] = P.acts.map(a => [a.label, '']), tail: string[] = []; let failed: { label: string; argv: string[]; out: string[] } | undefined
-      for (const [i, a] of P.acts.entries()) {
-        st[i][1] = 'run'; await shown(h, P, { acts: st }); h.toast(`setup: ${a.label}`)
-        let bad = ''
-        if (a.settings) await mapply({ readText: h.readText, writeText: h.write }, path, PATCH).catch((e: Error) => { bad = e.message })
-        else { const x = await h.run(a.argv!, { timeoutMs: 300000 }).catch((e: Error) => ({ exitCode: 1, stdout: '', stderr: e.message })); if (x.exitCode) { bad = `exit ${x.exitCode}`; tail.push(...`${x.stdout}\n${x.stderr}`.split('\n').filter(Boolean).slice(-8)) } }
-        st[i][1] = bad ? 'fail' : 'ok'
-        if (bad) { failed = { label: a.label, argv: a.argv ?? ['write', 'user settings'], out: tail.length ? tail : [bad] }; stopped = `setup: stopped at "${a.label}"; output in the cadre pane`; break }
-      }
+      const r = await runActs(h, P, path), st = r.st, failed = r.failed
+      if (failed) stopped = `setup: stopped at "${failed.label}"; output in the cadre pane`
       ran = true; fixed = st.filter(x => x[1] === 'ok').length
       const before = P; P = await preflight(h, cfg)
       const rest = left(P)

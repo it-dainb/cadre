@@ -16,6 +16,7 @@ RUN set -e; mkdir -p /opt/claude; \
     claude --version | grep -q "${CLAUDE_VERSION}"
 # non-root; run.sh passes --user <hostuid>:<hostgid> so the mounted credentials file is readable
 RUN mkdir -p /cchome/.claude /work /out && chmod -R 777 /cchome /work /out
+LABEL cadre.harness.home=/cchome
 ENV HOME=/cchome DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_AUTOUPDATE=1 BD_NON_INTERACTIVE=1
 WORKDIR /work
 ENTRYPOINT ["claude"]

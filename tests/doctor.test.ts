@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { afterFix, brief, doctor, machine, nudge, setup } from '../commands/doctor'
+import { afterFix, brief, turnStarted, doctor, machine, nudge, setup } from '../commands/doctor'
 import { defaults } from '../config/index'
 import { banned } from './fixtures/wording'
 import { fakeHost } from './support'
@@ -142,21 +142,24 @@ describe('setup: deterministic moves and the hand-off to main', () => {
     expect(h.logs).toEqual(['setup: 1 needs sudo · 1 fail · see the cadre pane'])
   })
   test('a failed action in a dormant repo: ONE brief goes to main, the card says Claude is fixing, the turn end re-checks and stamps, no second hand-off', async () => {
-    const o = { ...OK, tools: NOBD, npmFails: true }, h = mk(o); await h.secret.update(x => ({ ...x, active: false })); const sent = await fixed(h)
+    const o = { tools: NOBD, npmFails: true, files: { [USER]: '{}' } }, h = mk(o); await h.secret.update(x => ({ ...x, active: false })); const sent = await fixed(h)
     await setup(h, []); expect((await card(h)).options.map(x => x.label)).toEqual(['Fix all', 'Re-check', 'Cancel'])
     expect(await setup(h, ['confirm', (await sigOf(h)).code])).toBe('setup: Claude is fixing 1 issue; the checks run again when it stops')
     await new Promise(r => setTimeout(r, 0)); expect(sent).toHaveLength(1); expect(sent[0]).toBe(brief('/hm/u', (await machine(h, defaults() as any)).rows.filter(r => r[0] !== 'ok'), { label: 'installing bd', argv: ['npm', 'install', '-g', '@beads/bd@latest'], out: ['npm ERR! EACCES', 'npm ERR! permission denied'] }))
     expect(sent[0]).toContain('npm ERR! EACCES'); expect(sent[0]).toContain('no sudo'); expect(sent[0]).toContain('Move things aside instead of deleting'); expect(sent[0]).toContain('stop. The checks run again on their own'); expect(banned(sent[0])).toEqual([])
     expect((await card(h)).lines).toEqual(['Claude is fixing setup… (1 issue)']); expect(await h.store.get('cadre:setup')).toBeUndefined()
     o.npmFails = false; await h.run(['npm', 'install'])   // main fixed it
-    await afterFix(h); expect(await h.store.get('cadre:setup')).toMatchObject({ bd: '1.3.1' }); expect(sent).toHaveLength(1); expect((await h.board.read()).decisions ?? []).toEqual([])
-    await afterFix(h); expect(sent).toHaveLength(1)
+    await afterFix(h, { turnId: 'early' }); expect(await h.store.get('cadre:setup')).toBeUndefined()   // a turn that was already running when the brief was queued: no re-check
+    await turnStarted(h, { text: 'something typed', turnId: 'other' }); await turnStarted(h, { text: sent[0], turnId: 't1' }); await afterFix(h, { turnId: 'other' }); expect(await h.store.get('cadre:setup')).toBeUndefined()
+    await afterFix(h, { turnId: 't1' })   // the fix turn ended: the skipped scripted actions run, then the re-check
+    expect(h.files[USER]).toContain('CLAUDE_CODE_ENABLE_TODO_TOOLS'); expect(await h.store.get('cadre:setup')).toMatchObject({ bd: '1.3.1' }); expect(sent).toHaveLength(1); expect((await h.board.read()).decisions ?? []).toEqual([])
+    await afterFix(h, { turnId: 't1' }); expect(sent).toHaveLength(1)
   })
   test('typed in a command the submit is refused: the brief waits for the next turn end, still only once', async () => {
     const h = mk({ ...OK, tools: NOBD, npmFails: true }); await h.secret.update(x => ({ ...x, active: false })); let n = 0; const sent: string[] = [];
     (h as any).submit = async (t: string) => { if (!n++) throw new Error('held'); sent.push(t) }
     await setup(h, []); await setup(h, ['confirm', (await sigOf(h)).code]); await new Promise(r => setTimeout(r, 0))
-    expect(sent).toEqual([]); await afterFix(h); expect(sent).toHaveLength(1); await afterFix(h); expect(sent).toHaveLength(1)
+    expect(sent).toEqual([]); await afterFix(h, { turnId: 'x' }); expect(sent).toHaveLength(1); await afterFix(h, { turnId: 'y' }); expect(sent).toHaveLength(1)
   })
   test('an active repo: the scripted fixes run, nothing goes to main, the card says to open Claude elsewhere', async () => {
     const h = mk({ ...OK, tools: NOBD, npmFails: true }), sent = await fixed(h); await setup(h, [])

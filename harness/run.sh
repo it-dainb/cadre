@@ -5,6 +5,7 @@
 #      CADRE_SOURCE=marketplace (install cadre@cadre from GitHub in the container; omit --plugin-dir from args), CADRE_REF=<branch|tag>,
 #      EXTRA_DOCKER="..." (extra docker flags), SHELL_MODE=1 (run bash instead of claude), HARNESS_NET=host|bridge
 H=$(cd "$(dirname "$0")" && pwd); R=$(dirname "$H")
+. "$H/check.sh"
 CRED=${CRED:-$HOME/.claude/.credentials.json}
 WORK=${WORK:-${TMPDIR:-/tmp}/cadre-harness/work}; OUT=${OUT:-$H/out}; SPIKE=${SPIKE:-$R}
 mkdir -p "$OUT" "$WORK"

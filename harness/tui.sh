@@ -7,6 +7,7 @@
 #   tui.sh capture <name> [file]   pane text (to file or stdout);  jsonl <name>: transcript path(s);  debug <name>: debug log path
 #   tui.sh resize <name> <cols> <rows>;  stop <name>  (keeps $T/<name> evidence)
 H=$(cd "$(dirname "$0")" && pwd); R=$(dirname "$H"); T=${TUI_DIR:-/tmp/cadre-tui}
+. "$H/check.sh"
 c=$1; n=$2; shift 2; C=cadre-tui-$n; D=$T/$n
 tm() { docker exec "$C" tmux "$@"; }
 case $c in
