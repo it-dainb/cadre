@@ -64,6 +64,7 @@ describe('file fence (13.2)', () => {
     expect(await call(h, { tool: 'Read', agentId: 't1', file_path: '/x/bd-a1.view/t.test.ts' })).toEqual({ ok: 'Read' })
     expect(denied(await call(h, { tool: 'Glob', agentId: 't1', pattern: '/etc/*' }))).toBe(true)
     expect(denied(await call(h, { tool: 'Glob', agentId: 't1', pattern: '**/*.ts' }))).toBe(true)   // not a tester tool (S45); the fence still normalizes it for tool.check
+    expect(await call(h, { tool: 'mcp__cadre__report', agentId: 't1' })).toEqual({ ok: 'mcp__cadre__report' })   // the tester's own report tool is not fenced (S41 live)
     expect(await check(h, { tool: 'Glob', agentId: 't1', input: { pattern: '**/*.ts' } }, () => 'engine')).toMatchObject({ decision: 'allow' })
     expect(await check(h, { tool: 'Write', agentId: 't1', input: { file_path: '/x/bd-a1.view/new.test.ts' } }, () => 'engine')).toMatchObject({ decision: 'allow' })
     expect(await check(h, { tool: 'Glob', agentId: 't1', input: { pattern: '/etc/*' } }, () => 'engine')).toBe('engine')

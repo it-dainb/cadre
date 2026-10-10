@@ -56,7 +56,7 @@ async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, 
   const tester = w.role === 'tester' && !w.main
   const fenced = FENCED.includes(tool) || (tool === 'Read' && !!pol.home && typeof (input as any)?.file_path === 'string' && (input as any).file_path.includes('/.claude/plugins/store/'))
   if (!tester && !fenced) return
-  if (!FILE.includes(tool)) return tester ? `cadre: ${tool} is not a tester tool` : undefined
+  if (!FILE.includes(tool)) return tester && !tool.startsWith('mcp__cadre__') ? `cadre: ${tool} is not a tester tool` : undefined   // the role's own report tool passed the allowlist
   const cwd = w.b?.worktree ?? pol.repo ?? '/'
   const p = inputPath(tool, input, cwd)
   const real = p === undefined ? undefined : await placed(h, join(cwd, p))
