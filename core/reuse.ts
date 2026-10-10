@@ -12,6 +12,7 @@ import { brief, drainDelta, queueCard, renderCard } from './briefs'
 import { leaseLive, resolveDeps, sessionOf, beat } from './admission'
 import { policyOf, setPolicy } from '../policy/guards'
 import { resolve } from '../config/index'
+import { epicBranch, slug } from './branches'
 import * as G from './git'
 
 // ui/ hooks register here at load (core never imports ui/, DESIGN 2.3): register.ts sets them.
@@ -144,10 +145,19 @@ export async function ring(h: Host, store: TaskStore, epic: string): Promise<num
   if (!evs.length) return 0
   await rebuild(h, epic, evs); return evs.length
 }
+// cold board, no pointer (a fresh checkout, an eval scaffold): adopt the newest unfinished non-mission epic that has an approved (non-draft) child. Tried once per session.
+async function adopt(h: Host, b0: Snapshot) {
+  if ((await h.secret.read()).adoptTried) return undefined
+  await h.secret.update(x => ({ ...x, adoptTried: true }))
+  const store = await storeOf(h), all = await store.list({}), prefix = (await cfgOf(h)).branches.epicPrefix
+  const e = all.filter(t => t.type === 'epic' && !t.meta['cadre.kind'] && t.category !== 'done' && t.category !== 'cancelled' && all.some(c => c.parent === t.id && c.category !== 'draft')).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))[0]
+  return e && { mission: b0.mission, epic: e.id, plan: { id: e.id, slug: slug(e.title), state: 'approved', epicBranch: epicBranch(prefix, e.id, e.title), approvedAt: await h.now() }, drive: b0.drive, bind: {}, session: undefined }
+}
 export async function rehydrate(h: Host): Promise<boolean> {
-  const p = (await h.store.get(await pk(h))) as any
   const b0 = await h.board.read()
-  if (!isCold(b0) || b0.epic || !p?.epic) return false
+  if (!isCold(b0) || b0.epic) return false
+  const p = ((await h.store.get(await pk(h))) as any) ?? (await adopt(h, b0))
+  if (!p?.epic) return false
   const store = await storeOf(h), now = await h.now(), me = await sessionOf(h)
   await h.board.update(s => ({ ...s, mission: p.mission, epic: p.epic, plan: p.plan, drive: { ...p.drive, on: false, paused: undefined } }))
   await mirror(h, store, await registryOf(h))

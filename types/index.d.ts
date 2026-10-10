@@ -45,7 +45,7 @@ export interface EventRing { seq: number; epics: Record<string, CadreEvent[]> } 
 
 export interface Secret {
   approval?: { planId: string; code8: string }; initConfirm?: { stage: number; code: string }
-  nonce?: string; initNonce?: string; token?: string
+  nonce?: string; initNonce?: string; token?: string; adoptTried?: boolean
   session?: string                                      // this session's id (core/admission.sessionOf; resume queue key)
   ctx?: { key: string; card?: string }                  // main context: last-sent diff key; a queued one-time resume card (core/briefs)
 }

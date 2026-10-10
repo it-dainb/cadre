@@ -130,6 +130,16 @@ describe('compaction (8.3, S49) and rehydrate (8.2, 13.4)', () => {
     expect(await rehydrate(fresh)).toBe(false)   // once
     UI.banner = undefined
   })
+  test('cold board, no pointer: adopts the unfinished epic with an approved child (once); drafts-only epics and missions are not adopted', async () => {
+    const { h, store, epic, a } = await mk()
+    const f = fakeHost() as any; Object.assign(f, { taskStore: h.taskStore, config: h.config, usage: h.usage, submit: h.submit })   // no pointer in f.store
+    expect(await rehydrate(f)).toBe(true)
+    const s = await f.board.read()
+    expect(s.epic).toBe(epic); expect(s.plan).toMatchObject({ id: epic, slug: 'auth', state: 'approved', epicBranch: `epic/${epic}-auth` }); expect(s.tasks.map((t: any) => t.id)).toContain(a)
+    const g = fakeHost() as any; Object.assign(g, { taskStore: async () => { const m = new MemoryStore(() => 1000); await m.init({ types: types(), journal: false }); const e = await m.createEpic('x', 'g'); await m.createDraft({ title: 't', description: 'd', type: 'feature', parent: e }); return m }, config: h.config, usage: h.usage, submit: h.submit })
+    expect(await rehydrate(g)).toBe(false); expect((await g.board.read()).epic).toBeNull()
+    void store
+  })
   test('ring rebuilt from the journal (transitions) + at-stamped records (phases), fresh seqs; adapters reset; records-only without a journal', async () => {
     const one = await mk({ journal: true, cfg: c => { c.adapters = { pm: {} } } })
     await one.store.setMeta(one.a, { 'cadre.rec.report': `[cadre:report v1] ${one.a} @5000 by worker\ncommit: abc` }, 'me')
