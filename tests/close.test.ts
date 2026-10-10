@@ -28,7 +28,9 @@ describe('discovery report (sec L2)', () => {
     const call = () => handleWith(h, d as any, { tool: 'mcp__cadre__report', agentId: 'x1', input: { schemaVersion: 1, role: 'explorer', discovery: { packages: [{ root: '/abs' }] } } }).then(r => r.result)
     expect(await call()).toBe('error: no discovery request is open')
     await h.board.update(s => ({ ...s, init: [{ stage: 4, state: 'pending' }] }))
-    expect(await call()).not.toBe('error: no discovery request is open')
+    expect(await call()).toContain('error: citations')   // parsed: the whole report goes to init (live: the nested object was always refused)
+    const ok = { schemaVersion: 1, role: 'explorer', discovery: { packages: [{ root: '.', setup: [], checks: { test: ['npm', 'test'] }, tdd: { paths: ['test/**'] } }] }, citations: [{ path: 'package.json', line: 1 }] }
+    expect(await handleWith(h, d as any, { tool: 'mcp__cadre__report', agentId: 'x1', input: ok }).then(r => r.result)).toBe('discovery recorded. Stop.')
   })
 })
 

@@ -27,7 +27,7 @@ async function onReport(h: Host, d: Deps, agentId: string | undefined, r: any): 
   if (!agentId) return bad('only a spawned agent reports')
   if (r?.role === 'explorer' && r.discovery && !(await h.bind.read())[agentId]) {
     if (!(await h.board.read()).init.some(i => i.stage === 4 && i.state === 'pending')) return bad('no discovery request is open')   // only while init stage 4 waits for it
-    const err = await discovered(h, r.discovery); return err ? bad(String(err)) : 'discovery recorded. Stop.'
+    const err = await discovered(h, r); return err ? bad(String(err)) : 'discovery recorded. Stop.'
   }
   const env = validateReport(r); if (env) return bad(await refuse(h, key, env))
   try {
