@@ -89,6 +89,7 @@ export interface Host {
   settings(): Promise<Record<string, any>>             // $.settings.read(): effective merged settings
   write(path: string, text: string): Promise<void>     // $.fs.write (creates dirs); mod-owned files only, after human confirmation (CC-16)
   cwd(): Promise<string>; home(): Promise<string>      // session cwd (repo root) · $HOME
+  taskStore?(): Promise<any>; config?(): Promise<any>   // the TaskStore (a core/dispatch storeOf) and resolved Config; register.ts wires them (config falls back to env layer + defaults)
 }
 // Every hook slot has this shape; a slot returns next(e) to pass through.
 export type Hook = (h: Host, e: any, next: (e: any) => any) => any
