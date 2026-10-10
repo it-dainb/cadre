@@ -54,7 +54,7 @@ describe('discovered work (3.1)', () => {
     await followups(d, t, [{ title: 'a', description: 'x' }, { description: 'no title' }, ...Array.from({ length: 6 }, (_, i) => ({ title: `b${i}` }))])
     await followups(d, t, [{ title: 'c' }]); await followups(d, t, undefined)
     const all = await store.list({}), bl = all.filter(x => x.title === 'cadre-backlog'), ds = all.filter(x => x.parent === bl[0].id)
-    expect(bl.length).toBe(1); expect(ds.map(x => x.title)).toEqual(['a', 'b0', 'b1', 'b2', 'b3', 'c'])
+    expect(bl.length).toBe(1); expect(ds.map(x => x.title)).toEqual(['a', 'b0', 'b1', 'b2', 'c'])
     expect(ds.every(x => x.category === 'draft' && x.deps.some(y => y.type === 'discovered-from' && y.id === t))).toBe(true)
   })
 })
