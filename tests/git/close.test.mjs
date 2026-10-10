@@ -115,7 +115,7 @@ test('a locked spec file committed by the red step is not a worker edit; editing
 test('stop without report: nudge x2 (queued), then auto-report from computed facts; non-answer stop releases, blocked at 3 attempts', async () => {
   const w = await world(), id = w.ids[0], { h, store } = w; await w.spawn(id); const wt = (await store.get(id)).meta['cadre.worktree']; edit(wt)
   const stop = (reason = 'answer') => C.observeWith(h, w.dep, { agentId: 'ag1', reason, answer: 'done I think' }, e => e)
-  await stop(); assert.equal((await store.get(id)).meta['cadre.nudge'], 'worker:1'); assert.match((await h.board.read()).tasks[0].card, /next: end your turn: the worker stopped without reporting/); await stop(); assert.equal((await store.get(id)).meta['cadre.nudge'], 'worker:2')
+  await stop(); assert.equal((await store.get(id)).meta['cadre.nudge'], 'worker:1'); assert.match((await h.board.read()).tasks[0].card, /next: wait: the worker stopped without reporting/); await stop(); assert.equal((await store.get(id)).meta['cadre.nudge'], 'worker:2')
   assert.equal((await h.board.read()).tasks[0].state, 'active'); await stop()
   const t = (await h.board.read()).tasks[0]; assert.deepEqual([t.state, t.step], ['review', 'reviewer']); assert.ok(t.flags.includes('auto-reported')); assert.match((await store.get(id)).meta['cadre.rec.report'], /auto: true/)
   const w2 = await world(), id2 = w2.ids[0]

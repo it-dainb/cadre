@@ -232,12 +232,12 @@ describe('result card paths (6.4, S39, S40)', () => {
     expect(r.result.content.map((c: any) => c.text)).toEqual([`TASK ${a} worker → review · next: spawn reviewer`, 'agentId: x']); expect(maps).toEqual([`tu1=${a}`])
     UI.mapCard = undefined
   })
-  test('foreground Agent call whose agent never reported (the step did not move): the card says end your turn, do not respawn', async () => {
+  test('foreground Agent call whose agent never reported (the step did not move): the card says wait (the mod is resuming it), do not respawn', async () => {
     const { h, a } = await mk()   // a is active at step worker; ag1 is its worker
     await h.bind.update(() => ({ ag1: B(a, 'S1') }))
     await h.board.update((s: any) => ({ ...s, tasks: s.tasks.map((t: any) => (t.id === a ? { ...t, card: `TASK ${a} tester → worker\nnext: spawn worker` } : t)) }))
     const r = await wrap(h, { tool: 'Agent', prompt: `do TASK-${a}` }, () => ({ result: { content: [{ type: 'text', text: 'raw answer' }] } }))
-    expect(r.result.content[0].text).toContain('end your turn: the worker stopped without reporting')
+    expect(r.result.content[0].text).toContain('wait: the worker stopped without reporting')
   })
   test('background notification: prompt.submit origin task-notification rewritten to the card (agent found via the agent.bound ring)', async () => {
     const { h, a } = await mk()
