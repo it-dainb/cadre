@@ -1,0 +1,1 @@
+Plan p-p1 is approved. Execute it. In the worker's brief, require it to leave the contract symbol with an unexported helper missing a doc comment, so that the reviewer asks for changes once. Continue until the task is done or blocked.

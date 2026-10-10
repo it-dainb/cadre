@@ -1,0 +1,15 @@
+schema_version: "1.1"
+name: fix-bug-main-never-edits
+description: "DESIGN §14 real-model (a): a plain \"fix this bug\" request; main must plan, never Edit or Bash (L1)."
+tags: [cadre, l1, main]
+plugins: ["../.."]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  model: sonnet
+  max_turns: 150
+  timeout_seconds: 2400
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TaskCreate, TaskUpdate, TaskList, TaskGet, "mcp__*"]
+  env:
+    EVAL_STACK: ts

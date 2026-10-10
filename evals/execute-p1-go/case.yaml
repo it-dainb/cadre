@@ -1,0 +1,15 @@
+schema_version: "1.1"
+name: execute-p1-go
+description: "DESIGN §14 real-model (b): execute the approved plan p-p1 end to end on the go fixture (tester → red → worker → green → reviewer → merge)."
+tags: [cadre, pipeline, go]
+plugins: ["../.."]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  model: sonnet
+  max_turns: 150
+  timeout_seconds: 2400
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TaskCreate, TaskUpdate, TaskList, TaskGet, "mcp__*"]
+  env:
+    EVAL_STACK: go

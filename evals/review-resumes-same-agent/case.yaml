@@ -1,0 +1,15 @@
+schema_version: "1.1"
+name: review-resumes-same-agent
+description: "DESIGN §14 real-model (d): a reviewer verdict \"changes\" resumes the SAME owner agentId (resume, not fresh)."
+tags: [cadre, reuse, review]
+plugins: ["../.."]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  model: sonnet
+  max_turns: 150
+  timeout_seconds: 2400
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TaskCreate, TaskUpdate, TaskList, TaskGet, "mcp__*"]
+  env:
+    EVAL_STACK: ts
