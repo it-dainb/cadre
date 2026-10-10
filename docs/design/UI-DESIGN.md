@@ -30,7 +30,7 @@
 | D3 | **Need-to-know for the human too** | Band = counts, strip and the single next human action. Detail is one key away. Raw transcripts, diffs and logs appear only as paths |
 | D4 | **Color is never the only signal** | Word tag + glyph + shape: `[ATTN]` `[CRIT]` `[WARN]` `[RUN]` `[OK]` `[READY]` `[WAIT]` `[IDLE]`, `● ◉ ○` strips, `━ ─ ┄` edges, `█ ▒ ░` spans, `. o * !` levels (legend §6.0) |
 | D5 | **Works on narrow terminals** | Layout keyed to `e.props.bodyColumns` (UI-02, UI-04 **V**): Epic view wide ≥116, stacked below; band ≥100 / 50–99 / <50 |
-| D6 | **Human-only actions are never performed by UI code** | Approve, reject, resolve, release and `drive on` happen only via composer `/cadre …` (CC-07, PC-04 **V**). No `$.ui.ask`/AskUserQuestion for gates (UI-30, BT-17 **V**) |
+| D6 | **Human-only actions are never performed by UI code** (*press excepted, ADR 0008*) | Approve, reject, resolve, release and `drive on` happen only via composer `/cadre …` (CC-07, PC-04 **V**). No `$.ui.ask`/AskUserQuestion for gates (UI-30, BT-17 **V**) |
 | D7 | **Secrets never sit in model-visible or forwarded places** | `code8` and the init code appear only on the band, in the pane and in a prefill. Never in command text/`context`, Task* output, `$.ui.notify` (forwarded to the user's `Notification` hooks, d.ts:2451 **V**), or the public read model (§2.3) |
 | D8 | **Read model in, commands out; render is pure** | Render reads `$.state` atoms only, never bd, git or `$.process` (§8) |
 | D9 | **Never open anything unasked** | The pane opens only from a command or a press (works at any width, UI-02 **V**); unasked needs ≥144 cols (U2 **V**) |
@@ -181,6 +181,7 @@ Core projects `CadreView` into `$.state` atom `cadre.board` after each committed
 **`/cadre`:** `open [epic|plan|task <id>|sync|cost|release|init]` (`immediate:true`, CC-02 **V**) · `approve <plan>` without a token → opens Plan; the command text is one line · `status` (text board, no secrets, C3 fallback).
 
 ### 5.2 Human-only actions: prefill, never perform
+> **Superseded by [ADR 0008](../adr/0008-click-decisions.md) for presses**: a Button press is human evidence and runs the command (decision card). D6's "never by UI code" now reads "never by UI code except a press"; the prefill path below remains the fallback and the Plan-tab sheet behaviour.
 **Threats.** Other mods can intercept our presses (UI-17 **V**). AskUserQuestion can be auto-answered (BT-17 **V**). A transcript-link click is composer origin (d.ts:8866-8869 **V**), so a model that knew `code8` could build a clickable approval.
 1. A button only calls:
    ```ts

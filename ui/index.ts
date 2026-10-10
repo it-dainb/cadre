@@ -58,7 +58,7 @@ export function acts(h: Host): Acts {
     press: cmd => later(h, async () => {
       const r = await h.press!(cmd); await ack(h)
       const bad = /^(refused|cadre:)|burned|changed since|nothing pending|wrong code/.test(r.text)
-      h.toast(bad ? `cadre: it changed or was refused; review again · ${r.text.split('\n')[0].slice(0, 60)}` : `cadre: ${r.text.split('\n')[0].slice(0, 80)}`); h.ops?.invalidate()
+      h.toast(bad ? `cadre: it changed or was refused; review again · ${r.text.split('\n')[0].slice(0, 60)}` : `cadre: ${r.text.split('\n')[0].slice(0, 36)}`); h.ops?.invalidate()
     }),
     step: (what, d) => later(h, async () => {
       const v = await read(h), ids = cols(at(v).tasks).flat().map(t => t.id), cur = v.t ?? v.now

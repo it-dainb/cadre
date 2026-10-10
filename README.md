@@ -63,6 +63,8 @@ Types (`feature`, `bug`, `refactor`, `docs`, `test`, `spike`) and their pipeline
 | `status` | anyone | text board and cost line |
 | `open [epic\|plan\|task <id>\|sync\|cost\|release\|init]` | anyone | open the `cadre` pane tab |
 
+**Decisions by click (0.4.0).** Every human action above also appears as a *decision card* in the cadre pane (`1` on the band opens it; it opens itself when there is room): a framed box with the question, a short description and buttons (Approve/Reject/Change, Confirm/Cancel, Accept/Reject, Keep/Restore, Release). A button press is human evidence and runs the same command bound to the code it was drawn with; a stale card is refused and redrawn. Where nothing draws (VS Code, `-p`) the typed commands above are unchanged. See [ADR 0008](docs/adr/0008-click-decisions.md).
+
 Native tools main uses: `TaskCreate/Update/List/Get`, `Agent`. Agents use three MCP tools: `report`, `inspect`, `run_check`.
 
 ## Config
