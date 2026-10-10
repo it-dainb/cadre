@@ -62,6 +62,8 @@ describe('file fence (13.2)', () => {
     expect(denied(await call(h, { tool: 'Read', agentId: 't1', file_path: '/x/bd-a1/src/a.ts' }))).toBe(true)
     expect(denied(await call(h, { tool: 'Read', agentId: 't1', file_path: '/x/bd-a1.view/../bd-a1/src/a.ts' }))).toBe(true)
     expect(await call(h, { tool: 'Read', agentId: 't1', file_path: '/x/bd-a1.view/t.test.ts' })).toEqual({ ok: 'Read' })
+    expect(await call(h, { tool: 'Write', agentId: 't1', file_path: '/x/bd-a1.view/tests/deeper/new.test.ts' })).toEqual({ ok: 'Write' })   // a new folder under the view is placed by its deepest existing ancestor (live: rust 'cannot place the path')
+    expect(denied(await call(h, { tool: 'Write', agentId: 't1', file_path: '/x/bd-a1.view/tests/../../bd-a1/src/new.ts' }))).toBe(true)
     expect(denied(await call(h, { tool: 'Glob', agentId: 't1', pattern: '/etc/*' }))).toBe(true)
     expect(denied(await call(h, { tool: 'Glob', agentId: 't1', pattern: '**/*.ts' }))).toBe(true)   // not a tester tool (S45); the fence still normalizes it for tool.check
     expect(await call(h, { tool: 'mcp__cadre__report', agentId: 't1' })).toEqual({ ok: 'mcp__cadre__report' })   // the tester's own report tool is not fenced (S41 live)

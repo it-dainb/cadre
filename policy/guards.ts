@@ -35,12 +35,19 @@ export function inputPath(tool: string, i: any, cwd: string): string | undefined
 
 // Step 1: where the path lands; a new file resolves its folder (SA-04). undefined = cannot place it.
 async function placed(h: Host, p: string): Promise<string | undefined> {
-  const cut = p.lastIndexOf('/'), name = p.slice(cut + 1)
+  const name = p.slice(p.lastIndexOf('/') + 1)
   if (!name || name === '.' || name === '..') return (await h.stat(p, { resolve: true }))?.realPath
   const own = await h.stat(p, { resolve: true })
   if (own) return own.realPath
-  const dir = await h.stat(cut < 0 ? '.' : p.slice(0, cut + 1), { resolve: true })
-  return dir?.realPath === undefined ? undefined : `${dir.realPath.replace(/\/$/, '')}/${name}`
+  // a new file (Write creates its folders): the deepest existing ancestor's real path + the rest; a '..' in the rest cannot be placed
+  const rest: string[] = []
+  for (let q = p; q.includes('/'); ) {
+    rest.unshift(q.slice(q.lastIndexOf('/') + 1)); q = q.slice(0, q.lastIndexOf('/')) || '/'
+    const dir = await h.stat(q, { resolve: true })
+    if (dir?.realPath !== undefined) return rest.some(x => x === '..' || x === '.') ? undefined : `${dir.realPath.replace(/\/$/, '')}/${rest.join('/')}`
+    if (q === '/') break
+  }
+  return undefined
 }
 
 // Who is calling: role + binding. Unknown ids and marker-less forks are explorers; no agentId = main.
