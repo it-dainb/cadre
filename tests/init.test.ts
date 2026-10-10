@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { discovered, repoKeyOf, run, wire } from '../commands/init'
+import { discovered, repoKeyOf, rootFor, run, wire } from '../commands/init'
 import { fakeHost } from './support'
 import { MemoryStore } from '../task-management/adapters/memory/store'
 import { fnv1a64 } from '../core/board'
@@ -229,4 +229,11 @@ describe('stage 7 changelog and 8 sync', () => {
     wire.syncAdd = async (_h, a) => `sync setup for ${a}`; expect(await run(h, ['8', 'pm'])).toBe('sync setup for pm')
     expect(await run(h, ['8', 'skip'])).toContain('skipped'); expect(await run(h, [])).not.toContain('init 8')
   })
+})
+
+test('rootFor: an agent cwd (worktree or view) maps back to the repo root recorded at session start; unknown paths stay', () => {
+  const roots = { 'run-568e48': '/work/run' }
+  expect(rootFor(roots, '/home/cc/.cache/cadre/wt/run-568e48/p-p1.1')).toBe('/work/run')
+  expect(rootFor(roots, '/home/cc/.cache/cadre/wt/run-568e48.views/p-p1.3')).toBe('/work/run')
+  expect(rootFor(roots, '/work/run')).toBe('/work/run'); expect(rootFor(undefined, '/x/y')).toBe('/x/y'); expect(rootFor(roots, '/other/run-5')).toBe('/other/run-5')
 })

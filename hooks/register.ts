@@ -23,7 +23,7 @@ import { tick } from '../task-management/sync-engine/loop'
 import { onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapCard, resumeBanner } from '../ui/index'
 import { load } from '../config/index'
 import { newToken } from '../core/dispatch'
-import { wire, repoKeyOf } from '../commands/init'
+import { wire, repoKeyOf, rootFor } from '../commands/init'
 import { BdStore } from '../task-management/adapters/beads/store'
 import { MemoryStore } from '../task-management/adapters/memory/store'
 
@@ -80,7 +80,7 @@ function host($): Host {
       } finally { void it.return?.(undefined) }
     },
     write: async (p, t) => { await $.fs.write(p, t) },
-    cwd: async () => (await read($, secret)).root ?? $.session.cwd(), home: async () => String((await $.env.get('HOME')) ?? ''),
+    cwd: async () => (await read($, secret)).root ?? rootFor(((await $.store.get('cadre:roots')) ?? undefined) as Record<string, string> | undefined, await $.session.cwd()), home: async () => String((await $.env.get('HOME')) ?? ''),
     ops: {   // ui/ side effects; a press's own work and every timer run through after()
       els: e => $.ui.resolve(e), open: a => $.ui.open(a), focused: async () => (await $.ui.panes()).some(p => p.id === 'cadre' && p.isFocused),
       toast: (t, o) => { void $.ui.toast(t, o) }, status: t => { void $.ui.status(t) }, invalidate: () => { void $.ui.invalidate('ui.render') }, blit: a => $.ui.blit(a),
@@ -116,7 +116,7 @@ export const register: Register = (on, opts) => {
   // session.start: agents, command, tools env, the one tick. Awaited before turn one (L7).
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'cadre', description: 'cadre: plan, approve, status, resolve, release, drive, init', argumentHint: '<sub> [args]', immediate: true })
-    const root = await $.session.cwd(); await update($, secret, x => ({ ...x, root }))   // the repo root for every hook: in a subagent hook $.session.cwd() is the agent's own view/worktree
+    const root = await $.session.cwd(); await update($, secret, x => ({ ...x, root })); await $.store.set('cadre:roots', { ...(((await $.store.get('cadre:roots')) ?? {}) as object), [repoKeyOf(root)]: root })   // the repo root for every hook: in a subagent hook $.session.cwd() is the agent's own view/worktree
     await $.env.set('CLAUDE_CODE_ENABLE_TODO_TOOLS', '1')
     await $.env.set('ENABLE_TOOL_SEARCH', 'false')   // S13: isDeferred:false alone does not stop deferral
     await start(host($)).catch(e => $.ui.log(`cadre: session start: ${e}`))   // $.store 'policy' + cadre.ui.cfg (agents ship as agents/*.md files, A28)

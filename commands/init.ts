@@ -32,6 +32,8 @@ interface Stage { n: number; name: string; done(c: Ctx): Promise<boolean>; propo
 
 const base = (p: string) => p.split('/').filter(Boolean).pop() ?? 'repo'
 export const repoKeyOf = (root: string) => `${base(root)}-${fnv1a64(root).slice(0, 6)}`
+// an agent's cwd is <wtRoot>/<repoKey>/<task> or <repoKey>.views/<task>: map it back to the repo root recorded at session.start (the per-session secret is gone after /clear)
+export const rootFor = (roots: Record<string, string> | undefined, cwd: string) => Object.entries(roots ?? {}).find(([k]) => cwd.includes(`/${k}/`) || cwd.includes(`/${k}.views/`))?.[1] ?? cwd
 export const scoped = async (h: Host, name: string) => `cadre:${repoKeyOf(await h.cwd())}:${name}`   // $.store keys are per repo (13.5)
 const git = (c: Ctx, ...a: string[]) => c.h.run(['git', ...a], { cwd: c.root })
 const ok = (text: string) => ({ ok: true, text }), no = (text: string) => ({ ok: false, text })
