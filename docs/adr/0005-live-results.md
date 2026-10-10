@@ -160,3 +160,28 @@ Fixed after the run: with bd missing the beads row appeared twice (probe, then l
 
 ### Dormant until init (live, local plugin dir)
 Plain git repo, no `.cadre/`, haiku via `tui.sh`: main's Bash call ran (`b.txt` written), `/cadre status` answered `cadre is off in this repo · run /cadre init`, no band or toast. `/cadre init 1` showed its diff and the code on the band (the band render must stay ungated: found and fixed here, the first run drew no code while dormant); after `/cadre init confirm <code>` created `.cadre/config.json`, the next Bash call in the same session was refused ("Bash is not available to main") and no file was written: active without a restart. The marketplace variant needs the push; the local plugin dir exercises the same code.
+
+## `/cadre init` end to end (0.6.0, ADR 0009)
+`harness/tui.sh`, haiku, 120 columns, bd 1.3.1. The project is `evals/fixtures/ts` copied into an empty folder with no git repo. Captures stay local (not committed).
+
+| Step | Result |
+|---|---|
+| Before the fix, container with no git identity (`GIT_*` set empty) | reproduced the user report: `git init` ran, `git commit` failed (`empty ident name`), an unborn `main` was left, and the reason was invisible |
+| After the fix, same container, press `a` on stage 1 | the card re-proposed with `! last try: git commit failed: git has no author name/email; run git config --global …` and `+ initial commit on main` (no `git init` line). The retry after fixing the identity is kit-tested: the container's empty env overrides git config |
+| `/cadre init` (identity set) | command text `init: stage 1/8 repo ready · confirm on the card`; card `init 1/8 repo · confirm` with `.git/info/exclude` and `.cadre/config.json` paths |
+| `a` | `stage 1/8 repo done · stage 2/8 store …`; the stage 2 card replaced it |
+| `a` (real `bd init`) | `stage 2/8 store done`; Claude got the mission brief at once; card `init 3/8 mission · Claude is on it` |
+| mission questions | main asked one AskUserQuestion round (goal / constraints / non-goals), answered with tmux keys, then `TaskCreate{kind:"mission"}`. Card `approve the mission · Build a new feature in this project`, with the goal, constraints and non-goals lines |
+| `a` on the mission card | mission recorded; Claude got the discovery brief; it spawned one Agent, which admission retyped as the explorer and haiku ran in the background |
+| explorer report | at the next main turn end: card `init 4/8 discovery · confirm` with `+ packages[.]: setup (none); checks test` |
+| `a` ×3, `s` | stages 4 to 7 done one after the other, then the stage 8 card ([s] Skip) and `stage 8/8 sync done · all stages done`; `/cadre init` again answers `init: all stages done`. `.cadre/config.json` has branches, packages, types, roles; `CHANGELOG.md`, `settings.local.json` (+ `.bak`), one initial commit, `main` + `dev` |
+| LOG | `init: stage 6 workflow proposed` / `… done` rows, no raw JSON |
+
+Found and fixed in the first run:
+- The hand-off turn ended while the background explorer ran, so the card said "Claude stopped". It now keeps "working" while `ui.discoveryAgent` is set.
+- After the report, main's context line still said "spawn the discovery explorer", and haiku reasoned about a second run. That line is now dropped once the explorer runs or has reported.
+- The mission card read "approve plan … · 0 tasks"; it now shows the mission.
+- A mission drafted in a later turn left a stale "stopped" card; it is now cleared at that turn's end.
+- `done` rows were missing from the log (level 0).
+
+The second run confirmed all five.

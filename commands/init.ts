@@ -127,6 +127,8 @@ const S3: Stage = {
     : { brief: MISSION, working: ['Claude is working on the mission…', 'answer its questions in the transcript, then approve the mission on its card'] }),
 }
 
+// the discovery explorer is running or has reported: main's context stops saying "spawn the discovery explorer" (core/briefs)
+export const explorerOut = async (h: Host) => !!(await h.ui.read()).discoveryAgent || !!(await h.store.get(`init.discovery:${repoKeyOf(await h.cwd())}`))
 const known = async (c: Ctx) => ((await c.h.store.get(`init.discovery:${c.rk}`)) as D.Pkg[] | undefined)
 // Discovery state lives in $.store (per user): the parsed report (set by `discovered`) and the audit of it (reused while the report is unchanged).
 export async function discovered(h: Host, report: unknown): Promise<string | null> {
