@@ -74,7 +74,7 @@ async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, 
   if (tester) return under(real, w.b!.worktree) ? 'allow' : 'write only inside your working directory'
   const own = w.owner && under(real, w.b!.worktree)
   if (!w.main && !own) return under(real, (await h.env()).TMPDIR || '/tmp') ? 'tmp' : 'write only inside your working directory (or $TMPDIR)'   // positive jail: file tools are not OS-sandboxed (ADR 0006)
-  if (!own && (under(real, pol.repo) || under(real, pol.wtRoot))) return 'project files are edited by the task agent only; spawn it for the task'
+  if (!own && (under(real, pol.repo) || under(real, pol.wtRoot))) return 'project files are edited by a task agent only; plan the change with TaskCreate, or spawn the agent of a planned task'
   if (modOwned(real, pol.home, pol.changelog)) return 'that path is managed for you and cannot be edited; leave it alone'
   if (w.owner && w.task?.step === 'worker' && (pol.locks?.[w.b!.taskId] ?? []).some(l => real === l || under(real, l))) return 'locked spec test: do not edit it; if it is wrong, report outcome "spec_change"'
 }
