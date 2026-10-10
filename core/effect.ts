@@ -6,6 +6,7 @@ import { inputPath, policyOf } from '../policy/guards'
 import { drainDelta, idsIn } from './briefs'
 import { logCall } from './specview'
 import { UI } from './reuse'
+import { noReportCard } from './render'
 
 const WRITERS = ['Edit', 'Write', 'NotebookEdit', 'Bash', 'PowerShell', 'Monitor']
 export const writes = (tool: string) => WRITERS.includes(tool) || (tool.startsWith('mcp__') && !tool.startsWith('mcp__cadre__'))   // no write capability in any allowlist -> skipped
@@ -104,7 +105,9 @@ async function after(h: Host, e: any, r: any): Promise<any> {
     const s = await h.board.read(), [id] = idsIn(String(e.prompt ?? e.input?.prompt ?? ''), s.tasks.map(t => t.id)), t = s.tasks.find(x => x.id === id)
     if (!t?.card) return r
     if (e.tool_use_id) await UI.mapCard?.(h, e.tool_use_id, t.id)
-    return { ...r, result: { ...r.result, content: [{ ...r.result.content[0], text: t.card.replace('\n', ' · ') }, ...r.result.content.slice(1)] } }
+    const aid = /agentId: (\S+)/.exec(String(r.result.content[0].text ?? ''))?.[1], b = aid ? (await h.bind.read())[aid] : undefined   // the step did not move: the agent stopped without reporting (its stop is observed after this result returns)
+    const text = b && b.taskId === t.id && t.step === b.step && ['tester', 'worker', 'reviewer'].includes(b.role) ? noReportCard(t, b.role, b.step) : t.card
+    return { ...r, result: { ...r.result, content: [{ ...r.result.content[0], text: text.replace('\n', ' · ') }, ...r.result.content.slice(1)] } }
   }
   const b = (await h.bind.read())[e.agentId]
   if (b?.role === 'tester') await logCall(h, e.agentId, { tool: e.tool, path: inputPath(e.tool, e.input ?? e, b.worktree), outcome: r?.deny ? String(r.deny) : r?.error ? 'error' : 'ok' })

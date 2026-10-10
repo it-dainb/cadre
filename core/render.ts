@@ -21,6 +21,9 @@ export const commitMessage = (c: Commit): string => {
 
 // result card, fixed ≤600 chars: TASK bd-a1 "Add login" · worker → review · green ✓ (test 41s) · files 4 (+120 −30) · commit 1a2b3c4 · $0.41 (cache 91%) · flags: none · next: …
 export interface Card { id: string; title: string; role: string; to: string; green?: { ok: boolean; check: string; secs: number }; files?: number; add?: number; del?: number; commit?: string; usd?: number; cachePct?: number; flags?: string[]; next: string }
+// an agent that stopped without calling report: the mod resumes it when main's turn ends (core/reuse drain), so main must not spawn it again
+export const noReportCard = (t: { id: string; title: string; flags?: string[] }, role: string, step: string): string =>
+  card({ id: t.id, title: t.title, role, to: step, flags: t.flags, next: `end your turn: the ${role} stopped without reporting; the mod resumes it to report when your turn ends. Do not spawn it again` })
 export const card = (c: Card): string => [
   `TASK ${c.id} "${c.title}"`, `${c.role} → ${c.to}`,
   c.green && `green ${c.green.ok ? '✓' : '✗'} (${c.green.check} ${c.green.secs}s)`,

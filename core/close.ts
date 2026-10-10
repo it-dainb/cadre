@@ -9,7 +9,7 @@ import { resolveDeps, type Deps } from './admission'
 import { agentsOf, unbindAgent } from './board'
 import { apply, STEP_CAT } from './machine'
 import { emit } from './events'
-import { card, comment, commitMessage, type Rec } from './render'
+import { card, comment, commitMessage, noReportCard, type Rec } from './render'
 import { checkpoint, queueResume } from './reuse'
 import { resolveGit, sweep } from './effect'
 import { policyOf } from '../policy/guards'
@@ -185,7 +185,7 @@ export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
     const task = await d.store.get(t.id), [st, n] = (task.meta['cadre.nudge'] ?? '').split(':'), k = st === b.step ? num(n) : 0
     if (k < 2) {
       await d.store.setMeta(t.id, { 'cadre.nudge': `${b.step}:${k + 1}` }, d.actor); await queueResume(h, { agentId: e.agentId, taskId: t.id, text: NUDGE[b.role] })
-      await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: b.role as any, to: b.step as any, flags: x.flags, next: `end your turn: the ${b.role} stopped without reporting; the mod resumes it (nudge ${k + 1}/2) when your turn ends. Do not spawn it again` }) }))   // else main re-spawns on the stale card (live)
+      await patch(h, t.id, x => ({ ...x, card: noReportCard(x, b.role, b.step) }))   // (wrap builds the same card for the Agent result, which returns before this stop is observed)
       return
     }
     if (b.role === 'reviewer') return unbind(h, e.agentId, 'stopped', t.id)   // a verdict is never invented; main spawns a fresh reviewer
