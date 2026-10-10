@@ -30,8 +30,10 @@ export function dag(v: View, sel: string, flash: string[], a: Acts): Line[] {
     node(t, ts, c, sel === t.id, flash.includes(t.id)).forEach((s, r) => [...s].forEach((ch, i) => { grid[y * ROWS + r][x * STRIDE + i] = ch; own[y * ROWS + r][x * STRIDE + i] = t.id }))
   }))
   const put = (x: number, y: number, m: number, w: number, arrow?: string) => { const o = cells.get(`${x},${y}`); cells.set(`${x},${y}`, { m: (o?.m ?? 0) | m, w: Math.max(o?.w ?? 0, w), a: arrow ?? o?.a }) }
+  const stubs: [number, number, string, number][] = []
   for (const t of ts) for (const d of t.deps) {
-    const u = pos.get(d.id), p = pos.get(t.id); if (!u || !p || p[0] - u[0] !== STRIDE) continue
+    const u = pos.get(d.id), p = pos.get(t.id); if (!u || !p || p[0] <= u[0]) continue
+    if (p[0] - u[0] !== STRIDE) { stubs.push([u[0] + W, u[1] + 3, `↷${t.id}`, 0], [p[0] - 5, p[1] + 3, `${d.id}↷`, 1]); continue }   // non-adjacent: a ↷ stub marker on both ends, around the gutter's vertical (x0+2)
     const w = d.type === 'conditional-blocks' ? 1 : ts.find(x => x.id === d.id)?.state === 'done' ? 3 : 2, ya = u[1] + 2, yb = p[1] + 2, xr = u[0] + W, vx = xr + 2, xl = p[0] - 1
     for (let x = xr; x < vx; x++) put(x, ya, 10, w)
     put(vx, ya, 8 | (yb > ya ? 4 : yb < ya ? 1 : 2), w)
@@ -41,6 +43,10 @@ export function dag(v: View, sel: string, flash: string[], a: Acts): Line[] {
     put(xl, yb, 10, w, w === 1 ? '▷' : '▶')
   }
   for (const [k, e] of cells) { const [x, y] = k.split(',').map(Number); grid[y][x] = e.a ?? (e.w === 1 && (e.m === 10 || e.m === 5) ? (e.m === 10 ? '┄' : '┆') : (e.w === 3 ? HEAVY : LIGHT)[e.m]) }
+  for (const [x, y, s, end] of stubs) {
+    const free = [x, x + 1, x + 3, x + 4], cs = [...s].slice(0, 4), at0 = end ? 4 - cs.length : 0
+    cs.forEach((ch, i) => { const f = free[at0 + i]; if (grid[y][f] === ' ') grid[y][f] = ch })
+  }
   rl.forEach((r, i) => {
     const y = i * ROWS, ins = (s: string, row: number) => [...s].forEach((ch, j) => { grid[y + row][rx + j] = ch })
     const mid = (s: string) => `│${s.padStart(Math.floor((12 + s.length) / 2)).padEnd(12)}│`

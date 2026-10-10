@@ -32,7 +32,7 @@ const NOOP: Acts = { go() {}, pick() {}, fill() {}, step() {} }
 export function acts(h: Host): Acts {
   return {
     go: tab => later(h, () => openPane(h, tab)),
-    pick: id => later(h, async () => { await h.ui.update(u => ({ ...u, sel: id })); await openPane(h, 'epic') }),
+    pick: id => later(h, async () => { await h.ui.update(u => ({ ...u, sel: id, go: false })); await openPane(h, 'epic') }),
     fill: cmd => later(h, async () => { await prefill(h, cmd); await ack(h) }),
     step: (what, d) => later(h, async () => {
       const v = await read(h), ids = cols(at(v).tasks).flat().map(t => t.id), cur = v.t ?? v.now
@@ -41,7 +41,7 @@ export function acts(h: Host): Acts {
       const p: Record<string, unknown> = what === 'sheet' ? { si: Math.max(0, Math.min(sheetOf(v).length - 1, Number(v.ui.si ?? 0) + d)) }
         : what === 'node' ? { sel: ids[(ids.indexOf(sel(v)) + d + ids.length) % ids.length] }
         : what === 'time' ? go(cur + d * unit) : what === 'attn' ? go(d > 0 ? evs.find(x => x > cur) ?? null : [...evs].reverse().find(x => x < cur) ?? null)
-        : what === 'live' ? { t: null, sel: undefined } : { tl: v.ui.tl === false }
+        : what === 'go' ? { go: !v.ui.go } : what === 'live' ? { t: null, sel: undefined } : { tl: v.ui.tl === false }
       await h.ui.update(u => ({ ...u, ...p })); await ack(h)
     }),
   }

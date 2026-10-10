@@ -1,5 +1,28 @@
 // GENERATED from tests/fixtures/ui/epic.ts CASES, reviewed against design/artifact/wireframes.json (trailing spaces trimmed; the engine's [-] mark is not drawn by us).
 export const GOLDEN: Record<string, string[]> = {
+ "epic stubs|118": [
+  "1: Epic  7: Plan  ·  p3 · epic/p3-auth-login · 4/8 done · ▶1 ⏸2 ◌1 · [LIVE] 62m",
+  "──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+  " ┌────────────────┐     ┏━━━━━━━━━━━━━━━━┓     ┌────────────────┐     ┌────────────────┐  ╭────────────╮ │ SELECTED  a2 · feat      [RUN] ▶",
+  " │a1 feat    [OK]✓│     ┃a2 feat   [RUN]▶┃     │a6 feat  [WAIT]⏸│     │a8 docs  [WAIT]⏸│  │  epic/p3   │ │ Session refresh",
+  " │Add login       │━━┳━▶┃Session refresh ┃──┳━▶│Remember me     │────▶│Ship docs       │  │   [RUN]▶   │ │ spec● red● impl◉ green○",
+  " │●●●●●● merged   │↷a┃8 ┃●●◉○○○ implement┃  ┃  │○○○○○○ waits a2 │ a 1↷│○○○ waits a6    │  ╰────────────╯ │ review○ merged○",
+  " └────────────────┘  ┃  ┗━━━━━━━━━━━━━━━━┛  ┃  └────────────────┘     └────────────────┘         │       │ after a1 [OK] ━ live edge",
+  "                     ┃                      ┃                                                    ▼       │ unblocks a6",
+  " ┌────────────────┐  ┃  ┌────────────────┐  ┃  ┌────────────────┐                         ╭────────────╮ │ worker 1 · 4m",
+  " │a4 docs    [OK]✓│  ┃  │a3 fix     [OK]✓│  ┃  │a5 fix   [IDLE]◌│                         │    dev     │ │ ─────────────────────────────────",
+  " │README auth     │  ┗━▶│Token clock skew│━━┻┄▷│Rate-limit fall…│                         │  [WAIT]⏸   │ │ LOG  latest first",
+  " │●●● merged      │     │●●●●●● merged   │     │○○○○○○ skipped  │                         ╰────────────╯ │  4m . wrk a2 implement",
+  " └────────────────┘     └────────────────┘     └────────────────┘                                │       │  8m o syn pm ok",
+  "                                                                                                 ▼       │  8m . rev a2 review",
+  " ┌────────────────┐                                                                       ╭────────────╮ │  8m o mod a2 active → review",
+  " │a7 spike   [OK]✓│                                                                       │    main    │ │  9m . mod a5 skipped (a3 passed)",
+  " │Spike: passkeys │                                                                       │  [WAIT]⏸   │ │  9m o mod a3 review → done",
+  " │●● reported     │                                                                       ╰────────────╯ │",
+  " └────────────────┘                                                                                      │",
+  "──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+  "TIMELINE  [LIVE] now 62m · █ work ▒ review ░ offline · . silent o band * toast ! notify · t: hide"
+ ],
  "band working|115": [
   "[RUN] cadre · p3 auth-login · strict · contained ✓ · drive ▶ 12/100 · ctx 34% · cache 87% · pm ✓",
   "  ✓a1 ✓a4 ✓a7 │ ▶a2 ✓a3 │ ⏸a6 ◌a5   4/7 done · ▶1 ⏸1 ◌1"
@@ -60,7 +83,7 @@ export const GOLDEN: Record<string, string[]> = {
   "explorer        ███████████                                             ┃",
   "sync                                              *░░░░░░░░░░░░░o       ┃",
   "──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-  "n/p: select node · h/l: time ±1 step · b/f: prev/next attention event · e: live · t: timeline"
+  "n/p: select node · h/l: time ±1 step · b/f: prev/next attention event · e: live · t: timeline · g: go to id"
  ],
  "epic replay stacked|58": [
   "1: Epic  7: Plan    [REPLAY t-12m] at 50m · e: live",
@@ -101,7 +124,7 @@ export const GOLDEN: Record<string, string[]> = {
   "exp    ██████                ┃",
   "syn                     *░░░░░╌╌",
   "──────────────────────────────────────────────────────────",
-  "n/p node · h/l time · b/f attention · e live · t hide"
+  "n/p node · h/l time · b/f attention · e live · t hide · g go"
  ],
  "epic live wide ascii|118": [
   "1: Epic  7: Plan  ·  p3 · epic/p3-auth-login · 4/7 done · >1 =1 .1 · [LIVE] 62m",
@@ -135,7 +158,7 @@ export const GOLDEN: Record<string, string[]> = {
   "explorer        ###########                                             |",
   "sync                                              *:::::::::::::o       |",
   "----------------------------------------------------------------------------------------------------------------------",
-  "n/p: select node · h/l: time ±1 step · b/f: prev/next attention event · e: live · t: timeline"
+  "n/p: select node · h/l: time ±1 step · b/f: prev/next attention event · e: live · t: timeline · g: go to id"
  ],
  "sheet wide|116": [
   "PLAN p3 auth-login · 7 tasks · 12 scenarios · packages api, web · commit types feat×3 fix×2 docs×1 chore×1",

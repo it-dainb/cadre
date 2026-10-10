@@ -5,10 +5,10 @@ import { sheet } from './sheet'
 import { type Tl, timeline } from './timeline'
 
 export type P = { before: Line[]; tl?: Tl; after: Line[] }
-const KEYS: Record<string, [string, number]> = { n: ['node', 1], p: ['node', -1], h: ['time', -1], l: ['time', 1], b: ['attn', -1], f: ['attn', 1], e: ['live', 0], t: ['tl', 0] }
+const KEYS: Record<string, [string, number]> = { n: ['node', 1], p: ['node', -1], h: ['time', -1], l: ['time', 1], b: ['attn', -1], f: ['attn', 1], e: ['live', 0], t: ['tl', 0], g: ['go', 0] }
 // "n/p: select node · h/l: …": every key letter before `/`, `:` or a space becomes a Button
 const footer = (txt: string, a: Acts, off: boolean): Line =>
-  txt.split(/(?<![a-z])([nphlbfet])(?=[/: ])/).map((s, i) => (i % 2 && !(off && 'hlbf'.includes(s)) ? S(s, undefined, { k: s, hk: s, p: () => a.step(KEYS[s][0], KEYS[s][1]) }) : S(s)))
+  txt.split(/(?<![a-z])([nphlbfetg])(?=[/: ])/).map((s, i) => (i % 2 && !(off && 'hlbf'.includes(s)) ? S(s, undefined, { k: s, hk: s, p: () => a.step(KEYS[s][0], KEYS[s][1]) }) : S(s)))
 
 export function sel(v: View): string {
   const ts = at(v).tasks
@@ -25,9 +25,10 @@ export function pane(v: View, w: number, rows: number, a: Acts, canRaster = true
   if (tab === 'plan') return { before: [...head.slice(0, 1), rule, ...sheet(v, w, a)], after: [] }
   const s = sel(v), fl = c.flash && v.t === null ? ts.filter(t => t.phaseSince > 0 && v.now - t.phaseSince < 1500).map(t => t.id) : [], flash = fl.length > 3 ? [] : fl
   const nLog = rows < 22 ? 2 : 6, showTl = canRaster && v.ui.tl !== false && rows >= 34
-  const tl = timeline(v, w), keys = v.t === null ? 'n/p: select node · h/l: time ±1 step · b/f: prev/next attention event · e: live · t: timeline' : 'n/p: select · h/l: time · b/f: attention event · e: live · t: timeline'
+  const tl = timeline(v, w), keys = v.t === null ? 'n/p: select node · h/l: time ±1 step · b/f: prev/next attention event · e: live · t: timeline · g: go to id' : 'n/p: select · h/l: time · b/f: attention event · e: live · t: timeline · g: go to id'
   const tlHead = L(canRaster ? tl.head : 'timeline: terminal only (Svg later)')
-  const foot = [rule, footer(wide ? keys : 'n/p node · h/l time · b/f attention · e live · t hide', a, false)]
+  const gid = v.ui.go ? [[S('go to id: '), S('', undefined, { k: 'g', inp: (x: string) => { const id = x.trim(); if (ts.some(t => t.id === id)) a.pick(id); else a.step('go', 0) } })]] : []
+  const foot = [rule, ...gid, footer(wide ? keys : 'n/p node · h/l time · b/f attention · e live · t hide · g go', a, false)]
   const tail = canRaster ? [showTl ? tlHead : [...tlHead, S(' ')]] : [tlHead]
   if (wide) {
     const left = dag(v, s, flash, a), rw = w - 85, right = [...detail(v, s, rw, false), L(T(c, '─'.repeat(rw))), L('LOG  latest first'), ...log(v, nLog, rw)]

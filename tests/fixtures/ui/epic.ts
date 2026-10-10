@@ -73,10 +73,13 @@ export const approval = (n = 62, code8 = 'ab12cd34'): View => view(n, { code8, b
 import { band } from '../../../ui/band'
 import { pane } from '../../../ui/pane'
 import { sheet, sheetSig } from '../../../ui/sheet'
+import { dag } from '../../../ui/epic'
 import { type Acts, T, txt } from '../../../ui/model'
 export const NOOP: Acts = { go() {}, pick() {}, fill() {}, step() {} }
 export const rtrim = (ls: string[]) => ls.map(l => l.trimEnd())
+export const withStub = (ts: SnapTask[]): SnapTask[] => [...ts, { ...ts[0], id: 'a8', title: 'Ship docs', type: 'docs', kind: 'docs', state: 'todo', step: '', deps: [D('a1'), D('a6')] }]
 export const CASES: Record<string, () => string[]> = {
+  'epic stubs|118': () => txt(pane(view(62, { tweak: withStub }), 118, 40, NOOP).before).slice(0, 26),
   'band working|115': () => txt(band(view(62), 115, NOOP)),
   'band working|55': () => txt(band(view(62), 55, NOOP)),
   'band working ascii|115': () => txt(band(view(62, { cfg: { glyphs: 'ascii' } }), 115, NOOP)),

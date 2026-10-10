@@ -10,7 +10,7 @@ import { type Line, T, at, gl, read, txt } from '../ui/model'
 import { levelOf, onEvent, textOf } from '../ui/notify'
 import { acts, openPane, prefill, renderBand, renderCard, renderPane, resumeBanner, tickUi } from '../ui/index'
 import { fakeHost } from './support'
-import { BASE, CASES, MIN, NOOP, SHEET, approval, ring, rtrim, view } from './fixtures/ui/epic'
+import { BASE, CASES, withStub, MIN, NOOP, SHEET, approval, ring, rtrim, view } from './fixtures/ui/epic'
 import { GOLDEN } from './fixtures/ui/golden'
 import { WIRE } from './fixtures/ui/wireframes'
 
@@ -108,6 +108,20 @@ describe('Epic view', () => {
   test('detail strip: pipeline marks, typed deps, unblocks', async () => {
     const d = txt(pane(view(62), 118, 40, NOOP).before).join('\n')
     expect(d).toContain('spec● red● impl◉ green○'); expect(d).toContain('review○ merged○'); expect(d).toContain('after a1 [OK] ━ live edge'); expect(d).toContain('unblocks a6')
+  })
+})
+
+describe('v1 gaps: stubs and go-to-id', () => {
+  test('non-adjacent dependency: ↷ stub on both ends, none for adjacent edges', async () => {
+    const g = txt(dag(view(62, { tweak: withStub }), 'a2', [], NOOP)).join('\n')
+    expect(g.split('↷').length - 1).toBe(4); expect(g).toMatch(/a8 docs/)
+    expect(txt(dag(view(62), 'a2', [], NOOP)).join('\n')).not.toContain('↷')
+  })
+  test('g opens an Input; a known id selects, an unknown one just closes it', async () => {
+    const got: string[] = [], a = { ...NOOP, pick: (i: string) => { got.push(`pick:${i}`) }, step: (w: string) => { got.push(`step:${w}`) } }
+    const f = (go: boolean) => segs(pane(view(62, { ui: { go } }), 118, 40, a).after)
+    expect(f(false).some(s => s.inp)).toBe(false); expect(f(false).some(s => s.hk === 'g')).toBe(true)
+    const i = f(true).find(s => s.inp)!; i.inp!('a3'); i.inp!('zz'); expect(got).toEqual(['pick:a3', 'step:go'])
   })
 })
 

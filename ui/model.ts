@@ -6,7 +6,7 @@ import { ofEpic } from '../core/events'
 export type Cfg = { glyphs: 'unicode' | 'ascii'; flash: boolean; notify: 'on' | 'off'; escalateAfterMs: number; maxTurns: number }
 export const CFG: Cfg = { glyphs: 'unicode', flash: true, notify: 'on', escalateAfterMs: 120_000, maxTurns: 100 }
 // A drawn line = segments: text, theme color, bold/inverse, and (for presses) a Button key, hotkey and action. Tests flatten them with txt().
-export type Seg = { t: string; c?: string; b?: boolean; i?: boolean; k?: string; hk?: string; p?: () => void }
+export type Seg = { t: string; c?: string; b?: boolean; i?: boolean; k?: string; hk?: string; p?: () => void; inp?: (v: string) => void }
 export type Line = Seg[]
 export type View = { b: Snapshot; ring: CadreEvent[]; sec: Secret; ui: Record<string, any>; c: Cfg; now: number; sx: string; t: number | null }
 export type Acts = { go(tab: string): void; pick(id: string): void; fill(cmd: string): void; step(what: string, d: number): void }   // handlers; the render never writes state
@@ -27,8 +27,8 @@ export const tg = (k: TagK) => `[${TAG[k][0]}]`
 export const col = (k: TagK) => TAG[k][3]
 export const REDO = (c: Cfg) => (c.glyphs === 'ascii' ? 'r' : '↻')
 // drawing marks (strip, edges, node borders, timeline cells) are written in unicode and mapped once for ascii; tag glyphs never pass through this
-const ASC: Record<string, string> = { '━': '=', '─': '-', '┄': '.', '┃': '|', '│': '|', '┆': ':', '▶': '>', '▷': '>', '●': '#', '◉': '@', '○': '-', '█': '#', '▒': '%', '░': ':', '╌': '-', '▼': 'v', '═': '=', '║': '|' }
-export const T = (c: Cfg, s: string) => (c.glyphs === 'ascii' ? s.replace(/[━─┄┃│┆▶▷●◉○█▒░╌▼═║┏┓┗┛┌┐└┘├┤┬┴┼┣┫┳┻╋╔╗╚╝╭╮╰╯]/g, m => ASC[m] ?? '+') : s)
+const ASC: Record<string, string> = { '━': '=', '─': '-', '┄': '.', '┃': '|', '│': '|', '┆': ':', '▶': '>', '▷': '>', '●': '#', '◉': '@', '○': '-', '█': '#', '▒': '%', '░': ':', '╌': '-', '↷': '^', '▼': 'v', '═': '=', '║': '|' }
+export const T = (c: Cfg, s: string) => (c.glyphs === 'ascii' ? s.replace(/[━─┄┃│┆▶▷↷●◉○█▒░╌▼═║┏┓┗┛┌┐└┘├┤┬┴┼┣┫┳┻╋╔╗╚╝╭╮╰╯]/g, m => ASC[m] ?? '+') : s)
 
 export const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, Math.max(0, n - 1))}…` : s)
 export const fit = (s: string, n: number) => cut(s, n).padEnd(n)
@@ -42,6 +42,7 @@ const pr = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).
 // Line[] -> element tree. Only place that builds elements: E = $.ui.resolve(e); constructors take `children` among the props.
 export const draw = (E: any, ls: Line[]) =>
   E.Box({ flexDirection: 'column', children: ls.map(l => E.Box({ flexDirection: 'row', children: (l.length ? l : [S(' ')]).map(s => {
+    if (s.inp) return E.Input({ key: s.k, placeholder: 'task id', autoFocus: true, onSubmit: s.inp })
     const x = E.Text(pr({ color: s.c, bold: s.b || undefined, inverse: s.i || undefined, wrap: 'truncate-end', children: s.t }))
     return s.k ? E.Button(pr({ key: s.k, plain: true, hotkey: s.hk, onPress: s.p, children: [x] })) : x
   }) })) })
