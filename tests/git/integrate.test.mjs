@@ -84,7 +84,7 @@ test('integration refreshes a dev checkout that has human edits: unrelated edits
     const { d, h } = await world(); sh(d, 'checkout', '-q', 'dev'); writeFileSync(join(d, conflict ? 'c.txt' : 'notes.txt'), 'mine\n')
     assert.equal(await integrateEpic(h, 'p3'), null)
     assert.equal(readFileSync(join(d, conflict ? 'c.txt' : 'notes.txt'), 'utf8'), 'mine\n')   // never reset --hard
-    if (conflict) assert.match(h.toasts.join('\n'), /conflicting edits/)
+    if (conflict) assert.match(h.toasts.join('\n'), /your edits kept · git stash/)
     else { assert.equal(readFileSync(join(d, 'c.txt'), 'utf8'), 'c\n'); assert.match(sh(d, 'status', '--porcelain'), /^\?\? notes\.txt$/) }   // c.txt checked out, nothing staged as a revert
   }
 })
