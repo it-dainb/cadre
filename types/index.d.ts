@@ -89,7 +89,22 @@ export interface Host {
   settings(): Promise<Record<string, any>>             // $.settings.read(): effective merged settings
   write(path: string, text: string): Promise<void>     // $.fs.write (creates dirs); mod-owned files only, after human confirmation (CC-16)
   cwd(): Promise<string>; home(): Promise<string>      // session cwd (repo root) · $HOME
+  ops?: UiOps                                          // ui/ side effects (render, toast, notify, prefill, timers); built by host($), absent in plain test hosts
   taskStore?(): Promise<any>; config?(): Promise<any>   // the TaskStore (a core/dispatch storeOf) and resolved Config; register.ts wires them (config falls back to env layer + defaults)
+}
+// UI side effects (ui/ only). Built per hook by host($); optional so test hosts may omit it.
+export interface UiOps {
+  els(e: any): any                                   // $.ui.resolve(e): element constructors for a render event
+  open(a: { id: string; title?: string; focus?: true; columns?: number; rows?: number }): Promise<{ isPlaced: boolean; reason?: string }>
+  focused(): Promise<boolean>                        // the cadre pane holds the keyboard
+  toast(t: string, o?: { timeoutMs?: number }): void
+  notify(t: string, o?: { title?: string }): Promise<{ isSent: boolean }>
+  status(t: string | undefined): void
+  peek(): Promise<string>                            // composer draft ($.prompt.read)
+  fill(text: string): Promise<{ isFilled: boolean }> // $.prompt.fill replace
+  after(ms: number, fn: () => unknown): void         // $.clock.after
+  invalidate(): void                                 // $.ui.invalidate('ui.render')
+  blit(a: { requestId: string; key: string; cells: string }): Promise<unknown>
 }
 // Every hook slot has this shape; a slot returns next(e) to pass through.
 export type Hook = (h: Host, e: any, next: (e: any) => any) => any

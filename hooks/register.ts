@@ -5,7 +5,7 @@ import type { Register } from 'claude-code'
 import type { Host } from '../types'
 import { roster } from '../agents/index'
 import { emptySnapshot } from '../core/board'
-import { emptyRing } from '../core/events'
+import { emptyRing, subscribe } from '../core/events'
 import { drain, step, compact } from '../core/reuse'
 import { observe } from '../core/close'
 import { admit } from '../core/admission'
@@ -18,6 +18,7 @@ import { context, attachment } from '../core/briefs'
 import { run } from '../commands/cadre'
 import { defaults } from '../config/index'
 import { tick } from '../task-management/sync-engine/loop'
+import { onEvent, renderBand, renderCard, renderPane, tickUi } from '../ui/index'
 import { load } from '../config/index'
 import { newToken } from '../core/dispatch'
 import { wire, repoKeyOf } from '../commands/init'
@@ -67,6 +68,13 @@ function host($): Host {
     settings: () => $.settings.read(),
     write: async (p, t) => { await $.fs.write(p, t) },
     cwd: () => $.session.cwd(), home: async () => String((await $.env.get('HOME')) ?? ''),
+    ops: {   // ui/ side effects; a press's own work and every timer run through after()
+      els: e => $.ui.resolve(e), open: a => $.ui.open(a), focused: async () => (await $.ui.panes()).some(p => p.id === 'cadre' && p.isFocused),
+      toast: (t, o) => { void $.ui.toast(t, o) }, status: t => { void $.ui.status(t) }, invalidate: () => { void $.ui.invalidate('ui.render') }, blit: a => $.ui.blit(a),
+      notify: async (t, o) => { try { return { isSent: !!(await $.ui.notify(t, o)).isSent } } catch { return { isSent: false } } },
+      peek: async () => (await $.prompt.read()).text, fill: async t => ({ isFilled: !!(await $.prompt.fill({ text: t, mode: 'replace' })).isFilled }),
+      after: (ms, fn) => { void $.clock.after(ms, () => { void Promise.resolve(fn()).catch(() => {}) }) },
+    },
   }
   h.config = async () => { const root = await h.cwd(); return (await load(h, { home: await h.home(), root, repoKey: repoKeyOf(root) })).config }
   h.taskStore = async () => wire.store(h, await h.config!(), await h.cwd())
@@ -85,6 +93,7 @@ function denySend($, e, next) { return next.error?.kind === 're-entry' ? next(e)
 
 export const register: Register = (on, opts) => {
   options = { strictness: opts?.strictness as string | undefined }
+  subscribe(onEvent)   // ui/notify: toasts, notify, status line from the event stream
 
   // session.start: agents, command, tools env, the one tick. Awaited before turn one (L7).
   on('session.start', async ($, e, next) => {
@@ -95,6 +104,7 @@ export const register: Register = (on, opts) => {
     await newToken(host($))   // session token for adapter commands: toast only (DESIGN 2.5)
     await contain(host($)).catch(() => {})   // L2 check -> board.containment (13.1)
     $.clock.every(5000, () => { void tick(host($)).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
+    $.clock.every(30_000, () => { void tickUi(host($)) })   // live timeline cursor (blit, no re-render)
     return next(e)
   })
 
@@ -120,4 +130,8 @@ export const register: Register = (on, opts) => {
   on('session.compact', ($, e, next) => compact(host($), e, next)).catch(passOn)
   on('command.run', { command: 'cadre' }, ($, e, next) => run(host($), e, next)).catch(denyCmd)
   on('config.set', ($, e, next) => configSet(host($), e, next)).catch(denySpawn)
+  // ui (UI-DESIGN): every ui.render hook names its component (U7); render is pure, state is written from handlers only
+  on('ui.render', { component: 'AbovePrompt' }, ($, e, next) => renderBand(host($), e, next))
+  on('ui.render', { component: 'Pane', requestId: 'cadre' }, ($, e) => renderPane(host($), e))
+  on('ui.render', { component: 'ToolUse', props: { tool: 'Agent' } }, ($, e, next) => renderCard(host($), e, next))
 }
