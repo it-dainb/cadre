@@ -132,10 +132,11 @@ async function handOff(h: Host, text: string, n: number): Promise<void> {
   await h.secret.update(s => ({ ...s, setupFix: { n, text, sent: true } }))
   void Promise.resolve().then(() => h.submit!(text)).catch(() => h.secret.update(s => ({ ...s, setupFix: { n, text } })))
 }
-// turn.start (every turn, any caller of $.prompt.submit: a press's own call is invisible to our prompt.submit hook, G6): the turn whose text IS our stored brief is the fix turn
+// ours = the brief itself, or a turn with no typed prompt (the engine may not pass a plugin message as text); a user's own prompt in between differs.
+// turn.start (every turn, any caller of $.prompt.submit: a press's own call is invisible to our prompt.submit hook, G6): the first turn after the send whose text is our brief (or empty) is the fix turn
 export async function turnStarted(h: Host, e: { text?: string; turnId?: string }): Promise<void> {
   const f = (await h.secret.read()).setupFix
-  if (f?.sent && !f.turn && e.turnId && e.text === f.text) await h.secret.update(s => ({ ...s, setupFix: { ...f, turn: e.turnId } }))
+  if (f?.sent && !f.turn && e.turnId && (!e.text || e.text.includes(f.text))) await h.secret.update(s => ({ ...s, setupFix: { ...f, turn: e.turnId } }))
 }
 // main's turn.complete: send a queued brief; at the end of the fix turn run the scripted actions it skipped, then re-check (card, stamp). Never hands off again.
 export async function afterFix(h: Host, e: { turnId?: string } = {}): Promise<void> {
