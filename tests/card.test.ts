@@ -130,3 +130,11 @@ describe('opening: focus only while the composer is empty', () => {
     expect(u.of('open')).toEqual([{ id: 'cadre', title: 'cadre', columns: 120 }])
   })
 })
+
+describe('band in a docked-pane column', () => {
+  test('at 24 and 36 columns the ⚑ row wraps (no truncation) and keeps its button', () => {
+    for (const w of [24, 36]) for (const v of [approval(), view(82), KINDS[2][1]()]) {
+      const ls = band(v, w, NOOP); expect(ls.every(l => wid(l) <= w)).toBe(true); expect(txt(ls).join(' ')).not.toContain('…'); expect(ls.flat().some(s => s.hk === '1')).toBe(true)
+    }
+  })
+})

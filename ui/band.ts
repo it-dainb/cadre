@@ -1,6 +1,6 @@
 // Band above the prompt (UI-DESIGN 6.1): status line + mini-DAG strip, the ⚑ NEEDS YOU row, keys `1` and `d`. Idle with no plan: nothing drawn (a pending init code still draws).
 import { type Acts, type Line, type TagK, type View, L, S, T, attention, col, cols, gl, kindOf, padL, REDO, tg } from './model'
-import { stats } from './sheet'
+import { stats, wrap } from './sheet'
 
 // one glyph (+ id) per task in depth order, `│` between depths; over-long strips fold the done end into `+n✓`
 export function strip(v: View, ids: boolean, room: number): string {
@@ -43,7 +43,9 @@ export function band(v: View, w: number, a: Acts): Line[] {
   const c = v.c, label = top.tab === 'plan' ? 'open sheet' : 'open', open = `1: ${label}`
   const body = (top.tag === 'attn' ? '' : `${tg(top.tag)} ${gl(c, top.tag)} `) + (wide ? top.text + (top.tab === 'plan' ? stats(v) : '') : top.short ?? top.text)
   const head = `${tg('attn')} ${gl(c, 'attn')} ${wide ? 'NEEDS YOU · ' : ''}${body}`
-  const r1: Line = [{ t: tg('attn'), c: col('attn'), b: true }, S(head.slice(tg('attn').length)), S(' '.repeat(Math.max(1, w - head.length - open.length))), S(label, undefined, { k: 'att', hk: '1', p: () => (top.btn ? a.go('card') : top.sel ? a.pick(top.sel) : a.go(top.tab)) })]
+  const bt = S(label, undefined, { k: 'att', hk: '1', p: () => (top.btn ? a.go('card') : top.sel ? a.pick(top.sel) : a.go(top.tab)) }), tag0: Line = [{ t: tg('attn'), c: col('attn'), b: true }]
+  if (w < 40) { const [f, ...rest] = wrap(head, w, '  '); return [[...tag0, S(f.slice(tg('attn').length))], ...rest.map(x => L(x)), [bt]] }   // docked pane: the band is as narrow as the transcript column; wrap, never truncate
+  const r1: Line = [...tag0, S(head.slice(tg('attn').length)), S(' '.repeat(Math.max(1, w - head.length - open.length))), bt]
   if (w < 50) return [r1]
   const cmd = top.cmd ? (wide ? `  type  ${top.cmd}   (or press 1, then a)` : `  ${top.cmd}`) : ''
   const r2: Line | null = cmd ? padL(L(cmd), w - 12).concat(wide ? [S('Epic view', undefined, { k: 'dag', hk: 'd', p: () => a.go('epic') })] : []) : null
