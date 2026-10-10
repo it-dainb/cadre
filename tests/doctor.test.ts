@@ -50,9 +50,9 @@ describe('machine checks', () => {
     expect(lvl(rs, /bwrap/)[2]).toBe('! sudo sh ~/.cache/cadre/fix/bwrap.sh')
     expect(lvl(rs, /socat/)[2]).toBe('! sudo sh ~/.cache/cadre/fix/socat.sh')
   })
-  test('old bd fails, old bwrap warns (copy-jail), no namespaces warns', async () => {
+  test('old bd fails, old bwrap is ok in copy-jail mode with no sudo step, no namespaces warns', async () => {
     expect(lvl(await rowsOf(mk({ tools: { git: 'git version 2.43.0', bd: 'bd version 1.2.9', bwrap: 'bubblewrap 0.8.0', socat: 'x' }, jail: 'copy' })), /bd/)[0]).toBe('crit')
-    expect(lvl(await rowsOf(mk({ jail: 'copy' })), /overlay/)[0]).toBe('warn')
+    { const r = await rowsOf(mk({ jail: 'copy' })); expect(lvl(r, /copy jail/)[0]).toBe('ok'); expect(JSON.stringify(r)).not.toContain('bwrap-upgrade') }
     expect(lvl(await rowsOf(mk({ jail: 'none' })), /user namespace/)[0]).toBe('warn')
   })
   test('macOS: no bwrap, no socat check, throwaway-worktree mode', async () => {
@@ -89,7 +89,7 @@ describe('setup', () => {
     expect(t).toBe('setup: 2 actions ready · confirm with the code on the band'); expect(banned(t)).toEqual([]); expect(t.includes('\n')).toBe(false)
     expect(h.calls.some(a => a[0] === 'npm' && a[1] === 'install')).toBe(false); expect(h.writes).toEqual([]); expect((await sigOf(h)).stage).toBe(90); expect(await h.store.get('cadre:setup')).toBeUndefined()
     expect((await h.ui.read())['setup.plan']).toMatchObject({ acts: [['installing bd', ''], ['writing user settings', '']] })
-    expect(h.logs).toHaveLength(1)
+    expect(h.logs).toHaveLength(1); await setup(h, []); expect(h.logs).toHaveLength(1)   // same result again: no new transcript row
   })
   test('confirm runs the actions in order, re-checks, stamps, and short toasts', async () => {
     const h = mk({ tools: NOBD, files: { [USER]: '{"theme":"dark"}\n' } }); await setup(h, []); const t = await setup(h, ['confirm', (await sigOf(h)).code])

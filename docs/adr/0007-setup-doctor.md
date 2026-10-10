@@ -57,3 +57,6 @@ Bug from a real machine: the card printed the sudo commands inside the `║` bor
 - Copy: the 2.1.295 API has a clipboard (`$.ui.copy`, UI-31), so the card gets `[y] Copy command` (`setup copy`, verb change): it copies the short line of the first pending sudo fix and the toast says `copied` (`not copied: select the line in the card` when the terminal has no clipboard). Shown only when `Host.ops.copy` exists and a sudo line is pending. No surface is passed (a press path has none to pass); the session's first surface is used.
 - [r] Re-check is unchanged: once the human ran the script the probe passes, the row turns green and the card clears (tested by flipping the machine fixture).
 Live: AppArmor cannot be simulated in the harness (it runs unconfined), so this is kit-tested only; the card was not captured live.
+
+## 0.5.2
+bwrap < 0.11 (e.g. Ubuntu 24.04 ships 0.9) has no overlay: the copy jail is a supported mode, so setup/doctor report it as OK with no sudo step. Asking for an upgrade the distro cannot provide left an unsatisfiable "needs you" card.

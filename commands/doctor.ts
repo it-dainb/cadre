@@ -67,7 +67,7 @@ export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; fact
         human.push(`less safe options: ${shown}/README`)
       } else if (clone === '0') add(['warn', `bwrap ${wv} cannot create a user namespace (kernel.unprivileged_userns_clone=0)`, fix('userns-clone', 'allows unprivileged user namespaces (kernel.unprivileged_userns_clone=0 blocks bwrap).', 'sysctl -w kernel.unprivileged_userns_clone=1')])
       else add(['warn', `bwrap ${wv} cannot create a user namespace`, 'see https://code.claude.com/docs/en/sandboxing'])
-    } else add(facts.jail === 'copy' ? ['warn', `bwrap ${wv}: no overlay (needs >= 0.11), checks run in a throwaway copy`, fix('bwrap-upgrade', 'upgrades bubblewrap to 0.11 or newer (overlay jail).', `${pm} bubblewrap`, !mac)] : ['ok', `bwrap ${wv}: overlay jail`])
+    } else add(facts.jail === 'copy' ? ['ok', `bwrap ${wv}: copy jail (overlay needs >= 0.11; works, a little slower)`] : ['ok', `bwrap ${wv}: overlay jail`])
     const s = await r(['socat', '-V'])
     add(!s || s.exitCode ? ['crit', 'socat not found (the Claude sandbox needs it)', fix('socat', 'installs socat (the Claude sandbox needs it).', `${pm} socat`, !mac)] : ['ok', 'socat present'])
   }
@@ -89,7 +89,9 @@ const userPlan = async (h: Host) => mplan(h, await userPath(h), PATCH).catch((e:
 async function report(h: Host, name: string, rows: Row[], text?: string, extra: string[] = []): Promise<string> {
   await h.ui.update(u => ({ ...u, 'doctor.rows': rows }))
   const bad = rows.filter(r => r[0] === 'crit').length, warn = rows.filter(r => r[0] === 'warn').length
-  h.log(`${name}: ${[...extra, bad && `${bad} fail`, warn && `${warn} warn`, !extra.length && !bad && !warn && 'all ok', 'see the cadre pane'].filter(Boolean).join(' · ')}`)
+  const line = `${name}: ${[...extra, bad && `${bad} fail`, warn && `${warn} warn`, !extra.length && !bad && !warn && 'all ok', 'see the cadre pane'].filter(Boolean).join(' · ')}`
+  let fresh = false; await h.ui.update(u => { fresh = u['doctor.last'] !== line; return { ...u, 'doctor.last': line } })
+  if (fresh) h.log(line)   // a re-check with the same result adds no new transcript row
   if (h.ops) await openPane(h, 'doctor')
   return text ?? (bad || warn ? `${name}: ${bad} fail, ${warn} warn — report in the cadre pane` : `${name}: all ok`)
 }
