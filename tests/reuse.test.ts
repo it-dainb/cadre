@@ -189,6 +189,11 @@ describe('compaction (8.3, S49) and rehydrate (8.2, 13.4)', () => {
     expect(await rehydrate(m)).toBe(false); expect((await m.board.read()).mission).toBe('Ship it')   // a recorded mission survives into a cold session
     void store
   })
+  test('cold board, no task store yet (init before stage 2): rehydrate is false and logs nothing', async () => {
+    const f = fakeHost() as any, logs: string[] = []; f.log = (t: string) => { logs.push(t) }
+    f.taskStore = async () => ({ list: async () => { throw new Error('no beads database found') } })
+    expect(await rehydrate(f)).toBe(false); expect(logs).toEqual([])
+  })
   test('ring rebuilt from the journal (transitions) + at-stamped records (phases), fresh seqs; adapters reset; records-only without a journal', async () => {
     const one = await mk({ journal: true, cfg: c => { c.adapters = { pm: {} } } })
     await one.store.setMeta(one.a, { 'cadre.rec.report': `[cadre:report v1] ${one.a} @5000 by worker\ncommit: abc` }, 'me')

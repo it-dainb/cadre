@@ -35,7 +35,8 @@ export async function savePointer(h: Host) {
 async function adopt(h: Host, b0: Snapshot) {
   if ((await h.secret.read()).adoptTried) return undefined
   await h.secret.update(x => ({ ...x, adoptTried: true }))
-  const store = await storeOf(h), all = await store.list({}), prefix = (await cfgOf(h)).branches.epicPrefix
+  const store = await storeOf(h), all = await store.list({}).catch(() => undefined), prefix = (await cfgOf(h)).branches.epicPrefix
+  if (!all) return undefined   // no store yet (before init stage 2): nothing to adopt, and not an error to show
   const e = all.filter(t => t.type === 'epic' && !t.meta['cadre.kind'] && t.category !== 'done' && t.category !== 'cancelled' && all.some(c => c.parent === t.id && c.category !== 'draft')).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))[0]
   const mission = b0.mission ?? (await missionOf(store))
   if (!e && mission) await h.board.update(b => ({ ...b, mission }))
