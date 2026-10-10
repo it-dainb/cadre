@@ -2,21 +2,23 @@
 
 A Claude Code mod that makes planning, approval and execution an enforced loop. Main plans and manages; it never edits code and has no shell. Each approved task runs its type's pipeline in its own git worktree (tester red → worker green → independent review → merge). The mod owns git; workers cannot commit or push. State lives in [beads](https://github.com/gastownhall/beads) (`bd`).
 
-Design: `design/DESIGN.md` v2.5 · UI: `design/UI-DESIGN.md` · M0 results: [`docs/adr/0001-m0-results.md`](docs/adr/0001-m0-results.md) · extension protocol: [`docs/protocol.md`](docs/protocol.md) · module contracts: [`docs/CONTRACTS.md`](docs/CONTRACTS.md).
+Design: `docs/design/DESIGN.md` v2.5 · UI: `docs/design/UI-DESIGN.md` · M0 results: [`docs/adr/0001-m0-results.md`](docs/adr/0001-m0-results.md) · extension protocol: [`docs/protocol.md`](docs/protocol.md) · module contracts: [`docs/CONTRACTS.md`](docs/CONTRACTS.md).
 
-## Requirements
-- Claude Code **2.1.295** (the pinned build), `git`, `bd` **≥ 1.3.0** (tested with 1.3.1), `bwrap` (bubblewrap ≥ 0.8) for jailed checks.
-- Per repo: whatever toolchain its checks need (discovered, never assumed).
+## Install
+Requirements: Claude Code **2.1.295** (the pinned build), `git`, `bd` **≥ 1.3.0** (tested with 1.3.1), `bwrap` (bubblewrap ≥ 0.8, Linux) for jailed checks. Per repo: whatever toolchain its checks need (discovered, never assumed).
 
-## Install / load
+From the marketplace (this repo is one):
 ```bash
-CC=~/.local/share/claude/versions/2.1.295   # the pin; do not use PATH `claude`
-$CC plugin validate --strict ./cadre
-$CC plugin test ./cadre
-$CC --plugin-dir ./cadre            # in the repo you want to manage
+claude plugin marketplace add it-dainb/cadre     # in Claude Code: /plugin marketplace add it-dainb/cadre
+claude plugin install cadre@cadre                # in Claude Code: /plugin install cadre@cadre
 ```
-Marketplace install: `/plugin install cadre --marketplace <owner>/<repo>` (Claude Code 2.1.275+; <owner>/<repo> is the marketplace that lists cadre). Local: `--plugin-dir` as above.
-Debug a run: add `--debug-file cadre.log`.
+Development (from a checkout; use the 2.1.295 binary, not whatever `claude` is on PATH):
+```bash
+CC=<path to claude 2.1.295>
+$CC plugin validate --strict . && $CC plugin test .
+$CC --plugin-dir .                  # in the repo you want to manage
+```
+Debug a run: add `--debug-file cadre.log`. Live smokes/evals run in Docker via [`harness/`](harness/README.md) (also able to install from the marketplace: `CADRE_SOURCE=marketplace`). Live evidence (`docs/evidence/`) is local-only and gitignored.
 
 ## First run: `/cadre init`
 `/cadre init` runs the next incomplete stage; `/cadre init <stage>` re-runs one. Each stage proposes a diff, waits for `/cadre init confirm <code>` typed by you, validates by running, then saves (a `.bak` is written first). The code is redrawn on every attempt.

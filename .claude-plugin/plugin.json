@@ -2,16 +2,22 @@
   "name": "cadre",
   "version": "0.1.0",
   "description": "Plan, approve, and run tasks through an enforced pipeline: main plans, owners edit code in worktrees, the mod owns git.",
-  "author": { "name": "cadre" },
-  "license": "MIT",
+  "author": {
+    "name": "it-dainb"
+  },
   "types": "./types/index.d.ts",
   "userConfig": {
     "strictness": {
       "type": "string",
       "title": "Strictness",
       "description": "strict: every denial blocks. advisory: denials become warnings.",
-      "options": ["strict", "advisory"],
+      "options": [
+        "strict",
+        "advisory"
+      ],
       "default": "strict"
     }
-  }
+  },
+  "repository": "https://github.com/it-dainb/cadre",
+  "homepage": "https://github.com/it-dainb/cadre"
 }

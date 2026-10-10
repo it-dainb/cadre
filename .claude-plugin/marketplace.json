@@ -1,0 +1,12 @@
+{
+  "name": "cadre",
+  "description": "Cadre: an enforced plan, approve, run pipeline for Claude Code.",
+  "owner": { "name": "it-dainb" },
+  "plugins": [
+    {
+      "name": "cadre",
+      "source": "./",
+      "description": "Plan, approve, and run tasks through an enforced pipeline: main plans, owners edit code in worktrees, the mod owns git."
+    }
+  ]
+}
