@@ -1,0 +1,203 @@
+import { describe, expect, test } from 'claude-code/testing'
+import { admitWith, beat, leaseLive } from '../core/admission'
+import type { Deps } from '../core/admission'
+import { defaults } from '../config/index'
+import { MemoryStore } from '../task-management/adapters/memory/store'
+import { agentsOf, bindAgent } from '../core/board'
+import { idsIn } from '../core/briefs'
+import { ofEpic } from '../core/events'
+import { fakeHost, task } from './support'
+import type { Host, SnapTask } from '../types'
+
+const T0 = 1_700_000_000_000
+// One world = one MemoryStore + a git script. `session(n)` = one more session over the same store (own board, bindings, $.state).
+function world(types: Record<string, string> = {}) {
+  const clock = { now: T0 }, store = new MemoryStore(() => clock.now), calls: string[][] = [], refs = new Set(['epic/p1-x', 'dev']), dirs = new Set<string>()
+  const run = async (argv: readonly string[]) => {
+    calls.push([...argv]); const a = argv.slice(3), out = (stdout = '', exitCode = 0) => ({ exitCode, stdout, stderr: '' })
+    if (a[0] === 'rev-parse') return a.includes('--quiet') ? out('', refs.has(a[a.length - 1].replace('^{commit}', '')) ? 0 : 1) : out('abc1234\n')
+    if (a[0] === 'worktree' && a[1] === 'add') { dirs.add(a.includes('-b') ? a[4] : a[2]); if (a.includes('-b')) refs.add(a[3]) }
+    if (a[0] === 'worktree' && a[1] === 'remove') dirs.delete(a[a.length - 1])
+    if (a[0] === 'diff' && a[1] === '--stat') return out(' a.ts | 1 +\n')
+    return out()
+  }
+  const mk = async (n: string) => {
+    const h: Host & { logs: string[] } = { ...fakeHost({ t0: T0 }), now: async () => clock.now, run, stat: async (p: string) => (dirs.has(p) ? { kind: 'dir' } : undefined) } as any
+    h.rand = (k = 16) => `${n}${'0'.repeat(k * 2)}`.slice(0, k * 2)
+    const d: Deps = { store, cfg: defaults(), reg: defaults().types as any, root: '/repo', home: '/home/u', wtRoot: '/wt', key: 'repo-1', actor: 'cadre/u/aaaaaa', session: `s-${n}` }
+    return { h, d }
+  }
+  const plan = async (...specs: { type?: string; deps?: { id: string; type: any }[] }[]) => {
+    await store.init({ types: {} as any, journal: true }); const epic = await store.createEpic('E', 'goal'), ids: string[] = []
+    for (const [i, s] of specs.entries()) ids.push((await store.createDraft({ title: `task ${i}`, description: 'd', acceptance: 'S1: Given x When y Then z', design: JSON.stringify({ symbols: [{ name: 'f', kind: 'fn', params: 'a', returns: 'b', status: 'new' }] }), type: s.type ?? 'feature', parent: epic, deps: s.deps?.map(x => ({ id: ids[+x.id], type: x.type })), meta: { 'cadre.package': '.' } })).id)
+    await store.approve([epic, ...ids]); return { epic, ids }
+  }
+  const board = async (h: Host, epic: string, ids: string[], over: Partial<SnapTask>[] = []) => {
+    const ts = await Promise.all(ids.map(async (id, i) => { const t = await store.get(id); return task(id, { title: t.title, type: t.type, deps: t.deps.filter(x => ['blocks', 'waits-for', 'conditional-blocks'].includes(x.type)) as any, ...over[i] }) }))
+    await h.board.update(s => ({ ...s, seq: 1, epic, plan: { id: 'p1', slug: 'x', state: 'approved', epicBranch: 'epic/p1-x' }, tasks: ts }))
+  }
+  return { clock, store, calls, refs, dirs, mk, plan, board }
+}
+const spawn = (prompt: string, o: object = {}) => ({ prompt, description: 'd', subagentType: 'general-purpose', background: true, fork: false, ...o })
+const ok = (agentId = 'ag1') => { const seen: any[] = []; const next = async (e: any) => (seen.push(e), { model: 'sonnet', agentId }); return { next, seen } }
+
+describe('known-id matcher goldens (4.6)', () => {
+  const known = ['bd-a1', 'bd-a1.1', 'bd-a1.10', 'bd-a2']
+  test('.1 vs .10, sentence end, prefix glue, suffix glue, TASK- prefix', async () => {
+    expect(idsIn('do bd-a1.10 now', known)).toEqual(['bd-a1.10'])
+    expect(idsIn('do bd-a1.1 now', known)).toEqual(['bd-a1.1'])
+    expect(idsIn('Work on bd-a1.', known)).toEqual(['bd-a1'])
+    expect(idsIn('see xbd-a1 and bd-a1-x', known)).toEqual([])
+    expect(idsIn('TASK-bd-a2, then bd-a1 (bd-a2)', known)).toEqual(['bd-a2', 'bd-a1'])
+    expect(idsIn('bd-a1.10.', known)).toEqual(['bd-a1.10'])
+  })
+})
+
+describe('claim (3.4)', () => {
+  test('happy path: reserve -> store.claim -> worktree -> brief -> retype -> model -> cwd -> bind', async () => {
+    const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}); await w.board(h, epic, ids)
+    const { next, seen } = ok(); const r = await admitWith(h, d, spawn(`please do TASK-${ids[0]} carefully`), next)
+    expect(r).toEqual({ model: 'sonnet', agentId: 'ag1' }); expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({ subagentType: 'cadre:worker', model: 'sonnet', cwd: `/wt/repo-1/${ids[0]}` })
+    expect(seen[0].prompt).toContain(`# TASK-${ids[0]} task 0 (feature)`); expect(seen[0].prompt).toContain('S1: Given x When y Then z'); expect(seen[0].prompt).toContain('## Orchestrator notes')
+    expect((await h.board.read()).tasks[0]).toMatchObject({ state: 'active', step: 'worker', owner: 'cadre/u/aaaaaa' })   // tester/red skipped until M5
+    expect(await w.store.get(ids[0])).toMatchObject({ category: 'active', assignee: 'cadre/u/aaaaaa' })
+    expect((await w.store.get(ids[0])).meta).toMatchObject({ 'cadre.step': 'worker', 'cadre.base': 'abc1234', 'cadre.worktree': `/wt/repo-1/${ids[0]}` })
+    expect(w.calls.some(c => c.join(' ').includes(`worktree add -b feat/${ids[0]}-task-0 /wt/repo-1/${ids[0]} abc1234`))).toBe(true)
+    expect((await h.bind.read()).ag1).toMatchObject({ taskId: ids[0], role: 'worker', step: 'worker', sessionId: 's-a' }); expect(Object.keys(await h.bind.read())).toEqual(['ag1'])
+    expect(ofEpic(await h.events.read(), epic).map(e => e.type)).toContain('agent.bound')
+  })
+  test('S2: two spawns racing for one id -> exactly one wins, the other is denied', async () => {
+    const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}); await w.board(h, epic, ids)
+    const a = ok('ag1'), b = ok('ag2')
+    const [x, y] = await Promise.all([admitWith(h, d, spawn(ids[0]), a.next), admitWith(h, d, spawn(ids[0]), b.next)])
+    expect([x, y].filter((r: any) => r.deny)).toHaveLength(1); expect(a.seen.length + b.seen.length).toBe(1)
+  })
+  test('one-id rule: two ids, fork with an id, teammate, workflow are refused; nothing is claimed', async () => {
+    const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}, {}); await w.board(h, epic, ids)
+    const { next, seen } = ok()
+    expect(((await admitWith(h, d, spawn(`${ids[0]} and ${ids[1]}`), next)) as any).deny).toContain('one agent = one task')
+    expect(((await admitWith(h, d, spawn(ids[0], { fork: true }), next)) as any).deny).toContain('never forks')
+    expect(((await admitWith(h, d, spawn(ids[0], { isTeammate: true }), next)) as any).deny).toContain('teammates')
+    expect(((await admitWith(h, d, spawn(ids[0], { workflow: { runId: 'r', agentIndex: 0 } }), next)) as any).deny).toContain('workflow')
+    expect(seen).toEqual([]); expect((await w.store.get(ids[0])).category).toBe('todo'); expect((await h.board.read()).tasks.map(t => t.state)).toEqual(['todo', 'todo'])
+  })
+  test('marker-less: retyped to the explorer; a fork passes untouched; discovery brief while init stage 4 is pending', async () => {
+    const w = world(), { h, d } = await w.mk('a'), { next, seen } = ok()
+    await admitWith(h, d, spawn('where is the parser?'), next)
+    expect(seen[0]).toMatchObject({ subagentType: 'cadre:explorer', model: 'haiku' }); expect(seen[0].prompt).toContain('# QUESTION\nwhere is the parser?')
+    await admitWith(h, d, spawn('x', { fork: true }), next); expect(seen[1].subagentType).toBe('general-purpose')
+    await h.board.update(s => ({ ...s, init: [{ stage: 4, state: 'pending' }] })); await admitWith(h, d, spawn('go'), next); expect(seen[2].prompt).toContain('# DISCOVERY')
+  })
+  test('maxParallel, not-ready (blocking dep), flags, and a type that needs the tester step are refused', async () => {
+    const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}, { deps: [{ id: '0', type: 'blocks' }] }, { type: 'test' }, {}); await w.board(h, epic, ids)
+    const { next, seen } = ok()
+    expect(((await admitWith(h, d, spawn(ids[1]), next)) as any).deny).toContain('not ready')
+    expect(((await admitWith(h, d, spawn(ids[2]), next)) as any).deny).toContain('tester step')
+    await h.board.update(s => ({ ...s, tasks: s.tasks.map(t => (t.id === ids[3] ? { ...t, condition: { on: ids[0], state: 'not-met' as const } } : t)) })); expect(((await admitWith(h, d, spawn(ids[3]), next)) as any).deny).toContain('never runs')
+    await h.board.update(s => ({ ...s, tasks: s.tasks.map(t => (t.id === ids[3] ? { ...t, flags: ['git:dev'] } : t)) })); expect(((await admitWith(h, d, spawn(ids[3]), next)) as any).deny).toContain('flag git:dev')
+    await h.board.update(s => ({ ...s, tasks: s.tasks.map((t, i) => (i === 3 ? { ...t, flags: [], condition: undefined } : i === 0 ? { ...t, state: 'active' } : { ...t, state: i === 1 ? 'active' : t.state }) as SnapTask) })); d.cfg.maxParallel = 2
+    expect(((await admitWith(h, d, spawn(ids[3]), next)) as any).deny).toContain('maxParallel 2'); expect(seen).toEqual([])
+  })
+  test('a rejected spawn ({deny}) or a thrown next releases the claim and the board, removes the new worktree; a throw is rethrown', async () => {
+    const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}); await w.board(h, epic, ids)
+    const r: any = await admitWith(h, d, spawn(ids[0]), async () => ({ deny: 'engine says no' })); expect(r.deny).toBe('engine says no')
+    expect(await w.store.get(ids[0])).toMatchObject({ category: 'todo' }); expect((await w.store.get(ids[0])).assignee).toBeUndefined(); expect((await h.board.read()).tasks[0]).toMatchObject({ state: 'todo', owner: undefined })
+    expect(w.calls.some(c => c.join(' ').includes('worktree remove'))).toBe(true); expect(await h.bind.read()).toEqual({})
+    await expect(admitWith(h, d, spawn(ids[0]), async () => { throw new Error('boom') })).rejects.toThrow('boom')
+    expect(await w.store.get(ids[0])).toMatchObject({ category: 'todo' }); expect((await h.board.read()).tasks[0].state).toBe('todo')
+    expect(((await admitWith(h, d, spawn(ids[0]), ok().next)) as any).agentId).toBe('ag1')   // and it can be claimed again
+  })
+  test('a spike has no worktree: explorer at the repo root, no branch', async () => {
+    const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({ type: 'spike' }); await w.board(h, epic, ids); const { next, seen } = ok()
+    await admitWith(h, d, spawn(ids[0]), next); expect(seen[0]).toMatchObject({ subagentType: 'cadre:explorer', cwd: '/repo' }); expect(w.calls.some(c => c.includes('worktree'))).toBe(false)
+  })
+  test('the setup argv of the package runs in the writable jail; a failing setup releases the claim', async () => {
+    const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}); await w.board(h, epic, ids)
+    d.cfg.packages = [{ root: '.', setup: [['npm', 'ci']] }] as any
+    await admitWith(h, d, spawn(ids[0]), ok().next); const j = w.calls.find(c => c[0] === 'bwrap')!
+    expect(j).toContain('--bind'); expect(j.slice(j.indexOf('--') + 1)).toEqual(['npm', 'ci']); expect(j).not.toContain('--unshare-net')
+  })
+})
+
+describe('next step / rebind (lease staleness, 8.4)', () => {
+  const active = async (w: ReturnType<typeof world>, h: Host, d: Deps, opts: { step?: string } = {}) => {
+    const { epic, ids } = await w.plan({}); await w.board(h, epic, ids); await admitWith(h, d, spawn(ids[0]), ok().next)
+    if (opts.step) await h.board.update(s => ({ ...s, tasks: s.tasks.map(t => ({ ...t, step: opts.step! })) }))
+    return ids[0]
+  }
+  test('a live lease with a live same-role agent: denied ("resumed automatically"); another session with a live lease: denied', async () => {
+    const w = world(), a = await w.mk('a'), b = await w.mk('b'), id = await active(w, a.h, a.d)
+    expect(((await admitWith(a.h, a.d, spawn(id), ok('x').next)) as any).deny).toContain('resumed automatically')
+    const { epic } = { epic: (await a.h.board.read()).epic! }; await w.board(b.h, epic, [id], [{ state: 'active', step: 'worker' }])
+    expect(((await admitWith(b.h, b.d, spawn(id), ok('y').next)) as any).deny).toContain('another session')
+  })
+  test('expired lease: stale -> rebind: unbound(stale), same actor + worktree, computed handoff, new agent bound', async () => {
+    const w = world(), { h, d } = await w.mk('a'), id = await active(w, h, d)
+    w.clock.now += 6 * 60_000; expect(leaseLive(await w.store.get(id), w.clock.now)).toBe(false)
+    const { next, seen } = ok('ag2'); const rr: any = await admitWith(h, d, spawn(id), next); expect(rr.deny ?? rr.agentId).toBe('ag2')
+    expect(seen[0].cwd).toBe(`/wt/repo-1/${id}`); expect(seen[0].prompt).toContain('## Handoff'); expect(seen[0].prompt).toContain('checkpoint abc1234')
+    const b = await h.bind.read(); expect(Object.keys(b)).toEqual(['ag2']); expect(agentsOf(b, id)).toEqual(['ag2'])
+    expect(ofEpic(await h.events.read(), (await h.board.read()).epic!).find(e => e.type === 'agent.unbound')?.data).toEqual({ agentId: 'ag1', reason: 'stale' })
+    expect(w.calls.some(c => c.join(' ').includes('commit') && c.join(' ').includes(`wip(${id}): checkpoint`))).toBe(false)   // clean tree: nothing to checkpoint
+  })
+  test('a step that needs a new role is legal under a live lease (red check -> worker)', async () => {
+    const w = world(), { h, d } = await w.mk('a'), id = await active(w, h, d)
+    await h.bind.update(t => ({ ...t, ag1: { ...t.ag1, role: 'tester' } }))
+    expect(((await admitWith(h, d, spawn(id), ok('ag3').next)) as any).agentId).toBe('ag3'); expect(Object.keys(await h.bind.read())).toEqual(['ag3'])
+  })
+  test('mod-run steps (green) and merge have no agent', async () => {
+    const w = world(), { h, d } = await w.mk('a'), id = await active(w, h, d, { step: 'green' })
+    expect(((await admitWith(h, d, spawn(id), ok().next)) as any).deny).toContain('mod-run')
+  })
+  test('recovery: worktree dir gone but branch present -> prune + re-add; branch gone -> lost-wip, released; epic branch gone -> lost-epic', async () => {
+    const w = world(), { h, d } = await w.mk('a'), id = await active(w, h, d); w.clock.now += 6 * 60_000
+    w.dirs.clear(); expect(((await admitWith(h, d, spawn(id), ok('ag2').next)) as any).agentId).toBe('ag2')
+    expect(w.calls.some(c => c.slice(3).join(' ') === 'worktree prune')).toBe(true); expect(w.calls.some(c => c.slice(3, 6).join(' ') === `worktree add /wt/repo-1/${id}`)).toBe(true)
+    w.clock.now += 6 * 60_000; w.dirs.clear(); w.refs.delete(`feat/${id}-task-0`)
+    expect(((await admitWith(h, d, spawn(id), ok('ag3').next)) as any).deny).toContain('lost-wip')
+    expect((await w.store.get(id)).category).toBe('todo'); expect((await h.board.read()).tasks[0].state).toBe('todo')
+    expect(ofEpic(await h.events.read(), (await h.board.read()).epic!).some(e => e.type === 'flag.raised' && e.data.flag === 'lost-wip')).toBe(true)
+    w.refs.delete('epic/p1-x'); expect(((await admitWith(h, d, spawn(id), ok('ag4').next)) as any).deny).toContain('lost-epic'); expect((await h.board.read()).plan!.state).toBe('blocked')
+  })
+})
+
+describe('review spawn', () => {
+  const inReview = async (step: string) => {
+    const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}); await w.board(h, epic, ids, [{ state: 'review', step }])
+    await w.store.claim(ids[0], d.actor); await w.store.setMeta(ids[0], { 'cadre.sourceCommit': 'deadbee', 'cadre.base': 'abc1234', 'cadre.worktree': `/wt/repo-1/${ids[0]}` }, d.actor); await w.store.update(ids[0], { labels: ['security'] }, d.actor)
+    return { w, h, d, id: ids[0] }
+  }
+  test('a review task gets a fresh reviewer (deep tier by label), reserved by CAS; a bound reviewer is not duplicated', async () => {
+    const { h, d, id } = await inReview('reviewer'), { next, seen } = ok('rv1')
+    expect(((await admitWith(h, d, spawn(id), next)) as any).agentId).toBe('rv1')
+    expect(seen[0]).toMatchObject({ subagentType: 'cadre:reviewer', model: 'opus', cwd: `/wt/repo-1/${id}` }); expect(seen[0].prompt).toContain('# REVIEW TASK'); expect(seen[0].prompt).toContain('deadbee'); expect(seen[0].prompt).toContain('a.ts | 1 +')
+    expect(((await admitWith(h, d, spawn(id), ok('rv2').next)) as any).deny).toContain('has a reviewer'); expect(Object.keys(await h.bind.read())).toEqual(['rv1'])
+  })
+  test('review-passed (merge) is main\'s to complete; no sourceCommit yet is refused', async () => {
+    const m = await inReview('merge'); expect(((await admitWith(m.h, m.d, spawn(m.id), ok().next)) as any).deny).toContain('TaskUpdate completed')
+    const r = await inReview('reviewer'); await r.w.store.setMeta(r.id, { 'cadre.sourceCommit': '' }, r.d.actor); expect(((await admitWith(r.h, r.d, spawn(r.id), ok().next)) as any).deny).toContain('no sourceCommit')
+  })
+  test('a rejected review spawn drops its reservation', async () => {
+    const { h, d, id } = await inReview('reviewer'); await admitWith(h, d, spawn(id), async () => ({ deny: 'no' })); expect(await h.bind.read()).toEqual({})
+  })
+})
+
+describe('multi-session leases (two hosts, one store)', () => {
+  test('B cannot claim what A claimed (store AlreadyClaimed): denied, B\'s board reverted; after A\'s lease expires B rebinds', async () => {
+    const w = world(), a = await w.mk('a'), b = await w.mk('b'), { epic, ids } = await w.plan({}); await w.board(a.h, epic, ids); await w.board(b.h, epic, ids)
+    await admitWith(a.h, a.d, spawn(ids[0]), ok('ag1').next)
+    const r: any = await admitWith(b.h, b.d, spawn(ids[0]), ok('bg1').next); expect(r.deny).toBeDefined(); expect((await b.h.board.read()).tasks[0].state).toBe('todo')
+    await b.h.board.update(s => ({ ...s, tasks: s.tasks.map(t => ({ ...t, state: 'active', step: 'worker', owner: 'cadre/u/aaaaaa' }) as SnapTask) }))
+    expect(((await admitWith(b.h, b.d, spawn(ids[0]), ok('bg1').next)) as any).deny).toContain('another session')
+    w.clock.now += 6 * 60_000; expect(((await admitWith(b.h, b.d, spawn(ids[0]), ok('bg1').next)) as any).agentId).toBe('bg1')
+    expect((await b.h.bind.read()).bg1.sessionId).toBe('s-b'); expect((await a.h.bind.read()).ag1.sessionId).toBe('s-a')
+  })
+  test('heartbeat: only this session\'s bindings, once per interval', async () => {
+    const w = world(), a = await w.mk('a'), b = await w.mk('b'), { epic, ids } = await w.plan({}, {}); await w.board(a.h, epic, ids)
+    await admitWith(a.h, a.d, spawn(ids[0]), ok('ag1').next); await bindAgent(a.h, 'other', { taskId: ids[1], role: 'worker', step: 'worker', worktree: '/x', sessionId: 's-b', ctxTokens: 0, startedAt: 0 })
+    const beats: string[] = []; const spy = (d: Deps): Deps => ({ ...d, store: Object.assign(Object.create(d.store), { heartbeat: async (id: string) => { beats.push(id) } }) })
+    await beat(a.h, spy(a.d)); await beat(a.h, spy(a.d)); expect(beats).toEqual([ids[0]])
+    w.clock.now += 121_000; await beat(a.h, spy(a.d)); expect(beats).toEqual([ids[0], ids[0]]); await beat(b.h, spy(b.d)); expect(beats).toHaveLength(2)
+  })
+})

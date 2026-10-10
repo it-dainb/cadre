@@ -35,7 +35,7 @@ export function contract(name: string, make: () => TaskStore) {
       const all = (await s.list({ parent: e })).map(t => t.id); await s.approve(all)
       expect((await s.ready(e)).includes(b.id)).toBe(false); expect((await s.ready(e)).includes(a.id)).toBe(true)
       await s.claim(a.id, 'u'); await s.close(a.id, { outcome: 'done' })
-      const x = (await s.get(b.id)).deps[0].id; await s.close(x, { outcome: 'cancelled', note: 'failed: no' })
+      const x = (await s.get(b.id)).deps.find(d => d.id !== a.id)!.id; await s.close(x, { outcome: 'cancelled', note: 'failed: no' })   // deps carry no order guarantee
       expect((await s.ready(e)).includes(b.id)).toBe(true)
     })
     test('conditional-blocks runs only if the upstream failed; waits-for needs the upstream and its children closed', async () => {
