@@ -167,7 +167,8 @@ const SANDBOX = (wt: string, repo: string) => ({
 const wtOf = (c: Ctx) => `${c.cfg.worktrees.root || `${c.home}/.cache/cadre/wt`}/${c.rk}`
 const S5: Stage = {
   n: 5, name: 'containment',
-  async done(c) { const real = (await c.h.stat(c.root, { resolve: true }))?.realPath ?? c.root; return assess(await c.h.settings().catch(() => ({})), real, wtOf(c)).state === 'contained' },
+  async done(c) { if ((await c.h.board.read()).init.some(i => i.stage === 5 && i.state === 'done')) return true   // $.settings.read() is this session's: it shows the new file only after a restart
+    const real = (await c.h.stat(c.root, { resolve: true }))?.realPath ?? c.root; return assess(await c.h.settings().catch(() => ({})), real, wtOf(c)).state === 'contained' },
   async propose(c) {
     const real = (await c.h.stat(c.root, { resolve: true }))?.realPath ?? c.root, wt = wtOf(c), setP = `${c.root}/.claude/settings.local.json`, usrP = `${c.home}/.claude/settings.json`
     const patch = SANDBOX(wt, real), strict = c.args[0] === 'allowlist'
