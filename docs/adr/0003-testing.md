@@ -14,7 +14,7 @@ The mod kit cannot run processes (KIT:21) and has no fs, `$.state` or timers in 
 | Store contract vs real bd | `tests/store-contract.ts` via `tests/dev/beads-real.mjs` (`RECORD=1` re-records `tests/fixtures/bd/contract.ts`) | `node --experimental-transform-types --import ./tests/dev/register.mjs tests/dev/beads-real.mjs` |
 | Budget | `scripts/budget.mjs` (core ≤ 5,000 LOC, `ui/` ≤ 750, 3 MCP tools, 0 skills, `.catch` on every gating hook) | `node scripts/budget.mjs` (regenerates `tests/fixtures/budget.generated.ts`) |
 | Live smoke S01–S61 | `tests/smoke/S*.md` (one file each: purpose, assumption, steps, expected, M0 status) | `harness/run.sh` (Docker) |
-| Real model | `evals/<case>/` (`case.yaml`, `prompt.md`, `graders/`, `scaffold.sh`) | `claude plugin eval . --scaffold --trust-plugin --allow-tools Bash Edit Write "mcp__*"` inside the harness |
+| Real model | `evals/<case>/` (`case.yaml`, `prompt.md`, `graders/`, `scaffold.sh`) | `claude plugin eval . --scaffold --trust-plugin --allow-tools Bash Edit Write mcp__cadre__report mcp__cadre__inspect mcp__cadre__run_check` (`mcp__*` is refused by 2.1.295; add `--ablation none` to skip the no-plugin arm) inside the harness |
 
 Gate before every commit: `node scripts/budget.mjs` → `claude plugin validate --strict .` → `claude plugin test .` (pin `2.1.295`).
 
