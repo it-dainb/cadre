@@ -16,7 +16,7 @@ export function sel(v: View): string {
   return (v.ui.sel as string | undefined) ?? [...ts].filter(t => t.state === 'active' || t.state === 'review').sort((a, b) => b.phaseSince - a.phaseSince)[0]?.id ?? ts[0]?.id ?? ''
 }
 export function pane(v: View, w: number, rows: number, a: Acts, canRaster = true): P {
-  const b = at(v), items = attention(v), tab = v.ui.tab === 'card' && v.t === null && items.some(i => i.btn) ? 'card' : v.ui.tab === 'card' ? 'epic' : (v.ui.tab as string) ?? 'epic', c = v.c, p = b.plan, ts = b.tasks, wide = w >= 116
+  const b = at(v), items = attention(v), tab = v.ui.tab === 'card' && v.t === null && items.some(i => i.d) ? 'card' : v.ui.tab === 'card' ? 'epic' : (v.ui.tab as string) ?? 'epic', c = v.c, p = b.plan, ts = b.tasks, wide = w >= 116
   const n = (k: ReturnType<typeof kindOf>) => ts.filter(t => kindOf(t, ts) === k).length
   const mode: Line = v.t === null ? [S(`[LIVE] ${ago(v.now - t0(v))}`, 'suggestion')] : [S(`[REPLAY t-${ago(v.now - v.t).slice(0, -1)}m]`, 'warning', { b: true, i: true }), S(wide ? '' : ` at ${ago(v.t - t0(v))} · e: live`)]
   const tabs: Line = [S(`Epic${items.some(i => i.tab === 'epic') ? gl(c, 'attn') : ''}`, undefined, { k: 'tab1', hk: '1', p: () => a.go('epic') }), S('  '), S(`Plan${items.some(i => i.tab === 'plan') ? gl(c, 'attn') : ''}`, undefined, { k: 'tab7', hk: '7', p: () => a.go('plan') })]

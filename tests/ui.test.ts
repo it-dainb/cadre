@@ -10,7 +10,7 @@ import { type Line, T, at, gl, read, txt } from '../ui/model'
 import { levelOf, onEvent, textOf } from '../ui/notify'
 import { acts, openPane, prefill, renderBand, renderCard, renderPane, resumeBanner, tickUi } from '../ui/index'
 import { fakeHost } from './support'
-import { BASE, CASES, withStub, MIN, NOOP, SHEET, approval, ring, rtrim, view } from './fixtures/ui/epic'
+import { BASE, CASES, withStub, MIN, NOOP, SHEET, approval, planDec, ring, rtrim, view } from './fixtures/ui/epic'
 import { GOLDEN } from './fixtures/ui/golden'
 import { WIRE } from './fixtures/ui/wireframes'
 
@@ -180,15 +180,15 @@ describe('keys', () => {
   test('attention: degraded containment is a [CRIT] item; a gate approval reads "approve gate <id>"', async () => {
     const v = view(62, { board: { containment: { state: 'degraded', unsandboxed: 0 } } })
     expect(txt(band(v, 115, NOOP))[0]).toContain('[CRIT] ✗ Containment degraded · run /cadre init')
-    const g = view(62, { code8: 'zz99c0de', tweak: ts => ts.map(t => (t.id === 'a6' ? { ...t, type: 'gate' } : t)) }); g.sec.approval!.planId = 'a6'
+    const g = view(62, { board: { decisions: [{ ...planDec(), id: 'gate:a6', kind: 'gate', title: 'approve gate a6 · Remember me', fallback: '/cadre approve a6@{code}' }] } }); g.sec = { dcode: { 'gate:a6': 'zz99c0de' } }
     expect(txt(band(g, 115, NOOP)).join('\n')).toMatch(/approve gate a6 .*\n.*\/cadre approve a6@zz99c0de/)
   })
   test('attention: a pending init diff shows its confirm code on the band (the only place a human can read it)', async () => {
-    const v = view(62, { board: { containment: { state: 'degraded', unsandboxed: 0 } } }); v.sec.initConfirm = { stage: 4, code: '1a2b3c4d' }
+    const v = view(62, { board: { containment: { state: 'degraded', unsandboxed: 0 }, decisions: [{ ...planDec(), id: 'init:4', kind: 'init', title: 'init stage 4 diff ready · confirm it', fallback: '/cadre init confirm {code}' }] } }); v.sec.dcode = { 'init:4': '1a2b3c4d' }
     expect(txt(band(v, 115, NOOP)).join('\n')).toMatch(/init stage 4 diff ready.*\n.*\/cadre init confirm 1a2b3c4d/)
     const np = { ...v, b: { ...v.b, plan: undefined, tasks: [] } }   // init runs before any plan exists: the band must still draw the code
-    expect(txt(band(np, 115, NOOP)).join('\n')).toContain('/cadre init confirm 1a2b3c4d'); expect(band({ ...np, sec: {} } as any, 115, NOOP)).toEqual([])
-    delete v.sec.initConfirm; expect(txt(band(v, 115, NOOP))[0]).toContain('Containment degraded')
+    expect(txt(band(np, 115, NOOP)).join('\n')).toContain('/cadre init confirm 1a2b3c4d'); expect(txt(band({ ...np, sec: {} } as any, 115, NOOP)).join('\n')).not.toContain('1a2b3c4d')   // no code in the secret: the row draws, the typed line does not
+    v.b.decisions = []; expect(txt(band(v, 115, NOOP))[0]).toContain('Containment degraded')
   })
   test('presses route to handlers: 1 opens the decision card (approval, git flag); d the epic', async () => {
     const got: string[] = [], a = { go: (t: string) => { got.push(`go:${t}`) }, pick: (i: string) => { got.push(`pick:${i}`) }, fill: () => {}, press: () => {}, step: () => {} }

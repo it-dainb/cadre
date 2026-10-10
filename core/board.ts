@@ -23,7 +23,7 @@ export function fnv1a64(s: string): string {
 export const humanView = (s: Snapshot): Snapshot => structuredClone(s)   // band, pane, toasts, adapters granted `commands`
 // model view (main context, TaskGet, cards, adapters without grant): drops volatile fields so the hash only moves on real change
 export function modelView(s: Snapshot): Omit<Snapshot, 'seq' | 'cost'> {
-  const { seq: _s, cost: _c, ...v } = structuredClone(s)
+  const { seq: _s, cost: _c, decisions: _d, ...v } = structuredClone(s)   // decisions are for the human only
   v.tasks.forEach(t => { delete (t as Partial<SnapTask>).phaseSince; delete t.ctx })   // volatile: the hash only moves on real change
   v.sync.forEach(x => { delete (x as Partial<typeof x>).at })
   const { turns: _t, costUsd: _u, startedAt: _a, ...drive } = v.drive

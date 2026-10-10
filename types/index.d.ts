@@ -20,6 +20,13 @@ export interface Plan {
   landed?: { dev: string; sha: string; at: number }; released?: { version: string; at: number }
   flags?: string[]   // plan-level flags (integration-failed)
 }
+// A decision the human owes (ADR 0008): ONE record drawn by ONE renderer (ui/card). Carries NO code: `{code}` in run/fallback is filled from Secret.dcode at press / render time.
+// Option keys are hotkeys (one lowercase letter; n and p are the queue's). `run` = a dispatcher command (`<sub> <args>`) run as origin press; `fill` = text loaded into the composer instead.
+export interface DecisionOption { key: string; label: string; verb: string; run?: string; fill?: string }
+export interface Decision {
+  id: string; kind: string; title: string; short?: string; lines: string[]; hash: string; options: DecisionOption[]   // hash = content hash: a press bound to an older one is refused
+  fallback?: string; tab?: string; sel?: string; crit?: boolean                                                          // typed fallback (may hold {code}) · pane tab behind the card · task to select · [CRIT] tag
+}
 // The board snapshot = the read model. Carries NO code8/init code (those live in Secret).
 export interface Snapshot {
   schemaVersion: 1; seq: number; repo: string; mission: string | null; epic: string | null
@@ -31,6 +38,7 @@ export interface Snapshot {
   containment: { state: 'contained' | 'degraded' | 'unknown'; unsandboxed: number }
   resumesQueued: number
   init: { stage: number; state: 'pending' | 'proposed' | 'done' }[]
+  decisions?: Decision[]                              // pending human decisions, oldest first (core/decide); human view only, never in the model view
 }
 
 export type EventType =
@@ -45,6 +53,7 @@ export interface EventRing { seq: number; epics: Record<string, CadreEvent[]> } 
 
 export interface Secret {
   approval?: { planId: string; code8: string }; initConfirm?: { stage: number; code: string }
+  dcode?: Record<string, string>                      // decision id -> the code its run/fallback templates need
   nonce?: string; initNonce?: string; token?: string; adoptTried?: boolean; active?: boolean; root?: string   // root: the main session's cwd, set at session.start
   session?: string                                      // this session's id (core/admission.sessionOf; resume queue key)
   ctx?: { key: string; card?: string }                  // main context: last-sent diff key; a queued one-time resume card (core/briefs)
@@ -96,7 +105,7 @@ export interface Host {
   version?(): Promise<string>                           // $.session.version().version: the running Claude Code build (commands/doctor)
   taskStore?(): Promise<any>; config?(): Promise<any>   // the TaskStore (a core/dispatch storeOf) and resolved Config; register.ts wires them (config falls back to env layer + defaults)
   sendTo?(agentId: string, text: string): Promise<{ isDelivered: boolean; reason?: string }>   // $.session.send({to:{agentId}}): core/reuse.drain only (the one sender)
-  press?(line: string): Promise<{ text: string }>   // a pane/band Button press: runs `<sub> <args>` through the dispatcher as origin {kind:'press'} (commands/cadre.press; ADR 0008)
+  press?(id: string, key: string, hash: string): Promise<{ text: string }>   // a Button press on decision `id`, option `key`, drawn with `hash`: stale = refused; else the option's command runs as origin {kind:'press'} (commands/cadre.press; ADR 0008)
   submit?(text: string): Promise<unknown>; usage?(): Promise<{ context?: { percent?: number }; cost?: { usd: number } }>   // $.prompt.submit (drive, #1 only) · $.session.usage
 }
 // UI side effects (ui/ only). Built per hook by host($); optional so test hosts may omit it.

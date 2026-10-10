@@ -3,6 +3,7 @@
 import type { Host } from '../types'
 import { ROUTES, cfgOf, storeOf } from './dispatch'
 import { emit } from './events'
+import { ask, settleIf } from './decide'
 import { BLOCKING, epicNext } from './machine'
 import { cut, insert } from './changelog'
 import { IDENT, casRef, checkRun, exists, git, jailMode, op, tip, worktreeRemove, writableJail } from './git'
@@ -47,7 +48,9 @@ async function runSuites(h: Host, cfg: any, wt: string, files: string[] | null, 
 async function propose(h: Host, root: string, dev: string): Promise<void> {
   const tag = await lastTag(h), subj = (await git(h.run, root, ['log', '--no-merges', '--format=%s', tag ? `${tag}..${dev}` : dev])).split('\n')
   const version = inferVersion(tag, subj)
-  await h.ui.update(u => ({ ...u, rel: version })); await emit(h, 'release.proposed', { version }); h.toast(`Epic landed on ${dev} · release v${version}? /cadre release`)
+  await h.ui.update(u => ({ ...u, rel: version }))
+  await ask(h, { id: `release:${version}`, kind: 'release', title: `release v${version}?`, lines: [`${dev} merges into main with an annotated tag v${version}`], hash: version, tab: 'epic', fallback: '/cadre release', options: [{ key: 'r', label: 'Release', verb: 'release', run: `release ${version}` }] })
+  await emit(h, 'release.proposed', { version }); h.toast(`Epic landed on ${dev} · release v${version}? /cadre release`)
 }
 
 // §3.9 Integration. null = landed on dev; otherwise the refusal / failure text (also left as a comment on the epic).
@@ -126,7 +129,7 @@ export async function releaseDev(h: Host, want?: string): Promise<string> {
   catch (e) { await op(h, () => casRef(h.run, root, `refs/heads/${dev}`, devTip, cdev)); return no(`merge into ${main} failed: ${(e as Error).message}; ${dev} restored`) }
   await refresh(h, root, dev, onDev, devTip); await refresh(h, root, main, onMain, mainWas)
   if (s.plan?.state === 'done-on-dev') await setPlan(h, 'release', { released: { version, at: await h.now() } })
-  await h.ui.update(({ rel: _r, ...u }) => u)
+  await h.ui.update(({ rel: _r, ...u }) => u); await settleIf(h, 'release:')
   await emit(h, 'plan.released', { version, sha })
   return `Released v${version}: ${dev} merged into ${main} (${sha.slice(0, 7)}), tag v${version}.`
 }

@@ -6,6 +6,8 @@ import { pipeOf } from '../task-management/registry'
 import { resolveDeps, type Deps } from './admission'
 import { apply } from './machine'
 import { emit } from './events'
+import { ask } from './decide'
+import { fnv1a64 } from './board'
 import * as G from './git'
 import { auditView, matches, modeOf, pkgOf, rootOf, type Pkg } from './specview'
 import { policyOf, setPolicy } from '../policy/guards'
@@ -140,6 +142,9 @@ export async function testerDone(h: Host, d: Deps, task: Task, wt: string, view:
 export async function specChange(h: Host, d: Deps, id: string, why: string): Promise<void> {
   await apply(h, { kind: 'block', id, at: await h.now(), actor: 'mod' }, pipeOf(d.reg)); await d.store.move(id, 'blocked', d.actor).catch(() => undefined)
   await d.store.setMeta(id, { 'cadre.blocked': 'spec_change', 'cadre.specChange': why.slice(0, 1500) }, d.actor)
+  const f = 'spec_change', r = (how: string) => `resolve ${id} ${how}`
+  await ask(h, { id: `flag:${id}:${f}`, kind: 'flag', title: `${id} flagged ${f}`, tab: 'epic', sel: id, hash: fnv1a64(why), lines: [`${id}: the worker asks to change the locked spec`, ...why.slice(0, 400).split('\n').filter(Boolean), 'Accept: the tester amends it and a new red follows. Reject: it conforms to the locked tests.'],
+    options: [{ key: 'a', label: 'Accept', verb: 'accept', run: r('accept') }, { key: 'x', label: 'Reject', verb: 'reject', run: r('reject') }] })   // the reason is on the card; emit's generic flag decision then keeps this one
   h.toast(`cadre: ${id} spec change · /cadre resolve ${id}`)
 }
 // accept: back to the tester step (the view is rebuilt from the spec commit when it is spawned: new red, amended specCommit); reject: the worker resumes and conforms

@@ -1,5 +1,6 @@
 // Domain events (DESIGN 2.5): envelope, per-type actor/severity/needsHuman table, in-module bus, 500/epic ring, rebuild hook.
 // The attention LEVEL (silent/band/toast/notify) is UI policy computed from severity + needsHuman; never stored here.
+import { ask, flagDecision, settle } from './decide'
 import type { Actor, CadreEvent, EventRing, EventType, Host, Severity } from '../types'
 import type { TaskStore } from '../task-management/store'
 
@@ -42,9 +43,14 @@ export async function emit(h: Host, type: EventType, data: Record<string, unknow
   const keys = TABLE[type]?.[3]; if (!keys) throw new Error(`unknown event type ${type}`)
   const miss = keys.filter(k => !(k in data)); if (miss.length) throw new Error(`${type}: missing ${miss.join(', ')}`)
   const leak = Object.keys(data).find(k => SECRET_KEYS.includes(k)); if (leak) throw new Error(`${type}: "${leak}" must not ride an event`)
-  const epic = (await h.board.read()).epic ?? '', at = await h.now()
+  const b0 = await h.board.read(), epic = b0.epic ?? '', at = await h.now()
   let ev!: CadreEvent
   await h.events.update(r => { ev = mk(r.seq + 1, at, type, data, o); return put(r, epic, ev) })
+  try {   // a flag is a decision for the human until it is resolved (ADR 0008)
+    const tid = String(data.taskId ?? ''), fl = String(data.flag ?? '')
+    if (type === 'flag.raised' && !(b0.decisions ?? []).some(d => d.id === `flag:${tid}:${fl}`)) { const d = flagDecision(tid, fl, b0.tasks.find(t => t.id === tid)?.title); if (d) await ask(h, d) }
+    if (type === 'flag.resolved') await settle(h, ...fl.split(',').map(f => `flag:${tid}:${f}`))
+  } catch (e) { h.log(`cadre: decision update failed: ${e}`) }
   for (const s of subs) try { await s(h, ev) } catch (e) { h.log(`cadre: subscriber failed on ${type}: ${e}`) }
   return ev
 }

@@ -1,5 +1,5 @@
 // UI shared (UI-DESIGN 6.0, 8): readers, tag/glyph table, task classification, depth layout, ring fold, line/segment drawing. Pure; reads only the human view, the ring, the secret.
-import type { CadreEvent, Host, Secret, Snapshot, SnapTask } from '../types'
+import type { CadreEvent, Decision, Host, Secret, Snapshot, SnapTask } from '../types'
 import { humanView } from '../core/board'
 import { ofEpic } from '../core/events'
 
@@ -9,7 +9,7 @@ export const CFG: Cfg = { glyphs: 'unicode', flash: true, notify: 'on', escalate
 export type Seg = { t: string; c?: string; b?: boolean; i?: boolean; d?: boolean; k?: string; hk?: string; p?: () => void; inp?: (v: string) => void }
 export type Line = Seg[]
 export type View = { b: Snapshot; ring: CadreEvent[]; sec: Secret; ui: Record<string, any>; c: Cfg; now: number; sx: string; t: number | null }
-export type Acts = { go(tab: string): void; pick(id: string): void; fill(cmd: string): void; press(cmd: string): void; step(what: string, d: number): void }   // handlers; the render never writes state
+export type Acts = { go(tab: string): void; pick(id: string): void; fill(cmd: string): void; press(id: string, key: string, hash: string): void; step(what: string, d: number): void }   // handlers; the render never writes state
 
 export async function read(h: Host): Promise<View> {
   const [s, r, sec, ui, now] = await Promise.all([h.board.read(), h.events.read(), h.secret.read(), h.ui.read(), h.now()])
@@ -96,32 +96,13 @@ export function at(v: View): Snapshot {
 export const t0 = (v: View) => v.b.plan?.approvedAt ?? v.ring[0]?.at ?? v.now
 
 // --- attention items (derived from the board + secret; no secrets in text) ---
-// btn = the decision's buttons (ADR 0008): `cmd` is the typed command run as a press, bound to the code/hash drawn now; `fill` loads the composer instead
-export type Btn = { hk: string; label: string; cmd?: string; fill?: string }
-export type Item = { key: string; tag: TagK; text: string; short?: string; cmd?: string; tab: string; sel?: string; btn?: Btn[] }
-export const B = (hk: string, label: string, cmd: string): Btn => ({ hk, label, cmd })
+// attention = the pending decisions (board.decisions, oldest first; ONE record kind, drawn by ui/card) + two states that are not decisions
+export type Item = { key: string; tag: TagK; text: string; short?: string; cmd?: string; tab: string; sel?: string; d?: Decision }
+// the typed fallback is shown only when it carries a code (the one thing the human cannot otherwise know); {code} comes from the secret, never from the board
+export const fallbackOf = (v: View, d: Decision): string | undefined => (d.fallback?.includes('{code}') ? (v.sec.dcode?.[d.id] ? d.fallback.replace('{code}', v.sec.dcode[d.id]) : undefined) : undefined)
 export function attention(v: View): Item[] {
-  const b = v.b, p = b.plan, out: Item[] = []
-  if (p && b.approval.planId === p.id && !b.approval.missing.length && p.state === 'draft')
-    out.push({ key: `approve:${p.id}`, tag: 'attn', text: `approve plan ${p.id} · ${b.tasks.length} tasks`, short: `approve ${p.id} (${b.tasks.length} tasks)`, cmd: v.sec.approval?.planId === p.id ? `/cadre approve ${p.id}@${v.sec.approval.code8}` : undefined, tab: 'plan',
-      btn: v.sec.approval?.planId === p.id ? [B('a', 'Approve', `approve ${p.id}@${v.sec.approval.code8}`), B('x', 'Reject', `reject ${p.id} rejected in the pane`), { hk: 'c', label: 'Change', fill: `Change ${p.id}: ` }] : undefined })
-  const ic = v.sec.initConfirm   // the init confirm code is shown on the band only (UI-D7): the human reads it here and types the line
-  if (ic) {
-    const [sub, cf] = ic.stage === 90 ? ['setup', 'setup'] : ic.stage === 9 ? ['sync add', 'sync add'] : ['init', 'init']
-    out.push({ key: `init:${ic.stage}`, tag: 'attn', ...(ic.stage === 90 ? { text: 'setup plan ready · confirm it', short: 'setup plan ready' } : { text: `${sub} stage ${ic.stage} diff ready · confirm it`, short: `${sub} ${ic.stage} diff ready` }),
-      cmd: `/cadre ${cf} confirm ${ic.code}`, tab: 'epic', btn: [B('a', 'Confirm', `${cf} confirm ${ic.code}`), ...(ic.stage === 9 ? [] : [B('x', 'Cancel', `${sub} cancel`), B('c', 'Change', ic.stage === 90 ? 'setup' : `init ${ic.stage}`)])] })
-  }
-  const g = b.tasks.find(t => t.type === 'gate' && t.id === v.sec.approval?.planId)   // a human gate rides the approval fields (planId = the gate id)
-  if (g && v.sec.approval) out.push({ key: `approve:${g.id}`, tag: 'attn', text: `approve gate ${g.id} · ${g.title}`, short: `approve gate ${g.id}`, cmd: `/cadre approve ${g.id}@${v.sec.approval.code8}`, tab: 'epic', sel: g.id, btn: [B('a', 'Approve', `approve ${g.id}@${v.sec.approval.code8}`), { hk: 'c', label: 'Change', fill: `Change ${g.id}: ` }] })
+  const b = v.b, out: Item[] = (b.decisions ?? []).map(d => ({ key: `dec:${d.id}`, tag: d.crit ? 'crit' : d.kind === 'flag' ? 'warn' : 'attn', text: d.title, short: d.short, cmd: fallbackOf(v, d), tab: d.tab ?? 'epic', sel: d.sel, d }))
   if (b.containment.state === 'degraded') out.push({ key: 'mode:containment', tag: 'crit', text: 'Containment degraded · run /cadre init', tab: 'epic' })
-  for (const t of b.tasks) {
-    for (const f of t.flags) {
-      const git = f.startsWith('git:'), r = (how: string) => `resolve ${t.id} ${how}`
-      out.push({ key: `flag:${t.id}:${f}`, tag: git ? 'crit' : 'warn', text: git ? `${f} · ${f.split(':')[1]} moved outside a cadre merge · merges blocked` : `${t.id} flagged ${f}`, short: git ? `${f} moved` : undefined, tab: 'epic', sel: t.id,
-        btn: git ? [B('r', 'Restore', `resolve git restore ${f}`), B('k', 'Keep', `resolve git keep ${f}`)] : f === 'spec_change' ? [B('a', 'Accept', r('accept')), B('x', 'Reject', r('reject'))]
-          : [...(f === 'conflict' || f === 'drift' ? [B('a', 'Accept', r('accept'))] : []), B('k', 'Keep', r('keep')), B('x', 'Cancel task', r('cancel'))] })
-    }
-    if (t.state === 'blocked') out.push({ key: `q:${t.id}`, tag: 'attn', text: `${t.id} blocked: needs an answer`, tab: 'epic', sel: t.id })
-  }
+  for (const t of b.tasks) if (t.state === 'blocked') out.push({ key: `q:${t.id}`, tag: 'attn', text: `${t.id} blocked: needs an answer`, tab: 'epic', sel: t.id })
   return out
 }

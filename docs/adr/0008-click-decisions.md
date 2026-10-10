@@ -3,13 +3,14 @@
 Status: accepted (0.4.0). Supersedes UI-DESIGN D6 and §5.2 for **presses**; the typed path is unchanged and remains the fallback.
 
 ## Decision
+One mechanism, not per-feature code: a `Decision` record (types/index.d.ts), `core/decide.ask/settle`, ONE renderer (`ui/card.ts`) and ONE press path (`commands/cadre.press`). The API and how to add a kind are in `docs/CONTRACTS.md` ("How to ask the human"). The list below is what currently asks.
 Every human action is one click in the cadre pane: plan approval, human gates, setup confirm, init stage confirms, spec_change accept/reject, flag keep/accept/cancel, git flag restore/keep, release. While a decision is pending, the pane's active view is a **decision card**: a framed box with the question, a short description (plan counts and task list, setup plan rows, init diff lines, the flag and what each button does) and buttons (`a` Approve/Accept/Confirm/Release, `x` Reject/Cancel, `c` Change, `k` Keep, `r` Restore). The rest of the pane is drawn dim below it (the API has no overlay; none is faked). The band's ⚑ row keeps one button (`1`) that opens the card.
 
 ## Why a press is human evidence (revises D6)
 A press is delivered to our `onPress` by the engine and cannot be synthesized by code, a model or another mod (UI-17); unlike a composer line, a model cannot make one clickable (transcript links are composer origin). `commands/cadre.press(h, line)` runs the typed command through the dispatcher with origin `{kind:'press'}`, which `isHuman` accepts next to `composer`. `commands/cadre.run` maps an engine-supplied origin `press` to `unclassified`, so the name cannot be claimed from outside. sdk, adapter and the rest keep their rules.
 
 ## Hash binding, burn
-A button's command is built at render time from the secret it was drawn with: `approve <id>@<code8>` (code8 = nonce + canonical drafts hash), `setup|init confirm <code>` (code = nonce + plan/diff hash), `resolve <id> <how>`. Nothing new is stored. If the plan, setup plan or diff changed after the card was drawn, the dispatcher's existing check fails: the attempt is refused, the code is burned and redrawn, the press handler toasts "it changed or was refused; review again" and invalidates, so the card re-renders with the new code. A refused attempt also kills the live code (one secret per decision); a successful one clears it. Reject and Cancel carry no secret; `setup|init cancel` (new, human-only) burns the pending code. `reject` records "rejected in the pane" as the reason (no Input in v1).
+A button carries the decision id, its option key and the content `hash` it was drawn with. `press` refuses when the decision is gone or its hash moved ("it changed; review again"; the press handler toasts and invalidates, so the card redraws from the board). Otherwise the option's `run` template gets `{code}` from `cadre.secret.dcode` (never on the board) and goes to the dispatcher, whose existing code check (`approve <id>@<code8>`, `setup|init confirm <code>`: nonce + content) still applies; any content change draws a new nonce and code and re-asks with a new hash. A refused attempt also kills the live code (one secret per decision); a successful one clears it. Reject and Cancel carry no secret; `setup|init cancel` (new, human-only) burns the pending code. `reject` records "rejected in the pane" as the reason (no Input in v1).
 
 ## Change
 Plans and gates: prefill the composer with `Change <id>: ` (existing `prefill`: refused over a non-empty composer, toast instead). Setup/init: re-plan (`setup`, `init <stage>`: new diff, new code).
@@ -26,8 +27,11 @@ Where nothing draws (VS Code panel, `-p`) the band/toast text and the typed `/ca
 ## Band fixes (user screenshot)
 A plain Button already draws `hotkey: label`; labels no longer carry the key (`1: 1: open` is gone; `txt()` and `wid()` count the engine's prefix so tests and padding see what is drawn). Footer keys became labelled Buttons (`n: next  p: prev …`). In a docked pane the band is only the transcript column wide (24 columns at 120): the ⚑ row wraps there (never truncated) and flag items carry a short form.
 
+## Queue
+Several pending decisions show as "1 of 3" (oldest first) with `n`/`p`; the band shows the first. Added with the refactor: lost-epic (Re-cut / End epic) and spec_change with the worker's reason now have cards.
+
 ## Scope left out
-Lost-epic `resolve <epic> recut|cancel` has no band item today, so no card; spec_change shows the flag, not the worker's reason (not in the board snapshot); sync add shows Confirm only. The Plan-tab sheet buttons still prefill (typed path).
+Sync add shows Confirm only. The Plan-tab sheet buttons still prefill (typed path).
 
 ## Live result (harness tui.sh, haiku, 120 cols; captures in `docs/evidence/live/click/`)
 `/cadre setup`: card with the plan rows + "you run once"; `a` ran both actions (✓ ✓). Draft plan created by the model: band ⚑ row fits (docked: wraps), `1` opened the card, `c` loaded `Change p-… : `, `a` approved without typing ("Plan … approved: 1 task ready").

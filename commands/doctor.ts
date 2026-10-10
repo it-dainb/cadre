@@ -109,7 +109,7 @@ export async function setup(h: Host, args: string[]): Promise<string> {
       P = await preflight(h, cfg); await shown(h, { acts: [], human: P.human }, { done: st })
     }
   }
-  if (P.acts.length) { await h.ui.update(u => ({ ...u, 'setup.pending': P.hash })); await initPropose(h, SETUP, P.hash); await shown(h, P) }
+  if (P.acts.length) { await h.ui.update(u => ({ ...u, 'setup.pending': P.hash })); await initPropose(h, SETUP, P.hash, { title: 'setup plan ready · confirm it', short: 'setup plan ready', sub: 'setup', change: 'setup', lines: [...P.acts.map((a, i) => `  ${i + 1}. ${a.label}`), ...(P.human.length ? ['you run once:', ...P.human.map(x => `  ${x}`)] : [])] }); await shown(h, P) }
   else if (args[0] !== 'confirm' || note) await h.ui.update(({ 'setup.plan': _s, ...u }) => u)
   if (!P.rows.some(r => r[0] === 'crit') && !P.acts.length) await h.store.set(STAMP, { cc: P.facts.cc, bd: P.facts.bd, bwrap: P.facts.bwrap ?? '', jail: P.facts.jail, at: await h.now() })
   return report(h, 'setup', P.rows, note || (P.acts.length ? `setup: ${P.acts.length} action${P.acts.length > 1 ? 's' : ''} ready · confirm with the code on the band` : undefined))

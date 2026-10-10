@@ -196,7 +196,7 @@ export async function syncAdd(h: Host, name: string, args: string[] = []): Promi
     const s = await stepOf(h, st.n, name, a, st.d, args)
     if ('msg' in s) { await h.store.set(k, st); return s.msg }
     if (!s.lines.length) { await s.apply(); st.n++; await h.store.set(k, st); return syncAdd(h, name, []) }
-    const text = s.lines.join('\n'); st.pending = { n: st.n, args, text }; await h.store.set(k, st); await initPropose(h, SYNC_ADD, text)
+    const text = s.lines.join('\n'); st.pending = { n: st.n, args, text }; await h.store.set(k, st); await initPropose(h, SYNC_ADD, text, { title: `sync add ${name} diff ready · confirm it`, short: `sync add ${name} ready`, sub: `sync add ${name}`, lines: [`sync add ${name}: proposed changes`, ...s.lines.slice(0, 14).map(x => `  ${x}`)] })
     return `sync add ${name} step ${st.n}/5: proposed changes\n${text}\n\nConfirm with the code shown in the cadre band: /cadre sync add ${name} confirm <code>`
   } catch (e) { return `sync add ${name}: ${e instanceof AdapterError ? `${e.code}: ` : ''}${(e as Error).message}` }
 }

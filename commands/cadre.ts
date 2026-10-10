@@ -37,7 +37,7 @@ async function route(h: Host, c: Command): Promise<Out> {
     case 'restore': return restore(h, a)
     case 'init': case 'setup': {   // a diff / plan awaiting its confirm shows as the decision card (ADR 0008); the typed confirm stays as the fallback
       const text = await (c.cmd === 'init' ? initRun : setup)(h, c.args)
-      if (c.args[0] !== 'cancel' && (await h.secret.read()).initConfirm) await openPane(h, 'card').catch(() => {})
+      if (c.args[0] !== 'cancel' && (await h.board.read()).decisions?.length) await openPane(h, 'card').catch(() => {})
       return { text }
     }
     case 'doctor': return { text: await doctor(h) }
@@ -59,8 +59,10 @@ export const run: Hook = async (h, e) => {
   const kind = e.origin?.kind === 'press' ? 'unclassified' : e.origin?.kind ?? 'unclassified'   // 'press' is ours alone
   try { return await dispatch(h, { schemaVersion: 1, cmd, args, origin: { kind, name: e.origin?.name } }, route) } catch (x) { return { text: `cadre: ${(x as Error).message}` } }
 }
-// a Button press (ui/): the same typed command, bound to the code it was drawn with, as the human's origin (ADR 0008)
-export async function press(h: Host, line: string): Promise<Out> {
-  const [cmd, ...args] = line.split(/\s+/).filter(Boolean)
+// a Button press on decision `id`, option `key`, drawn with `hash` (ADR 0008): stale = refused (the card redraws from the board); else the option's command runs as the human's origin, with the code it was asked with
+export async function press(h: Host, id: string, key: string, hash: string): Promise<Out> {
+  const d = ((await h.board.read()).decisions ?? []).find(x => x.id === id), o = d?.options.find(x => x.key === key)?.run
+  if (!d || d.hash !== hash || !o) return { text: 'refused: it changed; review again' }   // the old code died with the old content (every change draws a new one); nothing runs
+  const [cmd, ...args] = o.replace('{code}', (await h.secret.read()).dcode?.[id] ?? '').split(/\s+/).filter(Boolean)
   try { return await dispatch(h, { schemaVersion: 1, cmd, args, origin: { kind: 'press' } }, route) } catch (x) { return { text: `cadre: ${(x as Error).message}` } }
 }

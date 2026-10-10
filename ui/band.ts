@@ -35,7 +35,7 @@ function row2(v: View, w: number): Line {
 }
 
 export function band(v: View, w: number, a: Acts): Line[] {
-  const p = v.b.plan, items = p ? attention(v) : attention(v).filter(i => i.key.startsWith('init:'))
+  const p = v.b.plan, items = p ? attention(v) : attention(v).filter(i => i.d?.kind === 'init')
   if (!p && !items.length) return []   // no plan: only a pending init code draws (init runs before any plan), without the plan status rows
   const top = items[0], wide = w >= 100, res = v.ui.res as { w: string; n: string; at: number } | undefined
   if (!top && res && ((v.ui.ack as number | undefined) ?? 0) < res.at) return [tag('ok', wide ? res.w : res.n)]
@@ -43,7 +43,7 @@ export function band(v: View, w: number, a: Acts): Line[] {
   const c = v.c, label = top.tab === 'plan' ? 'open sheet' : 'open', open = `1: ${label}`
   const body = (top.tag === 'attn' ? '' : `${tg(top.tag)} ${gl(c, top.tag)} `) + (wide ? top.text + (top.tab === 'plan' ? stats(v) : '') : top.short ?? top.text)
   const head = `${tg('attn')} ${gl(c, 'attn')} ${wide ? 'NEEDS YOU · ' : ''}${body}`
-  const bt = S(label, undefined, { k: 'att', hk: '1', p: () => (top.btn ? a.go('card') : top.sel ? a.pick(top.sel) : a.go(top.tab)) }), tag0: Line = [{ t: tg('attn'), c: col('attn'), b: true }]
+  const bt = S(label, undefined, { k: 'att', hk: '1', p: () => (top.d ? a.go('card') : top.sel ? a.pick(top.sel) : a.go(top.tab)) }), tag0: Line = [{ t: tg('attn'), c: col('attn'), b: true }]
   if (w < 40) { const [f, ...rest] = wrap(head, w, '  '); return [[...tag0, S(f.slice(tg('attn').length))], ...rest.map(x => L(x)), [bt]] }   // docked pane: the band is as narrow as the transcript column; wrap, never truncate
   const r1: Line = [...tag0, S(head.slice(tg('attn').length)), S(' '.repeat(Math.max(1, w - head.length - open.length))), bt]
   if (w < 50) return [r1]

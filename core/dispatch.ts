@@ -9,6 +9,7 @@ import { defaults as cfgDefaults, resolve, envLayer } from '../config/index'
 import type { Config } from '../config/index'
 import { canon, fnv1a64, stamp, withConditions } from './board'
 import { emit } from './events'
+import { ask, settle, settleIf } from './decide'
 import { scoped } from '../commands/init'
 import { apply, epicNext } from './machine'
 import { missingList } from './validate'
@@ -63,6 +64,13 @@ export async function redraw(h: Host, store: TaskStore, reg: TypeRegistry): Prom
   const nonce = h.rand(8), planId = s.plan?.id ?? null
   await h.secret.update(x => ({ ...x, nonce, approval: planId ? { planId, code8: code8Of(nonce, drafts) } : undefined }))
   await h.board.update(b => ({ ...b, approval: { planId, missing } }))
+  if (!planId || missing.length) await settleIf(h, 'plan:')   // nothing to approve yet
+  else {
+    const sc = (t: Task) => (t.acceptance ?? '').split('\n').filter(Boolean).length
+    await ask(h, { id: `plan:${planId}`, kind: 'plan', title: `approve plan ${planId} · ${drafts.length} tasks`, short: `approve ${planId} (${drafts.length} tasks)`, tab: 'plan', fallback: `/cadre approve ${planId}@{code}`, hash: fnv1a64(canon(drafts.map(pick))),
+      lines: [`${drafts.length} tasks · ${drafts.reduce((n, t) => n + sc(t), 0)} scenarios`, ...drafts.slice(0, 5).map(t => `  ${t.id} ${t.type} ${t.title} · ${sc(t)} scenarios`), ...(drafts.length > 5 ? [`  +${drafts.length - 5} more (open the Plan tab)`] : [])],
+      options: [{ key: 'a', label: 'Approve', verb: 'approve', run: `approve ${planId}@{code}` }, { key: 'x', label: 'Reject', verb: 'reject', run: `reject ${planId} rejected in the pane` }, { key: 'c', label: 'Change', verb: 'change', fill: `Change ${planId}: ` }] }, code8Of(nonce, drafts))
+  }
   return missing
 }
 // the approval sheet data ui/ draws (UI-DESIGN 5.3), on the human view as `board.sheet`; `before` = the prior accepted contract of a changed symbol (closed tasks' design), else absent
@@ -105,14 +113,18 @@ export async function newToken(h: Host): Promise<string> {   // session start an
 const needsHuman = (c: Command): boolean => ['approve', 'reject', 'resolve', 'release', 'restore', 'init', 'setup', 'adapter'].includes(c.cmd) || (c.cmd === 'config' && c.args[0] === 'set') || (c.cmd === 'sync' && c.args[0] === 'add') || (c.cmd === 'drive' && c.args[0] !== 'status')
 
 // ---- init confirm code (DESIGN 10.1): nonce-salted, never a hash of the diff alone; burned on every attempt ----
-export async function initPropose(h: Host, stage: number, diff: string): Promise<string> {
+// `d` (optional) is what the human sees: sub = the command the buttons run (`init`, `setup`, `sync add <name>`); `change` = the re-plan command (none: no Cancel/Change, e.g. sync add)
+export async function initPropose(h: Host, stage: number, diff: string, d?: { title: string; short?: string; lines: string[]; sub: string; change?: string }): Promise<string> {
   const n = h.rand(8), code = fnv1a64(n + diff).slice(0, 8)
-  await h.secret.update(s => ({ ...s, initNonce: n, initConfirm: { stage, code } })); return code
+  await h.secret.update(s => ({ ...s, initNonce: n, initConfirm: { stage, code } }))
+  if (d) await ask(h, { id: `init:${stage}`, kind: 'init', title: d.title, short: d.short, lines: d.lines, hash: fnv1a64(diff), tab: 'epic', fallback: `/cadre ${d.sub} confirm {code}`,
+    options: [{ key: 'a', label: 'Confirm', verb: 'approve', run: `${d.sub} confirm {code}` }, ...(d.change ? [{ key: 'x', label: 'Cancel', verb: 'reject', run: `${d.sub} cancel` }, { key: 'c', label: 'Change', verb: 'change', run: d.change }] : [])] }, code)
+  return code
 }
 export async function initConfirm(h: Host, stage: number, code: string): Promise<boolean> {
   let ok = false
   await h.secret.update(s => { ok = s.initConfirm?.stage === stage && s.initConfirm.code === code; const { initConfirm: _c, ...r } = s; return { ...r, initNonce: h.rand(8) } })
-  return ok
+  await settle(h, `init:${stage}`); return ok
 }
 
 // ---- approve / reject ----
@@ -122,13 +134,16 @@ export const gateOf = async (store: TaskStore, id: string): Promise<Task | null>
 export async function gateDraw(h: Host, g: Task): Promise<void> {
   const nonce = h.rand(8)
   await h.secret.update(x => ({ ...x, nonce, approval: { planId: g.id, code8: code8Of(nonce, [g]) } })); await h.board.update(b => ({ ...b, approval: { planId: g.id, missing: [] } }))
+  await ask(h, { id: `gate:${g.id}`, kind: 'gate', title: `approve gate ${g.id} · ${g.title}`, short: `approve gate ${g.id}`, tab: 'epic', sel: g.id, fallback: `/cadre approve ${g.id}@{code}`, hash: fnv1a64(g.title + (g.description ?? '')),
+    lines: [g.title, ...(g.description ?? '').split('\n').filter(Boolean).slice(0, 4), 'a human gate: the work after it waits for you'],
+    options: [{ key: 'a', label: 'Approve', verb: 'approve', run: `approve ${g.id}@{code}` }, { key: 'c', label: 'Change', verb: 'change', fill: `Change ${g.id}: ` }] }, code8Of(nonce, [g]))
 }
 async function approveGate(h: Host, store: TaskStore, reg: TypeRegistry, g: Task, code: string): Promise<Out> {
   const sec = await h.secret.read()
   if (!sec.nonce || sec.approval?.planId !== g.id || sec.approval.code8 !== code || code8Of(sec.nonce, [g]) !== code) { await gateDraw(h, g); return refuse('token mismatch: use the code on the band or in the pane') }
   await store.resolveGate(g.id, 'approved by the human')
   await h.secret.update(({ approval: _a, nonce: _n, ...r }) => r); await h.board.update(b => ({ ...b, approval: { planId: null, missing: [] } }))
-  await mirror(h, store, reg); return { text: `Gate ${g.id} approved.` }
+  await settle(h, `gate:${g.id}`); await mirror(h, store, reg); return { text: `Gate ${g.id} approved.` }
 }
 async function approve(h: Host, c: Command): Promise<Out> {
   const [planId, code] = (c.args[0] ?? '').split('@'), store = await storeOf(h), reg = await registryOf(h)
@@ -142,7 +157,7 @@ async function approve(h: Host, c: Command): Promise<Out> {
   if (mission) {
     await store.record('mission', epic.title, epic.description); await store.dropDrafts([plan.id])
     await h.board.update(b => ({ ...b, mission: epic.title, plan: null, epic: null, tasks: [], approval: { planId: null, missing: [] }, sheet: [] }) as typeof b)
-    await h.secret.update(({ approval: _a, nonce: _n, ...r }) => r)
+    await h.secret.update(({ approval: _a, nonce: _n, ...r }) => r); await settleIf(h, 'plan:')
     return { text: `Mission "${epic.title}" approved and recorded.` }
   }
   const ids = drafts.map(t => t.id), first = !plan.approvedAt
@@ -153,7 +168,7 @@ async function approve(h: Host, c: Command): Promise<Out> {
   for (const id of ids) await apply(h, { kind: 'approve', id, at, actor: 'human' }, pipe)
   await store.record('decision', `Approved plan ${plan.id}: ${epic.title}`, drafts.map(t => `- ${t.id} ${t.title} (${t.type})`).join('\n'), plan.id)
   await h.board.update(b => ({ ...b, plan: b.plan && { ...b.plan, state: 'approved', approvedAt: b.plan.approvedAt ?? at }, approval: { planId: null, missing: [] }, sheet: [] }) as typeof b)
-  await h.secret.update(({ approval: _a, nonce: _n, ...r }) => r)
+  await h.secret.update(({ approval: _a, nonce: _n, ...r }) => r); await settleIf(h, 'plan:')
   let note = ''
   if (first) try { await cutEpic(h, plan.id, (await cfgOf(h)).branches.dev); note = `; epic branch ${plan.epicBranch} cut` } catch (e) { note = `; epic branch cut failed: ${(e as Error).message}` }
   return { text: `Plan ${plan.id} approved: ${ids.length} task${ids.length === 1 ? '' : 's'} ready${note}.` }
@@ -167,7 +182,7 @@ async function reject(h: Host, c: Command): Promise<Out> {
   await store.record('decision', `Rejected plan ${planId}`, why.join(' ') || 'no reason given', fresh ? undefined : planId)
   if (fresh) await h.board.update(b => ({ ...b, plan: null, epic: null, tasks: [], approval: { planId: null, missing: [] }, sheet: [] }) as typeof b)
   else { await mirror(h, store, reg); for (const t of back) await apply(h, { kind: 'approve', id: t.id, at: await h.now(), actor: 'human' }, pipeOf(reg)); await h.board.update(b => ({ ...b, sheet: [] }) as typeof b) }
-  await h.secret.update(({ approval: _a, nonce: _n, ...r }) => r)
+  await h.secret.update(({ approval: _a, nonce: _n, ...r }) => r); await settleIf(h, 'plan:')
   return { text: `Plan ${planId}: ${drafts.length} draft${drafts.length === 1 ? '' : 's'} dropped${back.length ? `, ${back.length} amendment${back.length === 1 ? '' : 's'} reverted` : ''}.` }
 }
 
@@ -203,11 +218,11 @@ export async function dispatch(h: Host, c: Command, route: Route): Promise<Out> 
     const why = await isHuman(h, c.origin)
     if (why) {
       if (c.cmd === 'approve' && c.args[0]?.includes('@')) await redraw(h, await storeOf(h), await registryOf(h)).catch(() => {})
-      if ((c.cmd === 'init' || c.cmd === 'setup') && c.args[0] === 'confirm') await h.secret.update(({ initConfirm: _c, ...r }) => ({ ...r, initNonce: h.rand(8) }))
+      if ((c.cmd === 'init' || c.cmd === 'setup') && c.args[0] === 'confirm') { await h.secret.update(({ initConfirm: _c, ...r }) => ({ ...r, initNonce: h.rand(8) })); await settleIf(h, 'init:') }
       return refuse(why)
     }
   }
-  if ((c.cmd === 'init' || c.cmd === 'setup') && c.args[0] === 'cancel') { await h.secret.update(({ initConfirm: _c, ...r }) => ({ ...r, initNonce: h.rand(8) })); return { text: `${c.cmd}: cancelled; nothing ran` } }   // the card's Cancel: burns the code
+  if ((c.cmd === 'init' || c.cmd === 'setup') && c.args[0] === 'cancel') { await h.secret.update(({ initConfirm: _c, ...r }) => ({ ...r, initNonce: h.rand(8) })); await settleIf(h, 'init:'); return { text: `${c.cmd}: cancelled; nothing ran` } }   // the card's Cancel: burns the code
   if (c.cmd === 'approve' && c.args[0]?.includes('@')) return approve(h, c)
   if (c.cmd === 'reject') return reject(h, c)
   if (c.cmd === 'adapter' && c.args[0] === 'token') { await newToken(h); return { text: 'New session token drawn; it is shown by toast only.' } }
