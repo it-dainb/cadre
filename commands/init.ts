@@ -73,7 +73,7 @@ const S1: Stage = {
     return { lines, targets: [exPath, cfgPath], async apply(save) {
       if (!isRepo) { const r = await git(c, 'init', '-b', def); if (r.exitCode) return no(`git init failed: ${tail(r)}`) }
       if ((await git(c, 'rev-parse', '--verify', 'HEAD')).exitCode) for (const a of [['add', '-A'], ['commit', '--allow-empty', '-m', 'chore: initial commit']]) {
-        const r = await git(c, ...a); if (r.exitCode) return no(/identity|auto-detect email|who you are/i.test(r.stderr) ? 'git commit failed: git has no author name/email; run git config --global user.name "…" and user.email "…", then confirm again' : `git ${a[0]} failed: ${tail(r)}`)
+        const r = await git(c, ...a); if (r.exitCode) return no(/\bident|auto-detect email|who you are/i.test(r.stderr) ? 'git commit failed: git has no author name/email; run git config --global user.name "…" and user.email "…", then confirm again' : `git ${a[0]} failed: ${tail(r)}`)
       }
       if ((await git(c, 'rev-parse', '--verify', dev)).exitCode) { const r = await git(c, 'branch', dev, def); if (r.exitCode) return no(`git branch ${dev} ${def} failed: ${tail(r)}`) }
       for (const b of [def, dev]) if ((await git(c, 'rev-parse', '--verify', b)).exitCode) return no(`branch "${b}" does not resolve`)
