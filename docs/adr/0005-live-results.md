@@ -130,3 +130,16 @@ Findings that are not defects:
 PENDING-HUMAN now: **S54** (VS Code), **S61** (desktop), **S56** (Remote Control), S52's open-dialog case, S59 on the desktop surface. Items 1, 2 (S22, S37, S48, S49), 3 (S51–S53, S55, S59, S60) and 5 above are closed by these runs; 4 is attempted (unforced, 0/7).
 
 **S10 / S29 follow-up (tmux):** S10 `/reload-plugins` + `--continue` halves PASS (board and cost identical after reload; resume card and re-adopt after restart). S29 queued-Enter half PASS (stale code after an amendment → `refused: token mismatch`; an immediate `/cadre` typed mid-turn runs before the queue, so it is accepted). Link click stays PENDING-HUMAN. Records in `tests/smoke/S10.md`, `S29.md`.
+
+## Marketplace install (online)
+
+Image built from `harness/` with no local binary: the official installer path gives `claude --version` = 2.1.295 (build arg `CLAUDE_VERSION`). Container with network:
+
+| Check | Result |
+|---|---|
+| `claude plugin marketplace add it-dainb/cadre` | OK. Ref syntax: both `it-dainb/cadre#main` and `it-dainb/cadre@main` are accepted (listed as `GitHub (it-dainb/cadre@main)`); the scripts use `#`. |
+| `claude plugin install cadre@cadre`, `claude plugin list` | installed, `Version: 0.1.0`, enabled |
+| Headless `CADRE_SOURCE=marketplace harness/run.sh -p "/cadre status"` (haiku) | `cadre: no plan`; debug log: `Total plugin agents loaded: 4`, `hooks module cadre@cadre loaded (worker … tier user)`, `plugin.register: cadre … admitted` |
+| Interactive `CADRE_SOURCE=marketplace harness/tui.sh start mk` | `/plugin` header `1 mod active · cadre`; `/cadre status` shows the seeded plan; asking main to spawn the task ran the tester, then handed off to the worker (pipeline active from the cached plugin) |
+
+The only warning is the unset `userConfig` option (defaults apply) and `containment degraded` until `/cadre init`, both expected. No fixes were needed.

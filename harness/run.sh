@@ -11,7 +11,7 @@ mkdir -p "$OUT" "$WORK"
 ENTRY=()
 [ -n "$SHELL_MODE" ] && ENTRY=(--entrypoint bash)
 if [ "$CADRE_SOURCE" = marketplace ] && [ -z "$SHELL_MODE" ]; then
-  # ref syntax owner/repo#ref (assumed; see docs). Installs into the container's ephemeral ~/.claude, then runs claude with the args.
+  # ref syntax owner/repo#ref (verified: `@ref` also works). Installs into the container's ephemeral ~/.claude, then runs claude with the args.
   ENTRY=(--entrypoint bash); set -- -c 'claude plugin marketplace add "it-dainb/cadre${CADRE_REF:+#$CADRE_REF}" && claude plugin install cadre@cadre && exec claude "$@"' _ "$@"
   EXTRA_DOCKER="$EXTRA_DOCKER -e CADRE_REF"
 fi
