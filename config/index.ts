@@ -76,3 +76,7 @@ export async function load(h: Host, o: { home: string; root: string; repoKey: st
     { name: 'env', trust: 'user', value: envLayer(await h.env()) },
   ])
 }
+
+// Strictness as resolved from every layer (userConfig, ~/.claude/cadre.json, repo, env); hosts without a wired config fall back to env/userConfig.
+export const strictOf = async (h: Host): Promise<string> =>
+  (await (h as any).config?.().catch(() => undefined))?.strictness ?? (await h.env()).CADRE_STRICTNESS ?? h.options.strictness ?? 'strict'

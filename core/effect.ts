@@ -21,7 +21,11 @@ export function parse(s: string): Map<string, string> {
   }
   return m
 }
-const changed = (before: string | undefined, now: string): string[] => { const b = parse(before ?? ''); return [...parse(now)].filter(([k]) => !b.has(k)).map(([, p]) => p) }
+// New records, plus paths whose content hash moved (status records carry HEAD/index hashes, not the worktree's: a re-edit of a dirty file changes no record)
+const changed = (before: string | undefined, now: string, hb = '{}', hn = '{}'): string[] => {
+  const b = parse(before ?? ''), o = JSON.parse(hb) as Record<string, string>, n = JSON.parse(hn) as Record<string, string>
+  return [...new Set([...parse(now)].filter(([k, p]) => !b.has(k) || (n[p] !== undefined && o[p] !== n[p])).map(([, p]) => p))]
+}
 const refMap = (s: string) => new Map(s.split('\n').filter(Boolean).map(l => [l.slice(41), l.slice(0, 40)] as const))
 
 // Fingerprint of the given trees (+ the protected-ref list when the main checkout is in scope).
@@ -30,6 +34,9 @@ async function fingerprint(h: Host, trees: string[], repo: string): Promise<Reco
   for (const t of trees) {
     fp[`s:${t}`] = (await git(h, t, ...STATUS)).stdout
     fp[`h:${t}`] = (await git(h, t, 'rev-parse', 'HEAD')).stdout.trim()
+    const ps = [...new Set(parse(fp[`s:${t}`]).values())].filter(p => !p.endsWith('/')), r = ps.length ? await git(h, t, 'hash-object', '--', ...ps) : undefined
+    const hs = r && !r.exitCode ? r.stdout.split('\n').filter(Boolean) : []   // a deleted path makes the batch fail: that tree keeps record-level detection
+    fp[`c:${t}`] = JSON.stringify(hs.length === ps.length ? Object.fromEntries(ps.map((p, i) => [p, hs[i]])) : {})
   }
   if (trees.includes(repo)) fp.refs = (await git(h, repo, 'for-each-ref', '--format=%(objectname) %(refname)', 'refs/heads')).stdout
   return fp
@@ -60,12 +67,17 @@ export async function audit(h: Host, caller: string | null): Promise<void> {
   const loops = g.win?.loops ?? [], agentLoop = loops.some(l => l !== ''), after = { ...now }
   for (const t of scope) {
     if (base[`s:${t}`] === undefined) continue
-    const paths = changed(base[`s:${t}`], now[`s:${t}`]), o = owners[t]
+    const paths = changed(base[`s:${t}`], now[`s:${t}`], base[`c:${t}`], now[`c:${t}`]), o = owners[t]
     if (!paths.length) continue
     const tid = o ? binds[o].taskId : ''
     const locked = pol.locks?.[tid] ?? []
-    const bad = o ? (loops.includes(o) ? paths.filter(p => locked.some(l => p === l || l.endsWith('/' + p))) : paths) : agentLoop ? paths : []   // rule 1 / rule 2
-    if (!bad.length) { if (!o && !agentLoop) await raise(h, 'git:main-dirty', '', {}, 'main checkout changed outside cadre'); continue }
+    if (!o) {   // the main checkout is the human's tree: never stashed (13.7). A human edit only warns; an agent-attributed one blocks merges until `resolve git keep`
+      if (agentLoop) await raise(h, 'git:main-dirty:agent', '', {}, 'main checkout changed while an agent was running')
+      else h.toast('cadre: main checkout changed outside cadre')
+      continue
+    }
+    const bad = loops.includes(o) ? paths.filter(p => locked.some(l => p === l || l.endsWith('/' + p))) : paths   // rule 1
+    if (!bad.length) continue
     const ts = await h.now(), name = `cadre-q-${tid || 'main'}-${ts}`
     const r = await git(h, t, 'stash', 'push', '-u', '-m', name, '--', ...bad)
     await raise(h, r.exitCode ? `quarantine-failed:${tid || 'main'}` : `quarantine:${tid || 'main'}`, tid, {}, `${bad.length} path(s) quarantined (${name})`)

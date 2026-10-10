@@ -3,6 +3,7 @@ import type { Binding, Host, Hook } from '../types'
 import { MAIN_TOOLS, allowlist } from '../agents/index'
 import { repoKeyOf } from '../commands/init'
 import { logCall } from '../core/specview'
+import { strictOf } from '../config/index'
 
 // Paths the guards need, written to $.store `cadre:<repoKey>:policy` by init/session.start/tdd (absolute, realpath'd). Absent keys disable the rule they feed.
 export interface Policy { repo?: string; wtRoot?: string; home?: string; mcpAllow?: string[]; locks?: Record<string, string[]>; protect?: string[]; effectCheck?: string }
@@ -49,10 +50,10 @@ async function who(h: Host, agentId?: string) {
   return { b, task, main: !agentId, role: b?.role ?? 'explorer' as const, owner: !!b && task?.state === 'active' }
 }
 
-const strict = async (h: Host) => ((await h.env()).CADRE_STRICTNESS ?? h.options.strictness ?? 'strict') !== 'advisory'
+const strict = async (h: Host) => (await strictOf(h)) !== 'advisory'
 
 // Fence verdict for one file-tool call: undefined = allow-by-fence (continue), 'allow' = tester rule 2, else a deny reason.
-async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, input: unknown, pol: Policy): Promise<string | 'allow' | undefined> {
+async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, input: unknown, pol: Policy): Promise<string | 'allow' | 'tmp' | undefined> {
   const tester = w.role === 'tester' && !w.main
   const fenced = FENCED.includes(tool) || (tool === 'Read' && !!pol.home && typeof (input as any)?.file_path === 'string' && (input as any).file_path.includes('/.claude/plugins/store/'))
   if (!tester && !fenced) return
@@ -62,7 +63,9 @@ async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, 
   const real = p === undefined ? undefined : await placed(h, join(cwd, p))
   if (real === undefined) return 'cadre: cannot place the path'
   if (tester) return under(real, w.b!.worktree) ? 'allow' : `cadre: tester is confined to ${w.b!.worktree}`
-  if ((under(real, pol.repo) || under(real, pol.wtRoot)) && !(w.owner && under(real, w.b!.worktree))) return 'cadre: only an active task owner writes, and only in its worktree'
+  const own = w.owner && under(real, w.b!.worktree)
+  if (!w.main && !own) return under(real, (await h.env()).TMPDIR || '/tmp') ? 'tmp' : `cadre: a subagent writes only inside its own worktree (${w.b?.worktree ?? 'none bound'}) or $TMPDIR`   // positive jail: file tools are not OS-sandboxed (ADR 0006)
+  if (!own && (under(real, pol.repo) || under(real, pol.wtRoot))) return 'cadre: only an active task owner writes, and only in its worktree'
   if (modOwned(real, pol.home)) return 'cadre: mod-owned path'
   if (w.owner && w.task?.step === 'worker' && (pol.locks?.[w.b!.taskId] ?? []).some(l => real === l || under(real, l))) return 'cadre: locked spec test'
 }
@@ -74,6 +77,7 @@ const escape = (e: any) => (e?.dangerouslyDisableSandbox === true || e?.input?.d
 export const judge = (e: any): string | undefined => {
   if (escape(e)) return escape(e)
   if (!e.agentId) return MAIN_TOOLS.includes(e.tool) ? undefined : `cadre: ${e.tool} is not allowed for main`
+  if (SHELL.includes(e.tool) || (e.tool.startsWith('mcp__') && !e.tool.startsWith('mcp__cadre__'))) return 'cadre: shell and foreign tools need a live binding; refused on re-entry'   // bindings are unreadable here: over-deny
   const p = e.file_path ?? e.notebook_path
   if (FENCED.includes(e.tool) && typeof p === 'string' && modOwned(p)) return 'cadre: mod-owned path'
 }
@@ -87,7 +91,7 @@ export const guard: Hook = async (h, e, next) => {
     if (!list.includes(e.tool)) return `cadre: ${e.tool} is not in the ${w.main ? 'main' : w.role} allowlist`
     if (SHELL.includes(e.tool) && !(w.role === 'worker' && w.owner && w.task?.step === 'worker')) return 'cadre: shell only for a bound worker in the worker step'
     const f = await fence(h, w, e.tool, e, pol)
-    return f === 'allow' ? undefined : f
+    return f === 'allow' || f === 'tmp' ? undefined : f
   }
   const why = await deny()
   if (!why) return next(e)
@@ -132,4 +136,13 @@ export const configSet: Hook = async (h, e, next) => {
   if (!/(^|\.)strictness$/.test(e.key) || e.value === e.previous) return next(e)
   const running = (await h.board.read()).tasks.some(t => t.state === 'active' || t.state === 'review')
   return running ? { deny: 'cadre: strictness cannot change while tasks are running' } : next(e)
+}
+
+// Realpath of the worktree root once (its deepest existing ancestor is resolved): fence rule 3, locks and bindings all compare real paths (M13).
+export async function realRoot(h: Host, p: string): Promise<string> {
+  for (let q = p, tail = ''; q && q !== '/'; tail = q.slice(q.lastIndexOf('/')) + tail, q = q.slice(0, q.lastIndexOf('/'))) {
+    const r = (await h.stat(q, { resolve: true }))?.realPath
+    if (r) return r.replace(/\/$/, '') + tail
+  }
+  return p
 }

@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { check, configSet, guard, idsIn, inputPath, judge, send, setPolicy } from '../policy/guards'
+import { check, configSet, realRoot, guard, idsIn, inputPath, judge, send, setPolicy } from '../policy/guards'
 import { fakeHost, task } from './support'
 import type { Binding, Role } from '../types'
 
 const norm = (p: string) => { const o: string[] = []; for (const s of p.split('/')) { if (s === '..') o.pop(); else if (s && s !== '.') o.push(s) } return '/' + o.join('/') }
-const EXISTS = ['/', '/x', '/x/repo', '/x/bd-a1', '/x/bd-a1.view', '/x/bd-a1/src', '/x/bd-a2', '/x/bd-a1/src/a.ts', '/x/bd-a1.view/t.test.ts', '/etc', '/etc/passwd', '/x/repo/a.ts']
+const EXISTS = ['/', '/x', '/x/repo', '/x/bd-a1', '/x/bd-a1.view', '/x/bd-a1/src', '/x/bd-a2', '/x/bd-a1/src/a.ts', '/x/bd-a1.view/t.test.ts', '/etc', '/etc/passwd', '/x/repo/a.ts', '/tmp', '/home', '/home/u']
 const b = (taskId: string, role: Role, worktree: string, step = 'worker'): Binding => ({ taskId, role, step, worktree, sessionId: 's', ctxTokens: 0, startedAt: 0 })
 async function mk(opt: { strictness?: string; locks?: Record<string, string[]> } = {}) {
   const h = fakeHost({ options: { strictness: opt.strictness } })
@@ -114,5 +114,30 @@ describe('judge, send, configSet', () => {
     expect(await configSet(h, { key: 'theme', value: 'x', previous: 'y' }, () => 'ok')).toBe('ok')
     await h.board.update(s => ({ ...s, tasks: [] }))
     expect(await configSet(h, { key: 'cadre.strictness', value: 'advisory', previous: 'strict' }, () => 'ok')).toBe('ok')
+  })
+})
+
+describe('round 1 fixes (ADR 0006)', () => {
+  test('H4/sec-H1: a bound subagent writes only inside its own worktree (+ $TMPDIR); tool.check never auto-allows elsewhere', async () => {
+    const h = await mk()
+    for (const file_path of ['/etc/passwd', '/home/u/.bashrc']) {
+      expect(denied(await call(h, { tool: 'Write', agentId: 'w1', file_path }))).toBe(true)
+      expect(await check(h, { tool: 'Write', agentId: 'w1', input: { file_path } }, next)).toEqual({ ok: 'Write' })   // engine decides (prompt), no allow
+    }
+    expect(denied(await call(h, { tool: 'Write', agentId: 'w1', file_path: '/tmp/scratch.txt' }))).toBe(false)
+    expect(await check(h, { tool: 'Write', agentId: 'w1', input: { file_path: '/tmp/scratch.txt' } }, next)).toEqual({ ok: 'Write' })
+    expect(await check(h, { tool: 'Edit', agentId: 'w1', input: { file_path: '/x/bd-a1/src/b.ts' } }, next)).toMatchObject({ decision: 'allow' })
+  })
+  test('M10: strictness comes from the resolved config', async () => {
+    const h = await mk(); (h as any).config = async () => ({ strictness: 'advisory' })
+    expect(await call(h, { tool: 'Bash', command: 'ls' })).toEqual({ ok: 'Bash' })
+  })
+  test('sec-L1: re-entry judge refuses shells and foreign tools for an agent', () => {
+    expect(judge({ tool: 'Bash', agentId: 'w1' })).toMatch(/binding/); expect(judge({ tool: 'mcp__x__y', agentId: 'w1' })).toMatch(/binding/)
+    expect(judge({ tool: 'Read', agentId: 'w1' })).toBeUndefined()
+  })
+  test('M13: realRoot resolves the deepest existing ancestor (symlinked ~/.cache)', async () => {
+    const h = fakeHost(); h.stat = async (p, o) => (p === '/home/u/.cache' ? { kind: 'dir', realPath: o?.resolve ? '/data/cache' : undefined } : undefined)
+    expect(await realRoot(h, '/home/u/.cache/cadre/wt')).toBe('/data/cache/cadre/wt')
   })
 })
