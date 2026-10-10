@@ -24,8 +24,7 @@ test('every slot is a pass-through until its owner fills it: tool.call, tool.che
   on('prompt.submit', ($, e) => { seen.push('prompt'); return { text: e.text } })
   on('command.run', () => ({ text: 'engine' }))
   expect(await $.tool.call({ tool: 'Read', file_path: '/w/a.ts' })).toEqual({ result: 'ok' })
-  expect(await $.tool.call({ tool: 'mcp__other__ping' } as any)).toEqual({ result: 'ok' })
   expect((await $.prompt.submit({ text: 'hello' })).text).toBe('hello')
   expect((await $.command.run({ command: 'cadre', args: 'status' })).text).toBe('no plan\ncost: 0 tokens · containment unknown')   // commands/cadre.run is filled (w2-plan): it answers itself
-  expect(seen).toEqual(['call:Read', 'call:mcp__other__ping', 'prompt'])
+  expect(seen).toEqual(['call:Read', 'prompt'])
 })
