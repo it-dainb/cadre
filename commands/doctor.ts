@@ -72,7 +72,7 @@ const userPlan = async (h: Host) => mplan(h, await userPath(h), PATCH).catch((e:
 const TAG = { crit: 'CRIT', warn: 'WARN', ok: 'OK' }
 async function report(h: Host, name: string, rows: Row[], text?: string): Promise<string> {
   await h.ui.update(u => ({ ...u, 'doctor.rows': rows }))
-  for (const [k, t, f] of rows) h.log(`cadre ${name} [${TAG[k]}] ${t}${f ? ` — fix: ${f}` : ''}`)
+  for (const [k, t, f] of rows) h.log(`${name} [${TAG[k]}] ${t}${f ? ` — fix: ${f}` : ''}`)
   if (h.ops) await openPane(h, 'doctor')
   const bad = rows.filter(r => r[0] === 'crit').length, warn = rows.filter(r => r[0] === 'warn').length
   return text ?? (bad || warn ? `${name}: ${bad} fail, ${warn} warn — report in the cadre pane` : `${name}: all ok`)

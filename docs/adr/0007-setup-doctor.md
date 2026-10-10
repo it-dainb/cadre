@@ -31,3 +31,6 @@ Dormant: every gating slot passes straight through (turn.complete, agent.spawn, 
 
 ## Short toasts
 A toast is one line of about 60 characters at most, detail in `/cadre doctor` or the pane: `cadre: containment degraded · /cadre doctor`, `cadre: N commands unsandboxed · /cadre doctor`; the drive/context/fresh-agent/spec-change/conflict toasts were shortened the same way.
+
+## Live result (harness tui.sh, haiku, container without `bd` on PATH, `NPM_CONFIG_PREFIX` a user dir)
+`/cadre setup` showed the plan (1 installing bd, 2 creating the worktree folder, 3 writing user settings) plus the `you run once: ! sudo apt install bubblewrap` line (bwrap 0.8.0 in the image); `/cadre setup confirm <band code>` ran the three steps (npm took about a minute), the pane marked each done, the re-check read `bd 1.3.1`, and the settings file gained the env. The userns-blocked case is not simulated live (the harness runs with seccomp and AppArmor unconfined so bwrap works); it is covered by kit tests only.
