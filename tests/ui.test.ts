@@ -15,8 +15,8 @@ import { GOLDEN } from './fixtures/ui/golden'
 import { WIRE } from './fixtures/ui/wireframes'
 
 const sq = (ls: string[]) => ls.map(l => l.replace(/─{10,}/g, '─').replace(/\s+/g, ' ').trim())
-// v1 draws tabs Epic + Plan only (UI-DESIGN 5: 2/3/4 are later); the wireframe's Epic⚑ at 62 m has no attention item behind it (its own band is calm); sheet ids are bd-<id> in the wireframe; the human timeline lane (`*o`: a plan-ready toast and an approve that has no event type) is not compared, nor the last future column of the sync outage (drawn one column long)
-const v1 = (ls: string[]) => sq(ls).filter(l => !/^(human|hum) /.test(l)).map(l => l.replace(/^(syn .*?)╌+$/, '$1').replace(' 2: Task 3: Sync 4: Cost', '').replace(' 2:Task', '').replace('Epic⚑', 'Epic').replace(/bd-/g, '')).map(l => l.replace(/^(Enter\/)?n\/p( node)?: select node.*$|^n\/p node ·.*$|^(n: next|n: node) .*$/, 'KEYS').replace('1:Epic 7:Plan', '1: Epic 7: Plan').replace('n: next task p: prev task', 'n/p: task').replace(/n: next p: prev(?= ·|$)|n: next p: prev$/, 'n/p'))   // ADR 0008: the engine draws `key: label`, so the footer keys are labelled Buttons (same keys, same groups)
+// v1 draws tabs Epic + Plan + Doctor (8, post-v1: the setup/doctor report, ADR 0007) only (UI-DESIGN 5: 2/3/4 are later); the wireframe's Epic⚑ at 62 m has no attention item behind it (its own band is calm); sheet ids are bd-<id> in the wireframe; the human timeline lane (`*o`: a plan-ready toast and an approve that has no event type) is not compared, nor the last future column of the sync outage (drawn one column long)
+const v1 = (ls: string[]) => sq(ls).filter(l => !/^(human|hum) /.test(l)).map(l => l.replace(/^(syn .*?)╌+$/, '$1').replace(' 2: Task 3: Sync 4: Cost', '').replace(/ 8: ?Doctor/, '').replace(' 2:Task', '').replace('Epic⚑', 'Epic').replace(/bd-/g, '')).map(l => l.replace(/^(Enter\/)?n\/p( node)?: select node.*$|^n\/p node ·.*$|^(n: next|n: node) .*$/, 'KEYS').replace('1:Epic 7:Plan', '1: Epic 7: Plan').replace('n: next task p: prev task', 'n/p: task').replace(/n: next p: prev(?= ·|$)|n: next p: prev$/, 'n/p'))   // ADR 0008: the engine draws `key: label`, so the footer keys are labelled Buttons (same keys, same groups)
 const segs = (ls: Line[]) => ls.flat()
 const E: any = Object.fromEntries(['Box', 'Text', 'Button', 'Raster'].map(n => [n, (p: any) => ({ type: n, props: p })]))
 const flat = (n: any): any[] => (n && typeof n === 'object' ? [n, ...(Array.isArray(n) ? n : (n.props?.children ?? []).flatMap?.(flat) ?? flat(n.props?.children))] : [])
@@ -323,5 +323,14 @@ describe('render hooks, handlers, fallbacks', () => {
     const a = mk(); await seed(a.h, view(62, { board: { drive: { on: true, level: 'epic', epicId: 'p3', turns: 4, costUsd: 1, startedAt: 0 } } })); await resumeBanner(a.h, { decisions: 5, next: 'complete a5' })
     expect(txt(band(await read(a.h), 115, NOOP))[0]).toBe('[OK] ↺ cadre resumed from beads · 5 decisions · next: complete a5 · [RUN] drive ▶ continuing')
     expect(((await a.h.ui.read()).res as any).n).toContain('[RUN] drive ▶ continuing')
+  })
+})
+
+describe('Doctor tab (post-v1, ADR 0007)', () => {
+  test('8: Doctor is always on the tab row; with no report it says how to get one; a report shows its rows', () => {
+    const v = view(62, {}), keys = (p: ReturnType<typeof pane>) => p.before.flat().filter(s => s.hk).map(s => s.hk)
+    expect(keys(pane(v, 118, 40, NOOP))).toContain('8')
+    expect(txt(pane({ ...v, ui: { tab: 'doctor' } }, 118, 40, NOOP).before).join('\n')).toContain('no report yet · run /cadre doctor')
+    expect(txt(pane({ ...v, ui: { tab: 'doctor', 'doctor.rows': [['ok', 'git 2.43.0']] } }, 118, 40, NOOP).before).join('\n')).toContain('[OK] git 2.43.0')
   })
 })

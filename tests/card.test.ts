@@ -64,7 +64,7 @@ describe('ONE renderer draws any Decision (wide and narrow)', () => {
     const v = { ...approval(), ui: { tab: 'card' } }
     const p = pane(v, 116, 40, NOOP), t = txt(p.before)
     expect(t[2]).toMatch(/^╔/); expect(p.before.slice(2).flat().filter(s => s.d).length).toBeGreaterThan(5)
-    const keys = p.before.flat().filter(s => s.hk).map(s => s.hk); expect(keys).toEqual(['1', '7', 'a', 'x', 'c'])   // tabs + the card's buttons only
+    const keys = p.before.flat().filter(s => s.hk).map(s => s.hk); expect(keys).toEqual(['1', '7', '8', 'a', 'x', 'c'])   // tabs + the card's buttons only
     expect(txt(pane({ ...view(62), ui: { tab: 'card' } }, 116, 40, NOOP).before)[2]).not.toMatch(/^╔/)
   })
 })
