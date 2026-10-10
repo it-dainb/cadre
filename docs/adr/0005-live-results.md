@@ -61,3 +61,26 @@ Evals fixed (test side): `execute-p1-*` drop `main-never-bash` (subagent Bash is
 3. **UI smokes S51–S61** (band, pane, notifications) need a TUI; not run here.
 4. Eval `review-resumes-same-agent` needs a seeded task with a real, reviewer-visible major defect (e.g. a scenario the red tests cannot catch) to force `changes` without fabricating it. Repro: seed `p-p1.1` with such a scenario, run the case, expect `changes (1/3)` then the same `agentId` resumed.
 5. Eval `auto-report` as a graded run: needs a driver that keeps the session open after main's last turn (or drive on) so the nudge's resume completes inside the trace.
+
+## Re-run after review rounds (2026-10-10, HEAD 0f9d096 + a0ae076, 1772ca4, a52bf2b)
+Same harness, `git archive HEAD` copy, haiku smokes / sonnet evals. Evidence: `docs/evidence/live/rerun2/` (`*.debug.log.gz`, `eval-*.json`, `trace-*.txt`, `jail-refusal-tester.jsonl` = the subagent transcript of the refused write).
+
+| Check | Result |
+|---|---|
+| Load, `/cadre status` (`cadre: no plan · containment degraded`, toast, hooks) | PASS (`l1`) |
+| S13 `TaskCreate` first call, no `ToolSearch` | PASS (`s13`) |
+| S28 `contained` (settings with sandbox on, `denyWrite` repo, `allowWrite` = the realpath'd `<wtRoot>/<repoKey>`; the key is `run-568e48` for `/work/run`) | PASS (`s28b`); with a wrong allowWrite it reads `degraded (allowWrite lacks the worktree root)` |
+| S34 `{result}` + plan rules reach main | PASS (`s34`) |
+| S39 foreground card replaces the Agent result | PASS (`s39`: result is the one-line card) |
+| S41 `mcp__cadre__*` grant, default permission mode | PASS (`s41`: tester red → worker green, no prompt) |
+| Eval `execute-p1-ts` / `-py` / `-go` / `-rust` | **1.0 each** after the grader fix (first pass 0.75 on `tester-before-worker`, see below); ADR 0005 first run: ts/py/go 1.0, rust 0.75 |
+| Eval `fix-bug-main-never-edits` | **1.0** after two fixes (first pass 0.83) |
+| Eval `auto-report` | 0.67, unchanged (not stable, see "Headless" above) |
+| Worker edits inside its worktree (positive jail) | PASS: `j1`, full run tester→worker→reviewer→closed, squash on the epic branch |
+| Write outside the worktree (`/home/cc/x.txt`) from a bound agent | REFUSED, as the tool error `write only inside your working directory`; the model quoted it in its report and carried on (`j3_1`, `jail-refusal-tester.jsonl`). No mechanism word in anything the model saw (scan of the agent transcript: only the engine's own success line shows the view path, and the model's own word "harness") |
+
+Regressions found and fixed (root cause, test each):
+1. `tester-before-worker` judge false negative (ts/go/rust, py 2/3): it asked for nested report answers that are not in the main trace. The Agent result card (`tester → worker`, `worker → review · green ✓`, `reviewer → review✓`) is what main sees and the pipeline was correct in every trace. Fix `a0ae076` (grader sees the cards).
+2. `main-never-edits` counted a refused Edit attempt (`tool_used`). Refused attempts are not edits (same rule as Bash); `main-never-edits`/`main-never-bash` are now judged by results (`1772ca4`). Source stayed untouched in every run.
+3. Real wording defect: main's Edit refusal said "spawn it for the task", so sonnet spawned `general-purpose` agents (retyped to explorers, which cannot report) and never planned (`TaskCreate` 0x, score 0.67). The deny now ends in the right next action: "plan the change with TaskCreate, or spawn the agent of a planned task" (`a52bf2b`, `tests/policy-guards.test.ts`). Re-run: 1.0.
+Spend: about US$3 (6 first-pass evals + 8 re-runs, ~14 haiku smokes).
