@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { SPECS, TOOLS, handle, handleWith } from '../tools/index'
-import { observeWith, report } from '../core/close'
+import { followups, observeWith, report } from '../core/close'
 import { LIFECYCLE } from '../native/tasks'
 import { ROUTES } from '../core/dispatch'
 import { defaults } from '../config/index'
@@ -44,5 +44,17 @@ describe('observe (#2)', () => {
     const store = new MemoryStore(); await store.init({ types: {} as any, journal: false }); const h = fakeHost()
     expect(await observeWith(h, deps(store) as any, { reason: 'answer' }, (e: any) => `n:${e.reason}`)).toBe('n:answer')
     expect(await observeWith(h, deps(store) as any, { agentId: 'zz', reason: 'answer' }, (e: any) => 'ok')).toBe('ok')
+  })
+})
+
+describe('discovered work (3.1)', () => {
+  test('followups (≤5, titled) become drafts in one lazily created cadre-backlog epic, discovered-from the task', async () => {
+    const store = new MemoryStore(); await store.init({ types: {} as any, journal: false }); const d = deps(store) as any
+    const epic = await store.createEpic('E', 'g'), t = (await store.createDraft({ title: 't', description: 'd', type: 'feature', parent: epic })).id
+    await followups(d, t, [{ title: 'a', description: 'x' }, { description: 'no title' }, ...Array.from({ length: 6 }, (_, i) => ({ title: `b${i}` }))])
+    await followups(d, t, [{ title: 'c' }]); await followups(d, t, undefined)
+    const all = await store.list({}), bl = all.filter(x => x.title === 'cadre-backlog'), ds = all.filter(x => x.parent === bl[0].id)
+    expect(bl.length).toBe(1); expect(ds.map(x => x.title)).toEqual(['a', 'b0', 'b1', 'b2', 'b3', 'c'])
+    expect(ds.every(x => x.category === 'draft' && x.deps.some(y => y.type === 'discovered-from' && y.id === t))).toBe(true)
   })
 })

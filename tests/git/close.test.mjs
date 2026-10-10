@@ -124,3 +124,13 @@ test('run_check: named check in the caller tree, header + body; task scope enfor
   assert.match(await call('inspect', { what: 'status' }), /^exit=0/); assert.match(await call('inspect', { what: 'log', rev: '--output=x' }), /error: rev/); assert.match(await call('inspect', { what: 'show', path: '../x', rev: 'HEAD' }), /error: path/)
   assert.match(await handleWith(w.h, w.dep, { tool: 'mcp__cadre__inspect', input: { what: 'diff' } }).then(r => r.result), /main may inspect/)
 })
+
+test('followups become drafts in the lazily created cadre-backlog epic with a discovered-from dep; plan flags clear with resolve keep', async () => {
+  const w = await world(), id = w.ids[0]; await w.spawn(id); edit((await w.store.get(id)).meta['cadre.worktree'])
+  await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's', followups: [{ title: 'tidy x', description: 'later' }, { title: 'tidy y', description: 'later' }] })
+  const all = await w.store.list({}), bl = all.find(t => t.title === 'cadre-backlog'); assert.ok(bl)
+  const ds = all.filter(t => t.parent === bl.id); assert.deepEqual(ds.map(t => [t.title, t.category]), [['tidy x', 'draft'], ['tidy y', 'draft']])
+  assert.deepEqual(ds[0].deps, [{ id, type: 'discovered-from' }])
+  await w.h.board.update(b => ({ ...b, plan: { ...b.plan, flags: ['integration-failed'] } }))
+  assert.match((await ROUTES.resolve(w.h, { schemaVersion: 1, cmd: 'resolve', args: ['p1', 'keep'], origin: { kind: 'composer' } })).text, /plan flags cleared/); assert.deepEqual((await w.h.board.read()).plan.flags, [])
+})

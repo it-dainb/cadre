@@ -96,6 +96,7 @@ async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any, aut
   await d.store.move(t.id, 'review', d.actor)
   await record(h, d, t.id, 'report', 'worker', { commit: C, ...st, green: green ? `${green.ok ? 'pass' : 'fail'} (${green.secs}s)` : 'n/a', auto }, { outcome: 'done', summary: r.summary, risks: r.risks })
   if (auto) await raise(h, t.id, 'auto-reported')
+  await followups(d, t.id, r.followups)
   const bind = await h.bind.read(), rv = ownerOf(bind, t.id, 'reviewer'), last = rv && bind[rv].lastReviewedCommit
   if (rv) await queueResume(h, { agentId: rv, taskId: t.id, text: `Re-review ${t.id}: the worker reworked. Review ${last ? `${sha7(last)}..` : ''}${sha7(C)} (sourceCommit ${C}) and report your verdict.` })
   const flags = ((await h.board.read()).tasks.find(x => x.id === t.id)?.flags) ?? []
@@ -103,6 +104,13 @@ async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any, aut
   return `report accepted: commit ${sha7(C)}, ${st.files} files (+${st.add} −${st.del})${green ? `, verify ${green.ok ? '✓' : '✗'}` : ''}. Now in review; stop and wait.`
 }
 
+// 3.1 discovered work: each worker followup -> a draft in the lazily created `cadre-backlog` epic, discovered-from this task
+export async function followups(d: Deps, from: string, fs: unknown) {
+  const list = (Array.isArray(fs) ? fs : []).slice(0, 5).filter((f: any) => typeof f?.title === 'string' && f.title.trim())
+  if (!list.length) return
+  const backlog = (await d.store.list({})).find(x => x.type === 'epic' && x.title === 'cadre-backlog')?.id ?? await d.store.createEpic('cadre-backlog', 'discovered work, not yet planned')
+  for (const f of list as any[]) await d.store.createDraft({ title: f.title.slice(0, 120), description: String(f.description ?? '').slice(0, 1000), type: 'feature', parent: backlog, discoveredFrom: from })
+}
 async function blockTask(h: Host, d: Deps, t: SnapTask, why: string, flag: string, claimed: Record<string, unknown>) {
   const m = await apply(h, { kind: 'block', id: t.id, at: await h.now(), actor: 'mod' }, pipe(d)); if (!m.ok) throw new Error(m.error)
   await d.store.move(t.id, 'blocked', d.actor); await record(h, d, t.id, 'blocked', t.step, { why }, claimed); await raise(h, t.id, flag)
@@ -283,7 +291,12 @@ ROUTES.resolve = async (h, c) => {
     if (!flag) return { text: `name the flag: ${open.join(', ') || 'none open'}` }
     const r = await resolveGit(h, flag, b); return { text: r.ok ? `${flag}: ${b} done` : `refused: ${r.error}` }
   }
-  const t = (await h.board.read()).tasks.find(x => x.id === a), d = await resolveDeps(h)
+  const s0 = await h.board.read(), d = await resolveDeps(h)
+  if (s0.plan && (a === s0.plan.id || a === s0.epic) && b === 'keep') {   // plan-level flags (integration-failed): a retry is TaskUpdate completed again
+    await h.board.update(x => (x.plan ? { ...x, plan: { ...x.plan, flags: [] } } : x)); await emit(h, 'flag.resolved', { taskId: a, flag: (s0.plan.flags ?? []).join(',') || 'plan' }, { taskId: a })
+    return { text: `${a}: plan flags cleared; call TaskUpdate completed on the epic again` }
+  }
+  const t = s0.tasks.find(x => x.id === a)
   if (!t || !['keep', 'accept', 'reject', 'cancel'].includes(b)) return { text: 'usage: /cadre resolve <taskId> keep|accept|reject|cancel · /cadre resolve git keep|restore' }
   const out = async (e: Promise<string | null>) => ({ text: (await e) ?? `${a}: ${b} done` })
   if (b === 'cancel' || (b === 'reject' && t.flags.some(x => x.startsWith('rework:')))) return out(cancelTask(h, d, a, 'ended by the human'))
