@@ -114,7 +114,7 @@ From the M0 spike ([ADR 0001](docs/adr/0001-m0-results.md)):
 - **PENDING-HUMAN smokes** (need an interactive TUI): S22 (background workers across `/clear`), S37 (`!` raises no `tool.call`), S48 interactive `/goal`, S49 trigger (`$.session.compact()` is unavailable headless, so the 60 % context hint is a toast, not an automatic compact). S41's MCP grant is rechecked at M3.
 - **A restored `/goal` is undetectable** (S48, A27). After `/resume` with drive on, a one-time band hint appears. Do not combine a restored `/goal` with `/cadre drive on`: two loops would run. `/goal` typed in the session is observed as prompt text and pauses drive.
 - **No bwrap overlay** (needs ≥ 0.11; hosts have 0.8/0.9). Checks run in a **copy-jail**: a throwaway copy of the worktree, writable, network off. The cache audit uses an empty scratch `HOME` listing.
-- **bd 1.3.1 has no `--if-revision`.** Leases for drive and sync are metadata leases with read-check-write-reread, guarded by `--if-assignee/--if-status`.
+- **bd 1.3.1 has no `--if-revision`.** Drive and sync leases live as metadata on the `cadre-control` issue, with read-check-write-reread (guarded by `--if-assignee/--if-status`). Drive continues after `/clear` (DESIGN §9).
 - **Tester has Read/Write/Edit only** (this build exposes no Grep/Glob, S45); briefs name the paths. Plan B (ADR 0004) is not needed.
 - **`!` shell commands** in a human session may bypass the hooks (A20 unverified); the effect check treats such changes as human.
 - Workers cannot `git add/commit` (repo-level `denyWrite`, S24): the mod commits. `/tmp` is not writable for subagents; use `$TMPDIR`.
@@ -124,6 +124,6 @@ From the M0 spike ([ADR 0001](docs/adr/0001-m0-results.md)):
 ```bash
 node scripts/budget.mjs                          # LOC budget: core ≤ 5000, ui ≤ 750, 3 MCP tools, 0 skills
 $CC plugin validate --strict . && $CC plugin test .
-node --test tests/git/*.test.mjs tests/protocol/*.test.mjs
+node --experimental-transform-types --test tests/git/*.mjs tests/protocol/*.mjs
 ```
 Live smokes: [`tests/smoke/`](tests/smoke) (S01–S61). Real-model evals: [`evals/`](evals), run through the harness (`harness/run.sh`), never on the host. Decisions: [`docs/adr/`](docs/adr).
