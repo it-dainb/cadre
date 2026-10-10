@@ -156,7 +156,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
   if (role === 'worker' && stepsOf(d)(t.type).includes('red') && !task.meta['cadre.specCommit']) return deny(`${t.id}: no red record yet; its spec commit is needed before the worker`)
   const live = leaseLive(task, now)
   if (live && !mine.length) return deny(`${t.id} is held by another session (its lease is live)`)
-  if (live && mine.some(a => bind[a].role === role)) return deny(`${t.id} is running; it is resumed automatically`)
+  if (live && mine.some(a => bind[a].role === role && !bind[a].retired)) return deny(`${t.id} is running; it is resumed automatically`)   // retired (core/reuse: context or TTL over) = rebind fresh
   if (t.state === 'blocked' && task.meta['cadre.decision'] === undefined) return deny(`${t.id} is blocked; the human decides first (/cadre resolve)`)
   const spike = kindOf(d.reg[t.type]) === 'spike', wt = task.meta['cadre.worktree'] ?? wtPath(d.wtRoot, d.key, t.id), branch = task.meta['cadre.branch'] ?? ''
   if (!spike) {

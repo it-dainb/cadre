@@ -36,7 +36,8 @@ describe('L1 capability (13.1)', () => {
   test('unknown ids and marker-less forks get the explorer list', async () => {
     const h = await mk()
     expect(denied(await call(h, { tool: 'Edit', agentId: 'zzz', file_path: '/x/bd-a1/src/a.ts' }))).toBe(true)
-    expect(await call(h, { tool: 'Grep', agentId: 'zzz' })).toEqual({ ok: 'Grep' })
+    expect(await call(h, { tool: 'Read', agentId: 'zzz', file_path: '/x/bd-a1/src/a.ts' })).toEqual({ ok: 'Read' })
+    expect(denied(await call(h, { tool: 'Grep', agentId: 'zzz' }))).toBe(true)   // S45: Grep/Glob are in no allowlist (absent in 2.1.295)
   })
   test('dangerouslyDisableSandbox denied in any loop; advisory turns denies into warnings', async () => {
     const h = await mk()
@@ -62,11 +63,18 @@ describe('file fence (13.2)', () => {
     expect(denied(await call(h, { tool: 'Read', agentId: 't1', file_path: '/x/bd-a1.view/../bd-a1/src/a.ts' }))).toBe(true)
     expect(await call(h, { tool: 'Read', agentId: 't1', file_path: '/x/bd-a1.view/t.test.ts' })).toEqual({ ok: 'Read' })
     expect(denied(await call(h, { tool: 'Glob', agentId: 't1', pattern: '/etc/*' }))).toBe(true)
-    expect(await call(h, { tool: 'Glob', agentId: 't1', pattern: '**/*.ts' })).toEqual({ ok: 'Glob' })
+    expect(denied(await call(h, { tool: 'Glob', agentId: 't1', pattern: '**/*.ts' }))).toBe(true)   // not a tester tool (S45); the fence still normalizes it for tool.check
     expect(await check(h, { tool: 'Glob', agentId: 't1', input: { pattern: '**/*.ts' } }, () => 'engine')).toMatchObject({ decision: 'allow' })
     expect(await check(h, { tool: 'Write', agentId: 't1', input: { file_path: '/x/bd-a1.view/new.test.ts' } }, () => 'engine')).toMatchObject({ decision: 'allow' })
     expect(await check(h, { tool: 'Glob', agentId: 't1', input: { pattern: '/etc/*' } }, () => 'engine')).toBe('engine')
     expect(denied(await call(h, { tool: 'Bash', agentId: 't1' }))).toBe(true)
+  })
+  test('tool.check allow covers Read inside the agent\'s own tree only (S26); main and other trees go to the engine', async () => {
+    const h = await mk()
+    expect(await check(h, { tool: 'Read', agentId: 'w1', input: { file_path: '/x/bd-a1/src/a.ts' } }, () => 'engine')).toMatchObject({ decision: 'allow' })
+    expect(await check(h, { tool: 'Read', agentId: 'r1', input: { file_path: '/x/bd-a1/src/a.ts' } }, () => 'engine')).toMatchObject({ decision: 'allow' })
+    expect(await check(h, { tool: 'Read', agentId: 'w1', input: { file_path: '/x/bd-a2/src/a.ts' } }, () => 'engine')).toBe('engine')
+    expect(await check(h, { tool: 'Read', input: { file_path: '/x/bd-a1/src/a.ts' } }, () => 'engine')).toBe('engine')
   })
   test('tool.check allows the owner in its worktree, defers everything else', async () => {
     const h = await mk()

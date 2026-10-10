@@ -96,8 +96,14 @@ export const check: Hook = async (h, e, next) => {
   const tool = e.tool as string
   if (!e.agentId || !FILE.includes(tool)) return next(e)
   const w = await who(h, e.agentId)
-  if (!w.b || (w.role !== 'tester' && !(w.owner && FENCED.includes(tool)))) return next(e)
-  const pol = await policyOf(h), f = await fence(h, w, tool, e.input, pol)
+  if (!w.b) return next(e)
+  const pol = await policyOf(h)
+  if (tool === 'Read' && w.role !== 'tester' && w.b.worktree) {   // S26: Read needs the allow too (outside the session cwd it prompts), only inside its own tree
+    const p = inputPath(tool, e.input, w.b.worktree), real = p === undefined ? undefined : await placed(h, join(w.b.worktree, p))
+    return real && under(real, w.b.worktree) ? { decision: 'allow', reason: 'cadre: inside its own tree' } : next(e)
+  }
+  if (w.role !== 'tester' && !(w.owner && FENCED.includes(tool))) return next(e)
+  const f = await fence(h, w, tool, e.input, pol)
   return f === 'allow' || f === undefined ? { decision: 'allow', reason: 'cadre: inside its own tree' } : next(e)
 }
 

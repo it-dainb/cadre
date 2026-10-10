@@ -2,7 +2,10 @@
 // Git runs through the injected h.run (ADR 0003): kit-testable with a scripted run.
 import type { Hook, Host } from '../types'
 import { emit } from './events'
-import { policyOf } from '../policy/guards'
+import { inputPath, policyOf } from '../policy/guards'
+import { drainDelta, idsIn } from './briefs'
+import { logCall } from './specview'
+import { UI } from './reuse'
 
 const WRITERS = ['Edit', 'Write', 'NotebookEdit', 'Bash', 'PowerShell', 'Monitor']
 export const writes = (tool: string) => WRITERS.includes(tool) || (tool.startsWith('mcp__') && !tool.startsWith('mcp__cadre__'))   // no write capability in any allowlist -> skipped
@@ -78,9 +81,25 @@ export async function audit(h: Host, caller: string | null): Promise<void> {
   await save(after, open)
 }
 
-// #6 tool.call wrap: register the call in the window, run it, audit what it did. Audit failures never fail the call.
+// #6 tool.call wrap: L3 window + audit for writers; then the delta drain (4.3), the foreground result card (S39), the tester call log (3.5.2).
 export const wrap: Hook = async (h, e, next) => {
-  if (!writes(e.tool)) return next(e)
+  const r = await (writes(e.tool) ? audited(h, e, next) : next(e))
+  try { return await after(h, e, r) } catch (x) { h.log(`cadre: wrap after-call failed: ${x}`); return r }
+}
+async function after(h: Host, e: any, r: any): Promise<any> {
+  if (!e.agentId) {   // main's foreground Agent call: the task's card replaces the hand-back text (r.result.content[0].text, S39)
+    if (e.tool !== 'Agent' || !r?.result?.content?.[0]) return r
+    const s = await h.board.read(), [id] = idsIn(String(e.prompt ?? e.input?.prompt ?? ''), s.tasks.map(t => t.id)), t = s.tasks.find(x => x.id === id)
+    if (!t?.card) return r
+    if (e.tool_use_id) await UI.mapCard?.(h, e.tool_use_id, t.id)
+    return { ...r, result: { ...r.result, content: [{ ...r.result.content[0], text: t.card.replace('\n', ' · ') }, ...r.result.content.slice(1)] } }
+  }
+  const b = (await h.bind.read())[e.agentId]
+  if (b?.role === 'tester') await logCall(h, e.agentId, { tool: e.tool, path: inputPath(e.tool, e.input ?? e, b.worktree), outcome: r?.deny ? String(r.deny) : r?.error ? 'error' : 'ok' })
+  const d = b && (await drainDelta(h, e.agentId))
+  return d ? { ...r, context: [...(r?.context ?? []), d] } : r
+}
+async function audited(h: Host, e: any, next: (e: any) => any) {
   const loop = e.agentId ?? '', id = e.tool_use_id ?? h.rand(4)
   await h.git.update(g => ({ ...g, win: { loops: [...new Set([...(g.win?.loops ?? []), loop])], open: { ...g.win?.open, [id]: loop } } }))
   try { return await next(e) } finally {

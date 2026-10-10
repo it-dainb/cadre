@@ -52,6 +52,7 @@ export interface Secret {
 export interface Binding {
   taskId: string; role: Role; step: string; worktree: string; sessionId: string
   lastReviewedCommit?: string; ctxTokens: number; startedAt: number
+  lastAt?: number; retired?: boolean                   // last turn.step (idle clock, core/reuse); retired = needs a fresh spawn (admission rebinds it)
 }
 export interface GitState {
   busy: boolean; epoch: number
@@ -93,6 +94,8 @@ export interface Host {
   ops?: UiOps                                          // ui/ side effects (render, toast, notify, prefill, timers); built by host($), absent in plain test hosts
   spawn?(a: { argv: readonly string[]; input: string; timeoutMs?: number }): Promise<{ exitCode: number | null; stdout: string; stderr: string }>   // $.process.spawn one-shot: stdin = input then closed, output collected (task-management/protocol)
   taskStore?(): Promise<any>; config?(): Promise<any>   // the TaskStore (a core/dispatch storeOf) and resolved Config; register.ts wires them (config falls back to env layer + defaults)
+  sendTo?(agentId: string, text: string): Promise<{ isDelivered: boolean; reason?: string }>   // $.session.send({to:{agentId}}): core/reuse.drain only (the one sender)
+  submit?(text: string): Promise<unknown>; usage?(): Promise<{ context?: { percent?: number }; cost?: { usd: number } }>   // $.prompt.submit (drive, #1 only) · $.session.usage
 }
 // UI side effects (ui/ only). Built per hook by host($); optional so test hosts may omit it.
 export interface UiOps {

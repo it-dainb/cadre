@@ -132,6 +132,13 @@ describe('next step / rebind (lease staleness, 8.4)', () => {
     const { epic } = { epic: (await a.h.board.read()).epic! }; await w.board(b.h, epic, [id], [{ state: 'active', step: 'worker' }])
     expect(((await admitWith(b.h, b.d, spawn(id), ok('y').next)) as any).deny).toContain('another session')
   })
+  test('live lease but the bound agent is retired (core/reuse: fresh over resume) -> rebind with a handoff, unbound(rebind)', async () => {
+    const w = world(), { h, d } = await w.mk('a'), id = await active(w, h, d)
+    await h.bind.update(b => ({ ...b, ag1: { ...b.ag1, retired: true } }))
+    const rr: any = await admitWith(h, d, spawn(id), ok('ag2').next); expect(rr.agentId).toBe('ag2')
+    expect(Object.keys(await h.bind.read())).toEqual(['ag2'])
+    expect(ofEpic(await h.events.read(), (await h.board.read()).epic!).find(e => e.type === 'agent.unbound')?.data).toEqual({ agentId: 'ag1', reason: 'rebind' })
+  })
   test('expired lease: stale -> rebind: unbound(stale), same actor + worktree, computed handoff, new agent bound', async () => {
     const w = world(), { h, d } = await w.mk('a'), id = await active(w, h, d)
     w.clock.now += 6 * 60_000; expect(leaseLive(await w.store.get(id), w.clock.now)).toBe(false)
