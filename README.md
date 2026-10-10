@@ -86,7 +86,7 @@ Layers, low → high: built-in defaults → plugin `userConfig` → `~/.claude/c
 | `release.onEpicDone` | O | `propose` |
 | `ui.glyphs` | O | `unicode` (`ascii` for fonts without the glyphs) |
 | `maxParallel`, `maxRows` | O | 3, 6 |
-| `reuse.{maxContextPct,cacheTtlMs}` | O | 60, 300000 (M0 recommends 3600000 for the 1 h agents) |
+| `reuse.{maxContextPct,cacheTtlMs}` | O | 60, 3600000 |
 | `cost.{clearHintPct,compactPct}` | O | 40, 60 |
 | `sync.<target>` | O | none |
 
@@ -117,6 +117,7 @@ From the M0 spike ([ADR 0001](docs/adr/0001-m0-results.md)):
 - **bd 1.3.1 has no `--if-revision`.** Drive and sync leases live as metadata on the `cadre-control` issue, with read-check-write-reread (guarded by `--if-assignee/--if-status`). Drive continues after `/clear` (DESIGN §9).
 - **Tester has Read/Write/Edit only** (this build exposes no Grep/Glob, S45); briefs name the paths. Plan B (ADR 0004) is not needed.
 - **`!` shell commands** in a human session may bypass the hooks (A20 unverified); the effect check treats such changes as human.
+- Per-repo state: the mod's policy (repo, worktree root, locks) is keyed per repo, so two repos in one user config do not share it.
 - Workers cannot `git add/commit` (repo-level `denyWrite`, S24): the mod commits. `/tmp` is not writable for subagents; use `$TMPDIR`.
 - Per-agent 1 h cache TTL needs plugin agent files and may be ignored on accounts without usage credits; cadre reads the usage fields to detect it.
 
