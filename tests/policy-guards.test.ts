@@ -6,12 +6,12 @@ import { fakeHost, task } from './support'
 import type { Binding, Role } from '../types'
 
 const norm = (p: string) => { const o: string[] = []; for (const s of p.split('/')) { if (s === '..') o.pop(); else if (s && s !== '.') o.push(s) } return '/' + o.join('/') }
-const EXISTS = ['/', '/x', '/x/repo', '/x/bd-a1', '/x/bd-a1.view', '/x/bd-a1/src', '/x/bd-a2', '/x/bd-a1/src/a.ts', '/x/bd-a1.view/t.test.ts', '/etc', '/etc/passwd', '/x/repo/a.ts', '/tmp', '/home', '/home/u']
+const EXISTS = ['/', '/x', '/x/repo', '/x/bd-a1', '/x/bd-a1.view', '/x/bd-a1/src', '/x/bd-a2', '/x/bd-a1/src/a.ts', '/x/bd-a1.view/t.test.ts', '/etc', '/etc/passwd', '/x/repo/a.ts', '/tmp', '/home', '/hm/u']
 const b = (taskId: string, role: Role, worktree: string, step = 'worker'): Binding => ({ taskId, role, step, worktree, sessionId: 's', ctxTokens: 0, startedAt: 0 })
 async function mk(opt: { strictness?: string; locks?: Record<string, string[]> } = {}) {
   const h = fakeHost({ options: { strictness: opt.strictness } })
   h.stat = async (p, o) => { const r = norm(p); return EXISTS.includes(r) ? { kind: 'file', realPath: o?.resolve ? r : undefined } : undefined }
-  await setPolicy(h, { repo: '/x/repo', wtRoot: '/x', home: '/home/u', locks: opt.locks })
+  await setPolicy(h, { repo: '/x/repo', wtRoot: '/x', home: '/hm/u', locks: opt.locks })
   await h.board.update(s => ({ ...s, tasks: [task('bd-a1', { state: 'active', step: 'worker' }), task('bd-a2', { state: 'active', step: 'tester' })] }))
   await h.bind.update(() => ({ w1: b('bd-a1', 'worker', '/x/bd-a1'), t1: b('bd-a1', 'tester', '/x/bd-a1.view', 'tester'), r1: b('bd-a1', 'reviewer', '/x/bd-a1', 'reviewer') }))
   return h
@@ -135,7 +135,7 @@ describe('judge, send, configSet', () => {
 describe('round 1 fixes (ADR 0006)', () => {
   test('H4/sec-H1: a bound subagent writes only inside its own worktree (+ $TMPDIR); tool.check never auto-allows elsewhere', async () => {
     const h = await mk()
-    for (const file_path of ['/etc/passwd', '/home/u/.bashrc']) {
+    for (const file_path of ['/etc/passwd', '/hm/u/.bashrc']) {
       expect(denied(await call(h, { tool: 'Write', agentId: 'w1', file_path }))).toBe(true)
       expect(await check(h, { tool: 'Write', agentId: 'w1', input: { file_path } }, next)).toEqual({ ok: 'Write' })   // engine decides (prompt), no allow
     }
@@ -152,7 +152,7 @@ describe('round 1 fixes (ADR 0006)', () => {
     expect(judge({ tool: 'Read', agentId: 'w1' })).toBeUndefined()
   })
   test('M13: realRoot resolves the deepest existing ancestor (symlinked ~/.cache)', async () => {
-    const h = fakeHost(); h.stat = async (p, o) => (p === '/home/u/.cache' ? { kind: 'dir', realPath: o?.resolve ? '/data/cache' : undefined } : undefined)
-    expect(await realRoot(h, '/home/u/.cache/cadre/wt')).toBe('/data/cache/cadre/wt')
+    const h = fakeHost(); h.stat = async (p, o) => (p === '/hm/u/.cache' ? { kind: 'dir', realPath: o?.resolve ? '/data/cache' : undefined } : undefined)
+    expect(await realRoot(h, '/hm/u/.cache/cadre/wt')).toBe('/data/cache/cadre/wt')
   })
 })

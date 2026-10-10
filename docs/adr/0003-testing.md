@@ -1,6 +1,6 @@
 # ADR 0003: Testing strategy
 
-Status: accepted · Date: 2026-10-10 · Design: `design/DESIGN.md` v2.5 §14
+Status: accepted · Date: 2026-10-10 · Design: `docs/design/DESIGN.md` v2.5 §14
 
 ## Context
 The mod kit cannot run processes (KIT:21) and has no fs, `$.state` or timers in tests. cadre needs real git, a real beads store, adapter processes and live Claude behaviour checked.

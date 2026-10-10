@@ -7,7 +7,7 @@ import { defaults } from '../config/index'
 import { MemoryStore } from '../task-management/adapters/memory/store'
 import { fakeHost, task } from './support'
 
-const deps = (store: MemoryStore) => ({ store, cfg: defaults(), reg: defaults().types as any, root: '/repo', home: '/home/u', wtRoot: '/wt', key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' })
+const deps = (store: MemoryStore) => ({ store, cfg: defaults(), reg: defaults().types as any, root: '/repo', home: '/hm/u', wtRoot: '/wt', key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' })
 
 describe('MCP tool specs (5.2)', () => {
   test('three tools, never deferred, strict schemas, report requires schemaVersion', () => {

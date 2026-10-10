@@ -26,7 +26,7 @@ function world(types: Record<string, string> = {}) {
   const mk = async (n: string) => {
     const h: Host & { logs: string[] } = { ...fakeHost({ t0: T0 }), now: async () => clock.now, run, stat: async (p: string) => (dirs.has(p) ? { kind: 'dir' } : undefined) } as any
     h.rand = (k = 16) => `${n}${'0'.repeat(k * 2)}`.slice(0, k * 2)
-    const d: Deps = { store, cfg: defaults(), reg: defaults().types as any, root: '/repo', home: '/home/u', wtRoot: '/wt', key: 'repo-1', actor: 'cadre/u/aaaaaa', session: `s-${n}` }
+    const d: Deps = { store, cfg: defaults(), reg: defaults().types as any, root: '/repo', home: '/hm/u', wtRoot: '/wt', key: 'repo-1', actor: 'cadre/u/aaaaaa', session: `s-${n}` }
     return { h, d }
   }
   const plan = async (...specs: { type?: string; deps?: { id: string; type: any }[] }[]) => {

@@ -23,7 +23,7 @@ describe('need-to-know wording: what a model reads names tasks, not machinery', 
     const EXISTS = ['/', '/x', '/x/repo', '/x/a1', '/x/a1.view', '/x/a1/f.ts', '/x/repo/a.ts', '/x/a1.view/t.ts']
     const h = fakeHost()
     h.stat = async (p: string, o?: { resolve?: boolean }) => (EXISTS.includes(p) ? { kind: 'file', realPath: o?.resolve ? p : undefined } : undefined)
-    await setPolicy(h, { repo: '/x/repo', wtRoot: '/x', home: '/home/u', locks: { 'bd-a1': ['/x/a1/lock.ts'] } })
+    await setPolicy(h, { repo: '/x/repo', wtRoot: '/x', home: '/hm/u', locks: { 'bd-a1': ['/x/a1/lock.ts'] } })
     await h.board.update(s => ({ ...s, tasks: [task('bd-a1', { state: 'active', step: 'worker' })] }))
     const B = (role: Binding['role'], worktree: string): Binding => ({ taskId: 'bd-a1', role, step: 'worker', worktree, sessionId: 's', ctxTokens: 0, startedAt: 0 })
     await h.bind.update(() => ({ w1: B('worker', '/x/a1'), t1: B('tester', '/x/a1.view'), r1: B('reviewer', '/x/a1') }))

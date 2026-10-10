@@ -77,9 +77,9 @@ describe('layers', () => {
   test('load() reads home file (+ per-repo section), repo file, env and userConfig through the Host', async () => {
     const h = fakeHost({
       options: { strictness: 'advisory' }, env: { CADRE_STORE: 'memory' },
-      files: { '/home/u/.claude/cadre.json': JSON.stringify({ maxParallel: 4, repos: { 'r-1': { maxParallel: 5, drive: { maxTurns: 7 } }, other: { maxParallel: 99 } } }), '/repo/.cadre/config.json': JSON.stringify({ maxRows: 8, strictness: 'advisory' }) },
+      files: { '/hm/u/.claude/cadre.json': JSON.stringify({ maxParallel: 4, repos: { 'r-1': { maxParallel: 5, drive: { maxTurns: 7 } }, other: { maxParallel: 99 } } }), '/repo/.cadre/config.json': JSON.stringify({ maxRows: 8, strictness: 'advisory' }) },
     })
-    const { config, diagnostics } = await load(h, { home: '/home/u', root: '/repo', repoKey: 'r-1' })
+    const { config, diagnostics } = await load(h, { home: '/hm/u', root: '/repo', repoKey: 'r-1' })
     expect([config.maxParallel, config.drive.maxTurns, config.maxRows, config.store.kind]).toEqual([5, 7, 8, 'memory'])
     expect(config.strictness).toBe('advisory'); expect(diagnostics).toEqual([])
     const bad = await load(fakeHost({ files: { '/repo/.cadre/config.json': '{oops' } }), { home: '/h', root: '/repo', repoKey: 'k' })

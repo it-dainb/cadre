@@ -1,6 +1,6 @@
 # cadre: module contracts (wave 1)
 
-Read this before touching a module. Governing docs: `design/DESIGN.md` (v2.5), `design/UI-DESIGN.md`. Section refs `§n` are DESIGN's.
+Read this before touching a module. Governing docs: `docs/design/DESIGN.md` (v2.5), `docs/design/UI-DESIGN.md`. Section refs `§n` are DESIGN's.
 **Rules.** Static relative imports only; no npm/Node/zod. `$` exists only in `hooks/register.ts`; every other module gets a per-hook `Host` (below). Never keep a Host in a module variable. Slots are filled **in place**: keep the exported name and signature, replace the body. Do not edit `register.ts` except to add a Host member (append-only) or a new slot; a new `on()` needs a distinct matcher if its event is already registered (same event twice without a matcher is a load error).
 **Gates before commit:** `node scripts/budget.mjs` (regenerates `tests/fixtures/budget.generated.ts`; the kit has no fs) → `claude plugin validate --strict .` → `claude plugin test .` (pin: `~/.local/share/claude/versions/2.1.295`).
 **Placeholder rule:** a slot not yet owned is a pass-through (`return next(e)`); its file starts with `// OWNER: wave-N <area>`. Remove the header line when you fill it.

@@ -1,6 +1,6 @@
 # ADR 0005: Live results in the pinned Claude Code (smokes, init, evals)
 
-Status: accepted · Date: 2026-10-10 · Design: `design/DESIGN.md` v2.5 §14 · Pin: Claude Code **2.1.295** · bd 1.3.1
+Status: accepted · Date: 2026-10-10 · Design: `docs/design/DESIGN.md` v2.5 §14 · Pin: Claude Code **2.1.295** · bd 1.3.1
 Run: `harness/run.sh` (Docker, `cadre-harness`: non-root, seccomp/apparmor/systempaths unconfined, only the OAuth creds file mounted). Plugin = a `git archive HEAD` copy of `cadre/`, loaded with `--plugin-dir`. Models: haiku for exploratory runs and smokes, sonnet for the evals. Spend: about US$5 (evals ≈ $0.1–0.25 each, ~25 runs, plus ~40 haiku runs).
 Evidence: `docs/evidence/live/` (debug logs `*.debug.log.gz`, eval JSON `eval-*.json`, readable traces `trace-*.txt`, the drivers `drv.py`/`ev.sh`/`s.sh`/`sync.sh`, the probe mod `probe-mod/`). Smoke records: `tests/smoke/S*.md` "Result (live, 2026-10-10)".
 
@@ -79,7 +79,7 @@ Same harness, `git archive HEAD` copy, haiku smokes / sonnet evals. Evidence: `d
 | Eval `fix-bug-main-never-edits` | **1.0** after two fixes (first pass 0.83) |
 | Eval `auto-report` | 0.67, unchanged (not stable, see "Headless" above) |
 | Worker edits inside its worktree (positive jail) | PASS: `j1`, full run tester→worker→reviewer→closed, squash on the epic branch |
-| Write outside the worktree (`/home/cc/x.txt`) from a bound agent | REFUSED, as the tool error `write only inside your working directory`; the model quoted it in its report and carried on (`j3_1`, `jail-refusal-tester.jsonl`). No mechanism word in anything the model saw (scan of the agent transcript: only the engine's own success line shows the view path, and the model's own word "harness") |
+| Write outside the worktree (`/hm/cc/x.txt`) from a bound agent | REFUSED, as the tool error `write only inside your working directory`; the model quoted it in its report and carried on (`j3_1`, `jail-refusal-tester.jsonl`). No mechanism word in anything the model saw (scan of the agent transcript: only the engine's own success line shows the view path, and the model's own word "harness") |
 
 Regressions found and fixed (root cause, test each):
 1. `tester-before-worker` judge false negative (ts/go/rust, py 2/3): it asked for nested report answers that are not in the main trace. The Agent result card (`tester → worker`, `worker → review · green ✓`, `reviewer → review✓`) is what main sees and the pipeline was correct in every trace. Fix `a0ae076` (grader sees the cards).

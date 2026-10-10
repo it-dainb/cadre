@@ -9,7 +9,7 @@ import type { Host } from '../types'
 import { policyOf } from '../policy/guards'
 
 type R = { exitCode: number; stdout?: string; stderr?: string }
-const ROOT = '/repo', HOME = '/home/u', RK = repoKeyOf(ROOT)
+const ROOT = '/repo', HOME = '/hm/u', RK = repoKeyOf(ROOT)
 // In-memory repo + fs behind a scripted process.run; `extra` answers non-git argv (jailed runs, find, ...).
 function mk(o: { repo?: boolean; branches?: string[]; files?: Record<string, string>; extra?: (argv: string[]) => R | undefined } = {}) {
   const files = { ...o.files }, g = { repo: o.repo ?? true, branches: new Set(o.branches ?? ['main', 'dev']) }, calls: string[][] = []
@@ -190,7 +190,7 @@ describe('stage 5 containment', () => {
     expect(files[`${ROOT}/.claude/settings.local.json.bak`]).toBe('{"permissions":{"allow":["Read"]}}')
     expect((await policyOf(h)).repo).toBe(ROOT); expect((await h.board.read()).containment.state).toBe('contained')
     expect(await run(h, ['5'])).toContain('contained')   // idempotent: no diff
-    const a = await run(h, ['5', 'allowlist']); expect(a).toContain('strictAllowlist: true'); expect(a).toContain('/home/u/.claude/settings.json')
+    const a = await run(h, ['5', 'allowlist']); expect(a).toContain('strictAllowlist: true'); expect(a).toContain('/hm/u/.claude/settings.json')
   })
 })
 
@@ -233,7 +233,7 @@ describe('stage 7 changelog and 8 sync', () => {
 
 test('rootFor: an agent cwd (worktree or view) maps back to the repo root recorded at session start; unknown paths stay', () => {
   const roots = { 'run-568e48': '/work/run' }
-  expect(rootFor(roots, '/home/cc/.cache/cadre/wt/run-568e48/p-p1.1')).toBe('/work/run')
-  expect(rootFor(roots, '/home/cc/.cache/cadre/wt/run-568e48.views/p-p1.3')).toBe('/work/run')
+  expect(rootFor(roots, '/hm/cc/.cache/cadre/wt/run-568e48/p-p1.1')).toBe('/work/run')
+  expect(rootFor(roots, '/hm/cc/.cache/cadre/wt/run-568e48.views/p-p1.3')).toBe('/work/run')
   expect(rootFor(roots, '/work/run')).toBe('/work/run'); expect(rootFor(undefined, '/x/y')).toBe('/x/y'); expect(rootFor(roots, '/other/run-5')).toBe('/other/run-5')
 })

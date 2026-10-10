@@ -1,6 +1,6 @@
 # ADR 0002: roles ship as plugin agent files
 
-Status: accepted · Date: 2026-10-10 · Design: `design/DESIGN.md` v2.5 §4.1, §7, §16.1 A28 · Evidence: ADR 0001 S17, S43, S44, S45
+Status: accepted · Date: 2026-10-10 · Design: `docs/design/DESIGN.md` v2.5 §4.1, §7, §16.1 A28 · Evidence: ADR 0001 S17, S43, S44, S45
 
 ## Decision
 The four roles are plugin agent files `agents/{worker,tester,reviewer,explorer}.md` (engine names `cadre:<role>`), not `$.agent.register` specs.

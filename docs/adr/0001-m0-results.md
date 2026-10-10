@@ -1,6 +1,6 @@
 # ADR 0001: M0 spike results (smokes S1–S50, assumptions A1–A30)
 
-Status: accepted · Date: 2026-10-10 · Design: `design/DESIGN.md` v2.5 §14, §15 row M0, §16.1
+Status: accepted · Date: 2026-10-10 · Design: `docs/design/DESIGN.md` v2.5 §14, §15 row M0, §16.1
 Pin: Claude Code **2.1.295** · bd **1.3.1** (npm `@beads/bd`; the design asks ≥ 1.3.0) · bubblewrap 0.9.0 (host) / 0.8.0 (container)
 
 ## How it was run

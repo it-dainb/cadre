@@ -1,6 +1,6 @@
 # ADR 0004: Tester confinement Plan B
 
-Status: **not needed** · Date: 2026-10-10 · Design: `design/DESIGN.md` v2.5 §3.5, §16.1 A22
+Status: **not needed** · Date: 2026-10-10 · Design: `docs/design/DESIGN.md` v2.5 §3.5, §16.1 A22
 
 ## Context
 Plan B (DESIGN §3.5) was the fallback if the normalized per-tool input fence could not confine the black-box tester to its spec view.
