@@ -38,7 +38,7 @@ test('copy-jail (real bwrap): writes die with the copy, /tmp is the scratch, net
 
 test('writable jail (real bwrap): a worktree under /tmp stays visible when scratch is bound at /tmp (eval sandboxes)', async () => {
   const t = mkdtempSync(join(tmpdir(), 'cadre-wt-')), wt = join(t, 'wt'), b = base(), scratch = join(b, 'scratch'); mkdirSync(wt); mkdirSync(scratch); writeFileSync(join(wt, 'a.txt'), 'x')
-  const r = await run(G.writableJail({ wt, scratch, pkgRoot: wt, argv: ['sh', '-c', 'cat a.txt && echo y > w.txt'] }))
+  const r = await run(G.writableJail({ wt, scratch, pkgRoot: wt, argv: ['sh', '-c', 'cat a.txt && echo y > w.txt && test "$TMPDIR" = /tmp && mkdir "$TMPDIR/ok"'] }), { env: { TMPDIR: join(t, 'gone') } })   // the caller's TMPDIR does not exist in the jail (go: creating work dir)
   assert.equal(r.exitCode, 0, r.stderr); assert.equal(readFileSync(join(wt, 'w.txt'), 'utf8'), 'y\n')
 })
 

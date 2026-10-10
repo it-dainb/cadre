@@ -6,13 +6,13 @@ describe('discovery (DESIGN 10.2)', () => {
   const o = { wt: '/tmp/cadre/i/wt', scratch: '/tmp/cadre/i', chdir: '/tmp/cadre/i/wt/api', home: '/home/u', writable: ['/home/u/.cache/pnpm'] }
   test('golden: jail argv, overlay offline / writable / $HOME overlay / copy-jail / HOME-scratch audit (3.10, A19)', async () => {
     const j = (argv: string[], writable = o.writable) => ({ wt: o.wt, scratch: o.scratch, pkgRoot: o.chdir, argv, writable })
-    expect(G.overlayJail(j(['npm', 'test']))).toEqual(['bwrap', '--unshare-net', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', '/tmp/cadre/i', '/tmp', '--overlay-src', '/tmp/cadre/i/wt', '--tmp-overlay', '/tmp/cadre/i/wt', '--bind', '/home/u/.cache/pnpm', '/home/u/.cache/pnpm', '--chdir', '/tmp/cadre/i/wt/api', '--', 'npm', 'test'])
-    expect(G.writableJail(j(['npm', 'ci']))).toEqual(['bwrap', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', '/tmp/cadre/i', '/tmp', '--bind', '/tmp/cadre/i/wt', '/tmp/cadre/i/wt', '--bind', '/home/u/.cache/pnpm', '/home/u/.cache/pnpm', '--chdir', '/tmp/cadre/i/wt/api', '--', 'npm', 'ci'])
+    expect(G.overlayJail(j(['npm', 'test']))).toEqual(['bwrap', '--unshare-net', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', '/tmp/cadre/i', '/tmp', '--overlay-src', '/tmp/cadre/i/wt', '--tmp-overlay', '/tmp/cadre/i/wt', '--setenv', 'TMPDIR', '/tmp', '--bind', '/home/u/.cache/pnpm', '/home/u/.cache/pnpm', '--chdir', '/tmp/cadre/i/wt/api', '--', 'npm', 'test'])
+    expect(G.writableJail(j(['npm', 'ci']))).toEqual(['bwrap', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', '/tmp/cadre/i', '/tmp', '--bind', '/tmp/cadre/i/wt', '/tmp/cadre/i/wt', '--setenv', 'TMPDIR', '/tmp', '--bind', '/home/u/.cache/pnpm', '/home/u/.cache/pnpm', '--chdir', '/tmp/cadre/i/wt/api', '--', 'npm', 'ci'])
     const h = G.homeJail({ ...j(['npm', 'ci'], []), home: o.home })
     expect(h.slice(h.indexOf('--overlay-src'), h.indexOf('--overlay-src') + 5)).toEqual(['--overlay-src', '/home/u', '--overlay', '/tmp/cadre/i/home-up', '/tmp/cadre/i/home-work'])
     expect(h).not.toContain('--unshare-net')
     const c = G.copyJail(j(['npm', 'test'], []))   // j.wt is the copy: bound writable, network off, no overlay flags
-    expect(c).toEqual(['bwrap', '--unshare-net', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', o.scratch, '/tmp', '--bind', o.wt, o.wt, '--chdir', o.chdir, '--', 'npm', 'test'])
+    expect(c).toEqual(['bwrap', '--unshare-net', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', o.scratch, '/tmp', '--bind', o.wt, o.wt, '--setenv', 'TMPDIR', '/tmp', '--chdir', o.chdir, '--', 'npm', 'test'])
     const hs = G.homeScratchJail({ ...j(['npm', 'ci'], []), scratchHome: '/tmp/cadre/i/home' })
     expect(hs).not.toContain('--unshare-net'); expect(hs).not.toContain('--overlay-src')
     expect(hs.join(' ')).toContain('--setenv HOME /tmp/cadre/i/home'); expect(hs.join(' ')).toContain('--bind /tmp/cadre/i/home /tmp/cadre/i/home')
