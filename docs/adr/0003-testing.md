@@ -9,8 +9,8 @@ The mod kit cannot run processes (KIT:21) and has no fs, `$.state` or timers in 
 | Layer | Where | Run with |
 |---|---|---|
 | Pure units, goldens, hook chain, init stages, UI/budget | `tests/*.test.ts`, `tests/fixtures/*`, `tests/support.ts` (`fakeHost`) | `claude plugin test .` (kit; stubs for `process.run`, `fs.*`, `store.*`, `settings.read`; `mock.clock`) |
-| Real git (squash, `--no-ff`, release cut, effect restore, tdd gates) | `tests/git/*.test.mjs` over pure `core/git` helpers | `node --test tests/git/*.test.mjs` |
-| Adapter protocol vs the fake adapter (real spawns) | `tests/protocol/*.test.mjs`, `task-management/adapters/fake` | `node --test tests/protocol/*.test.mjs` |
+| Real git (squash, `--no-ff`, release cut, effect restore, tdd gates) | `tests/git/*.test.mjs` over pure `core/git` helpers | `node --experimental-transform-types --test tests/git/*.mjs` |
+| Adapter protocol vs the fake adapter (real spawns) | `tests/protocol/*.test.mjs`, `task-management/adapters/fake` | `node --experimental-transform-types --test tests/protocol/*.mjs` |
 | Store contract vs real bd | `tests/store-contract.ts` via `tests/dev/beads-real.mjs` (`RECORD=1` re-records `tests/fixtures/bd/contract.ts`) | `node --experimental-transform-types --import ./tests/dev/register.mjs tests/dev/beads-real.mjs` |
 | Budget | `scripts/budget.mjs` (core ≤ 5,000 LOC, `ui/` ≤ 750, 3 MCP tools, 0 skills, `.catch` on every gating hook) | `node scripts/budget.mjs` (regenerates `tests/fixtures/budget.generated.ts`) |
 | Live smoke S01–S61 | `tests/smoke/S*.md` (one file each: purpose, assumption, steps, expected, M0 status) | `harness/run.sh` (Docker) |
