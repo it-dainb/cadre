@@ -105,8 +105,8 @@ async function after(h: Host, e: any, r: any): Promise<any> {
     const s = await h.board.read(), [id] = idsIn(String(e.prompt ?? e.input?.prompt ?? ''), s.tasks.map(t => t.id)), t = s.tasks.find(x => x.id === id)
     if (!t?.card) return r
     if (e.tool_use_id) await UI.mapCard?.(h, e.tool_use_id, t.id)
-    const aid = /agentId: (\S+)/.exec(r.result.content.map((c: any) => String(c.text ?? '')).join('\n'))?.[1], b = aid ? (await h.bind.read())[aid] : undefined   // the step did not move: the agent stopped without reporting (its stop is observed after this result returns)
-    const text = b && b.taskId === t.id && t.step === b.step && ['tester', 'worker', 'reviewer'].includes(b.role) ? noReportCard(t, b.role, b.step) : t.card
+    const b = Object.values(await h.bind.read()).find(x => x.taskId === t.id && x.step === t.step && ['tester', 'worker', 'reviewer'].includes(x.role))   // an agent bound at the step the task is still at: it stopped without reporting (its stop is observed after this result returns)
+    const text = b ? noReportCard(t, b.role, b.step) : t.card
     return { ...r, result: { ...r.result, content: [{ ...r.result.content[0], text: text.replace('\n', ' · ') }, ...r.result.content.slice(1)] } }
   }
   const b = (await h.bind.read())[e.agentId]
