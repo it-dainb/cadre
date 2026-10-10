@@ -4,6 +4,18 @@ import { FULL, plan, world } from './fixtures/native/world'
 const code = async (w: Awaited<ReturnType<typeof world>>) => (await w.h.secret.read()).approval!.code8
 const nonce = async (w: Awaited<ReturnType<typeof world>>) => (await w.h.secret.read()).nonce
 
+describe('approval sheet data (board.sheet, drawn by ui/)', () => {
+  test('per draft: type, tdd, changelog, scenarios, contract with status; a changed symbol carries the prior accepted signature', async () => {
+    const w = await world(); const { task } = await plan(w)
+    expect(((await w.h.board.read()) as any).sheet).toEqual([{ id: task, title: 'Add login', type: 'feature', package: '.', tdd: 'required', changelog: 'Added: Login',
+      scenarios: ['S1: Given a user When they log in Then a session exists'], contract: [{ sig: 'login(email: string) -> Session', status: 'new' }] }])
+    const prior = await w.store.createDraft({ title: 'old', description: '', type: 'feature', parent: (await w.h.board.read()).epic!, design: JSON.stringify({ symbols: [{ name: 'login', kind: 'function', params: ['u: string'], returns: 'Session' }] }) })
+    await w.store.approve([prior.id]); await w.store.close(prior.id, { outcome: 'done' })
+    await w.call('TaskUpdate', { taskId: task, metadata: { interface: { symbols: [{ name: 'login', kind: 'function', params: ['email: string'], returns: 'Session', status: 'changed' }] } } })
+    expect(((await w.h.board.read()) as any).sheet[0].contract).toEqual([{ sig: 'login(email: string) -> Session', status: 'changed', before: 'login(u: string) -> Session' }])
+  })
+})
+
 describe('approve: plan@code8, burn on use, completeness (DESIGN 3.1)', () => {
   test('a draft change draws a new nonce and code8 (8 hex), held only in cadre.secret', async () => {
     const w = await world(); const { task } = await plan(w)

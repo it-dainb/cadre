@@ -57,10 +57,24 @@ export async function redraw(h: Host, store: TaskStore, reg: TypeRegistry): Prom
   await h.board.update(b => ({ ...b, approval: { planId, missing } }))
   return missing
 }
-// after any draft change: mirror the board, redraw the code, announce, stamp seq. Returns the missing list.
+// the approval sheet data ui/ draws (UI-DESIGN 5.3), on the human view as `board.sheet`; `before` = the prior accepted contract of a changed symbol (closed tasks' design), else absent
+const sig = (s: any) => `${s.name}(${(s.params ?? []).join(', ')}) -> ${s.returns}`
+async function sheetOf(store: TaskStore, drafts: Task[], reg: TypeRegistry) {
+  const rows = drafts.map(t => ({ t, d: t.design ? JSON.parse(t.design) : null })), prior = new Map<string, string>()
+  if (rows.some(r => r.d?.symbols?.some((x: any) => x.status === 'changed'))) for (const c of await store.list({})) if (c.category === 'done' && c.design) for (const x of JSON.parse(c.design).symbols ?? []) prior.set(x.name, sig(x))
+  return rows.map(({ t, d }) => {
+    const cl = t.meta['cadre.changelog'] ? JSON.parse(t.meta['cadre.changelog']) : null
+    return { id: t.id, title: t.title, type: t.type, scope: t.meta['cadre.scope'] || undefined, package: t.meta['cadre.package'] || undefined, tdd: reg[t.type]?.pipeline.includes('red') ? 'required' : 'off',
+      changelog: cl && (cl.none ? `none (${cl.reason})` : `${cl.category}: ${cl.entry}`), breaking: t.meta['cadre.breaking'] === 'true' || undefined, scenarios: (t.acceptance ?? '').split('\n').filter(Boolean),
+      contract: (d?.symbols ?? []).map((x: any) => ({ sig: sig(x), status: x.status, ...(x.status === 'changed' && prior.has(x.name) ? { before: prior.get(x.name) } : {}) })) }
+  })
+}
+// after any draft change: mirror the board, redraw the code, refresh the sheet, announce, stamp seq. Returns the missing list.
 export async function touched(h: Host, store: TaskStore, reg: TypeRegistry): Promise<string[]> {
   await mirror(h, store, reg)
-  const missing = await redraw(h, store, reg), s = await h.board.read()
+  const missing = await redraw(h, store, reg), sheet = await sheetOf(store, await draftsOf(store, (await h.board.read()).epic), reg)
+  await h.board.update(b => ({ ...b, sheet }) as typeof b)
+  const s = await h.board.read()
   if (s.plan) await stamp(h, (await emit(h, 'approval.pending', { planId: s.plan.id, missing })).seq)
   return missing
 }
@@ -105,7 +119,7 @@ async function approve(h: Host, c: Command): Promise<Out> {
   const plan = s.plan!, epic = await store.get(plan.id), at = await h.now()
   if (mission) {
     await store.record('mission', epic.title, epic.description); await store.dropDrafts([plan.id])
-    await h.board.update(b => ({ ...b, mission: epic.title, plan: null, epic: null, tasks: [], approval: { planId: null, missing: [] } }))
+    await h.board.update(b => ({ ...b, mission: epic.title, plan: null, epic: null, tasks: [], approval: { planId: null, missing: [] }, sheet: [] }) as typeof b)
     await h.secret.update(({ approval: _a, nonce: _n, ...r }) => r)
     return { text: `Mission "${epic.title}" approved and recorded.` }
   }
@@ -115,7 +129,7 @@ async function approve(h: Host, c: Command): Promise<Out> {
   const pipe = pipeOf(reg)
   for (const id of ids) await apply(h, { kind: 'approve', id, at, actor: 'human' }, pipe)
   await store.record('decision', `Approved plan ${plan.id}: ${epic.title}`, drafts.map(t => `- ${t.id} ${t.title} (${t.type})`).join('\n'), plan.id)
-  await h.board.update(b => ({ ...b, plan: b.plan && { ...b.plan, state: 'approved', approvedAt: b.plan.approvedAt ?? at }, approval: { planId: null, missing: [] } }))
+  await h.board.update(b => ({ ...b, plan: b.plan && { ...b.plan, state: 'approved', approvedAt: b.plan.approvedAt ?? at }, approval: { planId: null, missing: [] }, sheet: [] }) as typeof b)
   await h.secret.update(({ approval: _a, nonce: _n, ...r }) => r)
   let note = ''
   if (first) try { await cutEpic(h, plan.id); note = `; epic branch ${plan.epicBranch} cut` } catch (e) { note = `; epic branch cut failed: ${(e as Error).message}` }
@@ -127,8 +141,8 @@ async function reject(h: Host, c: Command): Promise<Out> {
   const drafts = await draftsOf(store, s.epic), fresh = s.plan.state === 'draft'
   await store.dropDrafts([...drafts.map(t => t.id), ...(fresh ? [s.plan.id] : [])])
   await store.record('decision', `Rejected plan ${planId}`, why.join(' ') || 'no reason given', fresh ? undefined : planId)
-  if (fresh) await h.board.update(b => ({ ...b, plan: null, epic: null, tasks: [], approval: { planId: null, missing: [] } }))
-  else await mirror(h, store, reg)
+  if (fresh) await h.board.update(b => ({ ...b, plan: null, epic: null, tasks: [], approval: { planId: null, missing: [] }, sheet: [] }) as typeof b)
+  else { await mirror(h, store, reg); await h.board.update(b => ({ ...b, sheet: [] }) as typeof b) }
   await h.secret.update(({ approval: _a, nonce: _n, ...r }) => r)
   return { text: `Plan ${planId}: ${drafts.length} draft${drafts.length === 1 ? '' : 's'} dropped.` }
 }
