@@ -114,7 +114,7 @@ describe('Epic view', () => {
 describe('v1 gaps: stubs and go-to-id', () => {
   test('non-adjacent dependency: ↷ stub on both ends, none for adjacent edges', async () => {
     const g = txt(dag(view(62, { tweak: withStub }), 'a2', [], NOOP)).join('\n')
-    expect(g.split('↷').length - 1).toBe(4); expect(g).toMatch(/a8 docs/)
+    expect(g.split('↷').length - 1).toBe(2); expect(g).toMatch(/a8 docs/)
     expect(txt(dag(view(62), 'a2', [], NOOP)).join('\n')).not.toContain('↷')
   })
   test('g opens an Input; a known id selects, an unknown one just closes it', async () => {
@@ -134,7 +134,7 @@ describe('replay: pure fold of the ring at the cursor', () => {
   test('header [REPLAY t-12m], actions off, future spans ╌, keys h/l/b/f/e still live', async () => {
     const p = pane(view(62, { t: 50 }), 58, 40, NOOP), t = txt(p.before).join('\n')
     expect(t).toContain('[REPLAY t-12m]'); expect(t).toContain('(actions off)'); expect(p.tl!.rows.join('\n')).toContain('╌')
-    expect(segs(p.after).filter(s => s.hk).map(s => s.hk).sort()).toEqual(['b', 'e', 'f', 'h', 'l', 'n', 'p', 't'])
+    expect(segs(p.after).filter(s => s.hk).map(s => s.hk).sort()).toEqual(['b', 'e', 'f', 'g', 'h', 'l', 'n', 'p', 't'])
     expect(txt(pane(view(62), 118, 40, NOOP).before)[0]).toContain('[LIVE]')
   })
   test('prefill buttons are off in replay: the sheet footer is read-only', async () => {
