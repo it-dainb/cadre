@@ -6,7 +6,7 @@ FIX="$(cd "$(dirname "$0")/../fixtures/go" && pwd)"
 cp -a "$FIX"/. .
 mkdir -p .cadre
 cat > .cadre/config.json <<'JSON'
-{ "packages": [{"root":".","setup":["go","version"],"checks":{"test":["go","test","./..."]},"tdd":{"paths":["*_test.go"]}}] }
+{ "packages": [{"root":".","setup":["go","version"],"checks":{"test":["go","test","./..."]},"tdd":{"paths":["*_test.go"]},"viewInclude":["go.mod"]}] }
 JSON
 cat > CHANGELOG.md <<'MD'
 # Changelog
