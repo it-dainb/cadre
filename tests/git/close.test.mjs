@@ -14,6 +14,7 @@ const { admitWith } = await import('../../core/admission.ts')
 const C = await import('../../core/close.ts')
 const { handleWith } = await import('../../tools/index.ts')
 const { ROUTES } = await import('../../core/dispatch.ts')
+const { setPolicy } = await import('../../policy/guards.ts')
 
 const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: o.cwd }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()
@@ -101,6 +102,14 @@ test('merges refused while a git:* flag is open; protected path edit refused at 
   w.dep.cfg.packages[0].checks.verify = ['true']; await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }); await w.spawn(id); await w.rep('ag2', w.pass)
   await h.git.update(g => ({ ...g, flags: { 'git:epic/p1-x': {} } })); assert.match(await C.closeTask(h, w.dep, id), /refused while git flag git:epic\/p1-x/)
   assert.equal((await h.board.read()).tasks[0].step, 'merge')
+})
+
+test('a locked spec file committed by the red step is not a worker edit; editing it (dirty) still is', async () => {
+  const w = await world(), id = w.ids[0], { h, store, d } = w; await w.spawn(id); const wt = (await store.get(id)).meta['cadre.worktree']
+  mkdirSync(join(wt, 'test')); writeFileSync(join(wt, 'test/s.test.txt'), 't\n'); sh(wt, 'add', '-A'); sh(wt, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'spec')
+  await store.setMeta(id, { 'cadre.specCommit': sh(wt, 'rev-parse', 'HEAD') }, 'cadre'); await setPolicy(h, { locks: { [id]: [`${wt}/test/s.test.txt`] } })
+  edit(wt); assert.match(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }), /report accepted/)
+  void d
 })
 
 test('stop without report: nudge x2 (queued), then auto-report from computed facts; non-answer stop releases, blocked at 3 attempts', async () => {

@@ -10,11 +10,11 @@ import { agentsOf, unbindAgent } from './board'
 import { apply, STEP_CAT } from './machine'
 import { emit } from './events'
 import { card, comment, commitMessage, type Rec } from './render'
-import { queueResume } from './reuse'
+import { checkpoint, queueResume } from './reuse'
 import { resolveGit, sweep } from './effect'
 import { policyOf } from '../policy/guards'
 import { integrateEpic } from './integrate'
-import { green as tddGreen, lockedViolations, resolveSpec, specChange, testerDone } from './tdd'
+import { green as tddGreen, lockedViolations, verifyOf, resolveSpec, specChange, testerDone } from './tdd'
 import { modeOf, pkgOf } from './specview'
 import * as G from './git'
 
@@ -79,7 +79,7 @@ async function numstat(h: Host, wt: string, range: string) {
 }
 async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any, auto = false): Promise<string> {
   const task = await d.store.get(t.id), wt = b.worktree, base = task.meta['cadre.base'], pol = await policyOf(h)
-  const dirty = (await G.git(h.run, wt, ['status', '--porcelain'])).split('\n').filter(Boolean).flatMap(l => l.slice(3).split(' -> ')), changed = new Set([...dirty, ...(await G.git(h.run, wt, ['diff', '--name-only', `${base}..HEAD`])).split('\n').filter(Boolean)])
+  const dirty = (await G.git(h.run, wt, ['status', '--porcelain'])).split('\n').filter(Boolean).flatMap(l => l.slice(3).split(' -> ')), changed = new Set([...dirty, ...(await G.git(h.run, wt, ['diff', '--name-only', `${task.meta['cadre.specCommit'] ?? base}..HEAD`])).split('\n').filter(Boolean)])   // since the red commit: the spec files it added are the worker's baseline, not its edits
   const locked = pol.locks?.[t.id] ?? [], bad = [...changed].filter(p => isProt(p) || locked.includes(`${wt}/${p}`))
   if (bad.length) throw new Error(`protected or locked paths changed: ${bad.join(', ')}. Restore them (git checkout ${sha7(base)} -- <path>) and report again`)
   const sum = String(r.summary ?? '').split('\n')[0].slice(0, 60)
@@ -88,7 +88,7 @@ async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any, aut
   let green: { ok: boolean; check: string; secs: number } | undefined
   if (pipe(d)(t.type).includes('green')) {
     const g = await tddGreen(h, d, task, wt); if (!g.ok) throw new Error(`green gate failed: ${g.why}\nFix it and report again`)
-    green = { ok: true, check: 'verify', secs: Number(/\((\d+)s\)/.exec(g.card)?.[1] ?? 0) }
+    green = { ok: true, check: 'verify', secs: Math.round(Number(/\((\d+(?:\.\d+)?)s\)/.exec(g.card)?.[1] ?? 0)) }
   }
   const st = await numstat(h, wt, `${base}..${C}`), p = pipe(d)(t.type), at = await h.now()
   for (let i = p.indexOf('worker'); p[i] !== 'reviewer'; i++) { const m = await apply(h, { kind: 'advance', id: t.id, at, actor: 'mod' }, pipe(d)); if (!m.ok) throw new Error(m.error) }
@@ -173,7 +173,7 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
 // ---- #2 turn.complete: L3 sweep every turn; an agent that stopped without reporting is nudged x2, auto-reported, or released ----
 async function release(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: string, why: string) {
   const task = await d.store.get(t.id), n = num(task.meta['cadre.attempts']) + 1
-  if (b.worktree) await G.op(h, () => G.commitAll(h.run, b.worktree, `wip(${t.id}): checkpoint (${why})`)).catch(() => {})
+  if (b.worktree) await checkpoint(h, d.store, d.actor, t.id, b.worktree).catch(() => {})
   await unbind(h, agentId, 'stopped', t.id); await d.store.setMeta(t.id, { 'cadre.attempts': String(n), 'cadre.nudge': '' }, d.actor)
   if (n >= 3) { await blockTask(h, d, t, `${n} attempts ended without a report`, 'attempts', {}); return }
   await apply(h, { kind: 'release', id: t.id, at: await h.now(), actor: 'mod' }, pipe(d)); await d.store.release(t.id, d.actor, why)
@@ -228,17 +228,21 @@ export async function closeTask(h: Host, d: Deps, id: string): Promise<string | 
   const rep = task.meta['cadre.report'] ? JSON.parse(task.meta['cadre.report']).summary : undefined
   const msg = commitMessage({ type: spec.commit ?? 'chore', scope: task.meta['cadre.scope'] || undefined, breaking: task.meta['cadre.breaking'] === 'true', description: t.title, summary: rep, id, reviewSha: C, checks: task.meta['cadre.checks'] ? [task.meta['cadre.checks']] : [] })
   let sha = '', fail = ''
+  const back = () => G.git(h.run, wt, ['checkout', '-q', '-f', task.meta['cadre.branch']]).catch(() => {})   // squash detaches; a failed close returns the worker to its branch, its files intact for the rework
   for (let i = 0; i < 2 && !sha; i++) {
     const r = await G.op(h, async () => {
       const epicTip = await G.tip(h.run, d.root, plan.epicBranch)
       let s: string
       try { s = await G.squash(h.run, wt, epicTip, C, msg) } catch (x) { return { fail: `conflict: ${(x as Error).message}`, flag: 'conflict' } }
-      if (epicTip !== base) { const c = await runCheck(h, d, task, wt, 'verify'); if (!c.ok) return { fail: `verify failed on the squash commit:\n${c.text.slice(0, 1200)}`, flag: 'merge-red' } }
+      if (epicTip !== base) {   // the package's own verify checks (as the green gate runs them); a missing check is a failure, not a pass
+        const pkg = pkgOf(d, task)
+        for (const n of pkg ? verifyOf(pkg) : ['verify']) { const c = await runCheck(h, d, task, wt, n); if (!c.found || !c.ok) return { fail: `verify (${n}) failed on the squash commit:\n${c.text.slice(0, 1200)}`, flag: 'merge-red' } }
+      }
       return (await G.casRef(h.run, d.root, `refs/heads/${plan.epicBranch}`, s, epicTip)) ? { s } : { retry: true }
     }) as { s?: string; fail?: string; flag?: string; retry?: boolean }
-    if (r.s) sha = r.s; else if (r.fail) { await blockTask(h, d, t, r.fail, r.flag!, {}); return r.fail } else fail = 'the epic moved twice while squashing'
+    if (r.s) sha = r.s; else if (r.fail) { await back(); await blockTask(h, d, t, r.fail, r.flag!, {}); return r.fail } else fail = 'the epic moved twice while squashing'
   }
-  if (!sha) { await blockTask(h, d, t, fail, 'conflict', {}); return fail }
+  if (!sha) { await back(); await blockTask(h, d, t, fail, 'conflict', {}); return fail }
   const at = await h.now(), m = await apply(h, { kind: 'close', id, at, actor: 'main' }, pipe(d)); if (!m.ok) return m.error
   await d.store.close(id, { outcome: 'done', note: `squashed ${sha7(sha)} into ${plan.epicBranch}`, session: d.session })
   await record(h, d, id, 'close', 'mod', { squash: sha, epic: plan.epicBranch, reviewed: C })
@@ -252,7 +256,7 @@ async function releaseTask(h: Host, d: Deps, id: string): Promise<string | null>
   if (!t) return `no task ${id}`
   if (!['active', 'review', 'blocked'].includes(t.state)) return `${id} is ${t.state}: nothing to release`
   for (const a of agentsOf(await h.bind.read(), id)) await unbind(h, a, 'stopped', id)
-  if (wt && (await h.stat(wt))) await G.op(h, () => G.commitAll(h.run, wt, `wip(${id}): checkpoint (released)`)).catch(() => {})
+  if (wt && (await h.stat(wt))) await checkpoint(h, d.store, d.actor, id, wt).catch(() => {})
   const m = await apply(h, { kind: 'release', id, at: await h.now(), actor: 'main' }, pipe(d)); if (!m.ok) return m.error
   await d.store.release(id, d.actor, 'released by main'); return null
 }
