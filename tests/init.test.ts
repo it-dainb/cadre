@@ -131,7 +131,7 @@ describe('stage 3 mission', () => {
 // bwrap jail answer by mode: setup = no flag, check = --unshare-net, home = --overlay.
 const REPORT = { citations: [{ path: '.github/workflows/ci.yml', line: 9 }], discovery: { packages: [{ root: '.', setup: ['npm', 'ci'], checks: { test: ['npm', 'test'], lint: ['npm', 'run', 'lint'], e2e: ['npm', 'run', 'e2e'] }, fetches: ['e2e'], tdd: { paths: ['test/**'] } }] } }
 const jailed = (o: { setup?: number } = {}) => (argv: string[]): R | undefined => {
-  if (argv.join(' ') === 'bwrap --version') return { exitCode: 0, stdout: 'bubblewrap 0.9.0' }
+  if (argv[0] === 'bwrap' && !argv.includes('--')) return { exitCode: 0, stdout: argv[1] === '--help' ? '--overlay-src --tmp-overlay' : '' }   // jailMode probes
   if (argv[0] === 'find') return { exitCode: 0, stdout: './.cache\n./.cache/pnpm\n./.cargo\n./.cargo/target\n./.cargo/registry\n' }
   if (argv[0] !== 'bwrap') return undefined
   const inner = argv.slice(argv.indexOf('--', 3) + 1).join(' ')
@@ -157,7 +157,7 @@ describe('stage 4 discovery', () => {
     const out = await run(h, ['4'])
     expect(out).toContain('~/.cache/pnpm'); expect(out).toContain('~/.cargo/registry'); expect(out).not.toContain('target')
     expect(out).toContain('! e2e: fetches at test time'); expect(out).toContain('? lint: red at the clean base -> knownRed')
-    const audit = calls.filter(a => a[0] === 'bwrap' && a[1] !== '--version')
+    const audit = calls.filter(a => a[0] === 'bwrap' && a.includes('--'))
     expect(audit[0]).toContain('--overlay-src'); expect(audit[0]).toContain(`${HOME}`); expect(audit.slice(1).every(a => a.includes('--unshare-net'))).toBe(true)
     expect(files[`${ROOT}/.cadre/config.json`]).not.toContain('packages')   // nothing saved before confirm
     calls.length = 0

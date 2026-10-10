@@ -12,6 +12,7 @@ import { emit } from './events'
 import { DISCOVERY, brief, idsIn, type BriefIn } from './briefs'
 import { taskBranch, wtPath } from './branches'
 import * as G from './git'
+import { buildView, pkgOf } from './specview'
 
 export interface Deps {
   store: TaskStore; cfg: Config; reg: TypeRegistry; root: string; home: string; wtRoot: string; key: string; actor: string; session: string
@@ -32,7 +33,7 @@ export async function resolveDeps(h: Host): Promise<Deps> {
   const [root, home, cfg] = [await h.cwd(), await h.home(), await cfgOf(h)], store = await storeOf(h), key = repoKeyOf(root), ak = `cadre:${key}:actor`
   let actor = (await h.store.get(ak)) as string | undefined
   if (!actor) { actor = `cadre/${home.split('/').pop() || 'user'}/${h.rand(3)}`; await h.store.set(ak, actor) }
-  return { store, cfg, reg: cfg.types as TypeRegistry, root, home, wtRoot: cfg.worktrees.root || `${home}/.cache/cadre/wt`, key, actor, session: await sessionOf(h) }
+  return { store, cfg, reg: cfg.types as TypeRegistry, root, home, wtRoot: cfg.worktrees.root || `${home}/.cache/cadre/wt`, key, actor, session: await sessionOf(h), view: buildView }
 }
 export const admit: Hook = async (h, e, next) => admitWith(h, await resolveDeps(h), e, next)
 
@@ -40,7 +41,7 @@ const modelOf = (d: Deps, role: Role, t?: Task) => {
   const tier = role === 'reviewer' && t?.labels.some(l => d.cfg.review.deepLabels.includes(l)) ? 'deep' : d.cfg.roles[role]?.tier
   return tier ? (d.cfg.models as Record<string, string>)[tier] ?? tier : undefined
 }
-const stepsOf = (d: Deps) => (type: string) => { const p = pipeOf(d.reg)(type); return d.view ? p : p.filter(s => s !== 'tester' && s !== 'red') }   // until M5
+const stepsOf = (d: Deps) => (type: string) => { const p = pipeOf(d.reg)(type); return d.view ? p : p.filter(s => s !== 'tester' && s !== 'red') }   // no view builder: tester/red skipped
 
 export async function admitWith(h: Host, d: Deps, e: any, next: (e: any) => any): Promise<any> {
   if (e.isTeammate) return deny('teammates are not supported (AG-27)')
@@ -80,12 +81,15 @@ async function reserve(h: Host, d: Deps, id: string, role: Role): Promise<boolea
   await h.bind.update(b => { got = !b[`~${id}`] && !agentsOf(b, id).some(a => b[a].role === role); return got ? { ...b, [`~${id}`]: { taskId: id, role, step: '', worktree: '~', sessionId: d.session, ctxTokens: 0, startedAt: 0 } } : b })
   return got
 }
-const briefOf = (s: Snapshot, t: SnapTask, task: Task, e: any, extra: Partial<BriefIn> = {}): BriefIn => ({
+const viewed = (d: Deps, role: Role) => role === 'tester' && !!d.view && d.cfg.roles.testerView !== 'full'   // testerView:full = the tester works in the worktree
+const agentOf = (d: Deps, role: Role): Role => (role === 'tester' && d.cfg.roles.tdd.author === 'same' ? 'worker' : role)   // author:same: the worker agent, tester brief (3.5)
+const briefOf = (s: Snapshot, t: SnapTask, task: Task, e: any, d: Deps, role: Role, extra: Partial<BriefIn> = {}): BriefIn => ({
+  testPaths: role === 'tester' ? pkgOf(d, task)?.tdd?.paths : undefined, locked: task.meta['cadre.locked'] ? JSON.parse(task.meta['cadre.locked']) : undefined, redCard: task.meta['cadre.red'],
   id: t.id, title: t.title, type: t.type, description: task.description, scenarios: task.acceptance, contract: task.design, notes: e.prompt, protectedPaths: PROTECTED,
   deps: t.deps.filter(x => x.type !== 'conditional-blocks').map(x => ({ id: x.id, title: s.tasks.find(y => y.id === x.id)?.title ?? '' })), ...extra })
 
 async function setup(h: Host, d: Deps, task: Task, wt: string) {   // packages[] are hand-written until M5; `setup` runs in the writable jail (network on)
-  const pkg = d.cfg.packages.filter(p => (task.meta['cadre.package'] ?? '.').startsWith(p.root)).sort((a, b) => b.root.length - a.root.length)[0] as any
+  const pkg = pkgOf(d, task) as any
   const pkgRoot = !pkg || pkg.root === '.' || !pkg.root ? wt : `${wt}/${pkg.root}`, scratch = `${d.wtRoot}/${d.key}.scratch/${task.id}`
   for (const argv of (pkg?.setup ?? []) as string[][]) {
     await h.run(['mkdir', '-p', scratch])
@@ -132,11 +136,11 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
     if (!spike) {
       const base = await G.tip(h.run, d.root, s.plan.epicBranch)
       if (!(await ensureWt(h, d, wt, branch))) { await G.op(h, () => G.worktreeAdd(h.run, d.root, wt, branch, base)); created = true; await setup(h, d, task, wt) }
-      cwd = role === 'tester' && d.view ? await d.view(h, d, task, wt) : wt
+      cwd = viewed(d, role) ? await d.view!(h, d, task, wt) : wt
       meta = { ...meta, 'cadre.base': task.meta['cadre.base'] ?? base, 'cadre.branch': branch, 'cadre.worktree': wt }
     }
     await d.store.setMeta(t.id, meta, d.actor)
-    return await launch(h, d, e, next, t, role, brief(role, briefOf(s, t, task, e)), cwd, step, spike ? '' : wt, undo, task)
+    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role)), cwd, step, spike ? '' : cwd, undo, task)
   } catch (err) {
     await undo()
     if (err instanceof StoreError) return deny(`${err.code}: ${err.message}`)
@@ -149,6 +153,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
   const task = await d.store.get(t.id), role = ROLE[t.step], now = await h.now(), bind = await h.bind.read(), mine = agentsOf(bind, t.id)
   if (!role || (role === 'tester' && !d.view)) return deny(`${t.id}: step ${t.step || '?'} is mod-run or has no agent`)
   if (mine.some(a => a.startsWith('~'))) return deny(`${t.id} is being spawned`)
+  if (role === 'worker' && stepsOf(d)(t.type).includes('red') && !task.meta['cadre.specCommit']) return deny(`${t.id}: no red record yet; its spec commit is needed before the worker`)
   const live = leaseLive(task, now)
   if (live && !mine.length) return deny(`${t.id} is held by another session (its lease is live)`)
   if (live && mine.some(a => bind[a].role === role)) return deny(`${t.id} is running; it is resumed automatically`)
@@ -176,7 +181,8 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
       await d.store.setMeta(t.id, { 'cadre.checkpoint': cp }, d.actor)
       handoff = [`checkpoint ${cp}`, await G.diffStat(h.run, wt, `${hb}..${cp}`), await G.diffPatch(h.run, wt, `${hb}..${cp}`), task.meta['cadre.report'] ?? ''].filter(Boolean).join('\n')
     }
-    return await launch(h, d, e, next, t, role, brief(role, briefOf(s, t, task, e, { handoff, decisions: task.meta['cadre.decision'] ? [task.meta['cadre.decision']] : undefined })), spike ? d.root : wt, t.step, spike ? '' : wt, undo, task)
+    const cwd = spike ? d.root : viewed(d, role) ? await d.view!(h, d, task, wt) : wt
+    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, { handoff, decisions: task.meta['cadre.decision'] ? [task.meta['cadre.decision']] : undefined })), cwd, t.step, spike ? '' : cwd, undo, task)
   } catch (err) { await undo(); throw err }
 }
 
@@ -189,7 +195,7 @@ async function review(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
   const wt = task.meta['cadre.worktree'] ?? wtPath(d.wtRoot, d.key, t.id), base = task.meta['cadre.base'] ?? src, undo = async () => { await unbindAgent(h, `~${t.id}`) }
   try {
     const diffStat = await G.diffStat(h.run, wt, `${base}..${src}`), diff = await G.diffPatch(h.run, wt, `${base}..${src}`)
-    return await launch(h, d, e, next, t, 'reviewer', brief('reviewer', briefOf(s, t, task, e, { sourceCommit: src, diffStat, diff, report: task.meta['cadre.report'], flags: t.flags })), wt, 'reviewer', wt, undo, task)
+    return await launch(h, d, e, next, t, 'reviewer', brief('reviewer', briefOf(s, t, task, e, d, 'reviewer', { sourceCommit: src, diffStat, diff, report: task.meta['cadre.report'], flags: t.flags })), wt, 'reviewer', wt, undo, task)
   } catch (err) { await undo(); throw err }
 }
 

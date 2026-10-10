@@ -1,5 +1,6 @@
 // Stage 4 discovery (DESIGN 10.2): brief for the explorer, report{discovery} parsing, jailed runs (audit + validate). Pure helpers + h.run; no language logic.
 import type { Host } from '../types'
+import * as G from './git'
 
 export interface Pkg {
   root: string; setup: string[]; checks: Record<string, string[]>; fetches?: string[]
@@ -29,14 +30,6 @@ export function parse(r: any): Pkg[] | string {
   return ps
 }
 
-// §3.10 jails. check = overlay, offline; setup = writable, network on; home = setup + $HOME overlay (init discovery only).
-export function jail(mode: 'check' | 'setup' | 'home', o: { wt: string; scratch: string; chdir: string; home: string; writable?: string[] }, argv: string[]): string[] {
-  const base = ['bwrap', ...(mode === 'check' ? ['--unshare-net'] : []), '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc',
-    ...(mode === 'check' ? ['--overlay-src', o.wt, '--tmp-overlay', o.wt] : ['--bind', o.wt, o.wt]), '--bind', o.scratch, '/tmp']
-  const home = mode === 'home' ? ['--overlay-src', o.home, '--overlay', `${o.scratch}/home-up`, `${o.scratch}/home-work`, o.home] : []
-  return [...base, ...home, ...(o.writable ?? []).flatMap(w => ['--bind', w, w]), '--chdir', o.chdir, '--', ...argv]
-}
-
 // Depth <= 2 entries written under $HOME, parents dropped when a child is listed, build/target dirs never proposed.
 export const caches = (found: string): string[] => {
   const all = found.split('\n').map(l => l.trim().replace(/^\.\//, '')).filter(Boolean).filter(l => !l.split('/').some(s => /^(target|build|dist)$/.test(s)))
@@ -44,26 +37,27 @@ export const caches = (found: string): string[] => {
 }
 
 const sh = (h: Host, argv: string[], cwd?: string) => h.run(argv, { cwd, timeoutMs: 600000 })
-async function bwrapOk(h: Host): Promise<boolean> {
-  const r = await h.run(['bwrap', '--version']).catch(() => undefined)
-  const v = /(\d+)\.(\d+)/.exec(r?.stdout ?? ''); return !!r && r.exitCode === 0 && !!v && (+v[1] > 0 || +v[2] >= 8)
-}
 
-// One throwaway worktree at HEAD: setup (home-overlay jail when auditing, writable jail with confirmed binds when validating), then every check offline.
-// No overlay jail (bwrap < 0.8 / none): same steps unjailed in the throwaway worktree; network is then unenforced and no caches are learned.
+// One throwaway worktree at HEAD: setup (home-jail when auditing, writable jail with confirmed binds when validating), then every check offline (G.checkRun).
+// Jail modes (G.jailMode): overlay = $HOME overlay + tmp-overlay; copy (bwrap w/o overlay, A19) = HOME=<empty scratch> audit + copied tree; none = unjailed, network unenforced, no caches learned.
 export async function exec(h: Host, root: string, home: string, pkg: Pkg, o: { audit: boolean; caches?: string[]; knownRed?: string[] }): Promise<Run> {
-  const scratch = `/tmp/cadre/init-${h.rand(4)}`, wt = `${scratch}/wt`, chdir = pkg.root === '.' ? wt : `${wt}/${pkg.root}`
+  const scratch = `${home}/.cache/cadre/init-${h.rand(4)}`   // never under /tmp: the jail binds scratch AT /tmp and would mask wt
+  const wt = `${scratch}/wt`, pkgRoot = pkg.root === '.' ? wt : `${wt}/${pkg.root}`, sh0 = `${scratch}/home`
   const out: Run = { setupOk: false, caches: [], results: {} }
-  const jailed = await bwrapOk(h), jo = { wt, scratch, chdir, home, writable: (o.caches ?? []).map(c => `${home}/${c}`) }
-  const go = (m: 'check' | 'setup' | 'home', argv: string[]) => jailed ? sh(h, jail(m, jo, argv)) : sh(h, argv, chdir)
+  const mode = await G.jailMode(h.run), writable = (o.caches ?? []).map(c => `${home}/${c}`), J = (argv: string[]) => ({ wt, scratch, pkgRoot, argv, writable })
+  const setup = (): Promise<{ exitCode: number }> => {
+    if (mode === 'none') return sh(h, pkg.setup, pkgRoot)
+    const j = J(pkg.setup)
+    return sh(h, !o.audit ? G.writableJail(j) : mode === 'overlay' ? G.homeJail({ ...j, home }) : G.homeScratchJail({ ...j, scratchHome: sh0 }))
+  }
   try {
-    await sh(h, ['mkdir', '-p', `${scratch}/home-up`, `${scratch}/home-work`, `${scratch}/cadre`])
+    await sh(h, ['mkdir', '-p', `${scratch}/home-up`, `${scratch}/home-work`, `${scratch}/cadre`, sh0])
     const add = await sh(h, ['git', 'worktree', 'add', '--detach', wt, 'HEAD'], root); if (add.exitCode) return out
-    out.setupOk = (await go(o.audit ? 'home' : 'setup', pkg.setup)).exitCode === 0
-    if (o.audit && jailed && out.setupOk) out.caches = caches((await sh(h, ['find', '.', '-mindepth', '1', '-maxdepth', '2', '-type', 'd'], `${scratch}/home-up`)).stdout)
+    out.setupOk = (await setup()).exitCode === 0
+    if (o.audit && mode !== 'none' && out.setupOk) out.caches = caches((await sh(h, ['find', '.', '-mindepth', '1', '-maxdepth', '2', '-type', 'd'], mode === 'overlay' ? `${scratch}/home-up` : sh0)).stdout)
     if (out.setupOk) for (const [n, argv] of Object.entries(pkg.checks)) {
       if (o.knownRed?.includes(n)) { out.results[n] = 'knownRed'; continue }
-      const r = (await go('check', argv)).exitCode === 0
+      const r = (await G.checkRun(h.run, mode, J(argv))).exitCode === 0
       out.results[n] = r ? 'pass' : pkg.fetches?.includes(n) ? 'net' : 'red'
     }
     if (pkg.tdd?.report && out.setupOk) out.junit = /<testsuites?[\s>]/.test((await h.readText(`${scratch}${pkg.tdd.report.slice(4)}`)) ?? '')

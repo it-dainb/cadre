@@ -61,13 +61,38 @@ export const casRef = (run: Run, root: string, ref: string, next: string, old: s
 export const diffStat = (run: Run, wt: string, range: string) => git(run, wt, ['diff', '--stat', range])
 export async function diffPatch(run: Run, wt: string, range: string, cap = 3072): Promise<string> { return (await git(run, wt, ['diff', range])).slice(0, cap) }
 
-// Jail argv (3.10). `scratch` is bound at /tmp; `writable` = jailWritable cache dirs. argv is appended after `--`.
-type J = { wt: string; scratch: string; pkgRoot: string; argv: readonly string[]; writable?: readonly string[] }
+// Jail argv (3.10). `scratch` is bound at /tmp (so it must NOT live under /tmp, or it masks wt); `writable` = jailWritable cache dirs. argv is appended after `--`.
+type J = { wt: string; scratch: string; pkgRoot: string; argv: readonly string[]; writable?: readonly string[]; env?: Record<string, string> }
 const RO = ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc']
-const tail = (j: J) => ['--bind', j.scratch, '/tmp', ...(j.writable ?? []).flatMap(w => ['--bind', w, w]), '--chdir', j.pkgRoot, '--', ...j.argv]
+const tail = (j: J) => [...Object.entries(j.env ?? {}).flatMap(([k, v]) => ['--setenv', k, v]), '--bind', j.scratch, '/tmp', ...(j.writable ?? []).flatMap(w => ['--bind', w, w]), '--chdir', j.pkgRoot, '--', ...j.argv]
 // checks: tree writable, writes discarded, no network
 export const overlayJail = (j: J): string[] => ['bwrap', '--unshare-net', ...RO, '--overlay-src', j.wt, '--tmp-overlay', j.wt, ...tail(j)]
 // setup / skeleton: the worktree is really written, network on
 export const writableJail = (j: J): string[] => ['bwrap', ...RO, '--bind', j.wt, j.wt, ...tail(j)]
 // init discovery: writable jail + an overlay over $HOME; what setup wrote lands in <scratch>/home-up
 export const homeJail = (j: J & { home: string }): string[] => ['bwrap', ...RO, '--bind', j.wt, j.wt, '--overlay-src', j.home, '--overlay', `${j.scratch}/home-up`, `${j.scratch}/home-work`, j.home, ...tail(j)]
+
+// A19 fallback (bwrap < 0.11 has no overlay, S42/S46). copyJail: j.wt is a throwaway COPY of the tree, bound writable and discarded; network stays off.
+export const copyJail = (j: J): string[] => ['bwrap', '--unshare-net', ...writableJail(j).slice(1)]
+// init cache audit without a $HOME overlay: HOME (+XDG) = an empty scratch dir the jail may write; what lands there is what setup wrote.
+export const homeScratchJail = (j: J & { scratchHome: string }): string[] => {
+  const h = j.scratchHome
+  return writableJail({ ...j, writable: [...(j.writable ?? []), h], env: { ...j.env, HOME: h, XDG_CACHE_HOME: `${h}/.cache`, XDG_CONFIG_HOME: `${h}/.config`, XDG_DATA_HOME: `${h}/.local/share` } })
+}
+// Probe once per hook: overlay (bwrap with --overlay-src), copy (bwrap works, no overlay) or none (no usable bwrap: unjailed throwaway copy, network unenforced).
+export async function jailMode(run: Run): Promise<'overlay' | 'copy' | 'none'> {
+  const t = await run(['bwrap', '--ro-bind', '/', '/', 'true']).catch(() => undefined)
+  if (!t || t.exitCode) return 'none'
+  const hp = await run(['bwrap', '--help']).catch(() => undefined)
+  return /--overlay-src/.test(`${hp?.stdout}${hp?.stderr}`) ? 'overlay' : 'copy'
+}
+// One offline check in the best jail: overlay, else a copy of j.wt under j.scratch (writes die with the copy). pkgRoot must lie under j.wt.
+export async function checkRun(run: Run, mode: 'overlay' | 'copy' | 'none', j: J, timeoutMs = 600000): Promise<Res> {
+  if (mode === 'overlay') return run(overlayJail(j), { timeoutMs })
+  const cp = `${j.scratch}/cp`, k = { ...j, wt: cp, pkgRoot: cp + j.pkgRoot.slice(j.wt.length) }
+  await run(['rm', '-rf', cp]); await run(['mkdir', '-p', cp])
+  try {
+    const c = await run(['cp', '-a', `${j.wt}/.`, cp]); if (c.exitCode) throw new Error(`copy failed: ${c.stderr.slice(0, 200)}`)
+    return mode === 'copy' ? await run(copyJail(k), { timeoutMs }) : await run(j.argv, { cwd: k.pkgRoot, env: j.env, timeoutMs })
+  } finally { await run(['rm', '-rf', cp]) }
+}

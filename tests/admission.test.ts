@@ -201,3 +201,24 @@ describe('multi-session leases (two hosts, one store)', () => {
     w.clock.now += 121_000; await beat(a.h, spy(a.d)); expect(beats).toEqual([ids[0], ids[0]]); await beat(b.h, spy(b.d)); expect(beats).toHaveLength(2)
   })
 })
+
+describe('tester step with a spec view (3.5)', () => {
+  test('claim: tester agent, cwd = the view and the binding\'s root = the view; the worker waits for a red record, then sees the locked tests', async () => {
+    const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}), id = ids[0], view = `/wt/repo-1.views/${id}`; await w.board(h, epic, ids)
+    d.view = async (_h, _d, t) => `/wt/repo-1.views/${t.id}`; d.cfg.packages = [{ root: '.', tdd: { paths: ['test/**'] } }] as any
+    const a = ok('tt1'); await admitWith(h, d, spawn(id), a.next)
+    expect(a.seen[0]).toMatchObject({ subagentType: 'cadre:tester', cwd: view }); expect(a.seen[0].prompt).toContain('# SPEC TASK'); expect(a.seen[0].prompt).toContain('test/**')
+    expect((await h.bind.read()).tt1.worktree).toBe(view)
+    await h.board.update(s => ({ ...s, tasks: s.tasks.map(t => ({ ...t, step: 'worker' })) }))   // red✓ happened (tdd.testerDone advances), but no specCommit recorded
+    expect(((await admitWith(h, d, spawn(id), ok('wk1').next)) as any).deny).toContain('no red record')
+    await w.store.setMeta(id, { 'cadre.specCommit': 'abc1234', 'cadre.locked': JSON.stringify(['test/s.json']), 'cadre.red': 'red ✓ 1 failing' }, d.actor)
+    const b = ok('wk1'); await admitWith(h, d, spawn(id), b.next)
+    expect(b.seen[0]).toMatchObject({ subagentType: 'cadre:worker', cwd: `/wt/repo-1/${id}` }); expect(b.seen[0].prompt).toContain('test/s.json'); expect(b.seen[0].prompt).toContain('red ✓ 1 failing')
+  })
+  test('testerView:full = the tester works in the worktree; author:same = the worker agent with the tester brief', async () => {
+    const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}); await w.board(h, epic, ids)
+    d.view = async () => { throw new Error('no view expected') }; d.cfg.roles.testerView = 'full'; d.cfg.roles.tdd.author = 'same'
+    const a = ok('tt1'); await admitWith(h, d, spawn(ids[0]), a.next)
+    expect(a.seen[0]).toMatchObject({ subagentType: 'cadre:worker', cwd: `/wt/repo-1/${ids[0]}` }); expect(a.seen[0].prompt).toContain('# SPEC TASK')
+  })
+})

@@ -7,14 +7,14 @@ import { emit } from './events'
 export const STEP_CAT: Record<string, Category> = { tester: 'active', red: 'active', worker: 'active', green: 'active', explorer: 'active', report: 'active', reviewer: 'review', merge: 'review' }
 export type Pipe = (type: string) => readonly string[]
 
-export type MKind = 'approve' | 'amend' | 'claim' | 'advance' | 'verdict' | 'close' | 'block' | 'unblock' | 'release' | 'cancel' | 'skip'
-export interface MEvent { kind: MKind; id: string; at: number; actor?: Actor; owner?: string; verdict?: 'pass' | 'changes'; on?: string }
+export type MKind = 'approve' | 'amend' | 'claim' | 'advance' | 'verdict' | 'close' | 'block' | 'unblock' | 'rewind' | 'release' | 'cancel' | 'skip'
+export interface MEvent { kind: MKind; id: string; at: number; actor?: Actor; owner?: string; verdict?: 'pass' | 'changes'; on?: string }   // rewind: `on` = the step to return to (spec_change accept)
 export type EmitSpec = { type: 'task.transitioned' | 'task.phase_changed' | 'task.skipped'; data: Record<string, unknown> }
 export type Result = { ok: true; board: Snapshot; events: EmitSpec[] } | { ok: false; error: string }
 
 const FROM: Record<MKind, Category[]> = {   // legal-from table
   approve: ['draft'], amend: ['todo', 'blocked'], claim: ['todo'], advance: ['active'], verdict: ['review'], close: ['review', 'active'],
-  block: ['active', 'review'], unblock: ['blocked'], release: ['active', 'review', 'blocked'], skip: ['todo'],
+  block: ['active', 'review'], unblock: ['blocked'], rewind: ['active', 'blocked'], release: ['active', 'review', 'blocked'], skip: ['todo'],
   cancel: ['draft', 'todo', 'active', 'review', 'blocked'],
 }
 
@@ -38,6 +38,7 @@ export function transition(s: Snapshot, m: MEvent, pipe: Pipe): Result {
     case 'close': if (!((t.state === 'review' && t.step === 'merge') || (t.state === 'active' && t.step === 'report'))) return bad('not review-passed'); state = 'done'; break
     case 'block': state = 'blocked'; break
     case 'unblock': state = STEP_CAT[t.step] ?? 'active'; break
+    case 'rewind': if (!m.on || !p.includes(m.on)) return bad('no such step'); step = m.on; state = STEP_CAT[step] ?? 'active'; break
     case 'release': state = 'todo'; owner = undefined; break
     case 'cancel': case 'skip': state = 'cancelled'; break
   }
