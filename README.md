@@ -20,7 +20,10 @@ $CC --plugin-dir .                  # in the repo you want to manage
 ```
 Debug a run: add `--debug-file cadre.log`. Live smokes/evals run in Docker via [`harness/`](harness/README.md) (also able to install from the marketplace: `CADRE_SOURCE=marketplace`). Live evidence (`docs/evidence/`) is local-only and gitignored.
 
-## First run: `/cadre init`
+## First run: `/cadre setup`, then `/cadre init`
+`/cadre setup` (once per machine, human only) checks Claude Code, `git`, `bd`, `bwrap`, `socat`, the worktree root and the user settings cadre relies on. It never installs anything: each missing tool comes with the command to run yourself (`! sudo apt install bubblewrap socat`). A settings change is proposed as a diff and written only after `/cadre setup confirm <code>`; the code is on the band. `/cadre doctor` re-runs the machine checks and adds the project ones (init stages, containment, beads, branches, leases, flags, sync, drive); it is read-only and safe any time. Both put the report in the cadre pane; the command text is one line.
+
+## Per project: `/cadre init`
 `/cadre init` runs the next incomplete stage; `/cadre init <stage>` re-runs one. Each stage proposes a diff, waits for `/cadre init confirm <code>` typed by you, validates by running, then saves (a `.bak` is written first). The code is redrawn on every attempt.
 
 | # | Stage | Result |
@@ -50,6 +53,8 @@ Types (`feature`, `bug`, `refactor`, `docs`, `test`, `spike`) and their pipeline
 | `reject <planId> <why>` | human | drop drafts |
 | `resolve <id> keep\|accept\|reject\|cancel` · `resolve git keep\|restore` | human | clear flags / quarantined git effects |
 | `release [x.y.z]` | human | cut a release |
+| `setup [confirm <code>]` | human | one-time machine check; proposes user-settings changes |
+| `doctor` | anyone | read-only diagnosis, report in the cadre pane |
 | `init [<stage>] [confirm <code>]` | human | staged setup |
 | `sync add <adapter>` · `sync [now]` | human · anyone | external tracker setup · wake sync |
 | `adapter token` | human | new adapter session token (toast only) |

@@ -263,7 +263,7 @@ async function confirm(c: Ctx, code: string | undefined): Promise<string> {
   const pend = (await c.h.secret.read()).initConfirm, good = !!pend && !!code && await initConfirm(c.h, pend.stage, code)   // burns on every attempt
   if (!pend || !code) await initConfirm(c.h, 0, '')
   if (!pend) return 'init: nothing pending; run /cadre init'
-  const st = STAGES.find(s => s.n === pend.stage)!
+  const st = STAGES.find(s => s.n === pend.stage); if (!st) return 'init: nothing pending; run /cadre init'   // a pending setup code is burned by the attempt
   if (!good) return `init: wrong code (burned); a new diff and code follow\n${await show(c, st)}`
   const was = ((await c.h.ui.read())['init.pending'] as { sig: string } | undefined)?.sig
   const p = await st.propose(c); if (typeof p === 'string') return p
@@ -271,6 +271,12 @@ async function confirm(c: Ctx, code: string | undefined): Promise<string> {
   if (fnv1a64(text + canon(await reread(c, p.targets))) !== was) return `init: files changed since the diff was shown; nothing written; re-shown\n${await show(c, st)}`
   const save = saver(c)
   return finish(c, st, await p.apply(save))
+}
+
+// doctor: which stages are complete (read-only predicates)
+export async function progress(h: Host): Promise<{ n: number; name: string; done: boolean }[]> {
+  const root = await h.cwd(), home = await h.home(), rk = repoKeyOf(root), cfg = (await load(h, { home, root, repoKey: rk })).config, c: Ctx = { h, root, home, rk, cfg, args: [] }
+  return Promise.all(STAGES.map(async s => ({ n: s.n, name: s.name, done: await s.done(c).catch(() => false) })))
 }
 
 export async function run(h: Host, args: string[]): Promise<string> {

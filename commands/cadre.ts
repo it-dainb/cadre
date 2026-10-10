@@ -7,6 +7,7 @@ import { warm } from '../core/session'
 import { contextLine, subject } from '../core/render'
 import { openPane } from '../ui/index'
 import { run as initRun } from './init'
+import { doctor, setup } from './doctor'
 import { defaults } from '../config/index'
 
 // text board from the model view + the cost ledger (the human view's cost, since this is a typed command's own output)
@@ -33,10 +34,12 @@ async function route(h: Host, c: Command): Promise<Out> {
     case 'resolve': if (a && a === (await h.board.read()).plan?.id) return resolveEpic(h, a, c.args[1] ?? ''); break
     case 'restore': return restore(h, a)
     case 'init': return { text: await initRun(h, c.args) }
+    case 'setup': return { text: await setup(h, c.args) }
+    case 'doctor': return { text: await doctor(h) }
     case 'config': if (!a || a === 'show') return { text: configText(await cfgOf(h), c.args[1]) }
   }
   const r = ROUTES[c.cmd]
-  return r ? r(h, c) : { text: `unknown /cadre subcommand "${c.cmd}". Try: status, open, approve <id>, reject, resolve, release, restore, init, sync, adapter token, config, drive` }
+  return r ? r(h, c) : { text: `unknown /cadre subcommand "${c.cmd}". Try: status, open, approve <id>, reject, resolve, release, restore, init, setup, doctor, sync, adapter token, config, drive` }
 }
 
 // command.run {command:'cadre'}

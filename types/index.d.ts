@@ -93,6 +93,7 @@ export interface Host {
   cwd(): Promise<string>; home(): Promise<string>      // session cwd (repo root) · $HOME
   ops?: UiOps                                          // ui/ side effects (render, toast, notify, prefill, timers); built by host($), absent in plain test hosts
   spawn?(a: { argv: readonly string[]; input: string; timeoutMs?: number }): Promise<{ exitCode: number | null; stdout: string; stderr: string }>   // $.process.spawn one-shot: stdin = input then closed, output collected (task-management/protocol)
+  version?(): Promise<string>                           // $.session.version().version: the running Claude Code build (commands/doctor)
   taskStore?(): Promise<any>; config?(): Promise<any>   // the TaskStore (a core/dispatch storeOf) and resolved Config; register.ts wires them (config falls back to env layer + defaults)
   sendTo?(agentId: string, text: string): Promise<{ isDelivered: boolean; reason?: string }>   // $.session.send({to:{agentId}}): core/reuse.drain only (the one sender)
   submit?(text: string): Promise<unknown>; usage?(): Promise<{ context?: { percent?: number }; cost?: { usd: number } }>   // $.prompt.submit (drive, #1 only) · $.session.usage

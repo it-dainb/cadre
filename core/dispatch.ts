@@ -102,7 +102,7 @@ export async function isHuman(h: Host, o: Origin): Promise<string | null> {
 export async function newToken(h: Host): Promise<string> {   // session start and `adapter token`; shown by toast only (UI-26)
   const token = h.rand(8); await h.secret.update(s => ({ ...s, token })); h.toast(`cadre session token: ${token}`); return token
 }
-const needsHuman = (c: Command): boolean => ['approve', 'reject', 'resolve', 'release', 'restore', 'init', 'adapter'].includes(c.cmd) || (c.cmd === 'config' && c.args[0] === 'set') || (c.cmd === 'sync' && c.args[0] === 'add') || (c.cmd === 'drive' && c.args[0] !== 'status')
+const needsHuman = (c: Command): boolean => ['approve', 'reject', 'resolve', 'release', 'restore', 'init', 'setup', 'adapter'].includes(c.cmd) || (c.cmd === 'config' && c.args[0] === 'set') || (c.cmd === 'sync' && c.args[0] === 'add') || (c.cmd === 'drive' && c.args[0] !== 'status')
 
 // ---- init confirm code (DESIGN 10.1): nonce-salted, never a hash of the diff alone; burned on every attempt ----
 export async function initPropose(h: Host, stage: number, diff: string): Promise<string> {
@@ -203,7 +203,7 @@ export async function dispatch(h: Host, c: Command, route: Route): Promise<Out> 
     const why = await isHuman(h, c.origin)
     if (why) {
       if (c.cmd === 'approve' && c.args[0]?.includes('@')) await redraw(h, await storeOf(h), await registryOf(h)).catch(() => {})
-      if (c.cmd === 'init' && c.args[0] === 'confirm') await h.secret.update(({ initConfirm: _c, ...r }) => ({ ...r, initNonce: h.rand(8) }))
+      if ((c.cmd === 'init' || c.cmd === 'setup') && c.args[0] === 'confirm') await h.secret.update(({ initConfirm: _c, ...r }) => ({ ...r, initNonce: h.rand(8) }))
       return refuse(why)
     }
   }

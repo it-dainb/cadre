@@ -380,6 +380,8 @@ A resume (`$.session.send({to:{agentId}})`) keeps `agentId`, transcript and cwd;
 | `approve <id>` (sheet in the pane, one-line `{text}`) · `approve <id>@<code8>` (burns the nonce) · `reject <planId> <why>` · `release [x.y.z]` | human | §3.1 / drop drafts / §3.9 |
 | `resolve <id> keep\|accept\|reject\|cancel` · `resolve git keep\|restore` · `restore <ref>` | human | clear flags (§13.1) |
 | `init [<stage>] [confirm <code>]` | human | next incomplete stage, or re-run `<stage>` (§10.1); a `confirm` burns the code |
+| `setup [confirm <code>]` | human | one-time per-machine install check; may propose a user-settings diff (added post-v1 per ADR 0007) |
+| `doctor` | anyone | read-only diagnosis of the machine and the project, any time, no writes (added post-v1 per ADR 0007) |
 | `sync add <adapter>` · `sync [now]` | human · anyone | sync setup (§11.3) · wake sync |
 | `adapter token` | human | draw a new session token, shown by toast only |
 | `config [show\|set <k> <v>]` · `drive on\|off\|status` | `set`, `drive`: human | §12 · §9 |

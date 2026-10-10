@@ -19,6 +19,7 @@ import { wrap } from '../core/effect'
 import { handle, SPECS } from '../tools/index'
 import { context, attachment } from '../core/briefs'
 import { run } from '../commands/cadre'
+import { nudge } from '../commands/doctor'
 import { tick } from '../task-management/sync-engine/loop'
 import { onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapCard, resumeBanner } from '../ui/index'
 import { load } from '../config/index'
@@ -94,6 +95,7 @@ function host($): Host {
   h.sendTo = (agentId, text) => $.session.send({ to: { agentId }, text })   // core/reuse.drain only
   h.submit = text => $.prompt.submit({ text })   // drive, from #1 after next only
   h.usage = () => $.session.usage()
+  h.version = async () => String((await $.session.version()).version)
   return h
 }
 
@@ -115,13 +117,14 @@ export const register: Register = (on, opts) => {
 
   // session.start: agents, command, tools env, the one tick. Awaited before turn one (L7).
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'cadre', description: 'cadre: plan, approve, status, resolve, release, drive, init', argumentHint: '<sub> [args]', immediate: true })
+    await $.command.register({ name: 'cadre', description: 'cadre: plan, approve, status, resolve, release, drive, init, setup, doctor', argumentHint: '<sub> [args]', immediate: true })
     const root = await $.session.cwd(); await update($, secret, x => ({ ...x, root })); await $.store.set('cadre:roots', { ...(((await $.store.get('cadre:roots')) ?? {}) as object), [repoKeyOf(root)]: root })   // the repo root for every hook: in a subagent hook $.session.cwd() is the agent's own view/worktree
     await $.env.set('CLAUDE_CODE_ENABLE_TODO_TOOLS', '1')
     await $.env.set('ENABLE_TOOL_SEARCH', 'false')   // S13: isDeferred:false alone does not stop deferral
     await start(host($)).catch(e => $.ui.log(`cadre: session start: ${e}`))   // $.store 'policy' + cadre.ui.cfg (agents ship as agents/*.md files, A28)
     for (const t of SPECS) await $.tool.register(t)   // report, inspect, run_check: isDeferred:false (5.2)
     await newToken(host($))   // session token for adapter commands: toast only (DESIGN 2.5)
+    await nudge(host($)).catch(() => {})   // no setup stamp for this Claude Code build: one toast
     await contain(host($)).catch(() => {})   // L2 check -> board.containment (13.1)
     $.clock.every(5000, () => { const h = host($); void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
     $.clock.every(30_000, () => { void tickUi(host($)) })   // live timeline cursor (blit, no re-render)
