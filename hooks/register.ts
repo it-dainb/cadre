@@ -3,10 +3,9 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 import type { Host } from '../types'
-import { roster } from '../agents/index'
 import { emptySnapshot } from '../core/board'
 import { emptyRing, subscribe } from '../core/events'
-import { drain, step, compact } from '../core/reuse'
+import { drain, step, compact, submit, goal, start, tick as heartbeat, UI } from '../core/reuse'
 import { observe } from '../core/close'
 import '../core/integrate'   // registers ROUTES.release
 import { admit } from '../core/admission'
@@ -14,12 +13,11 @@ import { contain } from '../policy/containment'
 import { check, guard, send, judge, configSet } from '../policy/guards'
 import { answer, describe } from '../native/tasks'
 import { wrap } from '../core/effect'
-import { handle } from '../tools/index'
+import { handle, SPECS } from '../tools/index'
 import { context, attachment } from '../core/briefs'
 import { run } from '../commands/cadre'
-import { defaults } from '../config/index'
 import { tick } from '../task-management/sync-engine/loop'
-import { onEvent, renderBand, renderCard, renderPane, tickUi } from '../ui/index'
+import { onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapCard, resumeBanner } from '../ui/index'
 import { load } from '../config/index'
 import { newToken } from '../core/dispatch'
 import { wire, repoKeyOf } from '../commands/init'
@@ -90,6 +88,9 @@ function host($): Host {
   }
   h.config = async () => { const root = await h.cwd(); return (await load(h, { home: await h.home(), root, repoKey: repoKeyOf(root) })).config }
   h.taskStore = async () => wire.store(h, await h.config!(), await h.cwd())
+  h.sendTo = (agentId, text) => $.session.send({ to: { agentId }, text })   // core/reuse.drain only
+  h.submit = text => $.prompt.submit({ text })   // drive, from #1 after next only
+  h.usage = () => $.session.usage()
   return h
 }
 
@@ -106,16 +107,18 @@ function denySend($, e, next) { return next.error?.kind === 're-entry' ? next(e)
 export const register: Register = (on, opts) => {
   options = { strictness: opts?.strictness as string | undefined }
   subscribe(onEvent)   // ui/notify: toasts, notify, status line from the event stream
+  UI.mapCard = mapCard; UI.banner = resumeBanner   // core -> ui hooks (core never imports ui/)
 
   // session.start: agents, command, tools env, the one tick. Awaited before turn one (L7).
   on('session.start', async ($, e, next) => {
-    const cfg = defaults()
-    for (const a of roster({ roles: cfg.roles, models: cfg.models, mcpAllow: cfg.mcpAllow })) await $.agent.register(a)
     await $.command.register({ name: 'cadre', description: 'cadre: plan, approve, status, resolve, release, drive, init', argumentHint: '<sub> [args]', immediate: true })
     await $.env.set('CLAUDE_CODE_ENABLE_TODO_TOOLS', '1')
+    await $.env.set('ENABLE_TOOL_SEARCH', 'false')   // S13: isDeferred:false alone does not stop deferral
+    await start(host($)).catch(e => $.ui.log(`cadre: session start: ${e}`))   // $.store 'policy' + cadre.ui.cfg (agents ship as agents/*.md files, A28)
+    for (const t of SPECS) await $.tool.register(t)   // report, inspect, run_check: isDeferred:false (5.2)
     await newToken(host($))   // session token for adapter commands: toast only (DESIGN 2.5)
     await contain(host($)).catch(() => {})   // L2 check -> board.containment (13.1)
-    $.clock.every(5000, () => { void tick(host($)).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
+    $.clock.every(5000, () => { const h = host($); void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
     $.clock.every(30_000, () => { void tickUi(host($)) })   // live timeline cursor (blit, no re-render)
     return next(e)
   })
@@ -136,11 +139,12 @@ export const register: Register = (on, opts) => {
   // 7. session.send
   on('session.send', ($, e, next) => send(host($), e, next)).catch(denySend)
   // 8. prompt.submit, prompt.attachment, turn.step, session.compact, command.run, config.set
-  on('prompt.submit', ($, e, next) => context(host($), e, next)).catch(passOn)
+  on('prompt.submit', async ($, e, next) => { const h = host($); if (!e.agentId && e.origin?.kind === 'composer') await ack(h).catch(() => {}); return submit(h, e, e2 => context(h, e2, next)) }).catch(passOn)
   on('prompt.attachment', ($, e, next) => attachment(host($), e, next))
   on('turn.step', async function* ($, e, next) { return yield* step(host($), e, next) })
   on('session.compact', ($, e, next) => compact(host($), e, next)).catch(passOn)
-  on('command.run', { command: 'cadre' }, ($, e, next) => run(host($), e, next)).catch(denyCmd)
+  on('command.run', { command: 'cadre' }, async ($, e, next) => { const h = host($); await ack(h).catch(() => {}); return run(h, e, next) }).catch(denyCmd)
+  on('command.run', { command: 'goal' }, ($, e, next) => goal(host($), e, next)).catch(passOn)   // observer only: pass-through, never rewritten (9)
   on('config.set', ($, e, next) => configSet(host($), e, next)).catch(denySpawn)
   // ui (UI-DESIGN): every ui.render hook names its component (U7); render is pure, state is written from handlers only
   on('ui.render', { component: 'AbovePrompt' }, ($, e, next) => renderBand(host($), e, next))
