@@ -15,6 +15,9 @@ export const GOLDEN: Record<EventType, { actor: Actor; severity: Severity; needs
   'drive.status': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['state'] },
   'cost.updated': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['tokens'] },
   'init.stage': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['stage', 'state'] },
+  'plan.landed': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['planId', 'sha'] },
+  'plan.released': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['version', 'sha'] },
+  'release.proposed': { actor: 'mod', severity: 'info', needsHuman: true, keys: ['version'] },
 }
 export const SAMPLE: Record<EventType, Record<string, unknown>> = {
   'task.transitioned': { taskId: 't1', from: 'todo', to: 'active' },
@@ -30,4 +33,7 @@ export const SAMPLE: Record<EventType, Record<string, unknown>> = {
   'drive.status': { state: 'armed' },
   'cost.updated': { tokens: 1200 },
   'init.stage': { stage: 1, state: 'proposed' },
+  'plan.landed': { planId: 'p3', sha: 'abc1234' },
+  'plan.released': { version: '0.2.0', sha: 'abc1234' },
+  'release.proposed': { version: '0.2.0' },
 }

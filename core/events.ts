@@ -19,6 +19,9 @@ export const TABLE: Record<EventType, Row> = {
   'drive.status': ['mod', 'info', false, ['state']],
   'cost.updated': ['mod', 'info', false, ['tokens']],
   'init.stage': ['mod', 'info', false, ['stage', 'state']],
+  'plan.landed': ['mod', 'info', false, ['planId', 'sha']],
+  'plan.released': ['mod', 'info', false, ['version', 'sha']],
+  'release.proposed': ['mod', 'info', true, ['version']],
 }
 const SECRET_KEYS = ['code8', 'code', 'nonce', 'token', 'initConfirm']   // D7: no event ever carries a code
 

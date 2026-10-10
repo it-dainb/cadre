@@ -5,6 +5,8 @@ export async function resolve(spec, ctx, next) {
   if (spec.startsWith('.') && !/\.[cm]?[jt]s$/.test(spec) && ctx.parentURL) {
     const p = new URL(spec + '.ts', ctx.parentURL)
     if (existsSync(fileURLToPath(p))) return { url: p.href, shortCircuit: true }
+    const i = new URL(spec + '/index.ts', ctx.parentURL)
+    if (existsSync(fileURLToPath(i))) return { url: i.href, shortCircuit: true }
   }
   return next(spec, ctx)
 }

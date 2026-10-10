@@ -18,6 +18,7 @@ export interface SnapTask {
 export interface Plan {
   id: string; slug: string; state: PlanState; epicBranch: string; approvedAt?: number
   landed?: { dev: string; sha: string; at: number }; released?: { version: string; at: number }
+  flags?: string[]   // plan-level flags (integration-failed)
 }
 // The board snapshot = the read model. Carries NO code8/init code (those live in Secret).
 export interface Snapshot {
@@ -35,7 +36,7 @@ export interface Snapshot {
 export type EventType =
   | 'task.transitioned' | 'task.phase_changed' | 'task.skipped' | 'agent.bound' | 'agent.unbound'
   | 'check.ran' | 'flag.raised' | 'flag.resolved' | 'approval.pending' | 'sync.state_changed'
-  | 'drive.status' | 'cost.updated' | 'init.stage'
+  | 'drive.status' | 'cost.updated' | 'init.stage' | 'plan.landed' | 'plan.released' | 'release.proposed'
 export interface CadreEvent {
   schemaVersion: 1; seq: number; at: number; type: EventType; taskId?: string; agentId?: string
   actor: Actor; severity: Severity; needsHuman: boolean; data: Record<string, unknown>

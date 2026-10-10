@@ -8,6 +8,7 @@ import { emptySnapshot } from '../core/board'
 import { emptyRing, subscribe } from '../core/events'
 import { drain, step, compact } from '../core/reuse'
 import { observe } from '../core/close'
+import '../core/integrate'   // registers ROUTES.release
 import { admit } from '../core/admission'
 import { contain } from '../policy/containment'
 import { check, guard, send, judge, configSet } from '../policy/guards'
