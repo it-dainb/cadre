@@ -100,3 +100,29 @@ Each row used a fresh `git archive HEAD` copy; the hash is HEAD at that run. Evi
 | S10 `/reload-plugins` half; S29 (link click, queued Enter) | n/a | **PENDING-HUMAN** (TUI). S10 repro: `claude --plugin-dir <cadre>` in the seeded repo, run a plan to `active`, `/reload-plugins`, `/cadre status` (identical), quit, `claude --continue` (resume card, `drive` off). S29 repro: pane approve link click → origin `composer`, model never sees a live `code8`; queue Enter before/after a plan amendment → the second mismatches the token |
 
 Notes: drive starts at the next `turn.complete` after arming, so one kickoff prompt follows `/cadre drive on` (main then drove all three tasks itself; drive's own `Continue:` prompt fired only for the epic completion). Fixes (root cause + test each): `9262117` the card names the action; `12cdca0` an approved epic is not a draft in `TaskUpdate`; `dc5e84d` `/cadre status` warms a cold board.
+
+## Interactive (tmux) runs (2026-10-10, HEAD 3cc89ec)
+Harness: `harness/tui.sh` (see `harness/README.md`): a container per run, `claude --plugin-dir` (pin 2.1.295) inside tmux 120x40, driven with send-keys / capture-pane; transcripts read from the mounted `projects` dir, graded by `docs/evidence/live/tui/jl.py`. Evidence: `docs/evidence/live/tui/` (debug logs, final panes, grades, `s60-frames.tgz`, drivers, scaffolds). Haiku for smokes, sonnet for the two evals. Spend ≈ US$4 (13 eval-style runs, ~15 smoke sessions).
+
+| What | Result |
+|---|---|
+| auto-report end to end, foreground, seeded approved plan (`evals/auto-report/prompt.md` typed in the composer) | **6/6 PASS** (3 sonnet `a1–a3`, 3 haiku `t1–t3`): worker ends without `report` → the transcript shows the nudge ("You stopped without calling report") in the worker's own transcript → it calls `report` → `report accepted … Now in review` → reviewer `pass` → `main → done`. The interactive session keeps running after main's last turn, so the nudge's resume completes inside the trace (PENDING-HUMAN 5 is closed). |
+| review-resumes-same-agent | **0/7 reached `changes`, so the resume was not exercised.** New fixture `evals/review-resumes-contract` (contract `errors`: RangeError for a non-positive-integer `max`, `max>255`, TypeError for a non-string, NaN/Infinity/-0, never throws on all-punctuation; no scenario covers them). Sonnet's tester wrote the contract tests, the worker implemented every clause, the reviewer passed (`r1–r7`). A reviewer sees only scenarios+contract+diff and the tester sees the same, so no defect is reviewer-visible and tester-invisible; only a worker mistake the tester skipped could produce `changes`, and it never happened. "Same agentId resumed on `changes`" stays covered by `tests/git/close.test.mjs` and M0 S31; the rate here is 0/7 for an unforced defect. |
+| S51, S52, S55, S59, S60, S37, S48, S49, S22 | see each `tests/smoke/S*.md` "Result (tmux …)": all PASS (S22 after 3 fixes; S60 terminal only) |
+| typed init confirm (composer origin), stage 1 | **PASS after 2 fixes.** `/cadre init` → diff + "Confirm with the code shown in the cadre band"; the band was **empty** (see 1). With the fix the band shows `type /cadre init confirm <code>`; typing that line in the composer applied stage 1 (`.cadre/config.json` branches, branch `dev`). |
+
+Defects found by the interactive runs (root cause, test each, gates green):
+1. **The init confirm code was never visible** (`ui/model.ts`, `ui/band.ts`): no UI read `secret.initConfirm`, and the band returned `[]` with no plan, which is always the case during init. A human could not complete `/cadre init`. `00da0a3` attention item `init stage N diff ready` with `/cadre init confirm <code>`; `afeac76` the band draws a pending init item without a plan.
+2. **`rehydrate failed: no beads database found` printed in chat** before init stage 2 (`core/session.ts adopt`): `582149f` no store = nothing to adopt, quiet.
+3. **S22: a `/clear` before main's next `turn.complete` left a running background agent unbound**: the pointer (bindings) was saved only at turn.complete. `0e464ed` save it when an agent is bound (`core/admission`).
+4. **After `/clear` every agent's bd call failed (`no beads database found`)**: `secret.root` is per session and `session.start` is not raised again, so `h.cwd()` was the agent's view. `3dcbf14` the root is also kept in `$.store cadre:roots`; `rootFor` maps a worktree/view cwd back to it.
+5. **After `/clear` a worker's `report` was refused `active·tester: nothing to report at your step`**: beads kept `cadre.step=tester` after red ✓ and the board is rebuilt from it. `3cc89ec` persist the step when red passes.
+
+Findings that are not defects:
+- The typed `/cadre approve <plan>@<code8>` is echoed into the transcript (system `local_command` records, `commandRun`) and reaches the model's context (haiku quoted it when asked); the code is burned on use (replay → `refused: token mismatch`). The code is never in anything cadre draws or returns. S51's strict "absent from the JSONL" holds for the band/pane/sheet/toast/Task* path, not for the human's own typed confirm (S53).
+- Hotkeys in the pane need the pane focused; `/cadre open` focuses it only when the composer is empty (the engine's `open({focus})` rule). `ctrl+x Tab` moves focus to the band, not the pane.
+- `/cadre open init` opens the Epic tab (no init view in v1); the code is on the band.
+- A model sometimes calls `report` twice or backgrounds an agent it was told to run in the foreground; both are model behaviour, handled by the engine (second report refused `nothing to report`).
+- The `tui.sh` image needed no change beyond `tmux`; the harness `~/.claude.json` seed removes all first-run dialogs.
+
+PENDING-HUMAN now: **S54** (VS Code), **S61** (desktop), **S56** (Remote Control), S52's open-dialog case, S59 on the desktop surface. Items 1, 2 (S22, S37, S48, S49), 3 (S51–S53, S55, S59, S60) and 5 above are closed by these runs; 4 is attempted (unforced, 0/7).
