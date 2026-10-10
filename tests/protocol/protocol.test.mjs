@@ -191,3 +191,26 @@ test('guided setup blocks: no permission / required custom field without default
   await A(); await A('confirm', (await w.h.secret.read()).initConfirm.code)
   assert.match(await A(), /4\/5 validate: blocked: no add permission/)
 })
+
+test('external = status/assignee change by a foreign actor only; a title edit is not; deltas for pulled edits reach bound agents', async () => {
+  const { h, store, file, ids, advance } = await world()
+  await L.tick(h); advance(40_000); await L.tick(h)
+  await store.update(ids[0], { title: 'foreign title' }, 'jira'); advance(40_000); await L.tick(h)
+  assert.ok(!(await h.board.read()).tasks[0].flags.includes('external'), 'title edit is not external')
+  await store.claim(ids[1], 'jira'); advance(40_000); await L.tick(h)
+  assert.ok((await h.board.read()).tasks[1].flags.includes('external'), 'status change by jira is')
+  await h.bind.update(() => ({ ag1: { taskId: ids[0], role: 'worker', step: 'worker', worktree: '/w', sessionId: 's', ctxTokens: 0, startedAt: 1 } }))
+  const rid = Object.keys(remote(file).tasks)[0]
+  edit(file, s => { s.tasks[rid].fields.description = 'remote desc'; s.tasks[rid].etag = '77'; s.tasks[rid].seq = ++s.seq })
+  advance(40_000); await L.tick(h)
+  const { drainDelta } = await import('../../core/briefs.ts'); assert.match(await drainDelta(h, 'ag1'), /edited on the tracker: description = "remote desc"/)
+})
+
+test('mission -> version, decision -> comment on the linked task (push-only special cases)', async () => {
+  const { h, store, file, ids, advance } = await world()
+  await store.record('mission', 'Ship v1', 'mission body'); const d = await store.record('decision', 'Chose X', 'because', ids[0])
+  await L.tick(h); advance(40_000); await L.tick(h)
+  const sent = Object.values(remote(file).tasks), ver = sent.find(t => t.fields.title === 'Ship v1'), dec = sent.find(t => t.fields.title === 'Chose X')
+  assert.ok(ver && dec); assert.deepEqual(Object.keys(ver.fields), ['title', 'description'])
+  assert.equal(ver.kind, 'version'); assert.equal(dec.kind, 'comment'); assert.equal(dec.on, Object.keys(remote(file).tasks).find(r => remote(file).tasks[r].localId === ids[0]))
+})

@@ -53,7 +53,6 @@ async function setState(h: Host, target: string, state: 'ok' | 'offline' | 'conf
   if (was !== state && !(was === undefined && state === 'ok')) await emit(h, 'sync.state_changed', { target, state, at }, { severity: state === 'ok' ? 'info' : 'warn' })
 }
 
-const OPS = /^(update|status|close|claim|release|move|assign)/
 async function cycle(h: Host, cfg: any, target: string, store: TaskStore, force: boolean): Promise<boolean> {
   const t = cfg.sync[target], a = cfg.adapters[t.adapter] as AdapterCfg, now = await h.now(), actor = String((await h.store.get(`cadre:${repoKeyOf(await h.cwd())}:actor`)) ?? 'cadre/sync')
   const ctl = await controlOf(h, store), got = await lease(h, store, ctl, target, await sessionOf(h), actor, now); if (!got) return false
@@ -62,17 +61,22 @@ async function cycle(h: Host, cfg: any, target: string, store: TaskStore, force:
   const ev = await store.events(s.cursor, 500)
   if (!ev) heal = true; else {
     head = ev.head
+    // bd journal records: op create|update|close|... with the issue snapshot; a status/assignee change shows only as a difference from the previous record of that issue
+    const seenK = `sync.seen:${target}`, seen = ((await h.store.get(seenK)) as Record<string, string> | undefined) ?? {}
     for (const e of ev.events) {
+      const now2 = `${e.status ?? ''}|${e.assignee ?? ''}`, moved = e.id in seen && seen[e.id] !== now2; seen[e.id] = now2
       if (e.actor?.endsWith('+sync')) continue
       ids.add(e.id)
-      if (OPS.test(e.op) && e.actor && e.actor !== actor && e.actor !== 'mod' && !e.actor.startsWith('cadre/')) await flag(h, e.id, 'external')
+      if (moved && e.actor && e.actor !== actor && e.actor !== 'mod' && !e.actor.startsWith('cadre/')) await flag(h, e.id, 'external')   // 11.4.6: status/assignee by a foreign actor only
     }
+    await h.store.set(seenK, seen)
   }
   const live = async () => (await store.list({})).filter(x => x.id !== ctl && x.title !== CONTROL)
   const c: Ctx = { h, store, name: t.adapter, a, target, t, actor, first: Object.keys(cfg.sync)[0] === target }
   const r = await reconcile(c, live, s.since, t.direction ?? 'both', async () => heal ? live() : (await Promise.all([...ids].filter(i => i !== ctl).map(i => store.get(i).catch(() => null)))).filter((x): x is NonNullable<typeof x> => !!x))
   const k = `cadre.sync.${target}`   // crash between the push and this write only replays idempotent pushes (the cursor moves last)
-  await store.setMeta(ctl, { [k]: JSON.stringify({ cursor: head, since: r.next ?? new Date(now - 120_000).toISOString(), lastHeal: heal ? now : s.lastHeal, lease: { session: s.lease!.session, until: now + LEASE } }) }, `${actor}+sync`)
+  await store.setMeta(ctl, { [k]: JSON.stringify({ cursor: head, since: r.next ?? new Date(now - 120_000).toISOString(), lastHeal: r.deferred ? 0 : heal ? now : s.lastHeal,   // a deferred decision (its task not on the tracker yet) forces a heal next tick
+ lease: { session: s.lease!.session, until: now + LEASE } }) }, `${actor}+sync`)
   return true
 }
 

@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { AdapterError, call } from '../task-management/protocol'
 import { hash, merge } from '../task-management/sync-engine/merge'
-import { fakeHost } from './support'
+import { fakeHost, task } from './support'
+import { BdStore } from '../task-management/adapters/beads/store'
+import { EVENTS_TAIL } from './fixtures/bd/events-tail'
+import { apply } from '../core/machine'
 
 // kit side of the adapter protocol: spawn is a stub; real one-shot spawns against the fake adapter run in tests/protocol (node --test)
 const host = (reply: (req: any) => { exitCode?: number; stdout: string }, seen: any[] = []) =>
@@ -36,5 +39,28 @@ describe('3-way merge', () => {
     expect(merge({ title: 'x' }, { title: 'b' }, base).conflict).toEqual(['title'])
     const d = merge({ title: 'a', status: 'todo' }, { status: 'Closed' }, base); expect(d.drift).toBe(true); expect(d.next.l.status).toBeUndefined()
     expect(merge({ title: 'a' }, { title: 'a' }, base).pull).toEqual({})
+  })
+})
+
+describe('bd journal -> events (real bd 1.3.1 records)', () => {
+  test('status and assignee come from the issue snapshot; ops are create|update|close', async () => {
+    const s = new BdStore({ run: async () => ({ exitCode: 0, stdout: EVENTS_TAIL, stderr: '' }), cwd: '/r', actor: 'a' }); (s as any).journal = true
+    const ev = (await s.events('0'))!.events
+    expect(ev.map(e => [e.op, e.actor, e.status, e.assignee])).toEqual([['create', 'it-dainb', 'open', undefined], ['update', 'jira', 'open', undefined], ['update', 'jira', 'in_progress', undefined], ['update', 'jira', 'in_progress', 'bob'], ['update', 'jira', 'in_progress', 'bob'], ['update', 'jira', 'in_progress', 'bob'], ['close', 'jira', 'closed', 'bob']])
+  })
+})
+
+describe('sync flags gate transitions (11.4: external / drift)', () => {
+  const pipe = () => ['worker', 'green', 'reviewer', 'merge']
+  const world = async (flag: string, strictness?: string) => {
+    const h = fakeHost({ options: { strictness } }); await h.board.update(b => ({ ...b, epic: 'e', tasks: [task('a', { state: 'todo', flags: [flag] })] })); return h
+  }
+  test('strict refuses claim until resolved; advisory allows; release stays possible', async () => {
+    for (const f of ['external', 'drift']) {
+      const h = await world(f); const r = await apply(h, { kind: 'claim', id: 'a', at: 1, owner: 's' } as any, pipe)
+      expect(r.ok).toBe(false); expect((r as any).error).toContain(`flag ${f}`)
+    }
+    expect((await apply(await world('drift', 'advisory'), { kind: 'claim', id: 'a', at: 1, owner: 's' } as any, pipe)).ok).toBe(true)
+    expect((await apply(await world('edited'), { kind: 'claim', id: 'a', at: 1, owner: 's' } as any, pipe)).ok).toBe(true)
   })
 })

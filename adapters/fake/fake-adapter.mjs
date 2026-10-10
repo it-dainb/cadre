@@ -31,6 +31,7 @@ switch (req.method) {
       const rid = t.rid ?? Object.keys(st.tasks).find(r => st.tasks[r].localId === t.localId) ?? `r${Object.keys(st.tasks).length + 1}`
       const cur = st.tasks[rid] ?? { localId: t.localId, fields: {}, etag: '0', seq: 0 }, next = { ...cur.fields, ...t.fields }
       if (JSON.stringify(next) !== JSON.stringify(cur.fields) || !st.tasks[rid]) { cur.fields = next; cur.etag = String(Number(cur.etag) + 1); cur.seq = ++st.seq; cur.pushes = (cur.pushes ?? 0) + 1 }
+      if (t.kind) { cur.kind = t.kind; cur.on = t.on }
       if (t.note) (cur.comments ??= []).push(t.note)
       st.tasks[rid] = cur; results.push({ localId: t.localId, rid, etag: cur.etag, rUpdated: cur.seq })
     }

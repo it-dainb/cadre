@@ -56,6 +56,8 @@ export const pendingSkips = (s: Snapshot): { id: string; on: string }[] =>
 // Commit one transition (CAS; recomputed on conflict) then emit its events and sync board.seq. The only write path for task state.
 export async function apply(h: Host, m: MEvent, pipe: Pipe): Promise<Result> {
   let res!: Result
+  const t0 = (await h.board.read()).tasks.find(x => x.id === m.id), fl = t0?.flags.find(f => f === 'external' || f === 'drift')   // sync flags (11.4): strict refuses the next transition until /cadre resolve
+  if (fl && !['release', 'cancel', 'block'].includes(m.kind) && ((await h.env()).CADRE_STRICTNESS ?? h.options.strictness ?? 'strict') !== 'advisory') return { ok: false, error: `${m.id} has flag ${fl}; resolve it first (/cadre resolve)` }
   await commit(h, s => { res = transition(s, m, pipe); return res.ok ? res.board : s })
   if (!res.ok) return res
   let seq = 0

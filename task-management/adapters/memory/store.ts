@@ -10,7 +10,7 @@ export class MemoryStore implements TaskStore {
   private tasks: Map<TaskId, Task> | null = null
   private n = 0
   private journal = false
-  private log: { seq: string; op: string; id: TaskId; actor: string }[] = []
+  private log: { seq: string; op: string; id: TaskId; actor: string; status?: string; assignee?: string }[] = []
   readonly comments: Record<TaskId, string[]> = {}
   constructor(private now: () => number = () => Date.now()) {}
 
@@ -19,7 +19,7 @@ export class MemoryStore implements TaskStore {
   // every mutation: bump revision + updatedAt, journal it, hand back a copy
   private touch(t: Task, op: string, actor = 'mod'): Task {
     t.revision = String(Number(t.revision ?? 0) + 1); t.updatedAt = new Date(this.now()).toISOString(); t.nativeStatus = NATIVE[t.category]
-    this.log.push({ seq: String(this.log.length + 1), op, id: t.id, actor })
+    this.log.push({ seq: String(this.log.length + 1), op, id: t.id, actor, status: t.nativeStatus, assignee: t.assignee })
     return structuredClone(t)
   }
   private mk(o: Partial<Task> & { title: string; type: string; category: Category }): Task {

@@ -144,6 +144,6 @@ export class BdStore implements TaskStore {
     this.journal ??= (await this.probe()).journal
     if (!this.journal) return null
     const rows = await this.bd.lines(['events', 'tail', '--since', since, '--limit', String(limit)])
-    return { head: rows.length ? String(rows[rows.length - 1].seq) : since, events: rows.map(r => ({ seq: String(r.seq), op: r.op as string, id: r.issue_id as TaskId, actor: r.actor as string })) }
+    return { head: rows.length ? String(rows[rows.length - 1].seq) : since, events: rows.map(r => ({ seq: String(r.seq), op: r.op as string, id: r.issue_id as TaskId, actor: r.actor as string, status: (r.issue as any)?.status, assignee: (r.issue as any)?.assignee })) }
   }
 }
