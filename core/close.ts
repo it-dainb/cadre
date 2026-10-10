@@ -183,7 +183,11 @@ export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
   if (!b || !t || !(t.step === b.step && STEP_CAT[b.step] === t.state)) return   // no binding, or it reported/moved on
   if (e.reason === 'answer') {
     const task = await d.store.get(t.id), [st, n] = (task.meta['cadre.nudge'] ?? '').split(':'), k = st === b.step ? num(n) : 0
-    if (k < 2) { await d.store.setMeta(t.id, { 'cadre.nudge': `${b.step}:${k + 1}` }, d.actor); return queueResume(h, { agentId: e.agentId, taskId: t.id, text: NUDGE[b.role] }) }
+    if (k < 2) {
+      await d.store.setMeta(t.id, { 'cadre.nudge': `${b.step}:${k + 1}` }, d.actor); await queueResume(h, { agentId: e.agentId, taskId: t.id, text: NUDGE[b.role] })
+      await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: b.role as any, to: b.step as any, flags: x.flags, next: `end your turn: the ${b.role} stopped without reporting; the mod resumes it (nudge ${k + 1}/2) when your turn ends. Do not spawn it again` }) }))   // else main re-spawns on the stale card (live)
+      return
+    }
     if (b.role === 'reviewer') return unbind(h, e.agentId, 'stopped', t.id)   // a verdict is never invented; main spawns a fresh reviewer
     const text = String(e.answer ?? '').slice(0, 300)
     try {
