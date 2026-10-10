@@ -5,9 +5,9 @@ import type { TaskStore } from '../task-management/store'
 import { repoKeyOf } from '../commands/init'
 import { ROUTES, cfgOf, mirror, registryOf, storeOf } from './dispatch'
 import { isCold, modelView, stamp, viewHash } from './board'
-import { emit } from './events'
+import { emit, subscribe } from './events'
 import { nextAction } from './render'
-import { drainDelta, queueCard, renderCard } from './briefs'
+import { brief, drainDelta, queueCard, renderCard } from './briefs'
 import { leaseLive, resolveDeps, sessionOf, beat } from './admission'
 import { policyOf } from '../policy/guards'
 import { resolve } from '../config/index'
@@ -51,6 +51,17 @@ async function sendMine(h: Host, store: TaskStore | undefined, cfg: any) {
     if (!res.isDelivered) await retire(h, r.agentId, b, res.reason ?? 'not delivered')
   }
 }
+
+// roles.tdd.author:same (3.5): the agent that wrote the tests stays bound; after red✓ (red -> worker) it is resumed with the worker brief.
+subscribe(async (h, ev) => {
+  if (ev.type !== 'task.phase_changed' || ev.data.from !== 'red' || ev.data.to !== 'worker') return
+  const id = String(ev.data.taskId), bind = await h.bind.read(), a = Object.keys(bind).find(k => bind[k].taskId === id && bind[k].role === 'worker' && bind[k].step === 'tester')
+  if (!a) return
+  const t = await (await storeOf(h)).get(id)
+  await h.bind.update(x => (x[a] ? { ...x, [a]: { ...x[a], step: 'worker' } } : x))
+  await queueResume(h, { agentId: a, taskId: id, text: brief('worker', { id, title: t.title, type: t.type, description: t.description, scenarios: t.acceptance, contract: t.design,
+    locked: t.meta['cadre.locked'] ? JSON.parse(t.meta['cadre.locked']) : undefined, redCard: t.meta['cadre.red'] }) })
+})
 
 // ---- checkpoint (8.4): commit a dirty worktree as wip; dirty locked paths refuse it and raise locked-dirty ----
 export async function checkpoint(h: Host, store: TaskStore, actor: string, taskId: string, wt: string): Promise<string | null> {
@@ -173,7 +184,7 @@ async function gate(h: Host, s: Snapshot): Promise<string | null> {
 export async function drive(h: Host, cfg: any, usd: number | undefined) {
   const s = await h.board.read(), d = s.drive
   if (!d.on || !s.epic || !s.plan) return
-  if (s.plan.state === 'done-on-dev' || s.plan.state === 'released' || (s.tasks.length && s.tasks.every(t => t.state === 'done' || t.state === 'cancelled') && s.plan.landed)) {
+  if (s.plan.landed || s.plan.state === 'done-on-dev' || s.plan.state === 'released') {   // computed done: integration landed it on dev with its changelog (3.9, plan.landed)
     await h.board.update(x => ({ ...x, drive: { ...x.drive, on: false, paused: undefined } })); await driveEvent(h, 'finished')
     const store = await storeOf(h), { rec, rev } = await driveOf(store, s.epic); if (rec) await putDrive(store, s.epic, { ...rec, on: false, lease: { session: '', until: 0 } }, rev)
     const pct = ((await h.ui.read()).ctx as number | undefined) ?? 0

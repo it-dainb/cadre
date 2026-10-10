@@ -205,3 +205,27 @@ describe('result card paths (6.4, S39, S40)', () => {
   })
 })
 
+
+describe('tdd author:same (3.5)', () => {
+  test('red -> worker: the tester-step agent is re-stepped and resumed with the worker brief at the next drain', async () => {
+    const { h, a, sent } = await mk()
+    await h.bind.update(() => ({ ag1: B(a, 'S1', { step: 'tester' }), ag2: B(a, 'S1', { role: 'reviewer', step: 'reviewer' }) }))
+    await emit(h, 'task.phase_changed', { taskId: a, from: 'red', to: 'worker' }, { taskId: a })
+    expect((await h.bind.read()).ag1.step).toBe('worker'); expect(sent).toEqual([])
+    await turn(h, { reason: 'answer' })
+    expect(sent.map(x => x[0])).toEqual(['ag1']); expect(sent[0][1]).toContain(`# TASK-${a} login (feature)`)
+    await emit(h, 'task.phase_changed', { taskId: a, from: 'worker', to: 'reviewer' }, { taskId: a }); await turn(h, { reason: 'answer' }); expect(sent.length).toBe(1)
+  })
+})
+
+describe('drive done / plan flags (9)', () => {
+  test('integration-failed on the plan pauses; plan.landed finishes drive with the /clear hint past clearHintPct', async () => {
+    const { h, submitted } = await mk({ pct: 55 })
+    await ROUTES.drive(h, { schemaVersion: 1, cmd: 'drive', args: ['on'], origin: { kind: 'composer' } })
+    await h.board.update((s: any) => ({ ...s, plan: { ...s.plan, flags: ['integration-failed'] } }))
+    await turn(h, { reason: 'answer' }); expect((await h.board.read()).drive.paused).toBe('resolve integration-failed'); expect(submitted).toEqual([])
+    await h.board.update((s: any) => ({ ...s, plan: { ...s.plan, flags: [], state: 'done-on-dev', landed: { dev: 'dev', sha: 'abc', at: 1 } } }))
+    await turn(h, { reason: 'answer' })
+    expect((await h.board.read()).drive.on).toBe(false); expect(submitted).toEqual([]); expect(h.toasts.join()).toContain('/clear for a fresh main')
+  })
+})
