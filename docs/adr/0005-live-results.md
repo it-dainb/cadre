@@ -126,3 +126,5 @@ Findings that are not defects:
 - The `tui.sh` image needed no change beyond `tmux`; the harness `~/.claude.json` seed removes all first-run dialogs.
 
 PENDING-HUMAN now: **S54** (VS Code), **S61** (desktop), **S56** (Remote Control), S52's open-dialog case, S59 on the desktop surface. Items 1, 2 (S22, S37, S48, S49), 3 (S51–S53, S55, S59, S60) and 5 above are closed by these runs; 4 is attempted (unforced, 0/7).
+
+**S10 / S29 follow-up (tmux):** S10 `/reload-plugins` + `--continue` halves PASS (board and cost identical after reload; resume card and re-adopt after restart). S29 queued-Enter half PASS (stale code after an amendment → `refused: token mismatch`; an immediate `/cadre` typed mid-turn runs before the queue, so it is accepted). Link click stays PENDING-HUMAN. Records in `tests/smoke/S10.md`, `S29.md`.
