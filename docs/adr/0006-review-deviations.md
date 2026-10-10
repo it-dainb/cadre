@@ -19,3 +19,6 @@ Bindings are unreadable on re-entry (all `$` reject), so `judge` refuses any age
 
 ## 5. Need-to-know wording (round 2)
 Every model-visible text (agent prompts/files, briefs, plan rules, cards incl. the wait card, deny/refusal reasons, Task* answers, tool results, the drive prompt) uses task language and ends in a next action. No "mod", "hook", "harness", "fence", "sandbox", "L1-L3", "quarantine", "cadre:" prefix or view/worktree paths; internal flag `quarantine*` is shown as `stray-edit*` (`render.flagName`). "/cadre <sub>" stays only where main tells the human a command. Human surfaces (toast, band, log, status line, `/cadre` output) are unchanged. `tests/wording.test.ts` + `tests/fixtures/wording.ts` lint renders and deny sites.
+
+## Removed config keys `tdd.enforce`, `changelog.enforce`
+DESIGN §12 lists them as S keys, but nothing read them: the TDD and changelog gates are pipeline steps (type registry, §3.1) and `strictness: advisory` already turns their denies into warnings. Keeping a second off-switch would be a dead flag. Removed (review round 2); re-add only with a concrete use.
