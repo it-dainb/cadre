@@ -160,6 +160,12 @@ describe('keys', () => {
     expect(segs(band(approval(), 115, NOOP)).filter(s => s.hk).map(s => s.hk).sort()).toEqual(['1', 'd'])
     expect(segs(band(view(82), 115, NOOP)).filter(s => s.hk).map(s => s.hk)).toEqual(['1'])
   })
+  test('attention: degraded containment is a [CRIT] item; a gate approval reads "approve gate <id>"', async () => {
+    const v = view(62, { board: { containment: { state: 'degraded', unsandboxed: 0 } } })
+    expect(txt(band(v, 115, NOOP))[0]).toContain('[CRIT] ✗ Containment degraded · run /cadre init')
+    const g = view(62, { code8: 'zz99c0de', tweak: ts => ts.map(t => (t.id === 'a6' ? { ...t, type: 'gate' } : t)) }); g.sec.approval!.planId = 'a6'
+    expect(txt(band(g, 115, NOOP)).join('\n')).toMatch(/approve gate a6 .*\n.*\/cadre approve a6@zz99c0de/)
+  })
   test('presses route to handlers: 1 opens the sheet for an approval, the flagged node for a flag', async () => {
     const got: string[] = [], a = { go: (t: string) => { got.push(`go:${t}`) }, pick: (i: string) => { got.push(`pick:${i}`) }, fill: () => {}, step: () => {} }
     segs(band(approval(), 115, a)).find(s => s.hk === '1')!.p!(); segs(band(view(82), 115, a)).find(s => s.hk === '1')!.p!(); segs(band(approval(), 115, a)).find(s => s.hk === 'd')!.p!()

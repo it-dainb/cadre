@@ -101,6 +101,9 @@ export function attention(v: View): Item[] {
   const b = v.b, p = b.plan, out: Item[] = []
   if (p && b.approval.planId === p.id && !b.approval.missing.length && p.state === 'draft')
     out.push({ key: `approve:${p.id}`, tag: 'attn', text: `approve plan ${p.id} · ${b.tasks.length} tasks`, short: `approve ${p.id} (${b.tasks.length} tasks)`, cmd: v.sec.approval?.planId === p.id ? `/cadre approve ${p.id}@${v.sec.approval.code8}` : undefined, tab: 'plan' })
+  const g = b.tasks.find(t => t.type === 'gate' && t.id === v.sec.approval?.planId)   // a human gate rides the approval fields (planId = the gate id)
+  if (g && v.sec.approval) out.push({ key: `approve:${g.id}`, tag: 'attn', text: `approve gate ${g.id} · ${g.title}`, short: `approve gate ${g.id}`, cmd: `/cadre approve ${g.id}@${v.sec.approval.code8}`, tab: 'epic', sel: g.id })
+  if (b.containment.state === 'degraded') out.push({ key: 'mode:containment', tag: 'crit', text: 'Containment degraded · run /cadre init', tab: 'epic' })
   for (const t of b.tasks) {
     for (const f of t.flags) out.push({ key: `flag:${t.id}:${f}`, tag: f.startsWith('git:') ? 'crit' : 'warn', text: f.startsWith('git:') ? `${f} · ${f.split(':')[1]} moved outside a cadre merge · merges blocked` : `${t.id} flagged ${f}`, tab: 'epic', sel: t.id })
     if (t.state === 'blocked') out.push({ key: `q:${t.id}`, tag: 'attn', text: `${t.id} blocked: needs an answer`, tab: 'epic', sel: t.id })
