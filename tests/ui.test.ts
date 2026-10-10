@@ -270,9 +270,14 @@ describe('render hooks, handlers, fallbacks', () => {
     const t = await renderCard(a.h, { props: { tool_use_id: 'tu1', isRunning: false } }, next); expect(text(t)).toBe('⏺ [OK] worker → review  a1 "Add login"  green ✓ test 41s  next: spawn reviewer for a1')
   })
   test('resume banner: transcript log line, band cell until the first ack', async () => {
-    const a = mk(); await seed(a.h, view(62, { board: { resumesQueued: 1 } })); await resumeBanner(a.h, { decisions: 5, next: 'complete a5', stale: 1 })
+    const a = mk(); await seed(a.h, view(62, { board: { resumesQueued: 1, drive: { on: false, level: 'epic', epicId: null, turns: 0, costUsd: 0, startedAt: null } } })); await resumeBanner(a.h, { decisions: 5, next: 'complete a5', stale: 1 })
     expect((a.h as any).logs[0]).toBe('● cadre: [OK] resumed · mission "Auth v2" · epic p3 · 1 running (re-adopted) · [IDLE] 1 stale → rebind · ↻ 1')
     expect(txt(band(await read(a.h), 115, NOOP))[0]).toBe('[OK] ↺ cadre resumed from beads · 5 decisions · next: complete a5 · [WAIT] drive off until /cadre drive on')
     await a.h.ui.update(u => ({ ...u, ack: Date.now() + 1e12 })); expect(txt(band(await read(a.h), 115, NOOP))[0]).toMatch(/^\[RUN\] cadre/)
+  })
+  test('resume banner shows the rehydrated drive state: continuing when drive survived the reset', async () => {
+    const a = mk(); await seed(a.h, view(62, { board: { drive: { on: true, level: 'epic', epicId: 'p3', turns: 4, costUsd: 1, startedAt: 0 } } })); await resumeBanner(a.h, { decisions: 5, next: 'complete a5' })
+    expect(txt(band(await read(a.h), 115, NOOP))[0]).toBe('[OK] ↺ cadre resumed from beads · 5 decisions · next: complete a5 · [RUN] drive ▶ continuing')
+    expect(((await a.h.ui.read()).res as any).n).toContain('[RUN] drive ▶ continuing')
   })
 })

@@ -72,7 +72,8 @@ export async function renderCard(h: Host, e: any, next: (e: any) => any) {
 export async function resumeBanner(h: Host, o: { decisions?: number; next?: string; stale?: number } = {}): Promise<void> {
   const v = await read(h), ts = v.b.tasks, c = v.c, n = ts.filter(t => kindOf(t, ts) === 'run').length, q = v.b.resumesQueued
   h.log(`${c.glyphs === 'ascii' ? '*' : '●'} cadre: ${tg('ok')} resumed · mission "${v.b.mission}" · epic ${v.b.plan?.id} · ${n} running (re-adopted)${o.stale ? ` · ${tg('idle')} ${o.stale} stale → rebind` : ''}${q ? ` · ${REDO(c)} ${q}` : ''}`)
-  const w = `↺ cadre resumed from beads · ${o.decisions ?? 0} decisions${o.next ? ` · next: ${o.next}` : ''} · ${tg('wait')} drive off until /cadre drive on`
-  await h.ui.update(u => ({ ...u, res: { w, n: `↺ resumed ${v.b.plan?.id} · ${gl(c, 'run')}${n} · ${tg('wait')} drive off`, at: v.now } }))
+  const on = v.b.drive.on, dw = on ? `${tg('run')} drive ${gl(c, 'run')} continuing` : `${tg('wait')} drive off`   // the rehydrated board's drive (it survives /clear, DESIGN 9)
+  const w = `↺ cadre resumed from beads · ${o.decisions ?? 0} decisions${o.next ? ` · next: ${o.next}` : ''} · ${dw}${on ? '' : ' until /cadre drive on'}`
+  await h.ui.update(u => ({ ...u, res: { w, n: `↺ resumed ${v.b.plan?.id} · ${gl(c, 'run')}${n} · ${dw}`, at: v.now } }))
 }
 export async function tickUi(h: Host): Promise<void> { if (lastW) await blit(h, await read(h), lastW).catch(() => {}) }   // live cursor advance (30 s clock)
