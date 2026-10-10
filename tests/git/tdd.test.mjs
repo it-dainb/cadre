@@ -14,6 +14,7 @@ const T = await import('../../core/tdd.ts')
 const { fakeHost, task: snap } = await import('../support.ts')
 const { defaults } = await import('../../config/defaults.ts')
 const { repoKeyOf } = await import('../../commands/init.ts')
+const { policyOf } = await import('../../policy/guards.ts')
 
 const run = (argv, init = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: init.cwd, env: init.env ? { ...process.env, ...init.env } : undefined }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })).stdin?.end(init.stdin))
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()
@@ -87,7 +88,7 @@ test('copy-in by path only, red passes on <failure>, specCommit + lock + advance
   assert.ok(res.ok, res.why); assert.match(res.card, /red ✓ 1 failing/)
   assert.equal(existsSync(join(wt, 'test/s.json')), true); assert.equal(existsSync(join(wt, 'notes.txt')), false); assert.equal(existsSync(join(wt, 'SCENARIOS.md')), false)
   assert.equal(sh(wt, 'log', '-1', '--format=%s'), 'wip(m-1): spec tests'); assert.equal(w.meta['cadre.specCommit'], sh(wt, 'rev-parse', 'HEAD'))
-  assert.deepEqual(JSON.parse(w.meta['cadre.locked']), ['test/s.json']); assert.deepEqual((await w.h.store.get('policy')).locks['m-1'], [`${wt}/test/s.json`])
+  assert.deepEqual(JSON.parse(w.meta['cadre.locked']), ['test/s.json']); assert.deepEqual((await policyOf(w.h)).locks['m-1'], [`${wt}/test/s.json`])
   assert.equal((await w.h.board.read()).tasks[0].step, 'worker')   // tester -> red -> worker
   // close: M/D/R of a locked file since specCommit is refused, an add is not
   const spec = w.meta['cadre.specCommit']; writeFileSync(join(wt, 'src/extra.ts'), 'x'); writeFileSync(join(wt, 'test/s.json'), tc('login ok', 'passed')); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'w')
