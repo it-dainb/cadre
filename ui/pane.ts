@@ -22,7 +22,11 @@ export function pane(v: View, w: number, rows: number, a: Acts, canRaster = true
   const sum = `${p ? `${p.id} · ` : ''}${wide && p ? `${p.epicBranch} · ` : ''}${ts.filter(t => t.state === 'done').length}/${ts.length} done · ${gl(c, 'run')}${n('run')} ${gl(c, 'wait')}${n('wait')} ${gl(c, 'idle')}${n('idle')}`
   const head: Line[] = wide ? [[...tabs, S(`  ·  ${sum} · `), ...mode]] : [[...tabs, S('    '), ...mode], L(`${sum}${v.t === null ? '' : '  (actions off)'}`)]
   const rule = L(T(c, '─'.repeat(w)))
-  if (tab === 'doctor') return { before: [...head.slice(0, 1), rule, ...((v.ui['doctor.rows'] as [string, string, string?][] | undefined) ?? []).flatMap(([k, t, f]) => [[S(tg(k as any), col(k as any), { b: k === 'crit' }), S(` ${t}`)], ...(f ? [L(`      fix: ${f}`)] : [])])], after: [] }
+  if (tab === 'doctor') {
+    const sp = v.ui['setup.plan'] as { acts?: string[][]; done?: string[][]; human?: string[]; out?: string[] } | undefined, mark: Record<string, string> = { run: '… ', ok: '✓ ', fail: '✗ ' }
+    const plan: Line[] = !sp ? [] : [rule, L('Setup plan'), ...[...(sp.done ?? []), ...(sp.acts ?? [])].map(([t, st], i) => L(`  ${i + 1}. ${mark[st] ?? ''}${t}`)), ...(sp.out ?? []).map(x => L(`      ${x}`)), ...(sp.human?.length ? [L('you run once:'), ...sp.human.map(x => L(`  ${x}`))] : [])]
+    return { before: [...head.slice(0, 1), rule, ...((v.ui['doctor.rows'] as [string, string, string?][] | undefined) ?? []).flatMap(([k, t, f]) => [[S(tg(k as any), col(k as any), { b: k === 'crit' }), S(` ${t}`)], ...(f ? [L(`      fix: ${f}`)] : [])]), ...plan], after: [] }
+  }
   if (tab === 'plan') return { before: [...head.slice(0, 1), rule, ...sheet(v, w, a)], after: [] }
   const s = sel(v), fl = c.flash && v.t === null ? ts.filter(t => t.phaseSince > 0 && v.now - t.phaseSince < 1500).map(t => t.id) : [], flash = fl.length > 3 ? [] : fl
   const nLog = rows < 22 ? 2 : 6, showTl = canRaster && v.ui.tl !== false && rows >= 34
