@@ -16,3 +16,10 @@ The command `{text}` is model-visible, so it is one line (`setup: 1 fail, 2 warn
 
 ## Known gap
 The plugin's own version is not shown: a mod has no API for it, so the row is left out rather than guessed.
+
+## Dormant until `/cadre init` (added after the first marketplace install)
+A user-scoped install used to enforce in every repo: guards took Bash and Edit from main in unrelated projects. cadre is now per-repo opt-in: a repo is active only when `<repo>/.cadre/config.json` exists (init stage 1 writes it). `core/session.wake(h)` is the one check: active is cached in the session secret, dormant re-reads the file (one read), so `/cadre init` takes effect on the next hook without a restart. When the repo turns on, `wake` runs the session policy, the draw of the session token and the containment check once.
+Dormant: every gating slot passes straight through (turn.complete, agent.spawn, tool.check, tool.call guard and wrap, tool.describe, session.send, prompt.submit, prompt.attachment, turn.step, session.compact, config.set, band and result-card renders), the 5 s and 30 s timers do nothing, and no band or toast is drawn. Still working: `/cadre setup|doctor|init|open` and the setup nudge (a machine-level toast). Any other `/cadre` sub, `status` included, answers `cadre is off in this repo · run /cadre init`. Once active, the fail-closed handlers apply as before. The pane render stays on so `doctor` and `setup` can show their report.
+
+## Short toasts
+A toast is one line of about 60 characters at most, detail in `/cadre doctor` or the pane: `cadre: containment degraded · /cadre doctor`, `cadre: N commands unsandboxed · /cadre doctor`; the drive/context/fresh-agent/spec-change/conflict toasts were shortened the same way.

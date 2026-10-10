@@ -7,7 +7,7 @@ import { UI, emptySnapshot } from '../core/board'
 import { emptyRing, subscribe } from '../core/events'
 import { drain, step, compact, submit } from '../core/reuse'
 import { goal } from '../core/drive'
-import { start, warm } from '../core/session'
+import { wake, warm } from '../core/session'
 import '../config/route'   // registers ROUTES.config
 import { observe } from '../core/close'
 import '../core/integrate'   // registers ROUTES.release
@@ -121,41 +121,39 @@ export const register: Register = (on, opts) => {
     const root = await $.session.cwd(); await update($, secret, x => ({ ...x, root })); await $.store.set('cadre:roots', { ...(((await $.store.get('cadre:roots')) ?? {}) as object), [repoKeyOf(root)]: root })   // the repo root for every hook: in a subagent hook $.session.cwd() is the agent's own view/worktree
     await $.env.set('CLAUDE_CODE_ENABLE_TODO_TOOLS', '1')
     await $.env.set('ENABLE_TOOL_SEARCH', 'false')   // S13: isDeferred:false alone does not stop deferral
-    await start(host($)).catch(e => $.ui.log(`cadre: session start: ${e}`))   // $.store 'policy' + cadre.ui.cfg (agents ship as agents/*.md files, A28)
+    await wake(host($)).catch(e => $.ui.log(`cadre: session start: ${e}`))   // active repos only: $.store 'policy' + cadre.ui.cfg + containment band (agents ship as agents/*.md files, A28)
     for (const t of SPECS) await $.tool.register(t)   // report, inspect, run_check: isDeferred:false (5.2)
-    await newToken(host($))   // session token for adapter commands: toast only (DESIGN 2.5)
     await nudge(host($)).catch(() => {})   // no setup stamp for this Claude Code build: one toast
-    await contain(host($)).catch(() => {})   // L2 check -> board.containment (13.1)
-    $.clock.every(5000, () => { const h = host($); void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
-    $.clock.every(30_000, () => { void tickUi(host($)) })   // live timeline cursor (blit, no re-render)
+    $.clock.every(5000, () => { const h = host($); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
+    $.clock.every(30_000, () => { const h = host($); void wake(h).then(act => act && tickUi(h)).catch(() => {}) })   // live timeline cursor (blit, no re-render)
     return next(e)
   })
 
   // 1. resume-drain: the only sender, after await next(e), never from a timer. 2. observe.
-  on('turn.complete', { reason: /./ }, ($, e, next) => drain(host($), e, next))
-  on('turn.complete', { reason: /^/ }, ($, e, next) => observe(host($), e, next))
+  on('turn.complete', { reason: /./ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return drain(host($), e, next) })
+  on('turn.complete', { reason: /^/ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return observe(host($), e, next) })
   // 3. admission
-  on('agent.spawn', ($, e, next) => admit(host($), e, next)).catch(denySpawn)
+  on('agent.spawn', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return admit(host($), e, next) }).catch(denySpawn)
   // 4. tool.check allow
-  on('tool.check', async ($, e, next) => { await warm(host($)); return check(host($), e, next) }).catch(denyCheck)
+  on('tool.check', async ($, e, next) => { if (!(await wake(host($)))) return next(e); await warm(host($)); return check(host($), e, next) }).catch(denyCheck)
   // 5. guards (L1, fence, Task* answers, MCP pre-checks): guards judge first, then main's Task* answers
-  on('tool.call', { tool: /./ }, async ($, e, next) => { await warm(host($)); return guard(host($), e, e2 => answer(host($), e2, next)) }).catch(denyCall)
+  on('tool.call', { tool: /./ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); await warm(host($)); return guard(host($), e, e2 => answer(host($), e2, next)) }).catch(denyCall)
   // 6. wrap (L3 per-call fingerprint, delta drain, result card, tester log); then our own MCP tools answer innermost
-  on('tool.call', { tool: /^/ }, ($, e, next) => wrap(host($), e, next)).catch(denyCall)
+  on('tool.call', { tool: /^/ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return wrap(host($), e, next) }).catch(denyCall)
   on('tool.call', { tool: /^mcp__cadre__/ }, ($, e, next) => handle(host($), e, next)).catch(denyCall)
-  on('tool.describe', ($, e, next) => describe(host($), e, next))
+  on('tool.describe', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return describe(host($), e, next) })
   // 7. session.send
-  on('session.send', ($, e, next) => send(host($), e, next)).catch(denySend)
+  on('session.send', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return send(host($), e, next) }).catch(denySend)
   // 8. prompt.submit, prompt.attachment, turn.step, session.compact, command.run, config.set
-  on('prompt.submit', async ($, e, next) => { const h = host($); if (!e.agentId && e.origin?.kind === 'composer') await ack(h).catch(() => {}); return submit(h, e, e2 => context(h, e2, next)) }).catch(passOn)
-  on('prompt.attachment', ($, e, next) => attachment(host($), e, next))
-  on('turn.step', async function* ($, e, next) { return yield* step(host($), e, next) })
-  on('session.compact', ($, e, next) => compact(host($), e, next)).catch(passOn)
+  on('prompt.submit', async ($, e, next) => { if (!(await wake(host($)))) return next(e); const h = host($); if (!e.agentId && e.origin?.kind === 'composer') await ack(h).catch(() => {}); return submit(h, e, e2 => context(h, e2, next)) }).catch(passOn)
+  on('prompt.attachment', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return attachment(host($), e, next) })
+  on('turn.step', async function* ($, e, next) { const h = host($); if (!(await wake(h))) return yield* next(e); return yield* step(h, e, next) })
+  on('session.compact', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return compact(host($), e, next) }).catch(passOn)
   on('command.run', { command: 'cadre' }, async ($, e, next) => { const h = host($); await ack(h).catch(() => {}); return run(h, e, next) }).catch(denyCmd)
   on('command.run', { command: 'goal' }, ($, e, next) => goal(host($), e, next)).catch(passOn)   // observer only: pass-through, never rewritten (9)
-  on('config.set', ($, e, next) => configSet(host($), e, next)).catch(denySpawn)
+  on('config.set', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return configSet(host($), e, next) }).catch(denySpawn)
   // ui (UI-DESIGN): every ui.render hook names its component (U7); render is pure, state is written from handlers only
-  on('ui.render', { component: 'AbovePrompt' }, ($, e, next) => renderBand(host($), e, next))
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return renderBand(host($), e, next) })
   on('ui.render', { component: 'Pane', requestId: 'cadre' }, ($, e) => renderPane(host($), e))
-  on('ui.render', { component: 'ToolUse', props: { tool: 'Agent' } }, ($, e, next) => renderCard(host($), e, next))
+  on('ui.render', { component: 'ToolUse', props: { tool: 'Agent' } }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return renderCard(host($), e, next) })
 }

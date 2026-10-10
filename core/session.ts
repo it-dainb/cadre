@@ -11,6 +11,7 @@ import { queueCard, renderCard } from './briefs'
 import { LEASE, casDrive } from './drive'
 import { realRoot, setPolicy } from '../policy/guards'
 import { epicBranch, slug, wtRootOf } from './branches'
+import { contain } from '../policy/containment'
 
 export const qk = async (h: Host) => `cadre:${repoKeyOf(await h.cwd())}:resumes`
 export interface Entry { sessionId: string; agentId: string; taskId: string; text: string }
@@ -63,7 +64,7 @@ export async function rehydrate(h: Host): Promise<boolean> {
   await stamp(h, Math.max(1, (await h.events.read()).seq))
   const s = await h.board.read(), c = await cardOf(h, s, store)
   await queueCard(h, c.text)
-  if ((await h.board.read()).drive.on) h.toast('cadre: drive continues after the reset · a /goal restored by --resume is invisible to cadre: /goal clear it, or drive and /goal both own the loop (A27)')
+  if ((await h.board.read()).drive.on) h.toast('cadre: drive continues · /goal clear if one was restored')
   await UI.banner?.(h, { decisions: c.decisions, next: nextAction(modelView(s)), stale: gone })
   return true
 }
@@ -90,4 +91,13 @@ export async function prune(h: Host): Promise<void> {
   if (p?.bind) { const b: Record<string, Binding> = {}; for (const [a, v] of Object.entries(p.bind as Record<string, Binding>)) if (!a.startsWith('~') && (await ok(v.taskId))) b[a] = v; await h.store.set(await pk(h), { ...p, bind: b }) }
   const quk = await scoped(h, 'quarantine'), qu = ((await h.store.get(quk)) as { ts: number }[] | undefined) ?? []
   if (qu.some(x => now - x.ts > 30 * 86_400_000)) await h.store.set(quk, qu.filter(x => now - x.ts <= 30 * 86_400_000))
+}
+
+// Per-repo opt-in: cadre acts only where `<repo>/.cadre/config.json` exists (init stage 1 writes it). Active is cached in the session secret; dormant re-checks (one read), so `/cadre init` takes effect without a restart.
+export async function wake(h: Host): Promise<boolean> {
+  if ((await h.secret.read()).active) return true
+  if (!(await h.readText(`${await h.cwd()}/.cadre/config.json`))) return false
+  await h.secret.update(s => ({ ...s, active: true }))
+  await start(h).catch(() => {}); await contain(h).catch(() => {})   // policy + containment band, once, when the repo turns on
+  return true
 }

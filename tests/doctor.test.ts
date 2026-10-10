@@ -3,6 +3,7 @@ import { doctor, machine, nudge, setup } from '../commands/doctor'
 import { defaults } from '../config/index'
 import { banned } from './fixtures/wording'
 import { fakeHost } from './support'
+import { contain } from '../policy/containment'
 import type { Host } from '../types'
 
 type R = { exitCode: number; stdout: string; stderr: string }
@@ -93,5 +94,12 @@ describe('doctor', () => {
     const h = mk({ repo: true }); await doctor(h); const log = h.logs.join('\n')
     for (const f of ['fix: /cadre init\n', 'fix: /cadre init containment', 'fix: /cadre init store', 'fix: /cadre init repo']) expect(log).toContain(f)
     expect(log).toContain('[OK] no open flags'); expect(h.writes).toEqual([])
+  })
+})
+
+describe('toasts', () => {
+  test('degraded containment is one short line that points to doctor', async () => {
+    const h = mk(); await contain(h)
+    expect(h.toasts).toEqual(['cadre: containment degraded · /cadre doctor']); expect(h.toasts[0].length).toBeLessThanOrEqual(60)
   })
 })

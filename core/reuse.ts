@@ -30,7 +30,7 @@ const ctxPct = (b: Binding) => Math.round((b.ctxTokens / 200_000) * 100)
 const stale = (b: Binding, now: number, cfg: any) => ctxPct(b) > cfg.reuse.maxContextPct || (now - (b.lastAt ?? b.startedAt) > cfg.reuse.cacheTtlMs && ctxPct(b) > 30)
 async function retire(h: Host, a: string, b: Binding, why: string) {   // the agent stays bound but retired: admission rebinds it fresh with a computed handoff
   await h.bind.update(t => (t[a] ? { ...t, [a]: { ...t[a], retired: true } } : t))
-  h.toast(`cadre: ${b.taskId}: fresh agent needed (${why}); spawn TASK-${b.taskId}`)
+  h.toast(`cadre: ${b.taskId} needs a fresh agent · spawn TASK-${b.taskId}`)
 }
 async function sendMine(h: Host, store: TaskStore | undefined, cfg: any) {
   const me = await sessionOf(h), k = await qk(h), q = ((await h.store.get(k)) as Entry[] | undefined) ?? [], mine = q.filter(x => x.sessionId === me)
@@ -143,8 +143,8 @@ export const drain: Hook = async (h, e, next) => {
     if (pct !== undefined) await h.ui.update(x => ({ ...x, ctx: pct }))
     await savePointer(h)
     const s = await h.board.read(), ui = await h.ui.read()
-    if (s.plan?.landed && ui.clr !== s.plan.id) { await h.ui.update(x => ({ ...x, clr: s.plan!.id })); if ((pct ?? 0) > cfg.cost.clearHintPct) h.toast(`cadre: epic ${s.plan.id} landed · context ${pct}%: /clear for a fresh main (all state is in beads)`) }   // 7: never automatic
-    if (pct !== undefined && pct > cfg.cost.compactPct && s.plan?.state === 'approved' && !(await h.ui.read()).cmp) { await h.ui.update(x => ({ ...x, cmp: true })); h.toast(`cadre: context ${pct}%: /compact now (cadre answers it with the resume card)`) }   // S49: compact() is headless-unavailable: hint, not automatic
+    if (s.plan?.landed && ui.clr !== s.plan.id) { await h.ui.update(x => ({ ...x, clr: s.plan!.id })); if ((pct ?? 0) > cfg.cost.clearHintPct) h.toast(`cadre: epic ${s.plan.id} landed · /clear for a fresh main`) }   // 7: never automatic
+    if (pct !== undefined && pct > cfg.cost.compactPct && s.plan?.state === 'approved' && !(await h.ui.read()).cmp) { await h.ui.update(x => ({ ...x, cmp: true })); h.toast(`cadre: context ${pct}% · /compact now`) }   // S49: compact() is headless-unavailable: hint, not automatic
     await drive(h, cfg, u?.cost?.usd)
   })
   return r

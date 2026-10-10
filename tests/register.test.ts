@@ -22,9 +22,22 @@ test('every slot is a pass-through until its owner fills it: tool.call, tool.che
   on('tool.call', ($, e) => { seen.push(`call:${e.tool}`); return { result: 'ok' } })
   on('tool.check', () => ({ decision: 'allow' }))
   on('prompt.submit', ($, e) => { seen.push('prompt'); return { text: e.text } })
-  on('command.run', () => ({ text: 'engine' }))
+  on('command.run', () => ({ text: 'engine' })); on('fs.read', () => ({ value: '{}' }))   // an initialised repo: .cadre/config.json exists
   expect(await $.tool.call({ tool: 'Read', file_path: '/w/a.ts' })).toEqual({ result: 'ok' })
   expect((await $.prompt.submit({ text: 'hello' })).text).toBe('hello')
   expect((await $.command.run({ command: 'cadre', args: 'status' })).text).toBe('no plan\ncost: 0 tokens · containment unknown')   // commands/cadre.run is filled (w2-plan): it answers itself
   expect(seen).toEqual(['call:Read', 'prompt'])
+})
+
+test('dormant until init: main keeps Bash and Edit, status says so; once .cadre/config.json exists the same calls are denied, with no restart', async ($, on) => {
+  let inited = false
+  on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined })); on('env.get', () => ({ value: undefined })); on('session.cwd', () => ({ value: '/work' }))
+  on('fs.read', () => { if (!inited) throw new Error('ENOENT'); return { value: '{}' } }); on('fs.stat', () => ({ value: undefined }))
+  on('tool.call', () => ({ result: 'ran' })); on('tool.check', () => ({ decision: 'allow' })); on('command.run', () => ({ text: 'engine' }))
+  expect(await $.tool.call({ tool: 'Bash', command: 'ls' })).toEqual({ result: 'ran' })
+  expect(await $.tool.call({ tool: 'Edit', file_path: '/work/a.ts' })).toEqual({ result: 'ran' })
+  expect((await $.command.run({ command: 'cadre', args: 'status' })).text).toBe('cadre is off in this repo · run /cadre init')
+  inited = true
+  expect(await $.tool.call({ tool: 'Bash', command: 'ls' })).not.toEqual({ result: 'ran' })
+  expect(await $.tool.call({ tool: 'Edit', file_path: '/work/a.ts' })).not.toEqual({ result: 'ran' })
 })

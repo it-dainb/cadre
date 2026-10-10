@@ -76,7 +76,7 @@ export async function audit(h: Host, caller: string | null): Promise<void> {
     const tid = o ? binds[o].taskId : ''
     const locked = pol.locks?.[tid] ?? []
     if (!o) {   // the main checkout is the human's tree: never stashed (13.7). A human edit only warns; an agent-attributed one blocks merges until `resolve git keep`
-      if (agentLoop) await raise(h, 'git:main-dirty:agent', '', {}, 'main checkout changed while an agent was running')
+      if (agentLoop) await raise(h, 'git:main-dirty:agent', '', {}, 'main checkout changed while an agent ran')
       else h.toast('cadre: main checkout changed outside cadre')
       continue
     }

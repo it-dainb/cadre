@@ -25,7 +25,7 @@ export async function openPane(h: Host, tab: string): Promise<void> {
   const v = await read(h)
   await h.ui.update(u => ({ ...u, tab, ...(tab === 'plan' ? { seen: { code: v.sec.approval?.code8 ?? '', sig: sheetSig(v) } } : {}) }))
   const r = await h.ops!.open({ id: 'cadre', title: 'cadre', focus: true, columns: 120 })
-  if (!r.isPlaced) { h.toast(`cadre: pane not shown${r.reason ? ` (${r.reason})` : ''}; /cadre status`); if (tab === 'plan') h.log(txt(sheet(v, 100, NOOP)).join('\n')) }
+  if (!r.isPlaced) { h.toast(`cadre: pane not shown${r.reason ? ` · ${r.reason.slice(0, 30)}` : ''} · /cadre status`); if (tab === 'plan') h.log(txt(sheet(v, 100, NOOP)).join('\n')) }
   await ack(h)
 }
 const NOOP: Acts = { go() {}, pick() {}, fill() {}, step() {} }

@@ -5,7 +5,7 @@ const BAND = { hasSurvey: false, isWorking: false, maxRows: 8, bodyColumns: 115,
 const PANE = { title: 'cadre', isFocused: true, bodyColumns: 118, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} }
 const store: Record<string, any> = {}
 let ver = 1
-const seed = (v) => Object.assign(store, { board: v.b, events: { seq: v.ring.length, epics: { p3: v.ring } }, secret: v.sec, ui: v.ui })
+const seed = (v) => Object.assign(store, { board: v.b, events: { seq: v.ring.length, epics: { p3: v.ring } }, secret: { ...v.sec, active: true }, ui: v.ui })
 // $.state is answered by the kit; a state.get/state.set stub beneath the mod lets the test own the atoms
 const stubs = (on) => {
   on('state.get', (_$, e) => ({ value: { value: store[e.key], version: ver } }))

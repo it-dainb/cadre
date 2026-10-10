@@ -3,7 +3,7 @@ import type { Hook, Host } from '../types'
 import type { Command, Out } from '../core/dispatch'
 import { ROUTES, cfgOf, dispatch, gateDraw, gateOf, redraw, registryOf, resolveEpic, restore, storeOf } from '../core/dispatch'
 import { modelView } from '../core/board'
-import { warm } from '../core/session'
+import { wake, warm } from '../core/session'
 import { contextLine, subject } from '../core/render'
 import { openPane } from '../ui/index'
 import { run as initRun } from './init'
@@ -21,6 +21,7 @@ async function status(h: Host): Promise<Out> {
 
 async function route(h: Host, c: Command): Promise<Out> {
   const [a] = c.args
+  if (!['setup', 'doctor', 'init', 'open'].includes(c.cmd) && !(await wake(h))) return { text: 'cadre is off in this repo · run /cadre init' }   // per-repo opt-in (ADR 0007)
   switch (c.cmd) {
     case 'status': return status(h)
     case 'open': await openPane(h, a ?? 'epic'); return { text: `Opened the cadre pane (${a ?? 'epic'}).` }

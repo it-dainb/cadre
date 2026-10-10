@@ -17,7 +17,7 @@ const tail = (r: { stdout: string; stderr: string }) => `${r.stdout}\n${r.stderr
 // a branch checked out in the repo root follows its ref by a two-tree merge: unrelated human edits stay, conflicting ones refuse (never reset --hard: it eats them)
 const checkedOut = async (h: Host, root: string, br: string) => (await h.run(['git', '-C', root, 'symbolic-ref', '-q', 'HEAD'])).stdout.trim() === `refs/heads/${br}`
 const refresh = async (h: Host, root: string, br: string, was: boolean, old: string) => {
-  if (was) await op(h, async () => git(h.run, root, ['read-tree', '-m', '-u', old, await tip(h.run, root, br)])).catch(() => h.toast(`${br} moved, but your checkout has conflicting edits: commit or stash them, then run git checkout -f ${br}`))
+  if (was) await op(h, async () => git(h.run, root, ['read-tree', '-m', '-u', old, await tip(h.run, root, br)])).catch(() => h.toast(`cadre: ${br} moved; your edits conflict · git checkout -f ${br}`))
 }
 const commitPaths = async (h: Host, wt: string, paths: string[], msg: string, amend = false) => {
   await git(h.run, wt, ['add', '--', ...paths]); await git(h.run, wt, [...IDENT, 'commit', '--no-verify', ...(amend ? ['--amend', '--no-edit'] : ['-m', msg])]); return tip(h.run, wt, 'HEAD')

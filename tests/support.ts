@@ -9,7 +9,7 @@ export function fakeHost(o: { t0?: number; files?: Record<string, string>; env?:
   const kv = new Map<string, unknown>(), logs: string[] = [], toasts: string[] = []
   return {
     now: async () => (t += 10), rand: (n = 16) => 'ab'.repeat(n).slice(0, n * 2),
-    board: cell(emptySnapshot('repo')), events: cell(emptyRing()), secret: cell({}), ui: cell({}), git: cell({ busy: false, epoch: 0 }), bind: cell({}),
+    board: cell(emptySnapshot('repo')), events: cell(emptyRing()), secret: cell({ active: true }), ui: cell({}), git: cell({ busy: false, epoch: 0 }), bind: cell({}),
     store: { get: async k => kv.get(k), set: async (k, v) => { kv.set(k, v) }, del: async k => { kv.delete(k) } },
     env: async () => o.env ?? {}, readText: async p => o.files?.[p] ?? null,
     log: s => { logs.push(s) }, toast: s => { toasts.push(s) }, options: o.options ?? {}, logs, toasts,

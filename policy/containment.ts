@@ -18,6 +18,6 @@ export async function contain(h: Host): Promise<void> {
   const pol = await policyOf(h)
   const r = await h.settings().then(s => assess(s, pol.repo, pol.wtRoot), () => ({ state: 'unknown' as const, unsandboxed: 0, why: ['settings unreadable'] }))
   await h.board.update(b => ({ ...b, containment: { state: r.state, unsandboxed: r.unsandboxed } }))
-  if (r.state !== 'contained') h.toast(`cadre: containment ${r.state} (${r.why.join('; ')}); every call is audited`)
-  if (r.unsandboxed) h.toast(`cadre: ${r.unsandboxed} commands unsandboxed`)
+  if (r.state !== 'contained') h.toast(`cadre: containment ${r.state} · /cadre doctor`)
+  if (r.unsandboxed) h.toast(`cadre: ${r.unsandboxed} commands unsandboxed · /cadre doctor`)
 }
