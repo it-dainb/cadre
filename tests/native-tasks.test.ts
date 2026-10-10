@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { DESC, describe as describeHook, planRules } from '../native/tasks'
+import { DESC, LIFECYCLE, describe as describeHook, planRules } from '../native/tasks'
 import { defaults } from '../task-management/registry'
 import { FULL, plan, world } from './fixtures/native/world'
 import { RULES } from './fixtures/briefs-plan/rules'
@@ -86,6 +86,14 @@ describe('TaskUpdate: deps, refused fields, frozen fields', () => {
     expect(a.result).toEqual({ success: true, taskId: task, updatedFields: ['subject', 'metadata.amend'] })
     const t = await w.store.get(task); expect([t.category, t.title]).toEqual(['draft', 'new'])
     expect((await w.h.board.read()).tasks.find(x => x.id === task)!.state).toBe('draft')
+  })
+  test('completed: the close card rides the answer so main sees the squash landed', async () => {
+    const w = await world(); const { plan: p, task } = await plan(w)
+    await w.text({ cmd: 'approve', args: [`${p}@${(await w.h.secret.read()).approval!.code8}`] })
+    LIFECYCLE.completed = async () => null; await w.h.board.update(b => ({ ...b, tasks: b.tasks.map(t => ({ ...t, card: 'TASK x · review → done · commit abc1234' })) }))
+    const r = await w.call('TaskUpdate', { taskId: task, status: 'completed' })
+    expect(r.result.success).toBe(true); expect(JSON.stringify(r)).toContain('commit abc1234')
+    delete LIFECYCLE.completed
   })
   test('amend is illegal from an active task (machine decides)', async () => {
     const w = await world(); const { plan: p, task } = await plan(w)

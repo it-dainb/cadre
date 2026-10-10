@@ -89,7 +89,8 @@ async function update(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
     }
     if (draft) return out(false, [], `${life} does not apply to a draft: the human approves it with /cadre approve`)
     const why = await LIFECYCLE[life]!(h, id, e)
-    return out(!why, why ? [] : [life === 'decision' ? 'metadata.decision' : 'status'], why ?? undefined)
+    const card = !why && life === 'completed' ? (await h.board.read()).tasks.find(x => x.id === id)?.card : undefined   // the close card: main sees that the squash landed
+    return out(!why, why ? [] : [life === 'decision' ? 'metadata.decision' : 'status'], why ?? undefined, card ? [card] : undefined)
   }
   const { kind: _k, amend, ...plan } = m
   const err = validateFields(m, reg) ?? (m.kind !== undefined ? 'metadata.kind: set at creation only' : m.type !== undefined && m.type !== t.type ? `metadata.type: fixed at creation (${t.type}); delete the draft and create a new one` : null)
