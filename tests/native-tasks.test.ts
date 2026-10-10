@@ -70,6 +70,12 @@ describe('TaskUpdate: deps, refused fields, frozen fields', () => {
     expect((await w.call('TaskUpdate', { taskId: 'zz', subject: 'x' })).result).toEqual({ success: false, taskId: 'zz', updatedFields: [], error: 'no task zz' })
     expect((await w.call('TaskUpdate', { taskId: task, status: 'completed' })).result.error).toContain('does not apply to a draft')
   })
+  test('an approved epic is not a draft: completed reaches the epic lifecycle', async () => {
+    const w = await world(); const { plan: p } = await plan(w)
+    await w.text({ cmd: 'approve', args: [`${p}@${(await w.h.secret.read()).approval!.code8}`] })
+    LIFECYCLE.completed = async () => null
+    expect((await w.call('TaskUpdate', { taskId: p, status: 'completed' })).result.success).toBe(true); delete LIFECYCLE.completed
+  })
   test('a draft can be deleted', async () => {
     const w = await world(); const { task } = await plan(w)
     expect((await w.call('TaskUpdate', { taskId: task, status: 'deleted' })).result.success).toBe(true)

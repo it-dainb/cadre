@@ -80,7 +80,7 @@ async function update(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
   if (e.status === 'in_progress') return out(false, [], 'in_progress is set when the task\'s agent is spawned')
   if (typeof m !== 'object' || !m || Array.isArray(m)) return out(false, [], 'metadata: expected an object')
   if (Object.keys(m).some(k => k.startsWith('cadre'))) return out(false, [], 'metadata.cadre*: reserved; omit it')
-  const s = await h.board.read(), draft = t.category === 'draft', isEpic = id === s.epic
+  const s = await h.board.read(), isEpic = id === s.epic, draft = t.category === 'draft' && !(isEpic && s.plan && s.plan.state !== 'draft')   // approval leaves the epic bead itself draft: its board state is the truth
   const life = e.status === 'completed' || e.status === 'pending' || e.status === 'deleted' ? e.status : m.decision !== undefined ? 'decision' : null
   if (life) {   // lifecycle
     if (draft && life === 'deleted' && !isEpic) {
