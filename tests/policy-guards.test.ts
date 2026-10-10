@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { check, configSet, guard, idsIn, inputPath, judge, send } from '../policy/guards'
+import { check, configSet, guard, idsIn, inputPath, judge, send, setPolicy } from '../policy/guards'
 import { fakeHost, task } from './support'
 import type { Binding, Role } from '../types'
 
@@ -9,7 +9,7 @@ const b = (taskId: string, role: Role, worktree: string, step = 'worker'): Bindi
 async function mk(opt: { strictness?: string; locks?: Record<string, string[]> } = {}) {
   const h = fakeHost({ options: { strictness: opt.strictness } })
   h.stat = async (p, o) => { const r = norm(p); return EXISTS.includes(r) ? { kind: 'file', realPath: o?.resolve ? r : undefined } : undefined }
-  await h.store.set('policy', { repo: '/x/repo', wtRoot: '/x', home: '/home/u', locks: opt.locks })
+  await setPolicy(h, { repo: '/x/repo', wtRoot: '/x', home: '/home/u', locks: opt.locks })
   await h.board.update(s => ({ ...s, tasks: [task('bd-a1', { state: 'active', step: 'worker' }), task('bd-a2', { state: 'active', step: 'tester' })] }))
   await h.bind.update(() => ({ w1: b('bd-a1', 'worker', '/x/bd-a1'), t1: b('bd-a1', 'tester', '/x/bd-a1.view', 'tester'), r1: b('bd-a1', 'reviewer', '/x/bd-a1', 'reviewer') }))
   return h

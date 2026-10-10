@@ -1,15 +1,16 @@
 // The one sender (DESIGN 2.2, 4.4, 7, 8, 9): resume queue per sessionId + drain (#1), resume vs fresh, checkpoints, cost ledger (turn.step),
-// compaction answer, lazy rehydrate + resume card, drive (deterministic goal, lease on the epic issue: A30 metadata fallback), /goal observer.
+// compaction answer, lazy rehydrate (board, bindings, ring) + resume card, drive (deterministic goal; state + lease on the control issue: A30 metadata fallback), /goal observer.
 import type { Binding, Hook, Host, Snapshot } from '../types'
-import type { TaskStore } from '../task-management/store'
+import { StoreError, type TaskStore } from '../task-management/store'
+import { controlOf, resetDelivery } from '../task-management/sync-engine/loop'
 import { repoKeyOf } from '../commands/init'
 import { ROUTES, cfgOf, mirror, registryOf, storeOf } from './dispatch'
 import { isCold, modelView, stamp, viewHash } from './board'
-import { emit, subscribe } from './events'
+import { emit, rebuild, subscribe } from './events'
 import { nextAction } from './render'
 import { brief, drainDelta, queueCard, renderCard } from './briefs'
 import { leaseLive, resolveDeps, sessionOf, beat } from './admission'
-import { policyOf } from '../policy/guards'
+import { policyOf, setPolicy } from '../policy/guards'
 import { resolve } from '../config/index'
 import * as G from './git'
 
@@ -90,7 +91,8 @@ export function usdOf(u: U, cfg: any): number | undefined {   // cost.prices: {<
 }
 const ck = (id: string) => `cadre:cost:${id}`
 export async function* step(h: Host, e: any, next: (e: any) => any): AsyncGenerator<any, any, any> {
-  const r = yield* next(e)
+  const b = e.agentId && (await h.bind.read())[e.agentId], eff = b && (await safe(h, 'effort', async () => (await cfgOf(h)).roles[b.step === 'tester' ? 'tester' : b.role]?.effort))
+  const r = yield* next(eff && eff !== 'default' ? { ...e, effort: eff } : e)   // TM-03: roles.<role>.effort; 'default' keeps the agent file's frontmatter
   if (r?.usage) await safe(h, 'cost', async () => {
     const id = e.agentId ?? 'main'
     await h.store.set(ck(id), add(((await h.store.get(ck(id))) as U) ?? zero(), r.usage)); await h.store.set(ck('all'), add(((await h.store.get(ck('all'))) as U) ?? zero(), r.usage))
@@ -120,15 +122,38 @@ async function cardOf(h: Host, s: Snapshot, store?: TaskStore): Promise<{ text: 
 const pk = async (h: Host) => `cadre:${repoKeyOf(await h.cwd())}:board`
 async function savePointer(h: Host) {
   const s = await h.board.read()
-  if (!isCold(s)) await h.store.set(await pk(h), { mission: s.mission, epic: s.epic, plan: s.plan, drive: s.drive, bind: await h.bind.read() })
+  if (!isCold(s)) await h.store.set(await pk(h), { mission: s.mission, epic: s.epic, plan: s.plan, drive: s.drive, bind: await h.bind.read(), session: await sessionOf(h) })
+}
+// ring rebuild (2.5): the journal gives at-stamped transitions; at-stamped records (cadre.rec.<kind>) give phases (and transitions without a journal). Fresh seqs.
+const fromRec = (kind: string, id: string, at: number, text: string, tr: boolean) => {
+  const ev = (type: 'task.phase_changed' | 'task.transitioned', from: string, to: string) => ({ at, type, taskId: id, data: { taskId: id, from, to } })
+  const T = (from: string, to: string) => (tr ? [ev('task.transitioned', from, to)] : [])
+  if (kind === 'red') return [ev('task.phase_changed', 'red', 'worker')]
+  if (kind === 'report') return [ev('task.phase_changed', 'worker', 'reviewer'), ...T('active', 'review')]
+  if (kind === 'review') return /verdict: pass/.test(text) ? [ev('task.phase_changed', 'reviewer', 'merge')] : [ev('task.phase_changed', 'reviewer', 'worker'), ...T('review', 'active')]
+  return kind === 'close' ? T('review', 'done') : kind === 'blocked' ? T('active', 'blocked') : kind === 'answer' ? T('active', 'done') : []
+}
+export async function ring(h: Host, store: TaskStore, epic: string): Promise<number> {
+  const tasks = await store.list({ parent: epic }), ids = new Set(tasks.map(t => t.id)), j = await store.events('0', 5000).catch(() => null), evs: Parameters<typeof rebuild>[2] = [], last: Record<string, string> = {}
+  for (const r of j?.events ?? []) {
+    if (!ids.has(r.id) || !r.category || r.at === undefined) continue
+    if (last[r.id] && last[r.id] !== r.category) evs.push({ at: r.at, type: 'task.transitioned', taskId: r.id, data: { taskId: r.id, from: last[r.id], to: r.category } })
+    last[r.id] = r.category
+  }
+  for (const t of tasks) for (const [k, v] of Object.entries(t.meta)) { const at = Number(/ @(\d+) /.exec(v)?.[1]); if (k.startsWith('cadre.rec.') && at) evs.push(...fromRec(k.slice(10), t.id, at, v, !j)) }
+  if (!evs.length) return 0
+  await rebuild(h, epic, evs); return evs.length
 }
 export async function rehydrate(h: Host): Promise<boolean> {
   const p = (await h.store.get(await pk(h))) as any
   const b0 = await h.board.read()
   if (!isCold(b0) || b0.epic || !p?.epic) return false
   const store = await storeOf(h), now = await h.now(), me = await sessionOf(h)
-  await h.board.update(s => ({ ...s, mission: p.mission, epic: p.epic, plan: p.plan, drive: { ...p.drive, on: false, paused: undefined } }))   // drive re-arms by hand (A27: a restored /goal is invisible)
+  await h.board.update(s => ({ ...s, mission: p.mission, epic: p.epic, plan: p.plan, drive: { ...p.drive, on: false, paused: undefined } }))
   await mirror(h, store, await registryOf(h))
+  await safe(h, 'ring rebuild', async () => { if (await ring(h, store, p.epic)) await resetDelivery(h) })
+  const rec = await casDrive(h, store, r => (r?.on && r.epicId === p.epic && r.lease.session === p.session ? { ...r, lease: { session: me, until: now + LEASE } } : undefined))   // our own lease moves to the new session id
+  if (rec?.on && rec.epicId === p.epic) await h.board.update(s => ({ ...s, drive: { ...s.drive, on: true, turns: rec.turns } }))   // drive survives /clear: it continues at the next turn.complete (9)
   let gone = 0
   for (const [a, b] of Object.entries((p.bind ?? {}) as Record<string, Binding>)) {
     if (a.startsWith('~')) continue
@@ -139,7 +164,7 @@ export async function rehydrate(h: Host): Promise<boolean> {
   await stamp(h, Math.max(1, (await h.events.read()).seq))
   const s = await h.board.read(), c = await cardOf(h, s, store)
   await queueCard(h, c.text)
-  if (p.drive?.on) h.toast('cadre: drive was on before the reset; /cadre drive on to continue (check /goal: a restored goal is invisible to cadre)')
+  if ((await h.board.read()).drive.on) h.toast('cadre: drive continues after the reset · a /goal restored by --resume is invisible to cadre: /goal clear it, or drive and /goal both own the loop (A27)')
   await UI.banner?.(h, { decisions: c.decisions, next: nextAction(modelView(s)), stale: gone })
   return true
 }
@@ -160,11 +185,20 @@ export const compact: Hook = async (h, e, next) => {
   return { messages: [{ role: 'user', text: card, toolUses: [] }, ...keep] }
 }
 
-// ---- drive (9): state on the board + beads (epic issue meta cadre.drive, lease {session, until}: A30 read-check-write) ----
+// ---- drive (9): state on the board + beads (control issue cadre-control, meta cadre.drive with lease {session, until}: A30 read-check-write) ----
 const LEASE = 600_000
 interface DriveRec { on: boolean; level: 'epic'; epicId: string; turns: number; usd0: number; startedAt: number; lastSeq: number; idle: number; lease: { session: string; until: number } }
-const driveOf = async (store: TaskStore, epic: string) => { const t = await store.get(epic); return { rec: t.meta['cadre.drive'] ? (JSON.parse(t.meta['cadre.drive']) as DriveRec) : undefined, rev: t.revision } }
-const putDrive = (store: TaskStore, epic: string, rec: DriveRec, rev?: string) => store.setMeta(epic, { 'cadre.drive': JSON.stringify(rec) }, 'cadre', rev)
+// CAS on the control issue: fn sees the current record and returns the next one (undefined = no write); a revision race retries (sync writes the same issue)
+async function casDrive(h: Host, store: TaskStore, fn: (r: DriveRec | undefined) => DriveRec | undefined): Promise<DriveRec | undefined> {
+  const ctl = await controlOf(h, store)
+  for (let i = 0; i < 3; i++) {
+    const t = await store.get(ctl), r = t.meta['cadre.drive'] ? (JSON.parse(t.meta['cadre.drive']) as DriveRec) : undefined, n = fn(r)
+    if (!n) return r
+    try { await store.setMeta(ctl, { 'cadre.drive': JSON.stringify(n) }, 'cadre', t.revision); return n } catch (e) { if (!(e instanceof StoreError && e.code === 'GuardMismatch')) throw e }
+  }
+  throw new StoreError('Busy', 'drive state kept moving')
+}
+const held = (r: DriveRec | undefined, me: string, now: number) => !!r && r.lease.session !== me && r.lease.until > now
 async function driveEvent(h: Host, state: string, reason?: string) { await emit(h, 'drive.status', { state, ...(reason ? { reason } : {}) }) }
 async function pause(h: Host, why: string) {
   if ((await h.board.read()).drive.paused === why) return
@@ -186,41 +220,46 @@ export async function drive(h: Host, cfg: any, usd: number | undefined) {
   if (!d.on || !s.epic || !s.plan) return
   if (s.plan.landed || s.plan.state === 'done-on-dev' || s.plan.state === 'released') {   // computed done: integration landed it on dev with its changelog (3.9, plan.landed)
     await h.board.update(x => ({ ...x, drive: { ...x.drive, on: false, paused: undefined } })); await driveEvent(h, 'finished')
-    const store = await storeOf(h), { rec, rev } = await driveOf(store, s.epic); if (rec) await putDrive(store, s.epic, { ...rec, on: false, lease: { session: '', until: 0 } }, rev)
-    const pct = ((await h.ui.read()).ctx as number | undefined) ?? 0
-    h.toast(`cadre: epic ${s.plan.id} landed; drive finished${pct > cfg.cost.clearHintPct ? ` · context ${pct}%: /clear for a fresh main` : ''}`); return
+    await casDrive(h, await storeOf(h), r => r && { ...r, on: false, lease: { session: '', until: 0 } })
+    return void h.toast(`cadre: epic ${s.plan.id} landed; drive finished`)   // the /clear hint is the drain's (7)
   }
   const g = await gate(h, s)
   if (g) return pause(h, g)
   if (d.paused && !BOUND.test(d.paused)) { await h.board.update(x => ({ ...x, drive: { ...x.drive, paused: undefined } })); await driveEvent(h, 'running') }
   else if (d.paused) return
-  const store = await storeOf(h), me = await sessionOf(h), now = await h.now(), { rec, rev } = await driveOf(store, s.epic)
-  if (!rec?.on) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, on: false } })))
-  if (rec.lease.session !== me && rec.lease.until > now) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, heldBy: rec.lease.session } })))
+  const store = await storeOf(h), me = await sessionOf(h), now = await h.now(), dc = cfg.drive, nx = nextAction(modelView(s))
   const evs = (await h.events.read()).epics[s.epic] ?? [], seq = evs.filter(x => x.type === 'task.transitioned').reduce((m, x) => Math.max(m, x.seq), 0)
-  const idle = seq > rec.lastSeq || !rec.turns ? 0 : rec.idle + 1, costUsd = usd === undefined ? d.costUsd : +(usd - rec.usd0).toFixed(2), dc = cfg.drive
-  const bound = rec.turns >= dc.maxTurns ? `max turns ${dc.maxTurns}` : costUsd >= dc.maxCostUsd ? `cost $${costUsd} ≥ $${dc.maxCostUsd}` : now - rec.startedAt > dc.maxWallMinutes * 60_000 ? `max ${dc.maxWallMinutes} min` : idle >= dc.noProgressTurns ? `no progress in ${idle} turns` : null
-  const nx = nextAction(modelView(s)), go = !bound && nx !== 'wait'
-  try { await putDrive(store, s.epic, { ...rec, turns: rec.turns + (go ? 1 : 0), lastSeq: seq, idle: go ? idle : rec.idle, lease: { session: me, until: now + LEASE } }, rev) } catch { return void h.log('cadre: drive lease moved; not driving this turn') }   // GuardMismatch: another session won
-  await h.board.update(x => ({ ...x, drive: { ...x.drive, turns: rec.turns + (go ? 1 : 0), costUsd, heldBy: undefined } }))
-  if (bound) return pause(h, bound)
-  if (dc.maxCostUsd && costUsd >= 0.8 * dc.maxCostUsd && d.costUsd < 0.8 * dc.maxCostUsd) await emit(h, 'cost.updated', { tokens: (await h.board.read()).cost.tokens, threshold: 80 })
-  if (go) await h.submit!(`cadre drive: ${nx}`)   // plain text, never a slash command; P4: legal only here (#1 after next)
+  const o = { rec: undefined as DriveRec | undefined, bound: null as string | null, go: false, cost: d.costUsd }   // what the CAS attempt that stood decided
+  const out = await casDrive(h, store, r => {
+    o.rec = r; if (!r?.on || r.epicId !== s.epic || held(r, me, now)) return undefined
+    const idle = seq > r.lastSeq || !r.turns ? 0 : r.idle + 1
+    o.cost = usd === undefined ? d.costUsd : +(usd - r.usd0).toFixed(2)
+    o.bound = r.turns >= dc.maxTurns ? `max turns ${dc.maxTurns}` : o.cost >= dc.maxCostUsd ? `cost $${o.cost} ≥ $${dc.maxCostUsd}` : now - r.startedAt > dc.maxWallMinutes * 60_000 ? `max ${dc.maxWallMinutes} min` : idle >= dc.noProgressTurns ? `no progress in ${idle} turns` : null
+    o.go = !o.bound && nx !== 'wait'
+    return { ...r, turns: r.turns + (o.go ? 1 : 0), lastSeq: seq, idle: o.go ? idle : r.idle, lease: { session: me, until: now + LEASE } }
+  })
+  const rec = o.rec
+  if (!rec?.on || rec.epicId !== s.epic) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, on: false } })))
+  if (held(rec, me, now)) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, heldBy: rec.lease.session } })))
+  await h.board.update(x => ({ ...x, drive: { ...x.drive, turns: out!.turns, costUsd: o.cost, heldBy: undefined } }))
+  if (o.bound) return pause(h, o.bound)
+  if (dc.maxCostUsd && o.cost >= 0.8 * dc.maxCostUsd && d.costUsd < 0.8 * dc.maxCostUsd) await emit(h, 'cost.updated', { tokens: (await h.board.read()).cost.tokens, threshold: 80 })
+  if (o.go) await h.submit!(`cadre drive: ${nx}`)   // plain text, never a slash command; P4: legal only here (#1 after next)
 }
 // /cadre drive on|off|status (dispatch gates on|off as human). Arming submits nothing: drive starts at the next turn.complete.
 ROUTES.drive = async (h, c) => {
   const s = await h.board.read(), sub = c.args[0] ?? 'status'
   if (sub === 'status') return { text: s.drive.on ? `drive on · ${s.drive.turns} turns · $${s.drive.costUsd}${s.drive.paused ? ` · paused: ${s.drive.paused}` : ''}${s.drive.heldBy ? ` · held by ${s.drive.heldBy}` : ''}` : 'drive off' }
   if (!s.epic || !s.plan || s.plan.state === 'draft') return { text: 'refused: drive needs an approved epic' }
-  const store = await storeOf(h), me = await sessionOf(h), now = await h.now(), { rec, rev } = await driveOf(store, s.epic)
+  const store = await storeOf(h), me = await sessionOf(h), now = await h.now()
   if (sub === 'off') {
-    if (rec) await putDrive(store, s.epic, { ...rec, on: false, lease: { session: '', until: 0 } }, rev)
+    await casDrive(h, store, r => r && { ...r, on: false, lease: { session: '', until: 0 } })
     await h.board.update(x => ({ ...x, drive: { ...x.drive, on: false, paused: undefined } })); await driveEvent(h, 'off'); return { text: 'Drive off.' }
   }
   if (sub !== 'on') return { text: 'usage: /cadre drive on|off|status' }
-  if (rec?.on && rec.lease.session !== me && rec.lease.until > now) return { text: `refused: drive: held by ${rec.lease.session}` }
-  const usd = (await h.usage?.())?.cost?.usd ?? 0
-  await putDrive(store, s.epic, { on: true, level: 'epic', epicId: s.epic, turns: 0, usd0: usd, startedAt: now, lastSeq: 0, idle: 0, lease: { session: me, until: now + LEASE } }, rev)
+  const usd = (await h.usage?.())?.cost?.usd ?? 0, fresh: DriveRec = { on: true, level: 'epic', epicId: s.epic, turns: 0, usd0: usd, startedAt: now, lastSeq: 0, idle: 0, lease: { session: me, until: now + LEASE } }
+  const r = await casDrive(h, store, x => (x?.on && held(x, me, now) ? undefined : fresh))
+  if (r !== fresh) return { text: `refused: drive: held by ${r!.lease.session}` }
   await h.board.update(x => ({ ...x, drive: { on: true, level: 'epic', epicId: s.epic, turns: 0, costUsd: 0, startedAt: now } }))
   await driveEvent(h, 'armed')
   return { text: `Drive armed for ${s.plan.id}; it starts when this turn ends.` }
@@ -267,7 +306,8 @@ export const drain: Hook = async (h, e, next) => {
     await h.board.update(s => ({ ...s, cost: { tokens: tokensOf(all), cachePct: cacheOf(all), ...(u?.cost ? { usd: u.cost.usd } : {}) } }))
     if (pct !== undefined) await h.ui.update(x => ({ ...x, ctx: pct }))
     await savePointer(h)
-    const s = await h.board.read()
+    const s = await h.board.read(), ui = await h.ui.read()
+    if (s.plan?.landed && ui.clr !== s.plan.id) { await h.ui.update(x => ({ ...x, clr: s.plan!.id })); if ((pct ?? 0) > cfg.cost.clearHintPct) h.toast(`cadre: epic ${s.plan.id} landed · context ${pct}%: /clear for a fresh main (all state is in beads)`) }   // 7: never automatic
     if (pct !== undefined && pct > cfg.cost.compactPct && s.plan?.state === 'approved' && !(await h.ui.read()).cmp) { await h.ui.update(x => ({ ...x, cmp: true })); h.toast(`cadre: context ${pct}%: /compact now (cadre answers it with the resume card)`) }   // S49: compact() is headless-unavailable: hint, not automatic
     await drive(h, cfg, u?.cost?.usd)
   })
@@ -279,12 +319,25 @@ export async function tick(h: Host): Promise<void> {
   if (Object.keys(await h.bind.read()).some(a => !a.startsWith('~'))) await beat(h, await resolveDeps(h))
 }
 
-// ---- session.start (and after /cadre config set): $.store 'policy' for guards/effect (13.1-13.2), cfg.ui mirrored into cadre.ui.cfg ----
+// ---- session.start (and after /cadre config set): $.store `cadre:<repoKey>:policy` for guards/effect (13.1-13.2), cfg.ui mirrored into cadre.ui.cfg ----
 export async function start(h: Host): Promise<void> {
   const cfg = await cfgOf(h), root = await h.cwd(), home = await h.home(), repo = (await h.stat(root, { resolve: true }))?.realPath ?? root
-  await h.store.set('policy', { ...(await policyOf(h)), repo, wtRoot: `${cfg.worktrees.root || `${home}/.cache/cadre/wt`}/${repoKeyOf(root)}`, home, mcpAllow: cfg.mcpAllow,
+  await setPolicy(h, { repo, wtRoot: `${cfg.worktrees.root || `${home}/.cache/cadre/wt`}/${repoKeyOf(root)}`, home, mcpAllow: cfg.mcpAllow,
     protect: [cfg.branches.main || 'main', cfg.branches.dev], effectCheck: cfg.effectCheck })   // locks are kept: core/tdd owns them
   await h.ui.update(u => ({ ...u, cfg: { ...(u.cfg as object | undefined), glyphs: cfg.ui.glyphs, maxTurns: cfg.drive.maxTurns } }))
+  await safe(h, 'prune', () => prune(h))
+}
+// 13.5 $.store hygiene (ST-15): stale-lease resume entries, bindings of closed or expired tasks in the pointer, quarantine entries older than 30 days
+export async function prune(h: Host): Promise<void> {
+  const store = await storeOf(h), now = await h.now(), live: Record<string, boolean> = {}
+  const ok = async (id: string) => (live[id] ??= await store.get(id).then(t => leaseLive(t, now) && t.category !== 'done' && t.category !== 'cancelled', () => false))
+  const q = ((await h.store.get(await qk(h))) as Entry[] | undefined) ?? [], keep: Entry[] = []
+  for (const x of q) if (await ok(x.taskId)) keep.push(x)
+  if (keep.length !== q.length) await h.store.set(await qk(h), keep)
+  const p = (await h.store.get(await pk(h))) as any
+  if (p?.bind) { const b: Record<string, Binding> = {}; for (const [a, v] of Object.entries(p.bind as Record<string, Binding>)) if (!a.startsWith('~') && (await ok(v.taskId))) b[a] = v; await h.store.set(await pk(h), { ...p, bind: b }) }
+  const qu = ((await h.store.get('quarantine')) as { ts: number }[] | undefined) ?? []
+  if (qu.some(x => now - x.ts > 30 * 86_400_000)) await h.store.set('quarantine', qu.filter(x => now - x.ts <= 30 * 86_400_000))
 }
 // /cadre config set <key> <json|text>: written to ~/.claude/cadre.json (user layer), validated by re-resolving first (12). show stays in commands/cadre.
 ROUTES.config = async (h, c) => {

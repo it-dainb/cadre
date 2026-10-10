@@ -15,6 +15,7 @@ import { validate as regErrors, defaults as regDefaults } from '../task-manageme
 import type { TypeRegistry } from '../task-management/registry'
 import { spec } from '../agents'
 import * as D from '../core/discover'
+import { setPolicy } from '../policy/guards'
 
 // Wired by later waves: the beads TaskStore factory and sync add (11.3). Defaults refuse loudly.
 export const wire: { store(h: Host, cfg: Config, root: string): Promise<TaskStore>; syncAdd(h: Host, adapter: string): Promise<string> } = {
@@ -173,7 +174,7 @@ const S5: Stage = {
         const after = JSON.parse(e1.text), st = assess(after, real, wt)
         if (st.state !== 'contained') return no(`containment check failed: ${st.why.join('; ')}`)
         await save(setP, e1.text); if (e2) await save(usrP, e2.text)
-        await c.h.store.set('policy', { ...(((await c.h.store.get('policy')) as J) ?? {}), repo: real, wtRoot: wt, home: c.home })
+        await setPolicy(c.h, { repo: real, wtRoot: wt, home: c.home })
         await contain(c.h).catch(() => {}); return ok('containment written: contained (re-checked at session.start)')
       } }
   },

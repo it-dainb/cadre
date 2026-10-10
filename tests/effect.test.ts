@@ -2,6 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { audit, parse, resolveGit, sweep, wrap, writes } from '../core/effect'
 import { fakeHost, task } from './support'
 import type { Binding } from '../types'
+import { setPolicy } from '../policy/guards'
 
 const SHA = (c: string) => c.repeat(40)
 // Scripted git: per-tree porcelain records, one ref table, calls recorded. Stash drops the named paths.
@@ -22,7 +23,7 @@ const mod = (p: string) => `1 .M N... 100644 100644 100644 ${SHA('a')} ${SHA('b'
 async function mk(effectCheck = 'auto') {
   const w = world(), h = fakeHost()
   h.run = w.run as any
-  await h.store.set('policy', { repo: '/r', wtRoot: '/wt', effectCheck })
+  await setPolicy(h, { repo: '/r', wtRoot: '/wt', effectCheck })
   await h.board.update(s => ({ ...s, containment: { state: 'contained', unsandboxed: 0 }, tasks: [task('bd-a1', { state: 'active', step: 'worker' })] }))
   await h.bind.update(() => ({ w1: { taskId: 'bd-a1', role: 'worker', step: 'worker', worktree: '/wt/a', sessionId: 's', ctxTokens: 0, startedAt: 0 } as Binding }))
   await sweep(h)   // baseline
@@ -50,7 +51,7 @@ describe('L3 effect (13.1)', () => {
     expect(w.st['/wt/a']).toHaveLength(1)   // a.ts stays, evil.ts stashed
   })
   test('rule 1: locked path changed by the owner\'s own shell is quarantined', async () => {
-    const { w, h, flags } = await mk(); await h.store.set('policy', { repo: '/r', wtRoot: '/wt', locks: { 'bd-a1': ['src/t.test.ts'] } })
+    const { w, h, flags } = await mk(); await setPolicy(h, { repo: '/r', wtRoot: '/wt', locks: { 'bd-a1': ['src/t.test.ts'] } })
     await callBy(h, 'w1', 'Bash', 'c1', () => { w.st['/wt/a'].push(mod('src/t.test.ts'), mod('src/ok.ts')) })
     expect(w.calls.find(c => c[3] === 'stash')!.slice(-2)).toEqual(['--', 'src/t.test.ts']); expect(await flags()).toEqual(['quarantine:bd-a1'])
   })

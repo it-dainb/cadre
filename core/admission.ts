@@ -12,6 +12,7 @@ import { emit } from './events'
 import { DISCOVERY, brief, idsIn, type BriefIn } from './briefs'
 import { taskBranch, wtPath } from './branches'
 import * as G from './git'
+import { checkpoint } from './reuse'
 import { buildView, pkgOf } from './specview'
 
 export interface Deps {
@@ -81,7 +82,7 @@ async function reserve(h: Host, d: Deps, id: string, role: Role): Promise<boolea
   await h.bind.update(b => { got = !b[`~${id}`] && !agentsOf(b, id).some(a => b[a].role === role); return got ? { ...b, [`~${id}`]: { taskId: id, role, step: '', worktree: '~', sessionId: d.session, ctxTokens: 0, startedAt: 0 } } : b })
   return got
 }
-const viewed = (d: Deps, role: Role) => role === 'tester' && !!d.view && d.cfg.roles.testerView !== 'full'   // testerView:full = the tester works in the worktree
+const viewed = (d: Deps, role: Role) => role === 'tester' && !!d.view && d.cfg.roles.testerView !== 'full' && d.cfg.roles.tdd.author !== 'same'   // testerView:full or author:same (3.5): the tester step works in the worktree
 const agentOf = (d: Deps, role: Role): Role => (role === 'tester' && d.cfg.roles.tdd.author === 'same' ? 'worker' : role)   // author:same: the worker agent, tester brief (3.5)
 const briefOf = (s: Snapshot, t: SnapTask, task: Task, e: any, d: Deps, role: Role, extra: Partial<BriefIn> = {}): BriefIn => ({
   testPaths: role === 'tester' ? pkgOf(d, task)?.tdd?.paths : undefined, locked: task.meta['cadre.locked'] ? JSON.parse(task.meta['cadre.locked']) : undefined, redCard: task.meta['cadre.red'],
@@ -177,7 +178,8 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
     // computed handoff (never a model summary): checkpoint, diff since the handoff base, last notes
     let handoff = ''
     if (!spike) {
-      const cp = (await G.op(h, () => G.commitAll(h.run, wt, `wip(${t.id}): checkpoint`))) ?? (await G.tip(h.run, wt, 'HEAD')), hb = (d.reg[t.type].pipeline.includes('red') && task.meta['cadre.specCommit']) || task.meta['cadre.base'] || cp
+      const cp = (await checkpoint(h, d.store, d.actor, t.id, wt)) ?? (await G.tip(h.run, wt, 'HEAD')),   // locked-dirty refuses the commit (8.4)
+         hb = (d.reg[t.type].pipeline.includes('red') && task.meta['cadre.specCommit']) || task.meta['cadre.base'] || cp
       await d.store.setMeta(t.id, { 'cadre.checkpoint': cp }, d.actor)
       handoff = [`checkpoint ${cp}`, await G.diffStat(h.run, wt, `${hb}..${cp}`), await G.diffPatch(h.run, wt, `${hb}..${cp}`), task.meta['cadre.report'] ?? ''].filter(Boolean).join('\n')
     }

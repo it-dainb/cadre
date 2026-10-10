@@ -228,4 +228,11 @@ describe('tester step with a spec view (3.5)', () => {
     const a = ok('tt1'); await admitWith(h, d, spawn(ids[0]), a.next)
     expect(a.seen[0]).toMatchObject({ subagentType: 'cadre:worker', cwd: `/wt/repo-1/${ids[0]}` }); expect(a.seen[0].prompt).toContain('# SPEC TASK')
   })
+  test('author:same with testerView:view: the tester step still works in the worktree (3.5), so the red -> worker resume needs no cwd change', async () => {
+    const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}); await w.board(h, epic, ids)
+    d.view = async () => { throw new Error('no view expected') }; d.cfg.roles.tdd.author = 'same'
+    const a = ok('tt1'); await admitWith(h, d, spawn(ids[0]), a.next)
+    expect(a.seen[0]).toMatchObject({ subagentType: 'cadre:worker', cwd: `/wt/repo-1/${ids[0]}` })
+    expect((await h.bind.read()).tt1).toMatchObject({ role: 'worker', step: 'tester', worktree: `/wt/repo-1/${ids[0]}` })
+  })
 })

@@ -37,5 +37,5 @@ export interface TaskStore {
   setExternalRef(id: TaskId, ref: string, actor: string): Promise<void>; resolveGate(gateId: TaskId, reason: string): Promise<void>
   record(kind: 'mission' | 'decision', title: string, body: string, link?: TaskId): Promise<TaskId>
   close(id: TaskId, o: { outcome: 'done' | 'cancelled'; note?: string; session?: string; ifRevision?: string }): Promise<Task>
-  events(since?: string, limit?: number): Promise<{ head: string; events: { seq: string; op: string; id: TaskId; actor: string; status?: string; assignee?: string }[] } | null>
+  events(since?: string, limit?: number): Promise<{ head: string; events: { seq: string; op: string; id: TaskId; actor: string; status?: string; assignee?: string; category?: Category; at?: number }[] } | null>   // category/at: for the ring rebuild (core/reuse)
 }

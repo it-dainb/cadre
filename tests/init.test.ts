@@ -6,6 +6,7 @@ import { fnv1a64 } from '../core/board'
 import { ofEpic } from '../core/events'
 import { skeleton } from '../core/changelog'
 import type { Host } from '../types'
+import { policyOf } from '../policy/guards'
 
 type R = { exitCode: number; stdout?: string; stderr?: string }
 const ROOT = '/repo', HOME = '/home/u', RK = repoKeyOf(ROOT)
@@ -186,7 +187,7 @@ describe('stage 5 containment', () => {
     expect(await run(h, ['confirm', await code()])).toContain('contained')
     const s = JSON.parse(files[`${ROOT}/.claude/settings.local.json`]); expect(s.permissions.allow).toEqual(['Read']); expect(s.sandbox.allowUnsandboxedCommands).toBe(false)
     expect(files[`${ROOT}/.claude/settings.local.json.bak`]).toBe('{"permissions":{"allow":["Read"]}}')
-    expect(((await h.store.get('policy')) as any).repo).toBe(ROOT); expect((await h.board.read()).containment.state).toBe('contained')
+    expect((await policyOf(h)).repo).toBe(ROOT); expect((await h.board.read()).containment.state).toBe('contained')
     expect(await run(h, ['5'])).toContain('contained')   // idempotent: no diff
     const a = await run(h, ['5', 'allowlist']); expect(a).toContain('strictAllowlist: true'); expect(a).toContain('/home/u/.claude/settings.json')
   })

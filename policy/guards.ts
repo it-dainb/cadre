@@ -1,10 +1,14 @@
 // L1 capability allowlist, file fence (DESIGN 13.1-13.2), tool.check allow, session.send isolation (4.6), config.set guard. Slots #4, #5, #7, config.set.
 import type { Binding, Host, Hook } from '../types'
 import { MAIN_TOOLS, allowlist } from '../agents/index'
+import { repoKeyOf } from '../commands/init'
+import { logCall } from '../core/specview'
 
-// Paths the guards need, written to $.store 'policy' by init/session.start (absolute, realpath'd). Absent keys disable the rule they feed.
+// Paths the guards need, written to $.store `cadre:<repoKey>:policy` by init/session.start/tdd (absolute, realpath'd). Absent keys disable the rule they feed.
 export interface Policy { repo?: string; wtRoot?: string; home?: string; mcpAllow?: string[]; locks?: Record<string, string[]>; protect?: string[]; effectCheck?: string }
-export const policyOf = async (h: Host): Promise<Policy> => ((await h.store.get('policy')) as Policy | undefined) ?? {}
+export const policyKey = async (h: Host) => `cadre:${repoKeyOf(await h.cwd())}:policy`   // per repo (13.5): two repos never share one
+export const policyOf = async (h: Host): Promise<Policy> => ((await h.store.get(await policyKey(h))) as Policy | undefined) ?? {}
+export const setPolicy = async (h: Host, patch: Policy) => h.store.set(await policyKey(h), { ...(await policyOf(h)), ...patch })
 
 const SHELL = ['Bash', 'PowerShell', 'Monitor'], FILE = ['Read', 'Grep', 'Glob', 'Write', 'Edit', 'NotebookEdit'], FENCED = ['Edit', 'Write', 'NotebookEdit']
 const MOD_DIRS = ['.git', '.cadre', '.beads', '.claude'], MOD_FILES = ['.mcp.json', 'CHANGELOG.md']
@@ -87,6 +91,8 @@ export const guard: Hook = async (h, e, next) => {
   }
   const why = await deny()
   if (!why) return next(e)
+  const tb = e.agentId && (await h.bind.read())[e.agentId]
+  if (tb && tb.role === 'tester') await logCall(h, e.agentId, { tool: e.tool, path: inputPath(e.tool, e.input ?? e, tb.worktree), outcome: why })   // the view audit counts refusals too (3.5.2)
   if (await strict(h)) return { deny: why }
   h.log(`cadre advisory: ${why}`); return next(e)
 }

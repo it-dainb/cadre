@@ -3,7 +3,7 @@ import { StoreError } from '../../store'
 import type { Category, DepType, NewTask, Task, TaskId, TaskStore } from '../../store'
 import type { TypeRegistry } from '../../registry'
 import { Bd, type BdOpts } from './bd'
-import { closeReason, toTask } from './map'
+import { categoryOf, closeReason, toTask } from './map'
 
 const BUILTIN = ['bug', 'feature', 'task', 'epic', 'chore', 'decision', 'spike', 'story', 'milestone']
 const CLOSED: Category[] = ['done', 'cancelled']
@@ -144,6 +144,6 @@ export class BdStore implements TaskStore {
     this.journal ??= (await this.probe()).journal
     if (!this.journal) return null
     const rows = await this.bd.lines(['events', 'tail', '--since', since, '--limit', String(limit)])
-    return { head: rows.length ? String(rows[rows.length - 1].seq) : since, events: rows.map(r => ({ seq: String(r.seq), op: r.op as string, id: r.issue_id as TaskId, actor: r.actor as string, status: (r.issue as any)?.status, assignee: (r.issue as any)?.assignee })) }
+    return { head: rows.length ? String(rows[rows.length - 1].seq) : since, events: rows.map(r => ({ seq: String(r.seq), op: r.op as string, id: r.issue_id as TaskId, actor: r.actor as string, status: (r.issue as any)?.status, assignee: (r.issue as any)?.assignee, category: (r.issue as any)?.status ? categoryOf((r.issue as any).status, (r.issue as any).close_reason) : undefined, at: r.ts ? Date.parse(r.ts as string) : undefined })) }
   }
 }

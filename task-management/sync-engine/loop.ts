@@ -22,7 +22,7 @@ type State = { cursor?: string; since?: string; lastHeal?: number; lease?: { ses
 subscribe((h, ev) => { if (ev.type === 'task.transitioned') return h.ui.update(u => ({ ...u, syncWake: 1 })) })   // sync wake (11.4 step 5)
 
 // ---- control issue (lazy) + lease ----
-async function controlOf(h: Host, store: TaskStore): Promise<string> {
+export async function controlOf(h: Host, store: TaskStore): Promise<string> {   // also holds the drive state + lease (core/reuse, DESIGN 9)
   const ck = `sync.control:${(await h.board.read()).repo}`, id = (await h.store.get(ck)) as string | undefined
   if (id) try { await store.get(id); return id } catch { /* recreate below */ }
   const found = (await store.list({})).find(t => t.title === CONTROL), made = found?.id ?? await store.createEpic(CONTROL, 'cadre sync control issue: cursors and leases per target. Do not edit.')
@@ -91,6 +91,8 @@ export async function runCommand(h: Host, name: string, a: AdapterCfg, c: any): 
   if (cmd.cmd === 'approve' && !cmd.args[0]?.includes('@')) return 'refused: approvals need plan@code8'
   return (await dispatch(h, cmd, route)).text
 }
+// after a ring rebuild (rehydrate): every adapter gets reset:true + a snapshot on its next deliver (2.5)
+export async function resetDelivery(h: Host): Promise<void> { for (const n of Object.keys((await cfgOf(h)).adapters)) { const k = `deliver:${n}`, st = await h.store.get(k); if (st) await h.store.set(k, { ...(st as object), init: false }) } }
 export async function deliver(h: Host, name: string, a: AdapterCfg, force = false): Promise<{ sent: boolean; results: string[] }> {
   const k = `deliver:${name}`, st = ((await h.store.get(k)) as { acked: number; epic?: string; hash?: string; sub?: string[] | null; init?: boolean } | undefined) ?? { acked: 0 }
   const ring = await h.events.read(), b = await h.board.read(), evs = ofEpic(ring, b.epic ?? '')

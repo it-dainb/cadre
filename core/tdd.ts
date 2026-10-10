@@ -7,6 +7,7 @@ import { resolveDeps, type Deps } from './admission'
 import { apply } from './machine'
 import * as G from './git'
 import { auditView, matches, modeOf, pkgOf, rootOf, type Pkg } from './specview'
+import { policyOf, setPolicy } from '../policy/guards'
 
 export interface Gate { ok: boolean; why?: string; card: string; tests?: string[] }
 export interface Case { name: string; status: 'passed' | 'failure' | 'error' | 'skipped'; text: string }
@@ -106,8 +107,7 @@ export async function lockedOf(run: G.Run, wt: string, base: string, spec: strin
   return (await G.git(run, wt, ['diff', '--name-only', `${base}..${spec}`])).split('\n').filter(p => p && (!root || p.startsWith(`${root}/`)) && matches(pkg.tdd?.paths ?? [], root ? p.slice(root.length + 1) : p))
 }
 export async function setLocks(h: Host, id: string, abs: string[]): Promise<void> {
-  const p = ((await h.store.get('policy')) as { locks?: Record<string, string[]> } | undefined) ?? {}
-  await h.store.set('policy', { ...p, locks: { ...p.locks, [id]: abs } })
+  await setPolicy(h, { locks: { ...(await policyOf(h)).locks, [id]: abs } })
 }
 // close refuses M/D/R of a locked file since specCommit (adds are fine); returns the offending paths
 export async function lockedViolations(run: G.Run, wt: string, spec: string, locked: string[], to = 'HEAD'): Promise<string[]> {

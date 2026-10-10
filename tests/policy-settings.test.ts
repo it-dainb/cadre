@@ -3,6 +3,7 @@ import { apply, deepMerge, diff, plan } from '../policy/settings'
 import { assess, contain } from '../policy/containment'
 import { fakeHost } from './support'
 import STAGE5 from './fixtures/settings/stage5'
+import { setPolicy } from '../policy/guards'
 
 const mem = (files: Record<string, string>) => ({ readText: async (p: string) => files[p] ?? null, writeText: async (p: string, t: string) => { files[p] = t } })
 
@@ -28,7 +29,7 @@ test('containment: stage-5 settings -> contained; each gap -> degraded; excluded
   expect(assess({ sandbox: { ...STAGE5.sandbox, excludedCommands: ['docker', 'git'] } }, '/x/repo', '/wt/repo')).toMatchObject({ state: 'contained', unsandboxed: 2 })
 })
 test('contain(): commits the band state and toasts when degraded', async () => {
-  const h = fakeHost(); await h.store.set('policy', { repo: '/x/repo', wtRoot: '/wt/repo' })
+  const h = fakeHost(); await setPolicy(h, { repo: '/x/repo', wtRoot: '/wt/repo' })
   h.settings = async () => STAGE5
   await contain(h); expect((await h.board.read()).containment).toEqual({ state: 'contained', unsandboxed: 0 }); expect(h.toasts).toEqual([])
   h.settings = async () => ({}); await contain(h)

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { UI, checkpoint, compact, drain, drive, goal, queueResume, rehydrate, step, submit, tick } from '../core/reuse'
+import { UI, prune, checkpoint, compact, drain, drive, goal, queueResume, rehydrate, step, submit, tick } from '../core/reuse'
 import { wrap } from '../core/effect'
 import { ROUTES } from '../core/dispatch'
 import { pushDelta } from '../core/briefs'
@@ -11,12 +11,14 @@ import { defaults as types } from '../task-management/registry'
 import { fakeHost, task } from './support'
 import { repoKeyOf } from '../commands/init'
 import type { Binding } from '../types'
+import { guard, setPolicy } from '../policy/guards'
+import { controlOf } from '../task-management/sync-engine/loop'
 
 const B = (taskId: string, sessionId: string, o: Partial<Binding> = {}): Binding => ({ taskId, role: 'worker', step: 'worker', worktree: `/wt/${taskId}`, sessionId, ctxTokens: 1000, startedAt: 1000, ...o })
 // a host with a memory store, config, a recording sender/submitter and a scripted git (clean tree unless `dirty`)
-async function mk(o: { session?: string; usd?: number; pct?: number; dirty?: string[]; cfg?: (c: any) => void } = {}) {
+async function mk(o: { session?: string; usd?: number; pct?: number; dirty?: string[]; cfg?: (c: any) => void; journal?: boolean } = {}) {
   const h = fakeHost() as any, store = new MemoryStore(() => 1000), sent: [string, string][] = [], submitted: string[] = [], order: string[] = [], runs: string[][] = []
-  await store.init({ types: types(), journal: false })
+  await store.init({ types: types(), journal: !!o.journal })
   const epic = await store.createEpic('auth', 'goal'), a = await store.createDraft({ title: 'login', description: 'd', type: 'feature', parent: epic }), b = await store.createDraft({ title: 'logout', description: 'd', type: 'feature', parent: epic })
   await store.approve([a.id, b.id]); await store.claim(a.id, 'me')
   const cfg = defaults(); o.cfg?.(cfg)
@@ -73,7 +75,7 @@ describe('checkpoints (8.4) and cost ledger (7)', () => {
     expect(await checkpoint(one.h, one.store, 'me', one.a, '/wt/x')).toBe('abc1234')
     expect(one.runs.some(r => r.join(' ').includes(`wip(${one.a}): checkpoint`))).toBe(true); expect((await one.store.get(one.a)).meta['cadre.checkpoint']).toBe('abc1234')
     const two = await mk({ dirty: ['tests/a.test.ts'] })
-    await two.h.store.set('policy', { locks: { [two.a]: ['tests/a.test.ts'] } })
+    await setPolicy(two.h, { locks: { [two.a]: ['tests/a.test.ts'] } })
     expect(await checkpoint(two.h, two.store, 'me', two.a, '/wt/x')).toBe(null)
     expect((await two.h.board.read()).tasks[0].flags).toContain('locked-dirty'); expect(two.runs.some(r => r.includes('commit'))).toBe(false)
   })
@@ -107,21 +109,42 @@ describe('compaction (8.3, S49) and rehydrate (8.2, 13.4)', () => {
     expect((await compact(h, { agentId: 'ag1', messages: [] }, (e: any) => e)).instructions).toContain(`task ${a}`)
     const bare = fakeHost(); expect(await compact(bare, { messages: [] }, () => 'engine')).toBe('engine')
   })
-  test('after /clear: pointer + live bindings come back, card queued once, banner called, drive not re-armed', async () => {
-    const { h, a, epic } = await mk()
-    await h.bind.update(() => ({ ag1: B(a, 'OLD'), ag9: B('gone', 'OLD') }))
-    await h.board.update((s: any) => ({ ...s, drive: { ...s.drive, on: true } }))
-    await turn(h, { reason: 'answer' })   // saves the pointer
+  const cleared = async (h: any) => {   // a /clear: fresh $.state and session id, same $.store and beads
+    const f = fakeHost() as any; Object.assign(f, { taskStore: h.taskStore, config: h.config, usage: h.usage, submit: h.submit })
+    for (const k of ['board', 'resumes']) f.store.set(`cadre:${repoKeyOf('/repo')}:${k}`, await h.store.get(`cadre:${repoKeyOf('/repo')}:${k}`))
+    return f
+  }
+  test('after /clear: pointer + live bindings come back, card queued once, banner called; drive continues with its lease moved to the new session', async () => {
+    const { h, a, epic, submitted } = await mk()
+    await h.bind.update(() => ({ ag1: B(a, 'S1'), ag9: B('gone', 'S1') }))
+    await ROUTES.drive(h, { schemaVersion: 1, cmd: 'drive', args: ['on'], origin: { kind: 'composer' } })
+    await turn(h, { reason: 'answer' })   // drives once and saves the pointer
     const banner: any[] = []; UI.banner = async (_h, o) => { banner.push(o) }
-    const fresh = fakeHost() as any; Object.assign(fresh, { taskStore: h.taskStore, config: h.config })
-    await fresh.store.set(`cadre:${repoKeyOf('/repo')}:board`, await h.store.get(`cadre:${repoKeyOf('/repo')}:board`))
+    const fresh = await cleared(h)
     expect(await rehydrate(fresh)).toBe(true)
     const s = await fresh.board.read()
-    expect(s.epic).toBe(epic); expect(s.tasks.map((t: any) => t.id)).toContain(a); expect(s.seq > 0).toBe(true); expect(s.drive.on).toBe(false)
+    expect(s.epic).toBe(epic); expect(s.tasks.map((t: any) => t.id)).toContain(a); expect(s.seq > 0).toBe(true); expect(s.drive).toMatchObject({ on: true, turns: 1 })
     expect(Object.keys(await fresh.bind.read())).toEqual(['ag1']); expect(banner[0].stale).toBe(1)
-    expect((await fresh.secret.read()).ctx.card).toContain('cadre resume card'); expect(fresh.toasts.join()).toContain('drive was on')
+    expect((await fresh.secret.read()).ctx.card).toContain('cadre resume card'); expect(fresh.toasts.join()).toContain('/goal')
+    await turn(fresh, { reason: 'answer' }); expect(submitted.length).toBe(2)   // the new session holds the lease and drives on
     expect(await rehydrate(fresh)).toBe(false)   // once
     UI.banner = undefined
+  })
+  test('ring rebuilt from the journal (transitions) + at-stamped records (phases), fresh seqs; adapters reset; records-only without a journal', async () => {
+    const one = await mk({ journal: true, cfg: c => { c.adapters = { pm: {} } } })
+    await one.store.setMeta(one.a, { 'cadre.rec.report': `[cadre:report v1] ${one.a} @5000 by worker\ncommit: abc` }, 'me')
+    await turn(one.h, { reason: 'answer' })
+    const f = await cleared(one.h); await f.store.set('deliver:pm', { acked: 40, init: true })
+    await rehydrate(f)
+    const evs = (await f.events.read()).epics[one.epic]
+    expect(evs.map((e: any) => e.seq)).toEqual(evs.map((_: any, i: number) => i + 1))
+    expect(evs.filter((e: any) => e.type === 'task.transitioned' && e.taskId === one.a).map((e: any) => `${e.data.from}>${e.data.to}`)).toEqual(['draft>todo', 'todo>active'])
+    expect(evs.find((e: any) => e.type === 'task.phase_changed')).toMatchObject({ at: 5000, data: { taskId: one.a, from: 'worker', to: 'reviewer' } })
+    expect(await f.store.get('deliver:pm')).toEqual({ acked: 40, init: false })
+    const two = await mk()
+    await two.store.setMeta(two.a, { 'cadre.rec.report': `[cadre:report v1] ${two.a} @5000 by worker` }, 'me')
+    await turn(two.h, { reason: 'answer' }); const g = await cleared(two.h); await rehydrate(g)
+    expect((await g.events.read()).epics[two.epic].map((e: any) => e.type)).toEqual(['task.phase_changed', 'task.transitioned'])
   })
 })
 
@@ -159,7 +182,7 @@ describe('drive (9)', () => {
   })
   test('lease in beads: another session holding a live lease is refused and never drives', async () => {
     const { h, store, epic, submitted } = await mk({ session: 'S1' })
-    await store.setMeta(epic, { 'cadre.drive': JSON.stringify({ on: true, level: 'epic', epicId: epic, turns: 0, usd0: 0, startedAt: 1000, lastSeq: 0, idle: 0, lease: { session: 'S2', until: 9e15 } }) }, 'x')
+    await store.setMeta(await controlOf(h, store), { 'cadre.drive': JSON.stringify({ on: true, level: 'epic', epicId: epic, turns: 0, usd0: 0, startedAt: 1000, lastSeq: 0, idle: 0, lease: { session: 'S2', until: 9e15 } }) }, 'x')
     expect((await ROUTES.drive(h, { schemaVersion: 1, cmd: 'drive', args: ['on'], origin: { kind: 'composer' } })).text).toBe('refused: drive: held by S2')
     await h.board.update((s: any) => ({ ...s, drive: { ...s.drive, on: true } }))
     await turn(h, { reason: 'answer' })
@@ -227,5 +250,35 @@ describe('drive done / plan flags (9)', () => {
     await h.board.update((s: any) => ({ ...s, plan: { ...s.plan, flags: [], state: 'done-on-dev', landed: { dev: 'dev', sha: 'abc', at: 1 } } }))
     await turn(h, { reason: 'answer' })
     expect((await h.board.read()).drive.on).toBe(false); expect(submitted).toEqual([]); expect(h.toasts.join()).toContain('/clear for a fresh main')
+  })
+})
+
+describe('round 2: effort, pruning, tester deny log', () => {
+  test('turn.step applies roles.<role>.effort (tester profile in the tester step); default leaves the frontmatter', async () => {
+    const { h, a } = await mk({ cfg: c => { c.roles.tester.effort = 'high' } })
+    await h.bind.update(() => ({ t1: B(a, 'S1', { step: 'tester' }), w1: B(a, 'S1') }))
+    const seen: any[] = []
+    const run = async (agentId: string) => { const g = step(h, { agentId }, async function* (e: any) { seen.push(e); return { usage: null } } as any); let r = await g.next(); while (!r.done) r = await g.next() }
+    await run('t1'); await run('w1')
+    expect(seen[0].effort).toBe('high'); expect('effort' in seen[1]).toBe(false)
+  })
+  test('session.start pruning: stale-lease resume entries, closed/expired pointer bindings, quarantine older than 30 days', async () => {
+    const { h, a, b } = await mk()
+    const day = 86_400_000
+    await h.bind.update(() => ({ ag1: B(a, 'S1'), ag2: B(b, 'S1') }))
+    await queueResume(h, { agentId: 'ag1', taskId: a, text: 'x' }); await queueResume(h, { agentId: 'ag2', taskId: b, text: 'y' })   // a is claimed (lease live), b is not
+    await h.store.set(`cadre:${repoKeyOf('/repo')}:board`, { epic: 'e', bind: await h.bind.read() })
+    await h.store.set('quarantine', [{ ts: -40 * day }, { ts: -day }])
+    await prune(h)
+    expect(((await h.store.get(`cadre:${repoKeyOf('/repo')}:resumes`)) as any[]).map(x => x.agentId)).toEqual(['ag1'])
+    expect(Object.keys(((await h.store.get(`cadre:${repoKeyOf('/repo')}:board`)) as any).bind)).toEqual(['ag1'])
+    expect(await h.store.get('quarantine')).toEqual([{ ts: -day }])
+  })
+  test('guards: a tester call the guards deny still reaches the view call log (3.5.2)', async () => {
+    const { h, a } = await mk()
+    await h.bind.update(() => ({ t1: B(a, 'S1', { role: 'tester', step: 'tester', worktree: '/v' }) }))
+    const r: any = await guard(h, { tool: 'Bash', agentId: 't1', command: 'ls' }, () => ({ ok: 1 }))
+    expect(typeof r.deny).toBe('string')
+    expect(await h.store.get('cadre:tlog:t1')).toEqual([{ tool: 'Bash', path: undefined, outcome: r.deny }])
   })
 })

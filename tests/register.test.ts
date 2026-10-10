@@ -18,7 +18,7 @@ test('session.start: no $.agent.register (agents are plugin files, A28), /cadre 
 
 test('every slot is a pass-through until its owner fills it: tool.call, tool.check, prompt.submit, command.run reach the engine', async ($, on) => {
   const seen: string[] = []
-  on('store.get', () => ({ value: undefined })); on('env.get', () => ({ value: undefined }))   // policy/guards reads its paths from $.store, strictness from env
+  on('store.get', () => ({ value: undefined })); on('env.get', () => ({ value: undefined })); on('session.cwd', () => ({ value: '/work' }))   // policy/guards reads its paths from $.store (keyed by the repo), strictness from env
   on('tool.call', ($, e) => { seen.push(`call:${e.tool}`); return { result: 'ok' } })
   on('tool.check', () => ({ decision: 'allow' }))
   on('prompt.submit', ($, e) => { seen.push('prompt'); return { text: e.text } })
