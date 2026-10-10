@@ -28,6 +28,7 @@ describe('discovery (DESIGN 10.2)', () => {
     bad(p => { p.root = '../x' }, '.root'); bad(p => { p.setup = 'npm ci' }, '.setup'); bad(p => { p.checks = {} }, '.checks')
     bad(p => { p.tdd.report = '/var/j.xml' }, '/tmp/cadre/'); bad(p => { p.fetches = ['nope'] }, '.fetches')
     expect(parse({ ...ok, citations: [] })).toContain('citations'); expect(parse({})).toContain('discovery.packages')
+    for (const setup of [[], undefined]) { const r = JSON.parse(JSON.stringify(ok)); if (setup) r.discovery.packages[0].setup = setup; else delete r.discovery.packages[0].setup; expect((parse(r) as any)[0].setup).toEqual([]) }   // no install step (live: the explorer reported setup [])
     expect(brief()).toContain('mcp__cadre__report'); expect(brief()).toContain('CI config wins')
   })
 })

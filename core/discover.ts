@@ -11,7 +11,7 @@ export interface Run { setupOk: boolean; caches: string[]; results: Record<strin
 
 export const brief = (): string => `cadre discovery (read-only). Find how this repo is built and tested; CI config wins over prose.
 Read: CI config, task runners, manifests, README/CONTRIBUTING, test dirs. Per package answer ONE mcp__cadre__report {role:"explorer", discovery:{packages:[
-{root, setup:[argv], checks:{name:[argv]}, fetches?:[names of checks whose CI step fetches at test time], tdd:{paths:[globs], report?:"/tmp/cadre/<n>.xml" (JUnit), stubs?:[argv], skeleton?:[argv]}, viewInclude?:[paths]}]}, citations:[{path,line}]}.
+{root, setup:[argv] (or [] when none), checks:{name:[argv]}, fetches?:[names of checks whose CI step fetches at test time], tdd:{paths:[globs], report?:"/tmp/cadre/<n>.xml" (JUnit), stubs?:[argv], skeleton?:[argv]}, viewInclude?:[paths]}]}, citations:[{path,line}]}.
 Every argv cites the file it came from. Commands only; no shell strings. Do not run anything.`
 
 const isArgv = (v: unknown): v is string[] => Array.isArray(v) && v.length > 0 && v.every(x => typeof x === 'string' && x !== '')
@@ -22,12 +22,12 @@ export function parse(r: any): Pkg[] | string {
   for (const [i, p] of ps.entries()) {
     const at = `discovery.packages[${i}]`
     if (typeof p?.root !== 'string' || p.root.startsWith('/') || p.root.split('/').includes('..')) return `${at}.root: expected a repo-relative path like "." or "packages/api"`
-    if (!isArgv(p.setup)) return `${at}.setup: expected an argv array like ["npm","ci"]`
+    if (p.setup !== undefined && !(Array.isArray(p.setup) && !p.setup.length) && !isArgv(p.setup)) return `${at}.setup: expected an argv array like ["npm","ci"], or [] when the repo has no setup step`
     const cs = Object.entries(p.checks ?? {}); if (!cs.length || cs.some(([, a]) => !isArgv(a))) return `${at}.checks: expected {"test":["npm","test"]}`
     if (p.tdd?.report && !String(p.tdd.report).startsWith('/tmp/cadre/')) return `${at}.tdd.report: must be under /tmp/cadre/`
     if (p.fetches && p.fetches.some((f: string) => !(f in p.checks))) return `${at}.fetches: must name checks`
   }
-  return ps
+  return ps.map(p => ({ ...p, setup: p.setup ?? [] }))
 }
 
 // Depth <= 2 entries written under $HOME, parents dropped when a child is listed, build/target dirs never proposed.
@@ -46,6 +46,7 @@ export async function exec(h: Host, root: string, home: string, pkg: Pkg, o: { a
   const out: Run = { setupOk: false, caches: [], results: {} }
   const mode = await G.jailMode(h.run), writable = (o.caches ?? []).map(c => `${home}/${c}`), J = (argv: string[]) => ({ wt, scratch, pkgRoot, argv, writable })
   const setup = (): Promise<{ exitCode: number }> => {
+    if (!pkg.setup.length) return Promise.resolve({ exitCode: 0 })   // no setup step
     if (mode === 'none') return sh(h, pkg.setup, pkgRoot)
     const j = J(pkg.setup)
     return sh(h, !o.audit ? G.writableJail(j) : mode === 'overlay' ? G.homeJail({ ...j, home }) : G.homeScratchJail({ ...j, scratchHome: sh0 }))
