@@ -6,7 +6,8 @@ import { StoreError, type Task, type TaskStore } from '../task-management/store'
 import { kindOf, pipeOf, type TypeRegistry } from '../task-management/registry'
 import { repoKeyOf } from '../commands/init'
 import { cfgOf, storeOf } from './dispatch'
-import { agentsOf, bindAgent, commit, leaseLive, sessionOf, unbindAgent } from './board'
+import { agentsOf, bindAgent, commit, leaseLive, safe, sessionOf, unbindAgent } from './board'
+import { savePointer } from './session'
 import { BLOCKING, apply, epicNext } from './machine'
 import { emit } from './events'
 import { flagName } from './render'
@@ -72,6 +73,7 @@ async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTa
   if (r?.agentId) {
     await bindAgent(h, r.agentId, { taskId: t.id, role, step, worktree: wt, sessionId: d.session, ctxTokens: 0, startedAt: await h.now() })
     await emit(h, 'agent.bound', { agentId: r.agentId, taskId: t.id, role }, { agentId: r.agentId, taskId: t.id, actor: 'mod' })
+    await safe(h, 'pointer', () => savePointer(h))   // S22: a /clear before main's next turn.complete must still find this binding (the pointer was saved only there)
   }
   return r
 }
