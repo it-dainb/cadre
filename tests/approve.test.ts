@@ -88,6 +88,7 @@ describe('approve: plan@code8, burn on use, completeness (DESIGN 3.1)', () => {
   test('init stage 3: approving the mission continues init with the next stage (one line)', async () => {
     const w = await world(); await w.h.board.update(b => ({ ...b, init: [{ stage: 3, state: 'pending' }] }))
     const m = (await w.call('TaskCreate', { subject: 'Ship auth', description: 'goal', metadata: { kind: 'mission' } })).result.task.id
+    expect((await w.h.board.read()).decisions?.map(d => [d.title, ...d.lines].join('|'))).toEqual(['approve the mission · Ship auth|goal'])   // the card shows the mission, not "0 tasks"
     const t = (await w.text({ cmd: 'approve', args: [`${m}@${await code(w)}`] })).text
     expect(t).toStartWith('Mission "Ship auth" approved and recorded · init: stage '); expect(t).not.toContain('\n')
   })

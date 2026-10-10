@@ -146,7 +146,7 @@ const S4: Stage = {
     const bad = pkgs.findIndex((_, i) => !audit!.runs[i].setupOk); if (bad >= 0) return `init 4: setup ${JSON.stringify(pkgs[bad].setup)} failed in ${pkgs[bad].root}; fix it and have main re-run discovery`
     const caches = [...new Set(audit.runs.flatMap(r => r.caches))]
     const knownRed = pkgs.map((p, i) => ({ root: p.root, red: Object.keys(audit!.runs[i].results).filter(n => audit!.runs[i].results[n] === 'red') }))
-    const lines = [...pkgs.flatMap((p, i) => [`+ packages[${p.root}]: setup ${p.setup.join(' ')}; checks ${Object.keys(p.checks).join(',')}`,
+    const lines = [...pkgs.flatMap((p, i) => [`+ packages[${p.root}]: setup ${p.setup.join(' ') || '(none)'}; checks ${Object.keys(p.checks).join(',')}`,
       ...Object.entries(audit!.runs[i].results).flatMap(([n, v]) => v === 'net' ? [`! ${n}: fetches at test time; fails offline, NOT saved`] : v === 'red' ? [`? ${n}: red at the clean base -> knownRed (user-level) + backlog task "fix known-red ${n}"`] : [])]),
       ...caches.map(x => `+ jailWritable + sandbox allowWrite: ~/${x}`)]
     const cfgP = `${c.root}/.cadre/config.json`, usrP = `${c.home}/.claude/cadre.json`, setP = `${c.root}/.claude/settings.local.json`
@@ -265,10 +265,10 @@ const waiting = async (c: Ctx) => ((await c.h.ui.read()).initRequest ? 'pending'
 // one init card at a time (setup's init:90 is its own)
 const clear = async (c: Ctx) => settle(c.h, ...((await c.h.board.read()).decisions ?? []).filter(d => d.id.startsWith('init:') && d.id !== 'init:90').map(d => d.id))
 // a card with no code: a reason, a question, or "Claude is working on it"
-async function note(c: Ctx, st: Stage, lines: string[], working = false): Promise<void> {
+async function note(c: Ctx, st: Stage, lines: string[], working = false, retry = working): Promise<void> {
   await clear(c)
   await ask(c.h, { id: `init:${st.n}`, kind: 'init', title: `init ${tag(st)} · ${working ? 'Claude is on it' : 'needs you'}`, short: `init ${st.n}/${STAGES.length} ${st.name}`, lines: lines.map(l => rel(c, l)), hash: fnv1a64(lines.join('\n')), tab: 'epic', fallback: `/cadre init ${st.n}`,
-    options: [...(st.n === 8 ? [{ key: 's', label: 'Skip', verb: 'reject', run: 'init 8 skip' }] : []), { key: 'r', label: working ? 'Retry' : 'Re-check', verb: 'change', run: `init ${st.n}` }, { key: 'x', label: 'Cancel', verb: 'reject', run: 'init cancel' }] })
+    options: [...(st.n === 8 ? [{ key: 's', label: 'Skip', verb: 'reject', run: 'init 8 skip' }] : []), { key: 'r', label: retry ? 'Retry' : 'Re-check', verb: 'change', run: `init ${st.n}` }, { key: 'x', label: 'Cancel', verb: 'reject', run: 'init cancel' }] })
 }
 
 // Propose a stage: a diff goes on the card with a fresh nonce-salted code (never printed); a diff-less plan applies at once; `why` = the last attempt's failure, shown on top.
@@ -336,10 +336,14 @@ export async function progress(h: Host): Promise<{ n: number; name: string; done
 // main's turn ended: `end` = the turn the hand-off started (commands/doctor.afterFix); else any main turn while discovery waits and its report is in.
 // Moved on: the next card follows. Still owed at the end of the hand-off turn: the card says Claude stopped, Retry hands it over again.
 export async function after(h: Host, end: boolean): Promise<void> {
-  const p = (await h.board.read()).init.find(i => (i.stage === 3 || i.stage === 4) && i.state === 'pending'); if (!p) return
-  if (!end && !(p.stage === 4 && (await h.store.get(`init.discovery:${repoKeyOf(await h.cwd())}`)))) return
+  const b = await h.board.read(), p = b.init.find(i => (i.stage === 3 || i.stage === 4) && i.state === 'pending'); if (!p) return
+  const moved = p.stage === 4 ? !!(await h.store.get(`init.discovery:${repoKeyOf(await h.cwd())}`)) : b.plan?.slug === 'mission' && !!b.decisions?.some(d => d.id === 'init:3')   // reported / drafted since
+  if (!end && !moved) return
   const c = await ctxOf(h, []), st = STAGES[p.stage - 1], q = await st.propose(c)
-  if (typeof q === 'object' && 'brief' in q) return note(c, st, [`Claude stopped before finishing ${st.name}.`, 'Retry hands it the step again.'])
+  if (typeof q === 'object' && 'brief' in q) {
+    if (p.stage === 4 && (await h.ui.read()).discoveryAgent) return   // the explorer runs in the background: its report moves init on at a later turn end
+    return note(c, st, [`Claude stopped before finishing ${st.name}.`, 'Retry hands it the step again.'], false, true)
+  }
   await next(c)
 }
 

@@ -13,7 +13,7 @@ export function levelOf(e: CadreEvent): Level {
     case 'sync.state_changed': return st === 'ok' && !d.conflicts ? 1 : 2
     case 'drive.status': return st === 'paused' || st === 'finished' ? 3 : 0
     case 'agent.unbound': return d.reason === 'stale' ? 1 : 0
-    case 'init.stage': return st === 'proposed' ? 2 : 0
+    case 'init.stage': return st === 'proposed' ? 2 : 1   // done / Claude working: in the log, no toast
     case 'cost.updated': return d.threshold ? 2 : 0
     default: return e.needsHuman ? 3 : e.severity === 'crit' ? 2 : 0
   }

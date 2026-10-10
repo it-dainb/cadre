@@ -66,9 +66,9 @@ export async function redraw(h: Host, store: TaskStore, reg: TypeRegistry): Prom
   await h.board.update(b => ({ ...b, approval: { planId, missing } }))
   if (!planId || missing.length) await settleIf(h, 'plan:')   // nothing to approve yet
   else {
-    const sc = (t: Task) => (t.acceptance ?? '').split('\n').filter(Boolean).length
-    await ask(h, { id: `plan:${planId}`, kind: 'plan', title: `approve plan ${planId} · ${drafts.length} tasks`, short: `approve ${planId} (${drafts.length} tasks)`, tab: 'plan', fallback: `/cadre approve ${planId}@{code}`, hash: fnv1a64(canon(drafts.map(pick))),
-      lines: [`${drafts.length} tasks · ${drafts.reduce((n, t) => n + sc(t), 0)} scenarios`, ...drafts.slice(0, 5).map(t => `  ${t.id} ${t.type} ${t.title} · ${sc(t)} scenarios`), ...(drafts.length > 5 ? [`  +${drafts.length - 5} more (open the Plan tab)`] : [])],
+    const sc = (t: Task) => (t.acceptance ?? '').split('\n').filter(Boolean).length, m = s.plan?.slug === 'mission' ? await store.get(planId).catch(() => null) : null   // a mission card shows the mission itself
+    await ask(h, { id: `plan:${planId}`, kind: 'plan', title: m ? `approve the mission · ${m.title}` : `approve plan ${planId} · ${drafts.length} tasks`, short: m ? 'approve the mission' : `approve ${planId} (${drafts.length} tasks)`, tab: m ? 'epic' : 'plan', fallback: `/cadre approve ${planId}@{code}`, hash: fnv1a64(canon(drafts.map(pick)) + (m ? m.title + m.description : '')),
+      lines: m ? (m.description || m.title).split('\n').filter(Boolean).slice(0, 8) : [`${drafts.length} tasks · ${drafts.reduce((n, t) => n + sc(t), 0)} scenarios`, ...drafts.slice(0, 5).map(t => `  ${t.id} ${t.type} ${t.title} · ${sc(t)} scenarios`), ...(drafts.length > 5 ? [`  +${drafts.length - 5} more (open the Plan tab)`] : [])],
       options: [{ key: 'a', label: 'Approve', verb: 'approve', run: `approve ${planId}@{code}` }, { key: 'x', label: 'Reject', verb: 'reject', run: `reject ${planId} rejected in the pane` }, { key: 'c', label: 'Change', verb: 'change', fill: `Change ${planId}: ` }] }, code8Of(nonce, drafts))
   }
   return missing

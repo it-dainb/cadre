@@ -6,6 +6,7 @@ import { fnv1a64 } from '../core/board'
 import { TABLE, ofEpic } from '../core/events'
 import { afterFix, turnStarted } from '../commands/doctor'
 import { evText } from '../ui/epic'
+import { levelOf } from '../ui/notify'
 import { skeleton } from '../core/changelog'
 import type { Host } from '../types'
 import { policyOf } from '../policy/guards'
@@ -293,6 +294,15 @@ describe('init flow (ADR 0009)', () => {
     await run(h, ['3']); await h.board.update(b => ({ ...b, plan: { id: 'm', slug: 'mission', state: 'draft', epicBranch: '' } }))
     await after(h, true); expect(await cardOf(h)).toBe(''); expect((await h.board.read()).init).toEqual([{ stage: 3, state: 'pending' }])
   })
+  test('a background explorer: the hand-off turn ends while it runs, the card keeps "working"; a mission drafted in a later turn clears the stopped card', async () => {
+    const { h } = mk({ files: { [`${ROOT}/.cadre/config.json`]: '{"branches":{"main":"main","dev":"dev"}}' } }); await store().init({ types: {} as any, journal: true }); h.submit = async () => {}
+    await h.board.update(b => ({ ...b, mission: 'm' })); await run(h, []); await h.ui.update(u => ({ ...u, discoveryAgent: 'ag1' }))
+    await after(h, true); expect(await cardOf(h)).toContain('Claude is working on discovery')
+    const m = mk({ files: { [`${ROOT}/.cadre/config.json`]: '{"branches":{"main":"main","dev":"dev"}}' } }); await store().init({ types: {} as any, journal: true }); m.h.submit = async () => {}
+    await run(m.h, []); await after(m.h, true); expect(await cardOf(m.h)).toContain('Claude stopped before finishing mission')
+    expect(((await m.h.board.read()).decisions ?? [])[0].options.map(o => o.label)).toEqual(['Retry', 'Cancel'])
+    await m.h.board.update(b => ({ ...b, plan: { id: 'm', slug: 'mission', state: 'draft', epicBranch: '' } })); await after(m.h, false); expect(await cardOf(m.h)).toBe('')
+  })
   test('every init answer is ONE line of task language; the same proposal twice emits one event', async () => {
     const { h, code } = mk({ repo: false, branches: [] }); store(); h.submit = async () => {}
     const outs = [await run(h, []), await run(h, []), await run(h, ['confirm', 'bad']), await run(h, ['confirm', await code()]), await run(h, ['6']), await run(h, ['9']), await run(h, ['8']), await run(h, ['confirm'])]
@@ -303,6 +313,7 @@ describe('init flow (ADR 0009)', () => {
   test('log text: init.stage reads as words, no event kind falls back to raw JSON', async () => {
     const v = { c: { glyphs: 'ascii' }, b: { tasks: [] } } as any, ev = (type: string, data: Record<string, unknown>) => ({ type, data } as any)
     expect(evText(ev('init.stage', { stage: 1, state: 'proposed', name: 'repo' }), v)).toBe('init: stage 1 repo proposed')
+    expect([levelOf(ev('init.stage', { stage: 1, state: 'done' })), levelOf(ev('init.stage', { stage: 1, state: 'proposed' }))]).toEqual([1, 2])   // done shows in the log too, without a toast
     for (const t of Object.keys(TABLE)) expect(evText(ev(t, Object.fromEntries(TABLE[t as keyof typeof TABLE][3].map(k => [k, 'x']))), v)).not.toContain('{')
   })
 })
