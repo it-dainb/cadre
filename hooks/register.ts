@@ -19,7 +19,7 @@ import { wrap } from '../core/effect'
 import { handle, SPECS } from '../tools/index'
 import { context, attachment } from '../core/briefs'
 import { press, run } from '../commands/cadre'
-import { nudge } from '../commands/doctor'
+import { afterFix, nudge } from '../commands/doctor'
 import { tick } from '../task-management/sync-engine/loop'
 import { onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapCard, resumeBanner } from '../ui/index'
 import { load } from '../config/index'
@@ -133,6 +133,7 @@ export const register: Register = (on, opts) => {
   // 1. resume-drain: the only sender, after await next(e), never from a timer. 2. observe.
   on('turn.complete', { reason: /./ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return drain(host($), e, next) })
   on('turn.complete', { reason: /^/ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return observe(host($), e, next) })
+  on('turn.complete', { reason: /./ }, async ($, e, next) => { const r = await next(e); if (!e.agentId) await afterFix(host($)).catch(() => {}); return r })   // setup's hand-off to main: send it / re-check when main stops; works in dormant repos too
   // 3. admission
   on('agent.spawn', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return admit(host($), e, next) }).catch(denySpawn)
   // 4. tool.check allow

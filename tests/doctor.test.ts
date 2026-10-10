@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { doctor, machine, nudge, setup } from '../commands/doctor'
+import { afterFix, brief, doctor, machine, nudge, setup } from '../commands/doctor'
 import { defaults } from '../config/index'
 import { banned } from './fixtures/wording'
 import { fakeHost } from './support'
@@ -10,7 +10,7 @@ type R = { exitCode: number; stdout: string; stderr: string }
 const HOME = '/hm/u', USER = `${HOME}/.claude/settings.json`
 // scripted machine: `tools` maps argv[0] to its output (absent = not installed); `jail` = overlay | copy | none
 function mk(o: { shadow?: string; npmFails?: boolean; tools?: Record<string, string>; os?: string; repo?: boolean; jail?: 'overlay' | 'copy' | 'none'; cc?: string; files?: Record<string, string> } = {}) {
-  let installed = false; const files = { ...o.files }, calls: string[][] = [], writes: string[] = [], tools = o.tools ?? { git: 'git version 2.43.0', bd: 'bd version 1.3.1', bwrap: 'bubblewrap 0.11.0', socat: 'socat version 1.8' }
+  let installed = false, moved = false; const files = { ...o.files }, calls: string[][] = [], writes: string[] = [], tools = o.tools ?? { git: 'git version 2.43.0', bd: 'bd version 1.3.1', bwrap: 'bubblewrap 0.11.0', socat: 'socat version 1.8' }
   const h = fakeHost({ files }) as Host & { toasts: string[] }
   const rand = (() => { let n = 0; return () => `n${++n}`.padEnd(16, '0') })()
   Object.assign(h, {
@@ -18,11 +18,12 @@ function mk(o: { shadow?: string; npmFails?: boolean; tools?: Record<string, str
     stat: async (p: string) => (p === '/hm' || p === '/' || p === '/hm/u' || p === '/hm/u/.cache' || p.startsWith('/hm/u/.cache/cadre') ? { kind: 'dir' } : undefined),
     run: async (argv: string[]): Promise<R> => {
       calls.push(argv); const j = argv.join(' '), out = (stdout: string, exitCode = 0): R => ({ exitCode, stdout, stderr: '' })
+      if (argv[0] === 'mv') { if (argv[1] === o.shadow) moved = true; return out('') }
       if (argv[0] === 'npm') return argv[1] === 'install' ? (o.npmFails ? { exitCode: 1, stdout: '', stderr: 'npm ERR! EACCES\nnpm ERR! permission denied' } : (installed = true, out('added 1 package'))) : argv[1] === 'prefix' ? out('/hm/u/.npm') : out('10.0.0')
-      if (argv[0] === 'sh') return out(argv[2] === 'command -v "$0"' ? (o.shadow ?? (tools.bd || installed ? '/hm/u/.npm/bin/bd' : '')) : argv[2] === 'command -v bwrap' ? '/usr/bin/bwrap' : '')
-      if (argv[0] === '/hm/u/.npm/bin/bd') return installed ? out('bd version 1.3.1') : out('', 127)
-      if (argv[0] === 'bd' && argv[1] === 'version' && installed && !o.shadow) return out('bd version 1.3.1')
-      if (argv[0] === 'bd' && argv[1] === 'version' && o.shadow) return out('bd version 0.43.0')
+      if (argv[0] === 'sh') return out(argv[2] === 'command -v "$0"' ? (moved ? '/hm/u/.npm/bin/bd' : o.shadow ?? (tools.bd || installed ? '/hm/u/.npm/bin/bd' : '')) : argv[2] === 'command -v bwrap' ? '/usr/bin/bwrap' : '')
+      if (argv[0] === '/hm/u/.npm/bin/bd' || (moved && argv[0] === 'bd')) return installed ? out('bd version 1.3.1') : out('', 127)
+      if (argv[0] === 'bd' && argv[1] === 'version' && installed && (!o.shadow || moved)) return out('bd version 1.3.1')
+      if (argv[0] === 'bd' && argv[1] === 'version' && o.shadow && !moved) return out('bd version 0.43.0')
       if (argv[0] === 'uname') return out(o.os ?? 'Linux')
       if (argv[0] === 'test') return out('')
       if (argv[0] === 'bwrap') return !tools.bwrap || (o.jail === 'none' && argv[1] !== '--version') ? out('', 127) : argv[1] === '--help' ? out(o.jail === 'copy' ? 'usage' : '--overlay-src') : out(tools.bwrap)
@@ -84,7 +85,7 @@ describe('setup', () => {
     expect(t).toBe('setup: 2 actions ready · confirm with the code on the band'); expect(banned(t)).toEqual([]); expect(t.includes('\n')).toBe(false)
     expect(h.calls.some(a => a[0] === 'npm' && a[1] === 'install')).toBe(false); expect(h.writes).toEqual([]); expect((await sigOf(h)).stage).toBe(90); expect(await h.store.get('cadre:setup')).toBeUndefined()
     expect((await h.ui.read())['setup.plan']).toMatchObject({ acts: [['installing bd', ''], ['writing user settings', '']] })
-    expect(h.logs.every(l => !l.includes('\n'))).toBe(true)
+    expect(h.logs).toHaveLength(1)
   })
   test('confirm runs the actions in order, re-checks, stamps, and short toasts', async () => {
     const h = mk({ tools: NOBD, files: { [USER]: '{"theme":"dark"}\n' } }); await setup(h, []); const t = await setup(h, ['confirm', (await sigOf(h)).code])
@@ -111,7 +112,7 @@ describe('setup', () => {
     const h = mk({ files: { [USER]: '{"env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"}}' }, shadow: '/usr/local/bin/bd' })
     expect(await setup(h, [])).toBe('setup: 1 action ready · confirm with the code on the band')   // the old bd 0.43.0 answers; npm has nothing installed yet
     expect(await setup(h, ['confirm', (await sigOf(h)).code])).toBe('setup: 1 fail, 0 warn — report in the cadre pane')
-    expect(h.logs.join('\n')).toContain('shadows bd 1.3.1'); expect(await h.store.get('cadre:setup')).toBeUndefined()
+    expect(JSON.stringify((await h.ui.read())['doctor.rows'])).toContain('shadows bd 1.3.1'); expect(await h.store.get('cadre:setup')).toBeUndefined()
   })
   test('no stamp while a tool is missing; the toast asks for setup until a stamp for this build exists', async () => {
     const h = mk({ tools: {} }); expect(await setup(h, [])).toContain('actions ready'); expect(await h.store.get('cadre:setup')).toBeUndefined()
@@ -121,21 +122,64 @@ describe('setup', () => {
   })
 })
 
+describe('setup: deterministic moves and the hand-off to main', () => {
+  const sigOf = async (h: Host) => (await h.secret.read()).initConfirm!
+  const NOBD = { git: 'git version 2.43.0', bwrap: 'bubblewrap 0.11.0', socat: 'x' }, OK = { files: { [USER]: '{"env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"}}' } }
+  const card = async (h: Host) => (await h.board.read()).decisions!.find(d => d.id === 'init:90')!
+  const fixed = async (h: Host) => { const sent: string[] = []; (h as any).submit = async (t: string) => { sent.push(t) }; return sent }
+  test('a stale bd in a folder the user owns: moved aside (never rm), then re-checked and stamped', async () => {
+    const h = mk({ ...OK, shadow: '/hm/u/.local/bin/bd' }); await h.run(['npm', 'install'])
+    expect(await setup(h, [])).toBe('setup: 1 action ready · confirm with the code on the band')
+    expect(await card(h)).toMatchObject({ lines: ['cadre runs:', '  1. moving the old bd aside'] }); expect((await card(h)).options.map(o => o.label)).toEqual(['Fix all', 'Re-check', 'Cancel'])
+    expect(await setup(h, ['confirm', (await sigOf(h)).code])).toBe('setup: all ok')
+    expect(h.calls.filter(a => a[0] === 'mv')).toEqual([['mv', '/hm/u/.local/bin/bd', '/hm/u/.local/bin/bd.cadre-old']]); expect(h.calls.some(a => a[0] === 'rm')).toBe(false)
+    expect(await h.store.get('cadre:setup')).toMatchObject({ bd: '1.3.1' }); expect((await h.board.read()).decisions ?? []).toEqual([]); expect(h.logs).toEqual(['setup: 1 fail · see the cadre pane', 'setup: 1 fixed · see the cadre pane'])   // one summary line per run
+  })
+  test('a stale bd in a system folder: no action, only the sudo line for the terminal', async () => {
+    const h = mk({ ...OK, shadow: '/usr/local/bin/bd' }); await h.run(['npm', 'install']); await h.secret.update(x => ({ ...x, active: false })); const sent = await fixed(h)
+    expect(await setup(h, [])).toContain('1 fail'); const c = await card(h)
+    expect(c.lines.join('\n')).toContain('Run in a terminal (needs your password'); expect(c.lines.join('\n')).toContain('sudo rm /usr/local/bin/bd'); expect(c.options.map(o => o.label)).toEqual(['Re-check', 'Cancel']); expect(sent).toEqual([])
+    expect(h.logs).toEqual(['setup: 1 needs sudo · 1 fail · see the cadre pane'])
+  })
+  test('a failed action in a dormant repo: ONE brief goes to main, the card says Claude is fixing, the turn end re-checks and stamps, no second hand-off', async () => {
+    const o = { ...OK, tools: NOBD, npmFails: true }, h = mk(o); await h.secret.update(x => ({ ...x, active: false })); const sent = await fixed(h)
+    await setup(h, []); expect((await card(h)).options.map(x => x.label)).toEqual(['Fix all', 'Re-check', 'Cancel'])
+    expect(await setup(h, ['confirm', (await sigOf(h)).code])).toBe('setup: Claude is fixing 1 issue; the checks run again when it stops')
+    await new Promise(r => setTimeout(r, 0)); expect(sent).toHaveLength(1); expect(sent[0]).toBe(brief('/hm/u', (await machine(h, defaults() as any)).rows.filter(r => r[0] !== 'ok'), { label: 'installing bd', argv: ['npm', 'install', '-g', '@beads/bd@latest'], out: ['npm ERR! EACCES', 'npm ERR! permission denied'] }))
+    expect(sent[0]).toContain('npm ERR! EACCES'); expect(sent[0]).toContain('no sudo'); expect(sent[0]).toContain('Move things aside instead of deleting'); expect(sent[0]).toContain('stop. The checks run again on their own'); expect(banned(sent[0])).toEqual([])
+    expect((await card(h)).lines).toEqual(['Claude is fixing setup… (1 issue)']); expect(await h.store.get('cadre:setup')).toBeUndefined()
+    o.npmFails = false; await h.run(['npm', 'install'])   // main fixed it
+    await afterFix(h); expect(await h.store.get('cadre:setup')).toMatchObject({ bd: '1.3.1' }); expect(sent).toHaveLength(1); expect((await h.board.read()).decisions ?? []).toEqual([])
+    await afterFix(h); expect(sent).toHaveLength(1)
+  })
+  test('typed in a command the submit is refused: the brief waits for the next turn end, still only once', async () => {
+    const h = mk({ ...OK, tools: NOBD, npmFails: true }); await h.secret.update(x => ({ ...x, active: false })); let n = 0; const sent: string[] = [];
+    (h as any).submit = async (t: string) => { if (!n++) throw new Error('held'); sent.push(t) }
+    await setup(h, []); await setup(h, ['confirm', (await sigOf(h)).code]); await new Promise(r => setTimeout(r, 0))
+    expect(sent).toEqual([]); await afterFix(h); expect(sent).toHaveLength(1); await afterFix(h); expect(sent).toHaveLength(1)
+  })
+  test('an active repo: the scripted fixes run, nothing goes to main, the card says to open Claude elsewhere', async () => {
+    const h = mk({ ...OK, tools: NOBD, npmFails: true }), sent = await fixed(h); await setup(h, [])
+    await setup(h, ['confirm', (await sigOf(h)).code]); await new Promise(r => setTimeout(r, 0))
+    expect(sent).toEqual([]); expect((await card(h)).lines.join('\n')).toContain('Open Claude in another folder to let it fix the rest'); expect((await h.secret.read()).setupFix).toBeUndefined()
+  })
+})
+
 describe('doctor', () => {
   test('is read-only: no file writes, no mutating commands, one line of text', async () => {
     const h = mk({ files: { [USER]: '{}' } }), t = await doctor(h)
     expect(t).toMatch(/^doctor: \d+ fail, \d+ warn — report in the cadre pane$/); expect(banned(t)).toEqual([]); expect(h.writes).toEqual([]); expect(h.files).toEqual({ [USER]: '{}' })
     expect(h.calls.filter(a => a[0] === 'git' && !/rev-parse|for-each-ref|--version/.test(a.join(' ')))).toEqual([])
-    expect(h.logs.join('\n')).toContain('not inside a git repo'); expect(h.logs.every(l => !l.includes('\n'))).toBe(true)
+    expect(JSON.stringify((await h.ui.read())['doctor.rows'])).toContain('not inside a git repo'); expect(h.logs).toHaveLength(1); expect(h.logs[0]).toMatch(/^doctor: .*see the cadre pane$/)
   })
   test('a dormant repo: one warn row for the project, no other project rows', async () => {
     const h = mk({ repo: true }); await h.secret.update(x => ({ ...x, active: false })); await doctor(h)
-    expect(h.logs.join('\n')).toContain('project: cadre off here'); expect(h.logs.join('\n')).not.toContain('init stages')
+    const rows = JSON.stringify((await h.ui.read())['doctor.rows']); expect(rows).toContain('project: cadre off here'); expect(rows).not.toContain('init stages')
   })
   test('inside a repo: init stages, containment, beads and branch rows each carry their fix', async () => {
-    const h = mk({ repo: true }); await doctor(h); const log = h.logs.join('\n')
+    const h = mk({ repo: true }); await doctor(h); const log = ((await h.ui.read())['doctor.rows'] as any[]).map(r => `${r[1]} fix: ${r[2] ?? ''}`).join('\n')
     for (const f of ['fix: /cadre init', 'fix: /cadre init containment', 'fix: /cadre init store', 'fix: /cadre init repo']) expect(log).toContain(f)
-    expect(log).toContain('[OK] no open flags'); expect(h.writes).toEqual([])
+    expect(log).toContain('no open flags'); expect(h.writes).toEqual([])
   })
 })
 
