@@ -27,6 +27,9 @@ Where nothing draws (VS Code panel, `-p`) the band/toast text and the typed `/ca
 ## Band fixes (user screenshot)
 A plain Button already draws `hotkey: label`; labels no longer carry the key (`1: 1: open` is gone; `txt()` and `wid()` count the engine's prefix so tests and padding see what is drawn). Footer keys became labelled Buttons (`n: next  p: prev …`). In a docked pane the band is only the transcript column wide (24 columns at 120): the ⚑ row wraps there (never truncated) and flag items carry a short form.
 
+## Survives /clear
+Rehydrate re-asks from durable state (see CONTRACTS, "How to ask the human"); init/setup proposals are dropped on purpose. `tests/redecide.test.ts` rehydrates a draft plan, a spec_change with its reason and a gate; `tests/ui-mount.test.ts` presses the card's Approve through the real register.
+
 ## Queue
 Several pending decisions show as "1 of 3" (oldest first) with `n`/`p`; the band shows the first. Added with the refactor: lost-epic (Re-cut / End epic) and spec_change with the worker's reason now have cards.
 

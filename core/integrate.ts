@@ -45,7 +45,7 @@ async function runSuites(h: Host, cfg: any, wt: string, files: string[] | null, 
   return null
 }
 
-async function propose(h: Host, root: string, dev: string): Promise<void> {
+export async function propose(h: Host, root: string, dev: string): Promise<void> {
   const tag = await lastTag(h), subj = (await git(h.run, root, ['log', '--no-merges', '--format=%s', tag ? `${tag}..${dev}` : dev])).split('\n')
   const version = inferVersion(tag, subj)
   await h.ui.update(u => ({ ...u, rel: version }))

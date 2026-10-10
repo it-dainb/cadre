@@ -35,3 +35,23 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await pane.unmount()
   })
 }
+
+// the card's button pressed through the REAL register (Host.press wiring, hooks, state): a plan asked by TaskCreate is approved by the press; a wrong wiring leaves it a draft
+test('card press through the engine: Approve approves the plan (register wires Host.press to the decision press)', async ($, on) => {
+  const clock = mock.clock(on)
+  stubs(on)
+  for (const k of Object.keys(store)) delete store[k]
+  Object.assign(store, { secret: { active: true } })
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['engine'] })); on('ui.open', () => ({ value: { isPlaced: true } })); on('ui.panes', () => ({ value: [] }))
+  on('ui.toast', () => ({ value: undefined })); on('ui.status', () => ({ value: undefined })); on('ui.notify', () => ({ value: { isSent: false } })); on('ui.log', () => ({ value: undefined })); on('ui.invalidate', () => ({ value: undefined }))
+  on('env.get', (_$, e) => ({ value: e.name === 'CADRE_STORE' ? 'memory' : undefined })); on('session.cwd', () => ({ value: '/work' })); on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined }))
+  on('fs.read', () => ({ value: '{}' })); on('fs.stat', () => ({ value: undefined })); on('prompt.read', () => ({ value: { text: '' } })); on('tool.check', () => ({ decision: 'allow' }))
+  const meta = { type: 'feature', package: '.', scenarios: ['S1: Given a user When they log in Then a session exists'], changelog: { category: 'Added', entry: 'Login' }, interface: { symbols: [{ name: 'login', kind: 'function', params: ['email: string'], returns: 'Session', status: 'new' }] } }
+  await $.tool.call({ tool: 'TaskCreate', subject: 'Auth login', description: 'goal', metadata: { kind: 'plan' } }); await $.tool.call({ tool: 'TaskCreate', subject: 'Add login', description: 'impl', metadata: meta })
+  expect(store.board.decisions.map((d: any) => d.kind)).toEqual(['plan']); expect(store.board.plan.state).toBe('draft')
+  store.ui = { ...store.ui, tab: 'card' }
+  const pane = await $.ui.mount({ plugin: 'cadre', surface: 'terminal', component: 'Pane', requestId: 'cadre', props: PANE })
+  await pane.press({ key: 'a' }); await clock.advance(1); await clock.advance(1)
+  expect(store.board.plan.state).toBe('approved'); expect(store.board.decisions).toEqual([])
+  await pane.unmount()
+})

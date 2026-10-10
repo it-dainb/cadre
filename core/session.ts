@@ -3,7 +3,10 @@ import type { Binding, Host, Snapshot } from '../types'
 import type { TaskStore } from '../task-management/store'
 import { resetDelivery } from '../task-management/sync-engine/loop'
 import { repoKeyOf, scoped } from '../commands/init'
-import { cfgOf, mirror, missionOf, registryOf, storeOf } from './dispatch'
+import { cfgOf, gateDraw, mirror, missionOf, redraw, registryOf, storeOf } from './dispatch'
+import { ask, flagDecision } from './decide'
+import { specAsk } from './tdd'
+import { propose } from './integrate'
 import { UI, isCold, leaseLive, modelView, safe, sessionOf, stamp } from './board'
 import { ring } from './events'
 import { nextAction } from './render'
@@ -43,6 +46,16 @@ async function adopt(h: Host, b0: Snapshot) {
   if (!e && mission) await h.board.update(b => ({ ...b, mission }))
   return e && { mission, epic: e.id, plan: { id: e.id, slug: slug(e.title), state: 'approved', epicBranch: epicBranch(prefix, e.id, e.title), approvedAt: await h.now() }, drive: b0.drive, bind: {}, session: undefined }
 }
+// Decisions live on the board, which a /clear empties: ask again what durable state says is still owed. A pending init/setup/sync proposal is dropped (its code and diff are per session): run the command again.
+async function reask(h: Host, store: TaskStore, plan: Snapshot['plan'] & {}) {
+  const kids = await store.list({ parent: plan.id }).catch(() => []), gate = kids.find(t => t.type === 'gate' && !['done', 'cancelled'].includes(t.category))
+  if (gate) await gateDraw(h, gate)   // a gate and a plan share the one approval slot: the gate blocks the work, so it goes first
+  else if (plan.state === 'draft' || kids.some(t => t.category === 'draft' && t.type !== 'gate')) await redraw(h, store, await registryOf(h))
+  for (const t of kids) if (t.meta['cadre.blocked'] === 'spec_change') { await h.board.update(s => ({ ...s, tasks: s.tasks.map(x => (x.id === t.id && !x.flags.includes('spec_change') ? { ...x, flags: [...x.flags, 'spec_change'] } : x)) })); await specAsk(h, t.id, t.meta['cadre.specChange'] ?? '') }
+  for (const f of plan.flags ?? []) { const d = flagDecision(plan.id, f); if (d) await ask(h, d) }
+  for (const f of Object.keys((await h.git.read()).flags ?? {})) { const d = flagDecision('', f); if (d) await ask(h, d) }
+  if (plan.state === 'done-on-dev') await propose(h, await h.cwd(), (await cfgOf(h)).branches.dev)
+}
 export async function rehydrate(h: Host): Promise<boolean> {
   const b0 = await h.board.read()
   if (!isCold(b0) || b0.epic) return false
@@ -51,6 +64,7 @@ export async function rehydrate(h: Host): Promise<boolean> {
   const store = await storeOf(h), now = await h.now(), me = await sessionOf(h)
   await h.board.update(s => ({ ...s, mission: p.mission, epic: p.epic, plan: p.plan, drive: { ...p.drive, on: false, paused: undefined } }))
   await mirror(h, store, await registryOf(h))
+  await safe(h, 'decisions', () => reask(h, store, p.plan))
   await safe(h, 'ring rebuild', async () => { if (await ring(h, store, p.epic)) await resetDelivery(h) })
   const rec = await casDrive(h, store, r => (r?.on && r.epicId === p.epic && r.lease.session === p.session ? { ...r, lease: { session: me, until: now + LEASE } } : undefined))   // our own lease moves to the new session id
   if (rec?.on && rec.epicId === p.epic) await h.board.update(s => ({ ...s, drive: { ...s.drive, on: true, turns: rec.turns } }))   // drive survives /clear: it continues at the next turn.complete (9)
