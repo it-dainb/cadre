@@ -3,6 +3,7 @@ import type { Hook, Host } from '../types'
 import type { Command, Out } from '../core/dispatch'
 import { ROUTES, cfgOf, dispatch, gateDraw, gateOf, redraw, registryOf, resolveEpic, restore, storeOf } from '../core/dispatch'
 import { modelView } from '../core/board'
+import { warm } from '../core/session'
 import { contextLine, subject } from '../core/render'
 import { openPane } from '../ui/index'
 import { run as initRun } from './init'
@@ -10,6 +11,7 @@ import { defaults } from '../config/index'
 
 // text board from the model view + the cost ledger (the human view's cost, since this is a typed command's own output)
 async function status(h: Host): Promise<Out> {
+  await warm(h)   // a first-line /cadre status in a new session reads the rehydrated board
   const s = await h.board.read(), v = modelView(s)
   const rows = v.tasks.map(t => `${t.id} ${subject(t)}${t.owner ? ` (${t.owner})` : ''}`)
   const c = s.cost
