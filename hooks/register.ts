@@ -18,6 +18,11 @@ import { context, attachment } from '../core/briefs'
 import { run } from '../commands/cadre'
 import { defaults } from '../config/index'
 import { tick } from '../task-management/sync-engine/loop'
+import { load } from '../config/index'
+import { newToken } from '../core/dispatch'
+import { wire, repoKeyOf } from '../commands/init'
+import { BdStore } from '../task-management/adapters/beads/store'
+import { MemoryStore } from '../task-management/adapters/memory/store'
 
 const board = atom({ plugin: 'cadre', key: 'board' } as const, emptySnapshot())
 const events = atom({ plugin: 'cadre', key: 'events' } as const, emptyRing())
@@ -26,11 +31,20 @@ const ui = atom({ plugin: 'cadre', key: 'ui' } as const, {})
 const git = atom({ plugin: 'cadre', key: 'git' } as const, { busy: false, epoch: 0 })
 const bind = atom({ plugin: 'cadre', key: 'bind' } as const, {})
 
+// The one TaskStore factory (init stage 2 and dispatch both use `wire.store`): memory for CADRE_STORE=memory (tests), else bd. Config is the full layered load.
+let mem: MemoryStore | undefined
+wire.store = async (h, cfg, root) => {
+  if (cfg.store.kind === 'memory') { if (!mem) { mem = new MemoryStore(); await mem.init({ types: cfg.types as any, journal: false }) } return mem }
+  const actor = String((await h.store.get(`cadre:${repoKeyOf(root)}:actor`)) ?? '') || `cadre/${h.rand(3)}`
+  await h.store.set(`cadre:${repoKeyOf(root)}:actor`, actor)
+  return new BdStore({ run: h.run, cwd: root, actor, bin: cfg.store.bin, timeoutMs: cfg.store.timeoutMs })
+}
+
 let options: Host['options'] = {}   // set by register(); module vars reset on reload, which re-runs register
 
 // Host per hook entry: literal closures over $. Additions are append-only (types/index.d.ts).
 function host($): Host {
-  return {
+  const h: Host = {
     now: () => $.clock.now(),
     rand: (n = 16) => Array.from(crypto.getRandomValues(new Uint8Array(n)), b => b.toString(16).padStart(2, '0')).join(''),
     board: { read: () => read($, board), update: fn => update($, board, fn) },
@@ -54,6 +68,9 @@ function host($): Host {
     write: async (p, t) => { await $.fs.write(p, t) },
     cwd: () => $.session.cwd(), home: async () => String((await $.env.get('HOME')) ?? ''),
   }
+  h.config = async () => { const root = await h.cwd(); return (await load(h, { home: await h.home(), root, repoKey: repoKeyOf(root) })).config }
+  h.taskStore = async () => wire.store(h, await h.config!(), await h.cwd())
+  return h
 }
 
 // Fail-closed handlers (G1, G2). On re-entry every $ rejects, so decide from the event alone.
@@ -75,6 +92,7 @@ export const register: Register = (on, opts) => {
     for (const a of roster({ roles: cfg.roles, models: cfg.models, mcpAllow: cfg.mcpAllow })) await $.agent.register(a)
     await $.command.register({ name: 'cadre', description: 'cadre: plan, approve, status, resolve, release, drive, init', argumentHint: '<sub> [args]', immediate: true })
     await $.env.set('CLAUDE_CODE_ENABLE_TODO_TOOLS', '1')
+    await newToken(host($))   // session token for adapter commands: toast only (DESIGN 2.5)
     await contain(host($)).catch(() => {})   // L2 check -> board.containment (13.1)
     $.clock.every(5000, () => { void tick(host($)).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
     return next(e)

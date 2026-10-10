@@ -3,6 +3,7 @@
 import type { Host } from '../types'
 import { canon, fnv1a64 } from '../core/board'
 import { emit } from '../core/events'
+import { initConfirm, initPropose } from '../core/dispatch'
 import { load } from '../config'
 import type { Config } from '../config'
 import { diff as jdiff } from '../policy/settings'
@@ -234,7 +235,7 @@ async function show(c: Ctx, st: Stage): Promise<string> {
   const text = `init ${st.n} ${st.name}: proposed changes\n${p.lines.join('\n')}`
   const sig = fnv1a64(text + canon(await reread(c, p.targets)))
   await c.h.ui.update(u => ({ ...u, 'init.pending': { stage: st.n, sig } }))
-  await c.h.secret.update(s => { const initNonce = c.h.rand(8); return { ...s, initNonce, initConfirm: { stage: st.n, code: fnv1a64(initNonce + text).slice(0, 8) } } })
+  await initPropose(c.h, st.n, text)
   await setState(c, st.n, 'proposed')
   return `${text}\n\nConfirm with the code shown in the cadre band: /cadre init confirm <code>`
 }
@@ -245,8 +246,8 @@ async function finish(c: Ctx, st: Stage, r: { ok: boolean; text: string }): Prom
 }
 
 async function confirm(c: Ctx, code: string | undefined): Promise<string> {
-  const pend = (await c.h.secret.read()).initConfirm, good = !!pend && !!code && code === pend.code
-  await c.h.secret.update(({ initConfirm, ...s }) => ({ ...s, initNonce: c.h.rand(8) }))   // burn on use: accepted or refused
+  const pend = (await c.h.secret.read()).initConfirm, good = !!pend && !!code && await initConfirm(c.h, pend.stage, code)   // burns on every attempt
+  if (!pend || !code) await initConfirm(c.h, 0, '')
   if (!pend) return 'init: nothing pending; run /cadre init'
   const st = STAGES.find(s => s.n === pend.stage)!
   if (!good) return `init: wrong code (burned); a new diff and code follow\n${await show(c, st)}`
