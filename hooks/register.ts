@@ -92,7 +92,7 @@ function host($): Host {
   }
   h.config = async () => { const root = await h.cwd(); return (await load(h, { home: await h.home(), root, repoKey: repoKeyOf(root) })).config }
   h.taskStore = async () => wire.store(h, await h.config!(), await h.cwd())
-  h.press = line => press(h, line)
+  h.press = (id, key, hash) => press(h, id, key, hash)
   h.sendTo = (agentId, text) => $.session.send({ to: { agentId }, text })   // core/reuse.drain only
   h.submit = text => $.prompt.submit({ text })   // drive, from #1 after next only
   h.usage = () => $.session.usage()
