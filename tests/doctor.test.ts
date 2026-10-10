@@ -5,6 +5,9 @@ import { banned } from './fixtures/wording'
 import { fakeHost } from './support'
 import { contain } from '../policy/containment'
 import type { Host } from '../types'
+import { card as drawCard } from '../ui/card'
+import { txt } from '../ui/model'
+import { NOOP, view } from './fixtures/ui/epic'
 
 type R = { exitCode: number; stdout: string; stderr: string }
 const HOME = '/hm/u', USER = `${HOME}/.claude/settings.json`
@@ -41,10 +44,10 @@ describe('machine checks', () => {
   test('a healthy machine is all ok', async () => { expect((await rowsOf(mk())).map(r => r[0])).toEqual(Array(6).fill('ok')) })
   test('missing tools fail with the exact command for the human', async () => {
     const rs = await rowsOf(mk({ tools: {} }))
-    expect(lvl(rs, /git/)).toEqual(['crit', 'git not found', '! sudo apt install git'])
+    expect(lvl(rs, /git/)).toEqual(['crit', 'git not found', '! sudo sh ~/.cache/cadre/fix/git.sh'])
     expect(lvl(rs, /bd/)[2]).toBe('! npm install -g @beads/bd@latest')
-    expect(lvl(rs, /bwrap/)[2]).toBe('! sudo apt install bubblewrap socat')
-    expect(lvl(rs, /socat/)[2]).toBe('! sudo apt install socat')
+    expect(lvl(rs, /bwrap/)[2]).toBe('! sudo sh ~/.cache/cadre/fix/bwrap.sh')
+    expect(lvl(rs, /socat/)[2]).toBe('! sudo sh ~/.cache/cadre/fix/socat.sh')
   })
   test('old bd fails, old bwrap warns (copy-jail), no namespaces warns', async () => {
     expect(lvl(await rowsOf(mk({ tools: { git: 'git version 2.43.0', bd: 'bd version 1.2.9', bwrap: 'bubblewrap 0.8.0', socat: 'x' }, jail: 'copy' })), /bd/)[0]).toBe('crit')
@@ -61,16 +64,16 @@ describe('machine checks', () => {
   })
   test('bwrap userns cause: AppArmor (Ubuntu), clone=0 (Debian), unknown', async () => {
     const ub = await machine(mk({ jail: 'none', files: { '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n' } }), defaults() as any)
-    expect(lvl(ub.rows, /AppArmor/)![2]).toContain('/etc/apparmor.d/bwrap'); expect(lvl(ub.rows, /AppArmor/)![2]).toContain('profile bwrap /usr/bin/bwrap'); expect(ub.human.join('\n')).toContain('apparmor_restrict_unprivileged_userns=0'); expect(ub.acts).toEqual([])
-    expect(lvl((await machine(mk({ jail: 'none', files: { '/proc/sys/kernel/unprivileged_userns_clone': '0' } }), defaults() as any)).rows, /clone=0/)![2]).toBe('! sudo sysctl -w kernel.unprivileged_userns_clone=1')
+    expect(lvl(ub.rows, /AppArmor/)![2]).toBe('! sudo sh ~/.cache/cadre/fix/bwrap-apparmor.sh'); expect(ub.scripts.find(x => x.path.endsWith('bwrap-apparmor.sh'))!.text).toContain('profile bwrap /usr/bin/bwrap'); expect(ub.human).toEqual(['! sudo sh ~/.cache/cadre/fix/bwrap-apparmor.sh', 'less safe options: ~/.cache/cadre/fix/README']); expect(ub.acts).toEqual([])
+    expect(lvl((await machine(mk({ jail: 'none', files: { '/proc/sys/kernel/unprivileged_userns_clone': '0' } }), defaults() as any)).rows, /clone=0/)![2]).toBe('! sudo sh ~/.cache/cadre/fix/userns-clone.sh')
     expect(lvl(await rowsOf(mk({ jail: 'none' })), /user namespace/)![2]).toContain('sandboxing')
   })
   test('bd missing: an npm action; a stale bd that shadows the new one is a PATH fix, not an action', async () => {
     const m = await machine(mk({ tools: { git: 'git version 2.43.0', bwrap: 'bubblewrap 0.11.0', socat: 'x' } }), defaults() as any)
     expect(m.acts).toEqual([{ label: 'installing bd', argv: ['npm', 'install', '-g', '@beads/bd@latest'] }])
     const sh = mk({ shadow: '/usr/local/bin/bd' }); await sh.run(['npm', 'install']); const s2 = await machine(sh, defaults() as any)
-    expect(s2.acts).toEqual([]); expect(lvl(s2.rows, /shadows/)).toEqual(['crit', 'bd 0.43.0 at /usr/local/bin/bd shadows bd 1.3.1 at /hm/u/.npm/bin/bd', '! sudo rm /usr/local/bin/bd  # or put /hm/u/.npm/bin first in PATH'])
-    expect(s2.human[0]).toContain('sudo rm /usr/local/bin/bd')
+    expect(s2.acts).toEqual([]); expect(lvl(s2.rows, /shadows/)).toEqual(['crit', 'bd 0.43.0 at /usr/local/bin/bd shadows bd 1.3.1 at /hm/u/.npm/bin/bd', '! sudo sh ~/.cache/cadre/fix/rm-bd.sh'])
+    expect(s2.scripts[0].text).toContain('\nrm /usr/local/bin/bd\n')
   })
 })
 
@@ -122,6 +125,37 @@ describe('setup', () => {
   })
 })
 
+describe('setup: human-run fixes are scripts, the card shows one short line (0.5.1)', () => {
+  const OK = { '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n', [USER]: '{"env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"}}' }, DIR = `${HOME}/.cache/cadre/fix`, LINE = 'sudo sh ~/.cache/cadre/fix/bwrap-apparmor.sh'
+  const dormant = async (copied?: string[], o: any = { jail: 'none', files: OK }) => { const h = mk(o); await h.secret.update(x => ({ ...x, active: false })); if (copied) (h as any).ops = new Proxy({ copy: async (t: string) => (copied.push(t), { isCopied: true }) } as any, { get: (t, k) => (k in t ? t[k] : async () => ({ isPlaced: true })) }); return h }
+  const card = async (h: Host) => (await h.board.read()).decisions!.find(d => d.id === 'init:90')!
+  test('scripts: written without a confirm, 0700, set -eu, header, the exact command; alternatives only in the README', async () => {
+    const h = await dormant(); await setup(h, [])
+    const sh = h.files[`${DIR}/bwrap-apparmor.sh`]; expect(sh.startsWith('#!/bin/sh\n# cadre setup: ')).toBe(true); expect(sh).toContain(`# Run it once, yourself: ${LINE}\nset -eu\n`); expect(sh).toContain('tee /etc/apparmor.d/bwrap'); expect(sh).toContain('systemctl reload apparmor'); expect(sh).not.toContain('sysctl')
+    expect(h.calls).toContainEqual(['chmod', '700', `${DIR}/bwrap-apparmor.sh`])
+    expect(h.files[`${DIR}/README`]).toContain('sysctl -w kernel.apparmor_restrict_unprivileged_userns=0'); expect(h.files[`${DIR}/README`]).toContain('/etc/sysctl.d/60-userns.conf')
+    const t = (await card(h)).lines.join('\n'); expect(t).toContain(`  ${LINE}`); expect(t).toContain('less safe options: ~/.cache/cadre/fix/README'); expect(t).not.toContain('sysctl'); expect(t).not.toContain('tee')
+    expect((await h.ui.read())['setup.plan']).toMatchObject({ human: [`! ${LINE}`, 'less safe options: ~/.cache/cadre/fix/README'] })
+  })
+  test('every command line drawn in the card fits the body and holds no box character, at 56 and 116 columns', async () => {
+    const h = await dormant(); await setup(h, []); const d = await card(h)
+    for (const w of [56, 116]) {
+      const v = view(62, { board: { decisions: [d] } }); v.sec = { dcode: {} }
+      const rows = txt(drawCard(v, w, NOOP)).filter(r => /\bsh \S*\.sh|fix\//.test(r)).slice(0, 2)
+      expect(rows.length).toBe(2); for (const r of rows) expect(r).toMatch(/^║ (sudo sh ~\/\S+\.sh|less safe options: ~\/\S+)\s*║$/)
+    }
+  })
+  test('Copy command: copies the first sudo line and says copied; no clipboard, no button', async () => {
+    const got: string[] = [], h = await dormant(got); await setup(h, [])
+    const o = (await card(h)).options; expect(o.map(x => x.label)).toEqual(['Copy command', 'Re-check', 'Cancel']); expect(o[0]).toMatchObject({ key: 'y', run: 'setup copy' })
+    expect(await setup(h, ['copy'])).toBe('copied'); expect(got).toEqual([LINE])
+    const bare = await dormant(); await setup(bare, []); expect((await card(bare)).options.map(x => x.label)).toEqual(['Re-check', 'Cancel']); expect(await setup(bare, ['copy'])).toContain('not copied')
+  })
+  test('re-check after the human ran it: the row is green and the card is gone', async () => {
+    const o: any = { jail: 'none', files: OK }, h = await dormant(undefined, o); await setup(h, []); expect(await card(h)).toBeDefined()
+    o.jail = 'overlay'; await setup(h, []); expect((await h.board.read()).decisions ?? []).toEqual([])
+  })
+})
 describe('setup: deterministic moves and the hand-off to main', () => {
   const sigOf = async (h: Host) => (await h.secret.read()).initConfirm!
   const NOBD = { git: 'git version 2.43.0', bwrap: 'bubblewrap 0.11.0', socat: 'x' }, OK = { files: { [USER]: '{"env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"}}' } }
@@ -138,7 +172,7 @@ describe('setup: deterministic moves and the hand-off to main', () => {
   test('a stale bd in a system folder: no action, only the sudo line for the terminal', async () => {
     const h = mk({ ...OK, shadow: '/usr/local/bin/bd' }); await h.run(['npm', 'install']); await h.secret.update(x => ({ ...x, active: false })); const sent = await fixed(h)
     expect(await setup(h, [])).toContain('1 fail'); const c = await card(h)
-    expect(c.lines.join('\n')).toContain('Run in a terminal (needs your password'); expect(c.lines.join('\n')).toContain('sudo rm /usr/local/bin/bd'); expect(c.options.map(o => o.label)).toEqual(['Re-check', 'Cancel']); expect(sent).toEqual([])
+    expect(c.lines.join('\n')).toContain('Run in a terminal (needs your password'); expect(c.lines.join('\n')).toContain('sudo sh ~/.cache/cadre/fix/rm-bd.sh'); expect(c.lines.join('\n')).not.toContain('sudo rm'); expect(c.options.map(o => o.label)).toEqual(['Re-check', 'Cancel']); expect(sent).toEqual([])
     expect(h.logs).toEqual(['setup: 1 needs sudo · 1 fail · see the cadre pane'])
   })
   test('a failed action in a dormant repo: ONE brief goes to main, the card says Claude is fixing, the turn end re-checks and stamps, no second hand-off', async () => {

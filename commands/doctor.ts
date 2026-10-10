@@ -25,15 +25,23 @@ const userPath = async (h: Host) => `${await h.home()}/.claude/settings.json`
 // acts = what setup can run itself (user-level, no sudo); human = what only the human can run once (sudo, PATH fixes)
 export type Act = { label: string; argv?: string[]; settings?: true }
 const BD_SH = 'curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash'
-export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; facts: Record<string, string>; acts: Act[]; human: string[]; own: Row[] }> {
+// a human-run fix is a script under <cache>/cadre/fix (0700, harmless until run); the card, the pane and the copy button only ever show the ONE short line that runs it (ADR 0007, 0.5.1)
+export type Script = { path: string; text: string; exec?: true }
+export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; facts: Record<string, string>; acts: Act[]; human: string[]; own: Row[]; scripts: Script[] }> {
   const r = (argv: string[]) => h.run(argv, { timeoutMs: 5000 }).catch(() => undefined), text = (x?: { stdout: string; stderr: string }) => `${x?.stdout}${x?.stderr}`, out = async (argv: string[]) => (await r(argv))?.stdout.trim() ?? ''
-  const mac = (await r(['uname', '-s']))?.stdout.trim() === 'Darwin', pm = mac ? 'brew install' : 'sudo apt install', rows: Row[] = [], facts: Record<string, string> = {}, acts: Act[] = [], human: string[] = [], own: Row[] = []
+  const mac = (await r(['uname', '-s']))?.stdout.trim() === 'Darwin', pm = mac ? 'brew install' : 'apt install', rows: Row[] = [], facts: Record<string, string> = {}, acts: Act[] = [], human: string[] = [], own: Row[] = [], scripts: Script[] = []
   const add = (x: Row, mine = false): void => { rows.push(x); if (mine) own.push(x); if (x[2]?.startsWith('! ') && !mine) human.push(x[2]) }
+  const home = await h.home(), dir = `${(await h.env()).XDG_CACHE_HOME || `${home}/.cache`}/cadre/fix`, shown = dir.startsWith(`${home}/`) ? `~${dir.slice(home.length)}` : dir
+  const fix = (name: string, why: string, cmd: string, root = true): string => {
+    const run = `${root ? 'sudo ' : ''}sh ${shown}/${name}.sh`
+    scripts.push({ path: `${dir}/${name}.sh`, exec: true, text: `#!/bin/sh\n# cadre setup: ${why}\n# Run it once, yourself: ${run}\nset -eu\n${cmd}\n` })
+    return `! ${run}`
+  }
   facts.cc = (await h.version?.().catch(() => '')) ?? ''
   const cmp = ver(facts.cc) && !atLeast(PIN, ver(facts.cc)) ? 'newer than' : 'older than'
   add(!facts.cc ? ['warn', 'Claude Code version unreadable'] : facts.cc === PIN ? ['ok', `Claude Code ${PIN} (the pinned build)`] : ['warn', `Claude Code ${facts.cc}: ${cmp} the tested ${PIN}; ${cmp === 'newer than' ? 'usually fine' : 'update it with claude update'}`])
   const g = await r(['git', '--version']), gv = ver(text(g))
-  add(!g || g.exitCode || !gv ? ['crit', 'git not found', `! ${pm} git`] : atLeast(gv, '2.17') ? ['ok', `git ${gv}`] : ['crit', `git ${gv} is too old for worktrees`, `! ${pm} git  # >= 2.17`])
+  add(!g || g.exitCode || !gv ? ['crit', 'git not found', fix('git', 'installs git (needed for worktrees).', `${pm} git`, !mac)] : atLeast(gv, '2.17') ? ['ok', `git ${gv}`] : ['crit', `git ${gv} is too old for worktrees`, fix('git', 'upgrades git to 2.17 or newer (needed for worktrees).', `${pm} git`, !mac)])
   const b = await r([cfg.store.bin, 'version']), bv = ver(text(b)); facts.bd = bv
   const rev = b?.exitCode === 0 && /--if-revision/.test(text(await r([cfg.store.bin, 'update', '--help'])))
   if (b && !b.exitCode && bv && atLeast(bv, '1.3.0')) add(['ok', `bd ${bv} (${rev ? 'if-revision supported' : 'no if-revision: read-check-write fallback'})`])
@@ -41,33 +49,35 @@ export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; fact
     const head = b && !b.exitCode && bv ? `bd ${bv} is older than 1.3.0` : `${cfg.store.bin} not found`, where = await out(['sh', '-c', 'command -v "$0"', cfg.store.bin])
     const npm = (await r(['npm', '--version']))?.exitCode === 0, pre = npm ? await out(['npm', 'prefix', '-g']) : '', alt = pre && `${pre}/bin/${cfg.store.bin}`, av = alt && alt !== where ? ver(text(await r([alt, 'version']))) : ''
     const mine = !!where && where.startsWith(`${await h.home()}/`), aside: Act = { label: `moving the old ${cfg.store.bin} aside`, argv: ['mv', where, `${where}.cadre-old`] }   // a stale bd in a folder the user owns: reversible move, never rm, never in a system folder
-    if (where && av && atLeast(av, '1.3.0')) { if (mine) acts.push(aside); add(['crit', `bd ${bv || '?'} at ${where} shadows bd ${av} at ${alt}`, mine ? `! mv ${where} ${where}.cadre-old` : `! sudo rm ${where}  # or put ${pre}/bin first in PATH`], mine) }
+    if (where && av && atLeast(av, '1.3.0')) { if (mine) acts.push(aside); add(['crit', `bd ${bv || '?'} at ${where} shadows bd ${av} at ${alt}`, mine ? `! mv ${where} ${where}.cadre-old` : fix('rm-bd', `removes the old bd at ${where} that shadows bd ${av} at ${alt}. Alternative without sudo: put ${pre}/bin first in PATH.`, `rm ${where}`)], mine) }
     else if (npm) { acts.push({ label: 'installing bd', argv: ['npm', 'install', '-g', '@beads/bd@latest'] }); if (mine && bv && where !== alt) acts.push(aside); add(['crit', head, '! npm install -g @beads/bd@latest'], true) }
     else if ((await r(['curl', '--version']))?.exitCode === 0) { acts.push({ label: 'installing bd', argv: ['sh', '-c', BD_SH] }); add(['crit', head, `! ${BD_SH}`], true) }
-    else { add(['crit', head, 'install Node.js (npm) or curl first']); human.push('! # install Node.js (npm) or curl, then /cadre setup again') }
+    else { add(['crit', head, 'install Node.js (npm) or curl first']); human.push('install Node.js (npm) or curl, then /cadre setup again') }
   }
   if (mac) { facts.jail = 'none'; add(['warn', 'no bwrap on macOS: throwaway-worktree mode, network unenforced']) }
   else {
     const w = await r(['bwrap', '--version']), wv = ver(text(w)); facts.bwrap = wv; facts.jail = await jailMode(h.run)
-    if (!w || w.exitCode) add(['crit', 'bwrap not found: checks run unjailed', `! ${pm} bubblewrap socat`])
+    if (!w || w.exitCode) add(['crit', 'bwrap not found: checks run unjailed', fix('bwrap', 'installs bubblewrap and socat (the Claude sandbox needs them).', `${pm} bubblewrap socat`, !mac)])
     else if (facts.jail === 'none') {
       const apparmor = (await h.readText('/proc/sys/kernel/apparmor_restrict_unprivileged_userns'))?.trim(), clone = (await h.readText('/proc/sys/kernel/unprivileged_userns_clone'))?.trim()
       if (apparmor === '1') {
         const bin = (await out(['sh', '-c', 'command -v bwrap'])) || '/usr/bin/bwrap'
-        add(['warn', `bwrap ${wv} is blocked by AppArmor (kernel.apparmor_restrict_unprivileged_userns=1)`, `! printf 'abi <abi/4.0>,\\ninclude <tunables/global>\\nprofile bwrap ${bin} flags=(unconfined) {\\n  userns,\\n  include if exists <local/bwrap>\\n}\\n' | sudo tee /etc/apparmor.d/bwrap >/dev/null && sudo systemctl reload apparmor`])
-        human.push('! sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0  # quicker alternative; loosens it for every program, Claude Code\'s sandbox included', "! echo 'kernel.apparmor_restrict_unprivileged_userns=0' | sudo tee /etc/sysctl.d/60-userns.conf  # keeps the alternative across reboots")
-      } else if (clone === '0') add(['warn', `bwrap ${wv} cannot create a user namespace (kernel.unprivileged_userns_clone=0)`, '! sudo sysctl -w kernel.unprivileged_userns_clone=1'])
+        add(['warn', `bwrap ${wv} is blocked by AppArmor (kernel.apparmor_restrict_unprivileged_userns=1)`, fix('bwrap-apparmor', `lets only bwrap create user namespaces (AppArmor blocks it: kernel.apparmor_restrict_unprivileged_userns=1). The safest fix.`, `printf 'abi <abi/4.0>,\\ninclude <tunables/global>\\nprofile bwrap ${bin} flags=(unconfined) {\\n  userns,\\n  include if exists <local/bwrap>\\n}\\n' | tee /etc/apparmor.d/bwrap >/dev/null\nsystemctl reload apparmor`)])
+        scripts.push({ path: `${dir}/README`, text: `cadre setup: less safe alternatives to ${shown}/bwrap-apparmor.sh\nThey allow user namespaces for EVERY program (Claude Code's sandbox included). Run as root, one of:\n\n  sysctl -w kernel.apparmor_restrict_unprivileged_userns=0   # until reboot\n  echo 'kernel.apparmor_restrict_unprivileged_userns=0' | tee /etc/sysctl.d/60-userns.conf   # keeps it across reboots\n` })
+        human.push(`less safe options: ${shown}/README`)
+      } else if (clone === '0') add(['warn', `bwrap ${wv} cannot create a user namespace (kernel.unprivileged_userns_clone=0)`, fix('userns-clone', 'allows unprivileged user namespaces (kernel.unprivileged_userns_clone=0 blocks bwrap).', 'sysctl -w kernel.unprivileged_userns_clone=1')])
       else add(['warn', `bwrap ${wv} cannot create a user namespace`, 'see https://code.claude.com/docs/en/sandboxing'])
-    } else add(facts.jail === 'copy' ? ['warn', `bwrap ${wv}: no overlay (needs >= 0.11), checks run in a throwaway copy`, `! ${pm} bubblewrap  # upgrade to >= 0.11`] : ['ok', `bwrap ${wv}: overlay jail`])
+    } else add(facts.jail === 'copy' ? ['warn', `bwrap ${wv}: no overlay (needs >= 0.11), checks run in a throwaway copy`, fix('bwrap-upgrade', 'upgrades bubblewrap to 0.11 or newer (overlay jail).', `${pm} bubblewrap`, !mac)] : ['ok', `bwrap ${wv}: overlay jail`])
     const s = await r(['socat', '-V'])
-    add(!s || s.exitCode ? ['crit', 'socat not found (the Claude sandbox needs it)', `! ${pm} socat`] : ['ok', 'socat present'])
+    add(!s || s.exitCode ? ['crit', 'socat not found (the Claude sandbox needs it)', fix('socat', 'installs socat (the Claude sandbox needs it).', `${pm} socat`, !mac)] : ['ok', 'socat present'])
   }
   const root = await wtRootOf(h, cfg); let p = root   // read-only: the nearest existing ancestor must be writable
   while (p.length > 1 && !(await h.stat(p))) p = p.slice(0, p.lastIndexOf('/')) || '/'
   if ((await r(['test', '-w', p]))?.exitCode === 0) { add(['ok', `${mac ? 'macOS' : 'Linux'}; worktree root ${root} is writable`]); if (p !== root) acts.push({ label: 'creating the worktree folder', argv: ['mkdir', '-p', root] }) }
   else add(['crit', `worktree root ${root} is not writable`, `set worktrees.root in ~/.claude/cadre.json, or fix the permissions of ${p}`])
-  return { rows, facts, acts, human, own }
+  return { rows, facts, acts, human, own, scripts }
 }
+const put = async (h: Host, ss: Script[]) => { for (const s of ss) { await h.write(s.path, s.text).catch(() => {}); if (s.exec) await h.run(['chmod', '700', s.path]).catch(() => {}) } }
 const userPlan = async (h: Host) => mplan(h, await userPath(h), PATCH).catch((e: Error) => e)
 
 // ---- report: one line to the model; the rows go to the pane and ONE summary line to the log (never a multi-line string: the transcript shows it as U+FFFD) ----
@@ -80,9 +90,9 @@ async function report(h: Host, name: string, rows: Row[], text?: string, extra: 
 }
 
 // ---- setup: preflight, plan, one confirm, execute, then (dormant repos only) hand what is left to the main agent ----
-type Plan = { rows: Row[]; facts: Record<string, string>; acts: Act[]; human: string[]; own: Row[]; hash: string }
+type Plan = { rows: Row[]; facts: Record<string, string>; acts: Act[]; human: string[]; own: Row[]; hash: string; scripts: Script[] }
 async function preflight(h: Host, cfg: Config): Promise<Plan> {
-  const m = await machine(h, cfg), p = await userPlan(h), acts = [...m.acts]
+  const m = await machine(h, cfg), p = await userPlan(h), acts = [...m.acts]; await put(h, m.scripts)
   if (p instanceof Error) m.rows.push(['crit', p.message])
   else if (p.lines.length) { acts.push({ label: 'writing user settings', settings: true }); m.rows.push(['warn', `user settings need a change (${p.lines.join('; ')})`]) }
   else m.rows.push(['ok', 'user settings: env CLAUDE_CODE_ENABLE_TODO_TOOLS is set'])
@@ -110,7 +120,7 @@ async function card(h: Host, P: Plan, fixing?: number, ran = false): Promise<voi
   if (!lines.length) return settle(h, `init:${SETUP}`)
   const ok = !!code && fixing === undefined && (P.acts.length || can)
   await ask(h, { id: `init:${SETUP}`, kind: 'init', title: fixing !== undefined ? 'setup · Claude is fixing it' : 'setup · needs you', short: 'setup needs you', lines, hash: fnv1a64(P.hash + lines.join('\n')), tab: 'epic', fallback: '/cadre setup confirm {code}',
-    options: [...(ok ? [{ key: 'a', label: 'Fix all', verb: 'approve', run: 'setup confirm {code}' }] : []), { key: 'r', label: 'Re-check', verb: 'change', run: 'setup' }, { key: 'x', label: 'Cancel', verb: 'reject', run: 'setup cancel' }] }, code)
+    options: [...(ok ? [{ key: 'a', label: 'Fix all', verb: 'approve', run: 'setup confirm {code}' }] : []), ...(h.ops?.copy && P.human.some(x => x.startsWith('! ')) ? [{ key: 'y', label: 'Copy command', verb: 'change', run: 'setup copy' }] : []), { key: 'r', label: 'Re-check', verb: 'change', run: 'setup' }, { key: 'x', label: 'Cancel', verb: 'reject', run: 'setup cancel' }] }, code)
 }
 type Failed = { label: string; argv: string[]; out: string[] }
 // the plan's actions in order; the first failure stops the run (its last output lines are the evidence)
@@ -151,6 +161,7 @@ export async function afterFix(h: Host, e: { turnId?: string } = {}): Promise<vo
 export async function setup(h: Host, args: string[]): Promise<string> {
   const cfg = await cfgOf(h), path = await userPath(h)
   let P = await preflight(h, cfg), note = '', fixed = 0, ran = false, fixing: number | undefined, stopped = ''
+  if (args[0] === 'copy') { const x = P.human.find(l => l.startsWith('! ')); return x && (await h.ops?.copy?.(x.slice(2)))?.isCopied ? 'copied' : 'not copied: select the line in the card' }
   if (args[0] === 'confirm') {
     const was = ((await h.ui.read())['setup.pending'] as string | undefined), good = await initConfirm(h, SETUP, args[1] ?? '')   // burns on every attempt
     if (!good) return 'setup: wrong code or nothing pending (burned); run /cadre setup again'
@@ -210,5 +221,6 @@ async function project(h: Host, cfg: Config): Promise<Row[]> {
 }
 export async function doctor(h: Host): Promise<string> {
   const cfg = await cfgOf(h)
-  return report(h, 'doctor', [...(await machine(h, cfg)).rows, ...(await project(h, cfg))])
+  const m = await machine(h, cfg); await put(h, m.scripts)   // only the harmless fix scripts, so the lines doctor shows exist
+  return report(h, 'doctor', [...m.rows, ...(await project(h, cfg))])
 }

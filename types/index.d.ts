@@ -119,6 +119,7 @@ export interface UiOps {
   status(t: string | undefined): void
   peek(): Promise<string>                            // composer draft ($.prompt.read)
   fill(text: string): Promise<{ isFilled: boolean }> // $.prompt.fill replace
+  copy?(text: string): Promise<{ isCopied: boolean }> // $.ui.copy (the session's first surface)
   after(ms: number, fn: () => unknown): void         // $.clock.after
   invalidate(): void                                 // $.ui.invalidate('ui.render')
   blit(a: { requestId: string; key: string; cells: string }): Promise<unknown>

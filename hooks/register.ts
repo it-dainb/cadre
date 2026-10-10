@@ -86,7 +86,7 @@ function host($): Host {
       els: e => $.ui.resolve(e), open: a => $.ui.open(a), focused: async () => (await $.ui.panes()).some(p => p.id === 'cadre' && p.isFocused),
       toast: (t, o) => { void $.ui.toast(t, o) }, status: t => { void $.ui.status(t) }, invalidate: () => { void $.ui.invalidate('ui.render') }, blit: a => $.ui.blit(a),
       notify: async (t, o) => { try { return { isSent: !!(await $.ui.notify(t, o)).isSent } } catch { return { isSent: false } } },
-      peek: async () => (await $.prompt.read()).text, fill: async t => ({ isFilled: !!(await $.prompt.fill({ text: t, mode: 'replace' })).isFilled }),
+      peek: async () => (await $.prompt.read()).text, fill: async t => ({ isFilled: !!(await $.prompt.fill({ text: t, mode: 'replace' })).isFilled }), copy: async t => ({ isCopied: !!(await $.ui.copy({ text: t })).isCopied }),
       after: (ms, fn) => { void $.clock.after(ms, () => { void Promise.resolve(fn()).catch(() => {}) }) },
     },
   }
