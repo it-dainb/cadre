@@ -67,6 +67,17 @@ function host($): Host {
     stat: async (p, o) => { try { return await $.fs.stat(p, { resolve: !!o?.resolve }) } catch { return undefined } },
     run: (argv, init) => $.process.run(argv, init),
     settings: () => $.settings.read(),
+    spawn: async a => {   // adapter protocol (SA-09): one request, stdin closed after `input`; leaving the loop kills the child
+      const it = $.process.spawn({ argv: [...a.argv], input: a.input })[Symbol.asyncIterator](), dead = new Promise<'t'>(r => { void $.clock.after(a.timeoutMs ?? 30_000, () => r('t')) })
+      let stdout = '', stderr = ''
+      try {
+        for (;;) {
+          const r: any = await Promise.race([it.next(), dead]); if (r === 't') throw new Error('timeout')
+          if (r.done) return { exitCode: r.value?.code ?? null, stdout, stderr }
+          if (r.value.stream === 'stderr') stderr += r.value.text; else stdout += r.value.text
+        }
+      } finally { void it.return?.(undefined) }
+    },
     write: async (p, t) => { await $.fs.write(p, t) },
     cwd: () => $.session.cwd(), home: async () => String((await $.env.get('HOME')) ?? ''),
     ops: {   // ui/ side effects; a press's own work and every timer run through after()
