@@ -96,9 +96,10 @@ function host($): Host {
 
 // Fail-closed handlers (G1, G2). On re-entry every $ rejects, so decide from the event alone.
 const FAIL = 'cadre: guard failed; refused'
-function denyCall($, e, next) { return next.error?.kind === 're-entry' ? (judge(e) ? { deny: judge(e) } : next(e)) : next.called ? next(e) : { deny: FAIL } }
-function denySpawn($, e, next) { return next.error?.kind === 're-entry' ? next(e) : next.called ? next(e) : { deny: FAIL } }
-function denyCheck($, e, next) { return next.error?.kind === 're-entry' || !next.called ? { decision: 'deny', reason: FAIL } : next(e) }
+const why = ($, next) => { if (next.error && next.error.kind !== 're-entry') void $.ui.log(`cadre: hook failed: ${next.error.kind}: ${next.error.message}`); return FAIL }   // the engine redacts the error in its own log: keep the reason in ours
+function denyCall($, e, next) { return next.error?.kind === 're-entry' ? (judge(e) ? { deny: judge(e) } : next(e)) : next.called ? next(e) : { deny: why($, next) } }
+function denySpawn($, e, next) { return next.error?.kind === 're-entry' ? next(e) : next.called ? next(e) : { deny: why($, next) } }
+function denyCheck($, e, next) { return next.error?.kind === 're-entry' || !next.called ? { decision: 'deny', reason: why($, next) } : next(e) }
 // prompt.submit / session.compact only add context or a summary: on failure fall back to the engine's own (deliberate fail-open). /cadre never acts on failure.
 function passOn($, e, next) { return next(e) }
 function denyCmd($, e, next) { return next.called ? next(e) : { text: FAIL } }
