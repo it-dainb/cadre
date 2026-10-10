@@ -1,0 +1,33 @@
+// Pinned envelope defaults + sample data per event type (DESIGN 2.5). Changing a row needs an ADR note (6.7).
+import type { Actor, EventType, Severity } from '../../../types'
+
+export const GOLDEN: Record<EventType, { actor: Actor; severity: Severity; needsHuman: boolean; keys: string[] }> = {
+  'task.transitioned': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['taskId', 'from', 'to'] },
+  'task.phase_changed': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['taskId', 'from', 'to'] },
+  'task.skipped': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['taskId', 'on'] },
+  'agent.bound': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['agentId', 'taskId', 'role'] },
+  'agent.unbound': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['agentId', 'reason'] },
+  'check.ran': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['taskId', 'name', 'ok'] },
+  'flag.raised': { actor: 'mod', severity: 'warn', needsHuman: true, keys: ['taskId', 'flag'] },
+  'flag.resolved': { actor: 'human', severity: 'info', needsHuman: false, keys: ['taskId', 'flag'] },
+  'approval.pending': { actor: 'mod', severity: 'info', needsHuman: true, keys: ['planId', 'missing'] },
+  'sync.state_changed': { actor: 'sync', severity: 'info', needsHuman: false, keys: ['target', 'state', 'at'] },
+  'drive.status': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['state'] },
+  'cost.updated': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['tokens'] },
+  'init.stage': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['stage', 'state'] },
+}
+export const SAMPLE: Record<EventType, Record<string, unknown>> = {
+  'task.transitioned': { taskId: 't1', from: 'todo', to: 'active' },
+  'task.phase_changed': { taskId: 't1', from: 'tester', to: 'red' },
+  'task.skipped': { taskId: 't1', on: 't0' },
+  'agent.bound': { agentId: 'ag1', taskId: 't1', role: 'worker' },
+  'agent.unbound': { agentId: 'ag1', reason: 'answer' },
+  'check.ran': { taskId: 't1', name: 'test', ok: true, exit: 0 },
+  'flag.raised': { taskId: 't1', flag: 'drift:pm:status' },
+  'flag.resolved': { taskId: 't1', flag: 'drift:pm:status', how: 'keep' },
+  'approval.pending': { planId: 'p3', missing: ['scenarios'] },
+  'sync.state_changed': { target: 'pm', state: 'offline', at: 5 },
+  'drive.status': { state: 'armed' },
+  'cost.updated': { tokens: 1200 },
+  'init.stage': { stage: 1, state: 'proposed' },
+}

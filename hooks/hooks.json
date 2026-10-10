@@ -1,0 +1,1 @@
+{ "description": "cadre: one hooks module, registrations in design order (DESIGN 2.2)", "modules": ["./register.ts"] }
