@@ -78,5 +78,5 @@ export function nextAction(s: Omit<Snapshot, 'seq' | 'cost'>): string {
   a.push(...ts.filter(t => t.state === 'blocked').map(t => `ask the human about ${t.id}`))
   a.push(...ts.filter(t => t.state === 'review' && t.step === 'reviewer' && !t.owner).map(t => `spawn TASK-${t.id} (reviewer)`))
   const r = ts.find(t => isReady(t, ts)); if (r) a.push(`spawn TASK-${r.id}`)   // one per turn; the ready list on the line says the rest
-  return a.length ? a.join('; ') : ts.length && ts.every(closed) ? 'complete the epic' : 'wait'
+  return a.length ? a.join('; ') : ts.length && ts.every(closed) ? `complete the epic: TaskUpdate ${s.plan?.id} completed` : 'wait'
 }

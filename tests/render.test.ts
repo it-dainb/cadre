@@ -23,7 +23,7 @@ describe('main context line (DESIGN 4.5)', () => {
   test('no plan → empty line; all closed → complete the epic; nothing actionable → wait', () => {
     expect(contextLine(modelView(emptySnapshot('r')))).toBe('')
     const done = { ...snap(), tasks: [task('a1', { state: 'done' })] }
-    expect(nextAction(modelView(done))).toBe('complete the epic'); expect(nextAction(modelView({ ...snap(), tasks: [task('a2', { state: 'active', step: 'worker', owner: 'x' })] }))).toBe('wait')
+    expect(nextAction(modelView(done))).toBe('complete the epic: TaskUpdate p3 completed'); expect(nextAction(modelView({ ...snap(), tasks: [task('a2', { state: 'active', step: 'worker', owner: 'x' })] }))).toBe('wait')
   })
   test('conditional-blocks: ready only when the upstream failed (cancelled)', () => {
     const mk = (up: 'done' | 'cancelled') => ({ ...snap(), tasks: [task('u', { state: up }), task('f', { deps: [{ id: 'u', type: 'conditional-blocks' }] })] })
