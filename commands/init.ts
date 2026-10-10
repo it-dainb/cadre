@@ -233,9 +233,12 @@ async function setState(c: Ctx, n: number, state: 'pending' | 'proposed' | 'done
 const saver = (c: Ctx): Save => async (path, text) => { const old = await c.h.readText(path); if (old === text) return; if (old !== null) await c.h.write(`${path}.bak`, old); await c.h.write(path, text) }
 async function reread(c: Ctx, targets: string[]) { return Object.fromEntries(await Promise.all(targets.map(async t => [t, await c.h.readText(t)]))) }
 
+// A stage that returns text instead of a diff, or fails, is `pending` while main owes it a request (mission, discovery: the consumers in briefs/admission/tools look for pending), else `proposed`.
+const waiting = async (c: Ctx) => ((await c.h.ui.read()).initRequest ? 'pending' as const : 'proposed' as const)
+
 // Show the diff and arm a fresh nonce-salted code (never printed: the human reads it from the band). A diff-less plan applies at once.
 async function show(c: Ctx, st: Stage): Promise<string> {
-  const p = await st.propose(c); if (typeof p === 'string') { await setState(c, st.n, 'proposed'); return p }
+  const p = await st.propose(c); if (typeof p === 'string') { await setState(c, st.n, await waiting(c)); return p }
   const save = saver(c)
   if (!p.lines.length) return finish(c, st, await p.apply(save))
   const text = `init ${st.n} ${st.name}: proposed changes\n${p.lines.join('\n')}`
@@ -246,7 +249,7 @@ async function show(c: Ctx, st: Stage): Promise<string> {
   return `${text}\n\nConfirm with the code shown in the cadre band: /cadre init confirm <code>`
 }
 async function finish(c: Ctx, st: Stage, r: { ok: boolean; text: string }): Promise<string> {
-  await setState(c, st.n, r.ok ? 'done' : 'proposed')
+  await setState(c, st.n, r.ok ? 'done' : await waiting(c))
   const next = r.ok ? STAGES.find(s => s.n > st.n) : undefined
   return `init ${st.n} ${st.name}: ${r.text}${next ? `\nnext: /cadre init (stage ${next.n} ${next.name})` : ''}`
 }

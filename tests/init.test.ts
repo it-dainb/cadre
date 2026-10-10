@@ -148,6 +148,7 @@ describe('stage 4 discovery', () => {
     const s = store(); const bare = mk({ branches: [] }); expect(await run(bare.h, ['4'])).toContain('run stages 1 and 2 first'); void s
     const { h, s: st } = ready(); await st.init({ types: {} as any, journal: true })
     expect(await run(h, ['4'])).toContain('discovery requested'); expect((await h.ui.read()).initRequest).toBe('discovery')
+    expect((await h.board.read()).init).toEqual([{ stage: 4, state: 'pending' }])   // briefs, admission and tools open the explorer's report on this (live: 'no discovery request is open')
   })
   test('malformed report refused with an example; sequence: diff 2 (caches, knownRed, fetches warning) -> validate in jail -> save only validated', async () => {
     const { h, s, files, calls, code } = ready(); await s.init({ types: {} as any, journal: true })
