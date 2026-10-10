@@ -82,6 +82,7 @@ export async function nudge(h: Host): Promise<void> {
 // ---- doctor: machine rows + project rows; no writes ----
 async function project(h: Host, cfg: Config): Promise<Row[]> {
   const root = await h.cwd(), rows: Row[] = [], safe = async <T>(f: () => Promise<T>, d: T) => f().catch(() => d)
+  if (!(await h.secret.read()).active && !(await h.readText(`${root}/.cadre/config.json`))) return [['warn', 'project: cadre off here (no .cadre/config.json)', '/cadre init']]
   if (!(await gitOk(h.run, root, ['rev-parse', '--git-dir']))) return [['crit', 'not inside a git repo', '/cadre init 1']]
   const miss = (await progress(h)).filter(s => !s.done)
   rows.push(miss.length ? ['warn', `init stages incomplete: ${miss.map(s => `${s.n} ${s.name}`).join(', ')}`, '/cadre init'] : ['ok', 'init stages complete'])

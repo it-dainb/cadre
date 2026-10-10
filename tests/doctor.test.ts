@@ -90,6 +90,10 @@ describe('doctor', () => {
     expect(h.calls.filter(a => a[0] === 'git' && !/rev-parse|for-each-ref|--version/.test(a.join(' ')))).toEqual([])
     expect(h.logs.join('\n')).toContain('not inside a git repo')
   })
+  test('a dormant repo: one warn row for the project, no other project rows', async () => {
+    const h = mk({ repo: true }); await h.secret.update(x => ({ ...x, active: false })); await doctor(h)
+    expect(h.logs.join('\n')).toContain('project: cadre off here'); expect(h.logs.join('\n')).not.toContain('init stages')
+  })
   test('inside a repo: init stages, containment, beads and branch rows each carry their fix', async () => {
     const h = mk({ repo: true }); await doctor(h); const log = h.logs.join('\n')
     for (const f of ['fix: /cadre init\n', 'fix: /cadre init containment', 'fix: /cadre init store', 'fix: /cadre init repo']) expect(log).toContain(f)
