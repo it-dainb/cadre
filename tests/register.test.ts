@@ -4,7 +4,7 @@ const START = { surface: 'terminal', isInteractive: true, cwd: '/work' } as cons
 
 test('session.start: no $.agent.register (agents are plugin files, A28), /cadre (immediate), env flags, policy written, one 5 s tick', async ($, on) => {
   const agents: any[] = [], commands: any[] = [], env: string[] = []
-  on('session.start', () => ({ cwd: '/work' }))
+  on('session.start', () => ({ cwd: '/work' })); on('session.cwd', () => ({ value: '/work' }))
   on('agent.register', ($, e) => { agents.push(e); return { value: undefined } })
   on('command.register', ($, e) => { commands.push(e); return { value: undefined } })
   on('env.set', ($, e) => { env.push(`${e.name}=${e.value}`); return { value: undefined } })
