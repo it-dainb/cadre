@@ -132,6 +132,7 @@ export async function testerDone(h: Host, d: Deps, task: Task, wt: string, view:
   await setLocks(h, task.id, locked.map(p => `${wt}/${p}`))
   await d.store.setMeta(task.id, { 'cadre.specCommit': spec, 'cadre.red': card, 'cadre.specTests': JSON.stringify(g.tests ?? []), 'cadre.locked': JSON.stringify(locked), ...(steps.includes('worker') ? {} : { 'cadre.sourceCommit': spec }) }, d.actor)
   for (let i = 0; i < (hasRed ? 2 : 1); i++) await apply(h, { kind: 'advance', id: task.id, at: await h.now(), actor: 'mod' }, pipe)   // tester -> red -> worker
+  const nx = (await h.board.read()).tasks.find(x => x.id === task.id)?.step; if (nx) await d.store.setMeta(task.id, { 'cadre.step': nx }, d.actor)   // beads keeps the step: a /clear rebuilds the board from it (a worker's report was refused 'active·tester')
   return { ...g, card }
 }
 

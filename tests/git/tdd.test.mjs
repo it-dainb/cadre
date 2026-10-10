@@ -96,6 +96,7 @@ test('copy-in by path only, red passes on <failure>, specCommit + lock + advance
   assert.equal(sh(wt, 'log', '-1', '--format=%s'), 'wip(m-1): spec tests'); assert.equal(w.meta['cadre.specCommit'], sh(wt, 'rev-parse', 'HEAD'))
   assert.deepEqual(JSON.parse(w.meta['cadre.locked']), ['test/s.json']); assert.deepEqual((await policyOf(w.h)).locks['m-1'], [`${wt}/test/s.json`])
   assert.equal((await w.h.board.read()).tasks[0].step, 'worker')   // tester -> red -> worker
+  assert.equal(w.meta['cadre.step'], 'worker')   // persisted in beads too: the board is rebuilt from it after /clear
   // close: M/D/R of a locked file since specCommit is refused, an add is not
   const spec = w.meta['cadre.specCommit']; writeFileSync(join(wt, 'src/extra.ts'), 'x'); writeFileSync(join(wt, 'test/s.json'), tc('login ok', 'passed')); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'w')
   assert.deepEqual(await T.lockedViolations(run, wt, spec, ['test/s.json']), ['test/s.json']); assert.deepEqual(await T.lockedViolations(run, wt, spec, ['src/extra.ts']), [])
