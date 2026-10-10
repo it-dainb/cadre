@@ -23,15 +23,18 @@ export const commitMessage = (c: Commit): string => {
 export interface Card { id: string; title: string; role: string; to: string; green?: { ok: boolean; check: string; secs: number }; files?: number; add?: number; del?: number; commit?: string; usd?: number; cachePct?: number; flags?: string[]; next: string }
 // an agent that stopped without calling report: the mod resumes it right after its stop (core/reuse drain, live: ~2 s), so main must not spawn it again and must not end the turn (a headless run would end with it)
 export const noReportCard = (t: { id: string; title: string; flags?: string[] }, role: string, step: string): string =>
-  card({ id: t.id, title: t.title, role, to: step, flags: t.flags, next: `wait: the ${role} stopped without reporting and the mod is resuming it to report. Do not spawn it again; call TaskList until ${t.id} leaves ${step}` })
+  card({ id: t.id, title: t.title, role, to: step, flags: t.flags, next: `wait: the ${role} is finishing its report. Do not spawn it again; call TaskList until ${t.id} leaves ${step}` })
 export const card = (c: Card): string => [
   `TASK ${c.id} "${c.title}"`, `${c.role} → ${c.to}`,
   c.green && `green ${c.green.ok ? '✓' : '✗'} (${c.green.check} ${c.green.secs}s)`,
   c.files !== undefined && `files ${c.files} (+${c.add ?? 0} −${c.del ?? 0})`,
   c.commit && `commit ${c.commit.slice(0, 7)}`,
   c.usd !== undefined && `$${c.usd.toFixed(2)}${c.cachePct !== undefined ? ` (cache ${c.cachePct}%)` : ''}`,
-  `flags: ${c.flags?.length ? c.flags.join(',') : 'none'}`, `next: ${c.next}`,
+  `flags: ${c.flags?.length ? c.flags.map(flagName).join(',') : 'none'}`, `next: ${c.next}`,
 ].filter(Boolean).join(' · ').slice(0, 600)
+
+// flag names as the model reads them (an internal word becomes a task word)
+export const flagName = (f: string): string => f.replace(/^quarantine/, 'stray-edit')
 
 // state as a subject prefix: `[review✓] title`
 export const tag = (t: Pick<SnapTask, 'state' | 'step'>): string => (t.state === 'review' && t.step === 'merge' ? 'review✓' : t.state)
@@ -47,9 +50,9 @@ export function taskText(t: Task, st?: SnapTask): string {
   }
   const cl = t.meta['cadre.changelog'] && JSON.parse(t.meta['cadre.changelog'])
   if (cl) out.push(cl.none ? `Changelog: none (${cl.reason})` : `Changelog: ${cl.category}: ${cl.entry}`)
-  const bits = [`type ${t.type}`, t.meta['cadre.package'] && `package ${t.meta['cadre.package']}`, t.meta['cadre.scope'] && `scope ${t.meta['cadre.scope']}`, t.meta['cadre.breaking'] === 'true' && 'breaking', st?.step && `step ${st.step}`, st?.owner && `owner ${st.owner}`, st?.flags.length && `flags ${st.flags.join(',')}`].filter(Boolean)
+  const bits = [`type ${t.type}`, t.meta['cadre.package'] && `package ${t.meta['cadre.package']}`, t.meta['cadre.scope'] && `scope ${t.meta['cadre.scope']}`, t.meta['cadre.breaking'] === 'true' && 'breaking', st?.step && `step ${st.step}`, st?.owner && `owner ${st.owner}`, st?.flags.length && `flags ${st.flags.map(flagName).join(',')}`].filter(Boolean)
   out.push(bits.join(' · '))
-  for (const [k, v] of Object.entries(t.meta).sort(([a], [b]) => (a < b ? -1 : 1))) if (k.startsWith('cadre.rec.')) out.push(`[${k.slice(10)}] ${v}`)
+  for (const [k, v] of Object.entries(t.meta).sort(([a], [b]) => (a < b ? -1 : 1))) if (k.startsWith('cadre.rec.')) out.push(`[${k.slice(10)}] ${v.replace(/^\[cadre:[^\]]*\] \S+ @\d+ by \S+\n?/, '')}`)
   return out.filter(Boolean).join('\n')
 }
 

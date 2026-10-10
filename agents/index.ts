@@ -14,10 +14,10 @@ export const TOOLS: Record<Role, readonly string[]> = {
 export const MAIN_TOOLS: readonly string[] = ['Read', 'LSP', 'WebFetch', 'WebSearch', 'ToolSearch', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet',
   'Agent', 'AskUserQuestion', 'SendMessage', 'Skill', 'Edit', 'Write', 'NotebookEdit', I]
 const DESC: Record<Role, string> = {
-  worker: 'cadre-internal: implements one approved task in its worktree',
-  tester: 'cadre-internal: writes black-box tests for one task in its spec view',
-  reviewer: 'cadre-internal: reviews one task commit against its scenarios',
-  explorer: 'cadre-internal: read-only recon, discovery and spikes',
+  worker: 'implements one approved task in its own folder',
+  tester: 'writes black-box tests for one task from its scenarios',
+  reviewer: 'reviews one task commit against its scenarios',
+  explorer: 'read-only recon, discovery and spikes',
 }
 // allowlist for a role: its tools, plus the user's mcpAllow for the worker (SA: user-level S key)
 export const allowlist = (role: Role, mcpAllow: readonly string[] = []): string[] => [...TOOLS[role], ...(role === 'worker' ? mcpAllow : [])]

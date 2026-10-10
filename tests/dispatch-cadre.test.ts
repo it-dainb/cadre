@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
+import { scoped } from '../commands/init'
 import { run } from '../commands/cadre'
 import { ROUTES } from '../core/dispatch'
 import { plan, world } from './fixtures/native/world'
@@ -57,7 +58,7 @@ describe('/cadre <sub> (DESIGN 5.3)', () => {
     const w = await world(); const ran: string[][] = []
     ;(w.h as any).run = async (argv: string[]) => { ran.push(argv); return { exitCode: 0, stdout: argv.includes('list') ? 'stash@{0} On main: cadre-q-a1-5\nstash@{1} On main: other\n' : '', stderr: '' } }
     expect((await cmd(w, 'restore')).text).toContain('no quarantined entry')
-    await w.h.store.set('quarantine', [{ name: 'cadre-q-a1-5', tree: '/wt/a1', paths: ['x.ts'], ts: 5 }])
+    await w.h.store.set(await scoped(w.h, 'quarantine'), [{ name: 'cadre-q-a1-5', tree: '/wt/a1', paths: ['x.ts'], ts: 5 }])
     expect((await cmd(w, 'restore cadre-q-a1-5')).text).toContain('Restored 1 path')
     expect(ran.some(a => a.join(' ') === 'git -C /wt/a1 stash apply stash@{0}')).toBe(true)
     expect((await cmd(w, 'restore x', { kind: 'bridge' })).text).toContain('origin bridge is not human')
@@ -70,7 +71,8 @@ describe('/cadre <sub> (DESIGN 5.3)', () => {
   })
   test('config show prints the resolved config; adapter token needs the human and toasts the token', async () => {
     const w = await world()
-    expect(JSON.parse((await cmd(w, 'config')).text.slice(0, 2000).split('\n')[0] + '}').strictness ?? 'strict').toBe('strict')
+    const txt = (await cmd(w, 'config')).text; expect(txt).toContain('config'); expect(txt).not.toContain('{'); expect(txt.length).toBeLessThan(2000)   // L12: text lines, not a JSON dump
+    expect((await cmd(w, 'config show strictness')).text).toMatch(/strictness = "/)
     expect((await cmd(w, 'adapter token', { kind: 'bridge' })).text).toBe('refused: origin bridge is not human')
     expect((await cmd(w, 'adapter token')).text).toContain('toast only'); expect(w.h.toasts[0]).toMatch(/^cadre session token: /)
   })

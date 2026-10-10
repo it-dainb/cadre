@@ -136,6 +136,8 @@ test('green: spec tests must be passed (skipped != passed); knownRed runs but ne
   g = await T.green(w.h, w.d, await mkTask(w), wt); assert.equal(g.ok, false)   // skipped: verify fails and, were it exit 0, the spec test still is not passed
   writeFileSync(join(wt, 'test/s.json'), tc('login ok', 'passed'))
   g = await T.green(w.h, w.d, await mkTask(w), wt); assert.ok(g.ok, g.why); assert.match(g.card, /knownRed knownbad=1/)   // knownRed exit 1 does not gate
+  const ran = Object.values((await w.h.events.read()).epics).flat().filter(x => x.type === 'check.ran')   // UI log: phase / failing / secs
+  assert.ok(ran.some(x => x.data.phase === 'red' && x.data.ok === true && x.data.failing === 1 && typeof x.data.secs === 'number'), JSON.stringify(ran)); assert.ok(ran.some(x => x.data.phase === 'green' && x.data.ok === true))
   // a spec test absent from the report is not passed either
   const w2 = world({ pkg: { verify: ['v2'], checks: { test: ['node', 'run.mjs'], v2: ['true'] }, tdd: { check: 'test', paths: ['test/**'], report: '/tmp/cadre/r.xml' } } }); const t2 = await tester(w2, { 'test/s.json': tc('login ok', 'failure') }, ['login ok'])
   const g2 = await T.green(w2.h, w2.d, await mkTask(w2), t2.wt); assert.equal(g2.ok, false); assert.match(g2.why, /spec test\(s\) not passed: s\.login ok/)

@@ -16,3 +16,6 @@ Bindings are unreadable on re-entry (all `$` reject), so `judge` refuses any age
 
 ## 4. Strictness is read from the resolved config
 `config/index.strictOf` (userConfig, `~/.claude/cadre.json`, repo, env) replaces direct `CADRE_STRICTNESS`/userConfig reads. Finding: review-code M10.
+
+## 5. Need-to-know wording (round 2)
+Every model-visible text (agent prompts/files, briefs, plan rules, cards incl. the wait card, deny/refusal reasons, Task* answers, tool results, the drive prompt) uses task language and ends in a next action. No "mod", "hook", "harness", "fence", "sandbox", "L1-L3", "quarantine", "cadre:" prefix or view/worktree paths; internal flag `quarantine*` is shown as `stray-edit*` (`render.flagName`). "/cadre <sub>" stays only where main tells the human a command. Human surfaces (toast, band, log, status line, `/cadre` output) are unchanged. `tests/wording.test.ts` + `tests/fixtures/wording.ts` lint renders and deny sites.

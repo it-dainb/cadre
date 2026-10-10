@@ -64,3 +64,10 @@ describe('ring + bus', () => {
     expect(ofEpic(await h.events.read(), 'e2')[0].at).toBe(5)
   })
 })
+
+describe('fx-data: optional data keys (UI-DESIGN log)', () => {
+  test('check.ran {phase, failing, secs}, sync.state_changed {pending, conflicts}, task.transitioned {cites} are declared optional', async () => {
+    expect(TABLE['check.ran'][4]).toEqual(expect.arrayContaining(['phase', 'failing', 'secs'])); expect(TABLE['sync.state_changed'][4]).toEqual(['pending', 'conflicts']); expect(TABLE['task.transitioned'][4]).toEqual(['cites'])
+    expect(TABLE['check.ran'][3]).toEqual(['taskId', 'name', 'ok'])   // optional never becomes required
+  })
+})

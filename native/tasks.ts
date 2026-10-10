@@ -14,7 +14,7 @@ import { subject, taskText } from '../core/render'
 
 // Plan rules (DESIGN 3.1): ≤1.5 KB, byte-stable for one registry. Carried once per plan, in the first answer's `context`.
 export const planRules = (reg: TypeRegistry): string => [
-  'cadre plan rules (v1)',
+  'Plan rules (v1)',
   '- Start a plan with TaskCreate metadata {"kind":"plan"}; every later TaskCreate is a task of that plan. Order tasks with TaskUpdate addBlockedBy.',
   '- Task metadata: type, scope?, breaking?, package, scenarios ["S1: Given <state> When <action> Then <outcome>"], changelog {"category":"Added","entry":"…"} or {"none":true,"reason":"…"}, interface {"symbols":[{"name","kind","params":[…],"returns","status":"new|changed|unchanged"}]} or {"none":true,"reason":"…"}.',
   `- Types and pipelines: ${Object.entries(reg).map(([t, s]) => `${t} ${s.pipeline.join('>')}`).join('; ')}.`,
@@ -55,7 +55,7 @@ async function create(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
   await clearRetries(h, key)
   const s = await h.board.read()
   if (m.kind) {
-    if (s.plan && !['done-on-dev', 'released'].includes(s.plan.state)) return { deny: `plan ${s.plan.id} is still ${s.plan.state}: approve or reject it first` }
+    if (s.plan && !['done-on-dev', 'released'].includes(s.plan.state)) return { deny: `plan ${s.plan.id} is still ${s.plan.state}: ask the human to approve or reject it first` }
     const prefix = (await cfgOf(h)).branches.epicPrefix, id = await store.createEpic(e.subject, e.description), mission = m.kind === 'mission', name = mission ? 'mission' : slug(e.subject)
     if (mission) await store.setMeta(id, { 'cadre.kind': 'mission' }, 'main')
     await h.board.update(b => ({ ...b, epic: id, tasks: [], plan: { id, slug: name, state: 'draft', epicBranch: mission ? '' : epicBranch(prefix, id, e.subject) }, approval: { planId: id, missing: [] } }))
@@ -63,7 +63,7 @@ async function create(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
     return withCtx({ task: { id, subject: e.subject } }, mission ? '' : planRules(reg), missingLine(missing))
   }
   if (!s.epic || !s.plan) return { deny: 'no plan yet: first TaskCreate with metadata {"kind":"plan"}' }
-  if (s.plan.slug === 'mission') return { deny: 'a mission draft takes no tasks' }
+  if (s.plan.slug === 'mission') return { deny: 'a mission draft takes no tasks; once it is approved, start a plan' }
   const f = fieldsOf(m)
   const t = await store.createDraft({ title: e.subject, description: e.description, acceptance: f.patch.acceptance, design: f.patch.design, type: m.type ?? 'feature', parent: s.epic, meta: f.meta })
   return withCtx({ task: { id: t.id, subject: e.subject } }, missingLine(await touched(h, store, reg)))
@@ -76,10 +76,10 @@ async function update(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
   if (!str(id)) return out(false, [], 'taskId: expected a task id string')
   if (await capped(h, id)) return out(false, [], await refuse(h, id, 'update refused'))
   let t: Task; try { t = await store.get(id) } catch (x) { return out(false, [], x instanceof StoreError && x.code === 'NotFound' ? `no task ${id}` : fail(x)) }
-  if (e.owner !== undefined) return out(false, [], 'owner is assigned by cadre when it spawns the agent')
-  if (e.status === 'in_progress') return out(false, [], 'in_progress is set by cadre when the task is claimed')
+  if (e.owner !== undefined) return out(false, [], 'owner is set when the task\'s agent is spawned')
+  if (e.status === 'in_progress') return out(false, [], 'in_progress is set when the task\'s agent is spawned')
   if (typeof m !== 'object' || !m || Array.isArray(m)) return out(false, [], 'metadata: expected an object')
-  if (Object.keys(m).some(k => k.startsWith('cadre'))) return out(false, [], 'metadata.cadre*: set by cadre only')
+  if (Object.keys(m).some(k => k.startsWith('cadre'))) return out(false, [], 'metadata.cadre*: reserved; omit it')
   const s = await h.board.read(), draft = t.category === 'draft', isEpic = id === s.epic
   const life = e.status === 'completed' || e.status === 'pending' || e.status === 'deleted' ? e.status : m.decision !== undefined ? 'decision' : null
   if (life) {   // lifecycle
@@ -133,13 +133,13 @@ async function get(h: Host, store: TaskStore, e: any) {
 export const answer: Hook = async (h, e, next) => {
   if (e.agentId || !['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet'].includes(e.tool)) return next(e)
   let store: TaskStore, reg: TypeRegistry
-  try { store = await storeOf(h); reg = await registryOf(h) } catch (x) { return { deny: `cadre: task store unavailable (${fail(x)})` } }
-  try { return e.tool === 'TaskCreate' ? await create(h, store, reg, e) : e.tool === 'TaskUpdate' ? await update(h, store, reg, e) : e.tool === 'TaskList' ? await list(h) : await get(h, store, e) } catch (x) { return { deny: `cadre: ${e.tool} failed (${fail(x)})` } }
+  try { store = await storeOf(h); reg = await registryOf(h) } catch (x) { return { deny: `task board unavailable (${fail(x)}); retry, or ask the human` } }
+  try { return e.tool === 'TaskCreate' ? await create(h, store, reg, e) : e.tool === 'TaskUpdate' ? await update(h, store, reg, e) : e.tool === 'TaskList' ? await list(h) : await get(h, store, e) } catch (x) { return { deny: `${e.tool} failed (${fail(x)}); retry, or ask the human` } }
 }
 
 // tool.describe: isDeferred:false (TP-16) and tightened descriptions (TP-15). Byte-stable: no dates, ids or counters.
 export const DESC: Record<string, string> = {
-  TaskCreate: 'Create a cadre draft. Start a plan with metadata {"kind":"plan"}; later calls add tasks to it. Task fields go in metadata: type, package, scenarios, changelog, interface. The human approves the plan.',
+  TaskCreate: 'Create a draft. Start a plan with metadata {"kind":"plan"}; later calls add tasks to it. Task fields go in metadata: type, package, scenarios, changelog, interface. The human approves the plan.',
   TaskUpdate: 'Update a draft: subject, description, metadata fields, addBlockedBy/addBlocks. Approved tasks are frozen unless metadata.amend is true. Never set owner or in_progress.',
   TaskList: 'List the current plan\'s tasks; the subject is prefixed with the task state, e.g. [review✓].',
   TaskGet: 'Get one task with its scenarios, contract, changelog entry and records.',

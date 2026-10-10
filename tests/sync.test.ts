@@ -5,6 +5,8 @@ import { fakeHost, task } from './support'
 import { BdStore } from '../task-management/adapters/beads/store'
 import { EVENTS_TAIL } from './fixtures/bd/events-tail'
 import { apply } from '../core/machine'
+import { setState, syncAdd } from '../task-management/sync-engine/loop'
+import { initPropose } from '../core/dispatch'
 
 // kit side of the adapter protocol: spawn is a stub; real one-shot spawns against the fake adapter run in tests/protocol (node --test)
 const host = (reply: (req: any) => { exitCode?: number; stdout: string }, seen: any[] = []) =>
@@ -62,5 +64,21 @@ describe('sync flags gate transitions (11.4: external / drift)', () => {
     }
     expect((await apply(await world('drift', 'advisory'), { kind: 'claim', id: 'a', at: 1, owner: 's' } as any, pipe)).ok).toBe(true)
     expect((await apply(await world('edited'), { kind: 'claim', id: 'a', at: 1, owner: 's' } as any, pipe)).ok).toBe(true)
+  })
+})
+
+describe('fx-data: sync events and confirm stage', () => {
+  test('sync.state_changed carries pending and conflicts (tasks flagged drift/external) when non-zero', async () => {
+    const h = fakeHost(); await h.board.update(s => ({ ...s, tasks: [task('a', { flags: ['drift:pm:status'] }), task('b', { flags: ['external'] }), task('c')] }))
+    await setState(h, 'pm', 'offline', 4); await setState(h, 'pm', 'ok', 0)
+    const evs = (await h.events.read()).epics[''].filter(e => e.type === 'sync.state_changed')
+    expect(evs.map(e => e.data)).toEqual([expect.objectContaining({ state: 'offline', pending: 4, conflicts: 2 }), expect.objectContaining({ state: 'ok', conflicts: 2 })])
+    expect('pending' in evs[1].data).toBe(false)
+  })
+  test('sync add has its own confirm stage: an init stage-8 code does not confirm it', async () => {
+    const h = Object.assign(fakeHost(), { config: async () => ({ adapters: { pm: A } }) }) as any
+    await h.store.set('sync.add:pm', { n: 1, d: {}, pending: { n: 1, args: [], text: 't' } })
+    const code = await initPropose(h, 8, 'd')
+    expect(await syncAdd(h, 'pm', ['confirm', code])).toContain('wrong code')
   })
 })

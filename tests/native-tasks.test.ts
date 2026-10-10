@@ -27,7 +27,7 @@ describe('plan rules + missing line (DESIGN 3.1)', () => {
     expect(await w.call('TaskCreate', { subject: 'X', description: '' })).toEqual({ deny: 'no plan yet: first TaskCreate with metadata {"kind":"plan"}' })
     const m = await w.call('TaskCreate', { subject: 'Mission', description: 'goal', metadata: { kind: 'mission' } })
     expect(m).toEqual({ result: { task: { id: 'm-1', subject: 'Mission' } } })
-    expect(await w.call('TaskCreate', { subject: 'X', description: '' })).toEqual({ deny: 'a mission draft takes no tasks' })
+    expect(await w.call('TaskCreate', { subject: 'X', description: '' })).toEqual({ deny: 'a mission draft takes no tasks; once it is approved, start a plan' })
   })
 })
 
@@ -64,9 +64,9 @@ describe('TaskUpdate: deps, refused fields, frozen fields', () => {
   })
   test('owner, in_progress, cadre* metadata, unknown ids are refused with success:false', async () => {
     const w = await world(); const { task } = await plan(w)
-    expect((await w.call('TaskUpdate', { taskId: task, owner: 'x' })).result).toEqual({ success: false, taskId: task, updatedFields: [], error: 'owner is assigned by cadre when it spawns the agent' })
-    expect((await w.call('TaskUpdate', { taskId: task, status: 'in_progress' })).result.error).toContain('in_progress is set by cadre')
-    expect((await w.call('TaskUpdate', { taskId: task, metadata: { 'cadre.step': 'worker' } })).result.error).toBe('metadata.cadre*: set by cadre only')
+    expect((await w.call('TaskUpdate', { taskId: task, owner: 'x' })).result).toEqual({ success: false, taskId: task, updatedFields: [], error: 'owner is set when the task\'s agent is spawned' })
+    expect((await w.call('TaskUpdate', { taskId: task, status: 'in_progress' })).result.error).toContain('in_progress is set when')
+    expect((await w.call('TaskUpdate', { taskId: task, metadata: { 'cadre.step': 'worker' } })).result.error).toBe('metadata.cadre*: reserved; omit it')
     expect((await w.call('TaskUpdate', { taskId: 'zz', subject: 'x' })).result).toEqual({ success: false, taskId: 'zz', updatedFields: [], error: 'no task zz' })
     expect((await w.call('TaskUpdate', { taskId: task, status: 'completed' })).result.error).toContain('does not apply to a draft')
   })
@@ -133,6 +133,6 @@ describe('TaskList / TaskGet from the model view, tool.describe', () => {
   })
   test('a missing store fails closed with a deny', async () => {
     const w = await world(); delete (w.h as any).taskStore
-    expect((await w.call('TaskList', {})).deny).toContain('cadre: task store unavailable')
+    expect((await w.call('TaskList', {})).deny).toContain('task board unavailable')
   })
 })

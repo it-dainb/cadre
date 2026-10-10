@@ -9,6 +9,7 @@ import { defaults as cfgDefaults, resolve, envLayer } from '../config/index'
 import type { Config } from '../config/index'
 import { canon, fnv1a64, stamp, withConditions } from './board'
 import { emit } from './events'
+import { scoped } from '../commands/init'
 import { apply, epicNext } from './machine'
 import { missingList } from './validate'
 import { cutEpic } from './branches'
@@ -187,7 +188,7 @@ export async function resolveEpic(h: Host, a: string, b: string): Promise<Out> {
 
 // /cadre restore [<name>] (13.7): re-apply a quarantined stash (kept in the stash list, never dropped)
 export async function restore(h: Host, name?: string): Promise<Out> {
-  const q = ((await h.store.get('quarantine')) as { name: string; tree: string; paths: string[] }[] | undefined) ?? [], e = name ? q.find(x => x.name === name) : q[q.length - 1]
+  const q = ((await h.store.get(await scoped(h, 'quarantine'))) as { name: string; tree: string; paths: string[] }[] | undefined) ?? [], e = name ? q.find(x => x.name === name) : q[q.length - 1]
   if (!e) return refuse(`no quarantined entry${name ? ` ${name}` : ''}${q.length ? `; known: ${q.map(x => x.name).join(', ')}` : ''}`)
   const ref = (await h.run(['git', '-C', e.tree, 'stash', 'list', '--format=%gd %s'])).stdout.split('\n').find(l => l.endsWith(e.name))?.split(' ')[0]
   if (!ref) return refuse(`${e.name}: the stash is gone`)

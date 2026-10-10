@@ -148,3 +148,11 @@ test('epic states: approved -> integrating -> done-on-dev -> released; failure r
   expect(epicNext('approved', 'release')).toBeUndefined()
   expect(epicNext('integrating', 'lost')).toBe('blocked'); expect(epicNext('blocked', 'recut')).toBe('approved')
 })
+
+describe('fx-data: spike done carries cites', () => {
+  test('close with cites puts it on task.transitioned; without, the key is absent', async () => {
+    const b = board(task('a', { state: 'active', step: 'report', type: 'spike' }))
+    expect((step(b, 'a', 'close', { cites: 3 }).events[0].data)).toEqual({ taskId: 'a', from: 'active', to: 'done', cites: 3 })
+    expect('cites' in step(b, 'a', 'close').events[0].data).toBe(false)
+  })
+})

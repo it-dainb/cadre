@@ -5,6 +5,7 @@ import type { Task } from '../task-management/store'
 import { pipeOf } from '../task-management/registry'
 import { resolveDeps, type Deps } from './admission'
 import { apply } from './machine'
+import { emit } from './events'
 import * as G from './git'
 import { auditView, matches, modeOf, pkgOf, rootOf, type Pkg } from './specview'
 import { policyOf, setPolicy } from '../policy/guards'
@@ -33,7 +34,7 @@ export function errorOk(text: string, syms: Sym[], skeleton: boolean): boolean {
 // ---- running a package check offline (G.checkRun: overlay, else a copy of the tree) ----
 export const verifyOf = (p: Pkg) => (p.verify?.length ? p.verify : [p.checks.test ? 'test' : Object.keys(p.checks)[0]])
 const redOf = (p: Pkg) => p.tdd?.check ?? (verifyOf(p).includes('test') ? 'test' : verifyOf(p)[0])
-async function runCheck(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, name: string) {
+async function runCheck(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, name: string, gate?: 'red' | 'green' | 'pass') {   // gate: the phase whose result is announced (check.ran)
   const argv = pkg.checks[name]; if (!argv) throw new Error(`${pkg.root}: no check "${name}"`)
   const mode = await modeOf(h, d), scratch = `${d.wtRoot}/${d.key}.scratch/${task.id}-chk`, rp = pkg.tdd?.report
   await h.run(['rm', '-rf', scratch]); await h.run(['mkdir', '-p', `${scratch}/cadre`])
@@ -41,13 +42,15 @@ async function runCheck(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, name
   const t0 = await h.now(), r = await G.checkRun(h.run, mode, { wt, scratch, pkgRoot: rootOf(pkg) ? `${wt}/${pkg.root}` : wt, argv, writable: d.cfg.jailWritable })
   const xml = rp && name === redOf(pkg) ? await h.readText(mode === 'none' ? rp : `${scratch}${rp.slice(4)}`) : null
   await h.run(['rm', '-rf', scratch])
-  return { exit: r.exitCode, ms: (await h.now()) - t0, tail: `${r.stdout}${r.stderr}`.slice(-600), cases: xml === null ? undefined : junit(xml) }
+  const ms = (await h.now()) - t0, cases = xml === null ? undefined : junit(xml), failing = cases?.filter(c => c.status === 'failure' || c.status === 'error').length
+  if (gate) await emit(h, 'check.ran', { taskId: task.id, name, ok: (gate === 'red') === !!r.exitCode, phase: gate === 'pass' ? 'green' : gate, secs: Math.round(ms / 1000), ...(failing ? { failing } : {}) }, { taskId: task.id })
+  return { exit: r.exitCode, ms, tail: `${r.stdout}${r.stderr}`.slice(-600), cases }
 }
 const secs = (ms: number) => `${(ms / 1000).toFixed(1)}s`
 
 // ---- red (5): tdd.check at specCommit must fail; with a report every listed test is a <failure>. `pass`: the `test` type has no red; its tests must pass instead ----
 export async function red(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, tests: { name: string }[], pass = false): Promise<Gate> {
-  const r = await runCheck(h, d, task, wt, pkg, redOf(pkg)), no = (why: string): Gate => ({ ok: false, why, card: `red ✗ ${why}` })
+  const r = await runCheck(h, d, task, wt, pkg, redOf(pkg), pass ? 'pass' : 'red'), no = (why: string): Gate => ({ ok: false, why, card: `red ✗ ${why}` })
   if (pass) return r.exit ? no(`its tests must pass (test task) but exit=${r.exit}: ${r.tail.slice(-300)}`) : { ok: true, card: `tests ✓ pass (${secs(r.ms)})`, tests: r.cases?.map(c => c.name) ?? tests.map(t => t.name) }
   if (!r.exit) return no('the tests pass at the spec commit; red needs them failing')
   if (!pkg.tdd?.report) return { ok: true, card: `red ✓ exit=${r.exit} (${secs(r.ms)})`, tests: tests.map(t => t.name) }
@@ -69,7 +72,7 @@ export async function green(h: Host, d: Deps, task: Task, wt: string): Promise<G
   const no = (why: string): Gate => ({ ok: false, why, card: `green ✗ ${why}` }), names = [...new Set([...verifyOf(pkg), ...(pkg.tdd?.report ? [redOf(pkg)] : [])])]
   let ms = 0, cases: Case[] | undefined
   for (const n of names) {
-    const r = await runCheck(h, d, task, wt, pkg, n); ms += r.ms; if (n === redOf(pkg)) cases = r.cases
+    const r = await runCheck(h, d, task, wt, pkg, n, verifyOf(pkg).includes(n) ? 'green' : undefined); ms += r.ms; if (n === redOf(pkg)) cases = r.cases
     if (verifyOf(pkg).includes(n) && r.exit) return no(`${n} fails (exit=${r.exit}): ${r.tail.slice(-300)}`)
   }
   if (pkg.tdd?.report) {

@@ -6,6 +6,7 @@ import { modelView } from '../core/board'
 import { contextLine, subject } from '../core/render'
 import { openPane } from '../ui/index'
 import { run as initRun } from './init'
+import { defaults } from '../config/index'
 
 // text board from the model view + the cost ledger (the human view's cost, since this is a typed command's own output)
 async function status(h: Host): Promise<Out> {
@@ -30,13 +31,19 @@ async function route(h: Host, c: Command): Promise<Out> {
     case 'resolve': if (a && a === (await h.board.read()).plan?.id) return resolveEpic(h, a, c.args[1] ?? ''); break
     case 'restore': return restore(h, a)
     case 'init': return { text: await initRun(h, c.args) }
-    case 'config': if (!a || a === 'show') return { text: JSON.stringify(await cfgOf(h), null, 1).slice(0, 2000) }
+    case 'config': if (!a || a === 'show') return { text: configText(await cfgOf(h), c.args[1]) }
   }
   const r = ROUTES[c.cmd]
   return r ? r(h, c) : { text: `unknown /cadre subcommand "${c.cmd}". Try: status, open, approve <id>, reject, resolve, release, restore, init, sync, adapter token, config, drive` }
 }
 
 // command.run {command:'cadre'}
+// /cadre config show [prefix]: `key = value` lines (no JSON dump); without a prefix only what differs from the defaults
+const flat = (o: unknown, p = ''): [string, string][] => (o && typeof o === 'object' && !Array.isArray(o) ? Object.entries(o).flatMap(([k, v]) => flat(v, p ? `${p}.${k}` : k)) : [[p, JSON.stringify(o)]])
+export const configText = (cfg: unknown, prefix?: string): string => {
+  const def = new Map(flat(defaults())), rows = flat(cfg).filter(([k, v]) => (prefix ? k.startsWith(prefix) : def.get(k) !== v))
+  return (rows.length ? `config${prefix ? ` ${prefix}` : ' (differs from the defaults; /cadre config show <prefix> lists a section)'}:\n${rows.map(([k, v]) => `${k} = ${v}`).join('\n')}` : prefix ? `no config keys under ${prefix}` : 'config: all defaults').slice(0, 2000)
+}
 export const run: Hook = async (h, e) => {
   const [cmd = 'status', ...args] = String(e.args ?? '').trim().split(/\s+/).filter(Boolean)
   try { return await dispatch(h, { schemaVersion: 1, cmd, args, origin: { kind: e.origin?.kind ?? 'unclassified', name: e.origin?.name } }, route) } catch (x) { return { text: `cadre: ${(x as Error).message}` } }
