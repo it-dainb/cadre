@@ -186,6 +186,8 @@ describe('keys', () => {
   test('attention: a pending init diff shows its confirm code on the band (the only place a human can read it)', async () => {
     const v = view(62, { board: { containment: { state: 'degraded', unsandboxed: 0 } } }); v.sec.initConfirm = { stage: 4, code: '1a2b3c4d' }
     expect(txt(band(v, 115, NOOP)).join('\n')).toMatch(/init stage 4 diff ready.*\n.*\/cadre init confirm 1a2b3c4d/)
+    const np = { ...v, b: { ...v.b, plan: undefined, tasks: [] } }   // init runs before any plan exists: the band must still draw the code
+    expect(txt(band(np, 115, NOOP)).join('\n')).toContain('/cadre init confirm 1a2b3c4d'); expect(band({ ...np, sec: {} } as any, 115, NOOP)).toEqual([])
     delete v.sec.initConfirm; expect(txt(band(v, 115, NOOP))[0]).toContain('Containment degraded')
   })
   test('presses route to handlers: 1 opens the sheet for an approval, the flagged node for a flag', async () => {
