@@ -70,13 +70,10 @@ describe('TaskUpdate: deps, refused fields, frozen fields', () => {
     expect((await w.call('TaskUpdate', { taskId: 'zz', subject: 'x' })).result).toEqual({ success: false, taskId: 'zz', updatedFields: [], error: 'no task zz' })
     expect((await w.call('TaskUpdate', { taskId: task, status: 'completed' })).result.error).toContain('does not apply to a draft')
   })
-  test('a draft can be deleted; completing/cancelling an approved task is refused until close registers LIFECYCLE', async () => {
-    const w = await world(); const { task } = await plan(w); const { plan: p } = { plan: (await w.h.board.read()).plan!.id }
+  test('a draft can be deleted', async () => {
+    const w = await world(); const { task } = await plan(w)
     expect((await w.call('TaskUpdate', { taskId: task, status: 'deleted' })).result.success).toBe(true)
     expect((await w.h.board.read()).tasks).toEqual([])
-    const t2 = (await w.call('TaskCreate', { subject: 'Two', description: '', metadata: FULL })).result.task.id
-    await w.text({ cmd: 'approve', args: [`${p}@${(await w.h.secret.read()).approval!.code8}`] })
-    expect((await w.call('TaskUpdate', { taskId: t2, status: 'completed' })).result.error).toBe('completed is not available yet')
   })
   test('approved tasks are frozen; metadata.amend:true returns a todo to draft and the edit applies', async () => {
     const w = await world(); const { plan: p, task } = await plan(w)

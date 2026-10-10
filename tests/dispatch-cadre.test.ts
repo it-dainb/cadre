@@ -29,9 +29,41 @@ describe('/cadre <sub> (DESIGN 5.3)', () => {
     expect((await cmd(w, `approve ${p}@${c}`)).text).toContain('refused')
     expect((await cmd(w, `approve ${p}@${(await w.h.secret.read()).approval!.code8}`)).text).toContain('approved')
   })
-  test('subs owned elsewhere route through ROUTES; unwired ones say so; unknown ones list the subs; typos never throw', async () => {
+  test('M6: an open human gate is approved with gateId@code8 (burn on use), then resolved in the store', async () => {
+    const w = await withOps(); const { plan: p } = await plan(w)
+    const blocked = await w.store.createDraft({ title: 'after gate', description: '', type: 'feature', parent: p, gate: { await: 'human' } })
+    const g = (await w.store.list({ parent: p })).find(t => t.type === 'gate')!
+    expect(blocked.id).toBeTruthy()
+    expect((await cmd(w, `approve ${g.id}`)).text).toContain(`gate ${g.id}`)
+    const c = (await w.h.secret.read()).approval!.code8
+    expect((await cmd(w, `approve ${g.id}@zzzzzzzz`)).text).toContain('refused: token mismatch')
+    expect((await cmd(w, `approve ${g.id}@${c}`)).text).toContain('token mismatch')   // burned by the wrong attempt
+    expect((await w.store.get(g.id)).category).not.toBe('done')
+    const c2 = (await w.h.secret.read()).approval!.code8
+    expect((await cmd(w, `approve ${g.id}@${c2}`)).text).toBe(`Gate ${g.id} approved.`)
+    expect((await w.store.get(g.id)).category).toBe('done')
+  })
+  test('M5: a blocked epic is re-cut from dev with /cadre resolve <epic> recut (or cancelled)', async () => {
+    const w = await world(); const { plan: p } = await plan(w)
+    await w.h.board.update(b => ({ ...b, plan: { ...b.plan!, state: 'blocked', flags: ['lost-epic'] } }))
+    const r = await cmd(w, `resolve ${p} recut`)
+    expect(r.text).toContain('re-cut from dev')
+    expect((await w.h.board.read()).plan).toMatchObject({ state: 'approved', flags: [] })
+    await w.h.board.update(b => ({ ...b, plan: { ...b.plan!, state: 'blocked' } }))
+    expect((await cmd(w, `resolve ${p} cancel`)).text).toBe(`Epic ${p} cancelled.`)
+    expect((await w.h.board.read()).plan).toBeNull()
+  })
+  test('M7: /cadre restore [name] re-applies the quarantined stash and keeps it', async () => {
+    const w = await world(); const ran: string[][] = []
+    ;(w.h as any).run = async (argv: string[]) => { ran.push(argv); return { exitCode: 0, stdout: argv.includes('list') ? 'stash@{0} On main: cadre-q-a1-5\nstash@{1} On main: other\n' : '', stderr: '' } }
+    expect((await cmd(w, 'restore')).text).toContain('no quarantined entry')
+    await w.h.store.set('quarantine', [{ name: 'cadre-q-a1-5', tree: '/wt/a1', paths: ['x.ts'], ts: 5 }])
+    expect((await cmd(w, 'restore cadre-q-a1-5')).text).toContain('Restored 1 path')
+    expect(ran.some(a => a.join(' ') === 'git -C /wt/a1 stash apply stash@{0}')).toBe(true)
+    expect((await cmd(w, 'restore x', { kind: 'bridge' })).text).toContain('origin bridge is not human')
+  })
+  test('subs owned elsewhere route through ROUTES; unknown ones list the subs; typos never throw', async () => {
     const w = await world()
-    expect((await cmd(w, 'release')).text).toBe('/cadre release: not available yet')
     ROUTES.drive = async (_h, c) => ({ text: `drive ${c.args.join(' ')}` }); expect(await cmd(w, 'drive status', { kind: 'bridge' })).toEqual({ text: 'drive status' })
     expect((await cmd(w, 'frobnicate')).text).toContain('unknown /cadre subcommand "frobnicate"')
     delete ROUTES.drive

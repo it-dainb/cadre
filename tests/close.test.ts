@@ -22,6 +22,16 @@ describe('MCP tool specs (5.2)', () => {
   })
 })
 
+describe('discovery report (sec L2)', () => {
+  test('an unbound explorer\'s discovery is accepted only while init stage 4 is pending', async () => {
+    const store = new MemoryStore(); await store.init({ types: {} as any, journal: false }); const h = fakeHost(), d = deps(store)
+    const call = () => handleWith(h, d as any, { tool: 'mcp__cadre__report', agentId: 'x1', input: { schemaVersion: 1, role: 'explorer', discovery: { packages: [{ root: '/abs' }] } } }).then(r => r.result)
+    expect(await call()).toBe('error: no discovery request is open')
+    await h.board.update(s => ({ ...s, init: [{ stage: 4, state: 'pending' }] }))
+    expect(await call()).not.toBe('error: no discovery request is open')
+  })
+})
+
 describe('report refusals (kit, no git)', () => {
   const w = async () => { const store = new MemoryStore(); await store.init({ types: {} as any, journal: false }); return { h: fakeHost(), d: deps(store) } }
   test('main and unbound agents cannot report; a bad envelope is refused with an example and counts retries', async () => {

@@ -5,7 +5,7 @@ import type { Register } from 'claude-code'
 import type { Host } from '../types'
 import { emptySnapshot } from '../core/board'
 import { emptyRing, subscribe } from '../core/events'
-import { drain, step, compact, submit, goal, start, tick as heartbeat, UI } from '../core/reuse'
+import { drain, step, compact, submit, goal, start, tick as heartbeat, warm, UI } from '../core/reuse'
 import { observe } from '../core/close'
 import '../core/integrate'   // registers ROUTES.release
 import { admit } from '../core/admission'
@@ -131,9 +131,9 @@ export const register: Register = (on, opts) => {
   // 3. admission
   on('agent.spawn', ($, e, next) => admit(host($), e, next)).catch(denySpawn)
   // 4. tool.check allow
-  on('tool.check', ($, e, next) => check(host($), e, next)).catch(denyCheck)
+  on('tool.check', async ($, e, next) => { await warm(host($)); return check(host($), e, next) }).catch(denyCheck)
   // 5. guards (L1, fence, Task* answers, MCP pre-checks): guards judge first, then main's Task* answers
-  on('tool.call', { tool: /./ }, ($, e, next) => guard(host($), e, e2 => answer(host($), e2, next))).catch(denyCall)
+  on('tool.call', { tool: /./ }, async ($, e, next) => { await warm(host($)); return guard(host($), e, e2 => answer(host($), e2, next)) }).catch(denyCall)
   // 6. wrap (L3 per-call fingerprint, delta drain, result card, tester log); then our own MCP tools answer innermost
   on('tool.call', { tool: /^/ }, ($, e, next) => wrap(host($), e, next)).catch(denyCall)
   on('tool.call', { tool: /^mcp__cadre__/ }, ($, e, next) => handle(host($), e, next)).catch(denyCall)

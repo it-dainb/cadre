@@ -2,6 +2,8 @@
 import type { Actor, Category, Host, PlanState, Snapshot, SnapTask } from '../types'
 import { commit, stamp, withConditions } from './board'
 import { emit } from './events'
+import { storeOf } from './dispatch'
+import { strictOf } from '../config/index'
 
 // A pipeline step lives in one beads task; its step decides the category. reviewer/merge = `review` (merge = review pass, awaiting close).
 export const STEP_CAT: Record<string, Category> = { tester: 'active', red: 'active', worker: 'active', green: 'active', explorer: 'active', report: 'active', reviewer: 'review', merge: 'review' }
@@ -18,6 +20,8 @@ const FROM: Record<MKind, Category[]> = {   // legal-from table
   cancel: ['draft', 'todo', 'active', 'review', 'blocked'],
 }
 
+const producer = (p: readonly string[], i: number) => [...p.slice(0, i)].reverse().find(x => x === 'worker' || x === 'tester') ?? p[0]   // the step that produced what review judges
+
 export function transition(s: Snapshot, m: MEvent, pipe: Pipe): Result {
   const t = s.tasks.find(x => x.id === m.id)
   if (!t) return { ok: false, error: `unknown task ${m.id}` }
@@ -33,13 +37,13 @@ export function transition(s: Snapshot, m: MEvent, pipe: Pipe): Result {
     case 'verdict':
       if (t.step !== 'reviewer') return bad('not under review')
       if (m.verdict === 'pass') { if (p[i + 1] !== 'merge') return bad('no merge step'); step = 'merge' }
-      else { state = 'active'; step = [...p.slice(0, i)].reverse().find(x => x === 'worker' || x === 'tester') ?? p[0] }   // rework: the producing step
+      else { state = 'active'; step = producer(p, i) }   // rework: the producing step
       break
     case 'close': if (!((t.state === 'review' && t.step === 'merge') || (t.state === 'active' && t.step === 'report'))) return bad('not review-passed'); state = 'done'; break
     case 'block': state = 'blocked'; break
     case 'unblock': state = STEP_CAT[t.step] ?? 'active'; break
     case 'rewind': if (!m.on || !p.includes(m.on)) return bad('no such step'); step = m.on; state = STEP_CAT[step] ?? 'active'; break
-    case 'release': state = 'todo'; owner = undefined; break
+    case 'release': state = 'todo'; owner = undefined; if (STEP_CAT[t.step] === 'review') step = producer(p, i); break   // a review step is not claimable: back to the producing step
     case 'cancel': case 'skip': state = 'cancelled'; break
   }
   const next: SnapTask = { ...t, state, step, owner, phaseSince: step !== t.step ? m.at : t.phaseSince }
@@ -57,12 +61,15 @@ export const pendingSkips = (s: Snapshot): { id: string; on: string }[] =>
 export async function apply(h: Host, m: MEvent, pipe: Pipe): Promise<Result> {
   let res!: Result
   const t0 = (await h.board.read()).tasks.find(x => x.id === m.id), fl = t0?.flags.find(f => f === 'external' || f === 'drift')   // sync flags (11.4): strict refuses the next transition until /cadre resolve
-  if (fl && !['release', 'cancel', 'block'].includes(m.kind) && ((await h.env()).CADRE_STRICTNESS ?? h.options.strictness ?? 'strict') !== 'advisory') return { ok: false, error: `${m.id} has flag ${fl}; resolve it first (/cadre resolve)` }
+  if (fl && !['release', 'cancel', 'block'].includes(m.kind) && (await strictOf(h)) !== 'advisory') return { ok: false, error: `${m.id} has flag ${fl}; resolve it first (/cadre resolve)` }
   await commit(h, s => { res = transition(s, m, pipe); return res.ok ? res.board : s })
   if (!res.ok) return res
   let seq = 0
   for (const e of res.events) seq = (await emit(h, e.type, e.data, { taskId: m.id, actor: m.actor })).seq
   await stamp(h, seq)
+  if (m.kind === 'close') for (let s = pendingSkips(res.board); s.length; s = pendingSkips((await h.board.read()))) {   // a conditional-blocks upstream closed done: dependants never run (3.4 skip)
+    for (const k of s) { const r = await apply(h, { kind: 'skip', id: k.id, on: k.on, at: m.at, actor: 'mod' }, pipe); if (!r.ok) return r; await (await Promise.resolve().then(() => storeOf(h)).catch(() => null))?.close(k.id, { outcome: 'cancelled', note: 'skipped: condition not met' }).catch(() => {}) }
+  }
   return res
 }
 

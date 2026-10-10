@@ -12,8 +12,9 @@ import { emit } from './events'
 import { DISCOVERY, brief, idsIn, type BriefIn } from './briefs'
 import { taskBranch, wtPath } from './branches'
 import * as G from './git'
-import { checkpoint } from './reuse'
+import { checkpoint, warm } from './reuse'
 import { buildView, pkgOf } from './specview'
+import { realRoot } from '../policy/guards'
 
 export interface Deps {
   store: TaskStore; cfg: Config; reg: TypeRegistry; root: string; home: string; wtRoot: string; key: string; actor: string; session: string
@@ -34,9 +35,9 @@ export async function resolveDeps(h: Host): Promise<Deps> {
   const [root, home, cfg] = [await h.cwd(), await h.home(), await cfgOf(h)], store = await storeOf(h), key = repoKeyOf(root), ak = `cadre:${key}:actor`
   let actor = (await h.store.get(ak)) as string | undefined
   if (!actor) { actor = `cadre/${home.split('/').pop() || 'user'}/${h.rand(3)}`; await h.store.set(ak, actor) }
-  return { store, cfg, reg: cfg.types as TypeRegistry, root, home, wtRoot: cfg.worktrees.root || `${home}/.cache/cadre/wt`, key, actor, session: await sessionOf(h), view: buildView }
+  return { store, cfg, reg: cfg.types as TypeRegistry, root, home, wtRoot: await realRoot(h, cfg.worktrees.root || `${home}/.cache/cadre/wt`), key, actor, session: await sessionOf(h), view: buildView }
 }
-export const admit: Hook = async (h, e, next) => admitWith(h, await resolveDeps(h), e, next)
+export const admit: Hook = async (h, e, next) => { await warm(h); return admitWith(h, await resolveDeps(h), e, next) }
 
 const modelOf = (d: Deps, role: Role, t?: Task) => {
   const tier = role === 'reviewer' && t?.labels.some(l => d.cfg.review.deepLabels.includes(l)) ? 'deep' : d.cfg.roles[role]?.tier
@@ -105,9 +106,9 @@ async function ensureWt(h: Host, d: Deps, wt: string, branch: string): Promise<'
   await G.op(h, () => G.worktreeReadd(h.run, d.root, wt, branch)); return 'readd'
 }
 async function lostEpic(h: Host, s: Snapshot, t: SnapTask) {   // epic branch missing: epic blocked, human resolves (re-cut from dev or cancel)
-  await commit(h, x => (x.plan && epicNext(x.plan.state, 'lost') ? { ...x, plan: { ...x.plan, state: epicNext(x.plan.state, 'lost')! } } : x))
+  await commit(h, x => (x.plan && epicNext(x.plan.state, 'lost') ? { ...x, plan: { ...x.plan, state: epicNext(x.plan.state, 'lost')!, flags: [...new Set([...(x.plan.flags ?? []), 'lost-epic'])] } } : x))
   await emit(h, 'flag.raised', { taskId: s.epic ?? t.id, flag: 'lost-epic' }, { taskId: t.id })
-  return deny(`epic branch ${s.plan?.epicBranch} is missing (lost-epic); the epic is blocked, the human re-cuts it from dev or cancels (/cadre resolve)`)
+  return deny(`epic branch ${s.plan?.epicBranch} is missing (lost-epic); the epic is blocked, the human re-cuts it from dev or cancels (/cadre resolve ${s.epic} recut|cancel)`)
 }
 
 // ---- todo -> active: the claim ----
@@ -206,7 +207,7 @@ export async function beat(h: Host, d: Deps, every = 120_000): Promise<void> {
   const [bind, now] = [await h.bind.read(), await h.now()]
   for (const [a, b] of Object.entries(bind)) {
     if (a.startsWith('~') || b.sessionId !== d.session) continue
-    const k = `cadre:hb:${b.taskId}`
+    const k = `cadre:${d.key}:hb:${b.taskId}`
     if (now - (((await h.store.get(k)) as number | undefined) ?? 0) < every) continue
     await d.store.heartbeat(b.taskId).catch(err => h.log(`cadre: heartbeat ${b.taskId} failed: ${err}`)); await h.store.set(k, now)
   }

@@ -85,6 +85,15 @@ describe('approve: plan@code8, burn on use, completeness (DESIGN 3.1)', () => {
     expect(await w.h.board.read()).toMatchObject({ mission: 'Ship auth', plan: null, epic: null })
     expect((await w.store.list({})).some(t => t.type === 'milestone')).toBe(true)
   })
+  test('M12: reject on an amended plan reverts the amendment to todo; the approved task is never deleted', async () => {
+    const w = await world(); const { plan: p, task } = await plan(w)
+    await w.text({ cmd: 'approve', args: [`${p}@${await code(w)}`] })
+    await w.call('TaskUpdate', { taskId: task, metadata: { amend: true }, subject: 'changed' })
+    expect((await w.store.get(task)).category).toBe('draft')
+    await w.text({ cmd: 'reject', args: [p, 'no'] })
+    expect((await w.store.get(task)).category).toBe('todo'); expect((await w.h.board.read()).tasks.map(t => [t.id, t.state])).toEqual([[task, 'todo']])
+    expect((await w.h.board.read()).plan?.state).toBe('approved')
+  })
   test('reject drops the drafts (and a fresh plan), records a decision', async () => {
     const w = await world(); const { plan: p } = await plan(w)
     expect((await w.text({ cmd: 'reject', args: [p, 'not', 'now'] })).text).toBe(`Plan ${p}: 1 draft dropped.`)

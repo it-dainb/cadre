@@ -10,7 +10,7 @@ import { emit, rebuild, subscribe } from './events'
 import { nextAction } from './render'
 import { brief, drainDelta, queueCard, renderCard } from './briefs'
 import { leaseLive, resolveDeps, sessionOf, beat } from './admission'
-import { policyOf, setPolicy } from '../policy/guards'
+import { policyOf, realRoot, setPolicy } from '../policy/guards'
 import { resolve } from '../config/index'
 import { epicBranch, slug } from './branches'
 import * as G from './git'
@@ -284,10 +284,13 @@ export async function goalSeen(h: Host, args: string) {
 }
 export const goal: Hook = async (h, e, next) => { const r = await next(e); await safe(h, '/goal observer', () => goalSeen(h, String(e.args ?? ''))); return r }
 
+// 13.4: any hook entry (agent tool.call/turn.complete, spawn, tick) warms a cold board, not only main's prompt.submit; cheap when warm
+export const warm = (h: Host) => safe(h, 'rehydrate', () => rehydrate(h))
+
 // ---- #8 prompt.submit (main): lazy rehydrate, /goal sniff, task-notification -> result card (S40) ----
 export const submit: Hook = async (h, e, next) => {
   if (e.agentId) return next(e)
-  await safe(h, 'rehydrate', () => rehydrate(h))
+  await warm(h)
   const m = /^\/goal\b(.*)/s.exec(String(e.text ?? '').trim())
   if (m) await safe(h, '/goal observer', () => goalSeen(h, m[1]))
   if (e.origin?.kind !== 'task-notification') return next(e)
@@ -301,6 +304,7 @@ export const submit: Hook = async (h, e, next) => {
 
 // ---- #1 turn.complete: after next, send this session's resumes; agents: checkpoint + ledger; main: usage mirror, pointer, compact hint, drive ----
 export const drain: Hook = async (h, e, next) => {
+  await warm(h)
   const r = await next(e)
   await safe(h, 'drain', async () => {
     const cfg = await cfgOf(h), store = await storeOf(h).catch(() => undefined)
@@ -326,13 +330,14 @@ export const drain: Hook = async (h, e, next) => {
 
 // ---- tick (5 s): heartbeat this session's bound tasks (admission.beat); nothing else, never a send (G6) ----
 export async function tick(h: Host): Promise<void> {
+  await warm(h)
   if (Object.keys(await h.bind.read()).some(a => !a.startsWith('~'))) await beat(h, await resolveDeps(h))
 }
 
 // ---- session.start (and after /cadre config set): $.store `cadre:<repoKey>:policy` for guards/effect (13.1-13.2), cfg.ui mirrored into cadre.ui.cfg ----
 export async function start(h: Host): Promise<void> {
   const cfg = await cfgOf(h), root = await h.cwd(), home = await h.home(), repo = (await h.stat(root, { resolve: true }))?.realPath ?? root
-  await setPolicy(h, { repo, wtRoot: `${cfg.worktrees.root || `${home}/.cache/cadre/wt`}/${repoKeyOf(root)}`, home, mcpAllow: cfg.mcpAllow,
+  await setPolicy(h, { repo, wtRoot: `${await realRoot(h, cfg.worktrees.root || `${home}/.cache/cadre/wt`)}/${repoKeyOf(root)}`, home, mcpAllow: cfg.mcpAllow,
     protect: [cfg.branches.main || 'main', cfg.branches.dev], effectCheck: cfg.effectCheck })   // locks are kept: core/tdd owns them
   await h.ui.update(u => ({ ...u, cfg: { ...(u.cfg as object | undefined), glyphs: cfg.ui.glyphs, maxTurns: cfg.drive.maxTurns } }))
   await safe(h, 'prune', () => prune(h))

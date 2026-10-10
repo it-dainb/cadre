@@ -130,6 +130,15 @@ describe('compaction (8.3, S49) and rehydrate (8.2, 13.4)', () => {
     expect(await rehydrate(fresh)).toBe(false)   // once
     UI.banner = undefined
   })
+  test('M1: a background agent\'s turn.complete (not main prompt.submit) rehydrates the cold board and its bindings', async () => {
+    const { h, a, epic } = await mk()
+    await h.bind.update(() => ({ ag1: B(a, 'S1') }))
+    await turn(h, { reason: 'answer' })   // main: saves the pointer
+    const fresh = await cleared(h)
+    expect((await fresh.board.read()).epic).toBeNull()
+    await turn(fresh, { reason: 'answer', agentId: 'ag1' })
+    expect((await fresh.board.read()).epic).toBe(epic); expect(Object.keys(await fresh.bind.read())).toEqual(['ag1'])
+  })
   test('cold board, no pointer: adopts the unfinished epic with an approved child (once); drafts-only epics and missions are not adopted', async () => {
     const { h, store, epic, a } = await mk()
     const f = fakeHost() as any; Object.assign(f, { taskStore: h.taskStore, config: h.config, usage: h.usage, submit: h.submit })   // no pointer in f.store

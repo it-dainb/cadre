@@ -4,6 +4,7 @@ import type { Hook, Host } from '../types'
 import { resolveDeps, type Deps } from '../core/admission'
 import { raise, report, runCheck } from '../core/close'
 import { discovered } from '../commands/init'
+import { warm } from '../core/reuse'
 import { RETRIES, refuse, clearRetries, validateReport } from '../core/validate'
 import * as G from '../core/git'
 
@@ -24,7 +25,10 @@ const bad = (m: string) => `error: ${m}`
 async function onReport(h: Host, d: Deps, agentId: string | undefined, r: any): Promise<string> {
   const key = `report:${agentId ?? 'main'}`
   if (!agentId) return bad('only a spawned agent reports')
-  if (r?.role === 'explorer' && r.discovery && !(await h.bind.read())[agentId]) { const err = await discovered(h, r.discovery); return err ? bad(String(err)) : 'discovery recorded. Stop.' }
+  if (r?.role === 'explorer' && r.discovery && !(await h.bind.read())[agentId]) {
+    if (!(await h.board.read()).init.some(i => i.stage === 4 && i.state === 'pending')) return bad('no discovery request is open')   // only while init stage 4 waits for it
+    const err = await discovered(h, r.discovery); return err ? bad(String(err)) : 'discovery recorded. Stop.'
+  }
   const env = validateReport(r); if (env) return bad(await refuse(h, key, env))
   try {
     const text = await report(h, d, agentId, r); await clearRetries(h, key); return text
@@ -81,4 +85,4 @@ export async function handleWith(h: Host, d: Deps, e: any): Promise<{ result: st
   } catch (x) { return { result: bad(String((x as Error).message ?? x)) } }
 }
 // tool.call for mcp__cadre__*: answer {result}.
-export const handle: Hook = async (h, e, next) => (TOOLS.some(t => e.tool === `mcp__cadre__${t}`) ? handleWith(h, await resolveDeps(h), e) : next(e))
+export const handle: Hook = async (h, e, next) => (TOOLS.some(t => e.tool === `mcp__cadre__${t}`) ? (await warm(h), handleWith(h, await resolveDeps(h), e)) : next(e))

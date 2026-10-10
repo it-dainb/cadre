@@ -88,7 +88,7 @@ async function update(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
       return out(true, ['status'], undefined, [missingLine((await h.board.read()).approval.missing)])
     }
     if (draft) return out(false, [], `${life} does not apply to a draft: the human approves it with /cadre approve`)
-    const run = LIFECYCLE[life]; const why = run ? await run(h, id, e) : `${life} is not available yet`
+    const why = await LIFECYCLE[life]!(h, id, e)
     return out(!why, why ? [] : [life === 'decision' ? 'metadata.decision' : 'status'], why ?? undefined)
   }
   const { kind: _k, amend, ...plan } = m
@@ -103,7 +103,7 @@ async function update(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
     await mirror(h, store, reg)   // the board may have lost the task (/clear)
     const r = await apply(h, { kind: 'amend', id, at: await h.now(), actor: 'main' }, pipeOf(reg))
     if (!r.ok) return out(false, [], r.error)
-    await store.amend(id)
+    await store.amend(id); await store.setMeta(id, { 'cadre.amended': '1' }, 'main')   // reject reverts an amendment, never deletes the approved task
   }
   try {
     const patch = { ...f.patch, ...(e.subject !== undefined ? { title: String(e.subject) } : {}), ...(e.description !== undefined ? { description: String(e.description) } : {}) }

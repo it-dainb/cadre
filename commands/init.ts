@@ -154,10 +154,10 @@ const S4: Stage = {
   },
 }
 
-const SANDBOX = (wt: string, repo: string, main: string, dev: string) => ({
+const SANDBOX = (wt: string, repo: string) => ({
   env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' },
   sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: true,
-    filesystem: { allowWrite: [wt], denyWrite: [repo, `${repo}/.git/refs/heads/${main}`, `${repo}/.git/refs/heads/${dev}`, `${repo}/.git/refs/heads/epic`, `${repo}/.git/packed-refs`] } },
+    filesystem: { allowWrite: [wt], denyWrite: [repo] } },   // ref entries are redundant under the repo-level deny (ADR 0001 S24)
 })
 const wtOf = (c: Ctx) => `${c.cfg.worktrees.root || `${c.home}/.cache/cadre/wt`}/${c.rk}`
 const S5: Stage = {
@@ -165,7 +165,7 @@ const S5: Stage = {
   async done(c) { const real = (await c.h.stat(c.root, { resolve: true }))?.realPath ?? c.root; return assess(await c.h.settings().catch(() => ({})), real, wtOf(c)).state === 'contained' },
   async propose(c) {
     const real = (await c.h.stat(c.root, { resolve: true }))?.realPath ?? c.root, wt = wtOf(c), setP = `${c.root}/.claude/settings.local.json`, usrP = `${c.home}/.claude/settings.json`
-    const patch = SANDBOX(wt, real, c.cfg.branches.main, c.cfg.branches.dev), strict = c.args[0] === 'allowlist'
+    const patch = SANDBOX(wt, real), strict = c.args[0] === 'allowlist'
     const merge = (j: J, p: J): J => ({ ...j, env: { ...j.env, ...p.env }, sandbox: { ...j.sandbox, ...p.sandbox, filesystem: { ...j.sandbox?.filesystem, allowWrite: union(j.sandbox?.filesystem?.allowWrite, p.sandbox.filesystem.allowWrite), denyWrite: union(j.sandbox?.filesystem?.denyWrite, p.sandbox.filesystem.denyWrite) } } })
     const e1 = await edit(c.h, setP, j => merge(j, patch))
     const e2 = strict ? await edit(c.h, usrP, j => ({ ...j, sandbox: { ...j.sandbox, network: { ...j.sandbox?.network, strictAllowlist: true } } })) : undefined

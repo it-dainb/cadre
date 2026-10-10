@@ -116,6 +116,20 @@ describe('apply (commit + emit + stamp seq)', () => {
     expect(ring.epics['e1'][0]).toMatchObject({ actor: 'human', taskId: 'a', data: { taskId: 'a', from: 'draft', to: 'todo' } })
     expect(b.seq).toBe(ring.seq)
   })
+  test('H6: closing a conditional-blocks upstream done skips its dependant (board cancelled + task.skipped)', async () => {
+    const h = fakeHost()
+    await h.board.update(s => ({ ...s, epic: 'e1', tasks: [task('up', { state: 'review', step: 'merge' }), task('fix', { deps: [{ id: 'up', type: 'conditional-blocks' }] })] }))
+    expect((await apply(h, { kind: 'close', id: 'up', at: 1, actor: 'mod' }, pipe)).ok).toBe(true)
+    expect((await h.board.read()).tasks.map(t => t.state)).toEqual(['done', 'cancelled'])
+    expect((await h.events.read()).epics['e1'].some(e => e.type === 'task.skipped' && e.taskId === 'fix')).toBe(true)
+  })
+  test('H5: releasing a review-step task returns it to the producing step, claimable again', async () => {
+    for (const st of ['reviewer', 'merge']) {
+      const r = step(board(task('a', { state: 'review', step: st, owner: 'x' })), 'a', 'release')
+      expect(r.board.tasks[0]).toMatchObject({ state: 'todo', step: 'worker', owner: undefined })
+      expect(step(r.board, 'a', 'claim', { owner: 'y' }).board.tasks[0]).toMatchObject({ state: 'active', step: 'worker' })
+    }
+  })
   test('an illegal transition changes nothing and emits nothing', async () => {
     const h = fakeHost()
     await h.board.update(s => ({ ...s, tasks: [task('a', { state: 'done' })] }))

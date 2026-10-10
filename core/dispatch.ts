@@ -9,9 +9,10 @@ import { defaults as cfgDefaults, resolve, envLayer } from '../config/index'
 import type { Config } from '../config/index'
 import { canon, fnv1a64, stamp, withConditions } from './board'
 import { emit } from './events'
-import { apply } from './machine'
+import { apply, epicNext } from './machine'
 import { missingList } from './validate'
 import { cutEpic } from './branches'
+import * as G from './git'
 
 export type Origin = { kind: string; name?: string; token?: string }   // composer | sdk | bridge | plugin | adapter (+ name, token)
 export interface Command { schemaVersion: 1; cmd: string; args: string[]; origin: Origin }
@@ -94,7 +95,7 @@ export async function isHuman(h: Host, o: Origin): Promise<string | null> {
 export async function newToken(h: Host): Promise<string> {   // session start and `adapter token`; shown by toast only (UI-26)
   const token = h.rand(8); await h.secret.update(s => ({ ...s, token })); h.toast(`cadre session token: ${token}`); return token
 }
-const needsHuman = (c: Command): boolean => ['approve', 'reject', 'resolve', 'release', 'init', 'adapter'].includes(c.cmd) || (c.cmd === 'config' && c.args[0] === 'set') || (c.cmd === 'sync' && c.args[0] === 'add') || (c.cmd === 'drive' && c.args[0] !== 'status')
+const needsHuman = (c: Command): boolean => ['approve', 'reject', 'resolve', 'release', 'restore', 'init', 'adapter'].includes(c.cmd) || (c.cmd === 'config' && c.args[0] === 'set') || (c.cmd === 'sync' && c.args[0] === 'add') || (c.cmd === 'drive' && c.args[0] !== 'status')
 
 // ---- init confirm code (DESIGN 10.1): nonce-salted, never a hash of the diff alone; burned on every attempt ----
 export async function initPropose(h: Host, stage: number, diff: string): Promise<string> {
@@ -109,8 +110,22 @@ export async function initConfirm(h: Host, stage: number, code: string): Promise
 
 // ---- approve / reject ----
 const refuse = (why: string): Out => ({ text: `refused: ${why}` })
+// human gates (3.3): an open `gate` child of the epic is approved like a plan: its own nonce-salted code, burned on every attempt
+export const gateOf = async (store: TaskStore, id: string): Promise<Task | null> => { const g = await store.get(id).catch(() => null); return g && g.type === 'gate' && !['done', 'cancelled'].includes(g.category) ? g : null }
+export async function gateDraw(h: Host, g: Task): Promise<void> {
+  const nonce = h.rand(8)
+  await h.secret.update(x => ({ ...x, nonce, approval: { planId: g.id, code8: code8Of(nonce, [g]) } })); await h.board.update(b => ({ ...b, approval: { planId: g.id, missing: [] } }))
+}
+async function approveGate(h: Host, store: TaskStore, reg: TypeRegistry, g: Task, code: string): Promise<Out> {
+  const sec = await h.secret.read()
+  if (!sec.nonce || sec.approval?.planId !== g.id || sec.approval.code8 !== code || code8Of(sec.nonce, [g]) !== code) { await gateDraw(h, g); return refuse('token mismatch: use the code on the band or in the pane') }
+  await store.resolveGate(g.id, 'approved by the human')
+  await h.secret.update(({ approval: _a, nonce: _n, ...r }) => r); await h.board.update(b => ({ ...b, approval: { planId: null, missing: [] } }))
+  await mirror(h, store, reg); return { text: `Gate ${g.id} approved.` }
+}
 async function approve(h: Host, c: Command): Promise<Out> {
   const [planId, code] = (c.args[0] ?? '').split('@'), store = await storeOf(h), reg = await registryOf(h)
+  const gate = (await h.board.read()).plan?.id === planId ? null : await gateOf(store, planId); if (gate) return approveGate(h, store, reg, gate, code)
   const s = await h.board.read(), sec = await h.secret.read(), drafts = await draftsOf(store, s.epic)
   const why = !s.plan || s.plan.id !== planId ? `no draft plan ${planId}` : !sec.nonce || sec.approval?.planId !== planId || sec.approval.code8 !== code || code8Of(sec.nonce, drafts) !== code ? 'token mismatch: use the code on the band or in the pane' : ''
   const mission = s.plan?.slug === 'mission'
@@ -125,6 +140,7 @@ async function approve(h: Host, c: Command): Promise<Out> {
   }
   const ids = drafts.map(t => t.id), first = !plan.approvedAt
   await store.approve(ids)
+  for (const t of drafts) if (t.meta['cadre.amended']) await store.setMeta(t.id, { 'cadre.amended': '' }, 'human')
   await mirror(h, store, reg)   // tasks the board lost (after /clear) come back as drafts; the machine then approves them
   const pipe = pipeOf(reg)
   for (const id of ids) await apply(h, { kind: 'approve', id, at, actor: 'human' }, pipe)
@@ -132,19 +148,45 @@ async function approve(h: Host, c: Command): Promise<Out> {
   await h.board.update(b => ({ ...b, plan: b.plan && { ...b.plan, state: 'approved', approvedAt: b.plan.approvedAt ?? at }, approval: { planId: null, missing: [] }, sheet: [] }) as typeof b)
   await h.secret.update(({ approval: _a, nonce: _n, ...r }) => r)
   let note = ''
-  if (first) try { await cutEpic(h, plan.id); note = `; epic branch ${plan.epicBranch} cut` } catch (e) { note = `; epic branch cut failed: ${(e as Error).message}` }
+  if (first) try { await cutEpic(h, plan.id, (await cfgOf(h)).branches.dev); note = `; epic branch ${plan.epicBranch} cut` } catch (e) { note = `; epic branch cut failed: ${(e as Error).message}` }
   return { text: `Plan ${plan.id} approved: ${ids.length} task${ids.length === 1 ? '' : 's'} ready${note}.` }
 }
 async function reject(h: Host, c: Command): Promise<Out> {
   const [planId, ...why] = c.args, store = await storeOf(h), reg = await registryOf(h), s = await h.board.read()
   if (!s.plan || s.plan.id !== planId) return refuse(`no draft plan ${planId}`)
-  const drafts = await draftsOf(store, s.epic), fresh = s.plan.state === 'draft'
+  const all = await draftsOf(store, s.epic), fresh = s.plan.state === 'draft', back = fresh ? [] : all.filter(t => t.meta['cadre.amended']), drafts = all.filter(t => !back.includes(t))
   await store.dropDrafts([...drafts.map(t => t.id), ...(fresh ? [s.plan.id] : [])])
+  if (back.length) { await store.approve(back.map(t => t.id)); for (const t of back) await store.setMeta(t.id, { 'cadre.amended': '' }, 'human') }   // an amended approved task keeps its place: the amendment is dropped, never the task (3.1)
   await store.record('decision', `Rejected plan ${planId}`, why.join(' ') || 'no reason given', fresh ? undefined : planId)
   if (fresh) await h.board.update(b => ({ ...b, plan: null, epic: null, tasks: [], approval: { planId: null, missing: [] }, sheet: [] }) as typeof b)
-  else { await mirror(h, store, reg); await h.board.update(b => ({ ...b, sheet: [] }) as typeof b) }
+  else { await mirror(h, store, reg); for (const t of back) await apply(h, { kind: 'approve', id: t.id, at: await h.now(), actor: 'human' }, pipeOf(reg)); await h.board.update(b => ({ ...b, sheet: [] }) as typeof b) }
   await h.secret.update(({ approval: _a, nonce: _n, ...r }) => r)
-  return { text: `Plan ${planId}: ${drafts.length} draft${drafts.length === 1 ? '' : 's'} dropped.` }
+  return { text: `Plan ${planId}: ${drafts.length} draft${drafts.length === 1 ? '' : 's'} dropped${back.length ? `, ${back.length} amendment${back.length === 1 ? '' : 's'} reverted` : ''}.` }
+}
+
+// /cadre resolve <epic> recut|cancel (lost-epic, 3.2): the epic branch is gone; recut it from dev, or end the epic
+export async function resolveEpic(h: Host, a: string, b: string): Promise<Out> {
+  const s = await h.board.read(), p = s.plan
+  if (!p || a !== p.id || p.state !== 'blocked' || !['recut', 'cancel'].includes(b)) return refuse(`usage: /cadre resolve <epic> recut|cancel (only for a blocked epic)`)
+  const store = await storeOf(h), reg = await registryOf(h)
+  if (b === 'recut') {
+    await cutEpic(h, p.id, (await cfgOf(h)).branches.dev)
+    await h.board.update(x => (x.plan ? { ...x, plan: { ...x.plan, state: epicNext(x.plan.state, 'recut') ?? x.plan.state, flags: (x.plan.flags ?? []).filter(f => f !== 'lost-epic') } } : x))
+    await emit(h, 'flag.resolved', { taskId: p.id, flag: 'lost-epic' }, { taskId: p.id }); return { text: `Epic ${p.id}: ${p.epicBranch} re-cut from dev.` }
+  }
+  for (const t of s.tasks.filter(x => !['done', 'cancelled'].includes(x.state))) { await apply(h, { kind: 'cancel', id: t.id, at: await h.now(), actor: 'human' }, pipeOf(reg)); await store.close(t.id, { outcome: 'cancelled', note: 'epic cancelled' }).catch(() => {}) }
+  await store.close(p.id, { outcome: 'cancelled', note: 'epic cancelled' }).catch(() => {})
+  await h.board.update(x => ({ ...x, plan: null, epic: null, tasks: [], approval: { planId: null, missing: [] }, sheet: [] }) as typeof x); return { text: `Epic ${p.id} cancelled.` }
+}
+
+// /cadre restore [<name>] (13.7): re-apply a quarantined stash (kept in the stash list, never dropped)
+export async function restore(h: Host, name?: string): Promise<Out> {
+  const q = ((await h.store.get('quarantine')) as { name: string; tree: string; paths: string[] }[] | undefined) ?? [], e = name ? q.find(x => x.name === name) : q[q.length - 1]
+  if (!e) return refuse(`no quarantined entry${name ? ` ${name}` : ''}${q.length ? `; known: ${q.map(x => x.name).join(', ')}` : ''}`)
+  const ref = (await h.run(['git', '-C', e.tree, 'stash', 'list', '--format=%gd %s'])).stdout.split('\n').find(l => l.endsWith(e.name))?.split(' ')[0]
+  if (!ref) return refuse(`${e.name}: the stash is gone`)
+  const r = await G.op(h, () => h.run(['git', '-C', e.tree, 'stash', 'apply', ref]))
+  return r.exitCode ? refuse(`${e.name}: ${r.stderr.trim().slice(0, 200)}`) : { text: `Restored ${e.paths.length} path(s) of ${e.name} into ${e.tree} (the stash is kept).` }
 }
 
 // route = the handler for everything else (commands/cadre.ts); a human-only command from a non-human origin is refused before it
