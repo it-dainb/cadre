@@ -1,9 +1,10 @@
-// /cadre init: the staged wizard (DESIGN 10.1). Each stage: propose -> diff -> human `confirm <code>` -> re-read -> .bak -> validate -> save.
-// A stage is complete when its validated keys exist, so there is no progress state. Pending diff signature: ui['init.pending']; code: secret.initConfirm.
+// /cadre init: the staged wizard (DESIGN 10.1, ADR 0009). Each stage: propose -> diff on the card -> confirm (press or `confirm <code>`) -> re-read -> .bak -> validate -> save,
+// then the next incomplete stage is proposed. A stage is complete when its validated keys exist. Pending diff: ui['init.pending']; code: secret.initConfirm. Command text: one line.
 import type { Host } from '../types'
 import { canon, fnv1a64 } from '../core/board'
 import { emit } from '../core/events'
 import { initConfirm, initPropose, missionOf } from '../core/dispatch'
+import { ask, handOff, settle } from '../core/decide'
 import { load } from '../config'
 import type { Config } from '../config'
 import { diff as jdiff } from '../policy/settings'
@@ -27,8 +28,10 @@ export const wire: { store(h: Host, cfg: Config, root: string): Promise<TaskStor
 type J = Record<string, any>
 type Save = (path: string, text: string) => Promise<void>
 interface Plan { lines: string[]; targets: string[]; apply(save: Save): Promise<{ ok: boolean; text: string }> }
-interface Ctx { h: Host; root: string; home: string; rk: string; cfg: Config; args: string[] }
-interface Stage { n: number; name: string; done(c: Ctx): Promise<boolean>; propose(c: Ctx): Promise<Plan | string> }
+interface Ctx { h: Host; root: string; home: string; rk: string; cfg: Config; args: string[]; seen: Set<number> }   // seen: stages finished in this run (auto-advance never loops)
+// a stage answers a diff (Plan), a reason/question for the human (string), a brief for main (agentic: 3 mission, 4 discovery), or waits on another card
+type Agentic = { brief: string; working: string[] }
+interface Stage { n: number; name: string; done(c: Ctx): Promise<boolean>; propose(c: Ctx): Promise<Plan | string | Agentic | { wait: string }> }
 
 const base = (p: string) => p.split('/').filter(Boolean).pop() ?? 'repo'
 export const repoKeyOf = (root: string) => `${base(root)}-${fnv1a64(root).slice(0, 6)}`
@@ -36,7 +39,7 @@ export const repoKeyOf = (root: string) => `${base(root)}-${fnv1a64(root).slice(
 export const rootFor = (roots: Record<string, string> | undefined, cwd: string) => Object.entries(roots ?? {}).find(([k]) => cwd.includes(`/${k}/`) || cwd.includes(`/${k}.views/`))?.[1] ?? cwd
 export const scoped = async (h: Host, name: string) => `cadre:${repoKeyOf(await h.cwd())}:${name}`   // $.store keys are per repo (13.5)
 const git = (c: Ctx, ...a: string[]) => c.h.run(['git', ...a], { cwd: c.root })
-const ok = (text: string) => ({ ok: true, text }), no = (text: string) => ({ ok: false, text })
+const ok = (text: string) => ({ ok: true, text }), no = (text: string) => ({ ok: false, text }), tail = (r: { stderr: string }) => r.stderr.trim().split('\n').pop()
 const readJ = async (h: Host, p: string): Promise<J> => { const t = await h.readText(p); try { return t ? JSON.parse(t) : {} } catch { return {} } }
 const put = (v: unknown) => JSON.stringify(v, null, 2) + '\n'
 // JSON file edit as a plan piece: lines for the diff + the text to save.
@@ -63,14 +66,16 @@ const S1: Stage = {
     const want = ['.beads/', '.claude/settings.local.json'], cfgPath = `${c.root}/.cadre/config.json`
     const cfgEdit = await edit(c.h, cfgPath, j => ({ ...j, branches: { ...j.branches, main: def, dev } }))
     const have = ((await c.h.readText(exPath)) ?? '').split('\n')
-    const lines = [...(isRepo ? [] : [`+ git init -b ${def} + initial commit`]), ...(isRepo && (await git(c, 'rev-parse', '--verify', dev)).exitCode === 0 ? [] : [`+ git branch ${dev} ${def}`]),
+    const unborn = isRepo && (await git(c, 'rev-parse', '--verify', 'HEAD')).exitCode !== 0   // git init ran but the first commit failed (no author identity, a commit hook, signing): finish it, else `git branch dev` can never resolve
+    const lines = [...(isRepo ? unborn ? [`+ initial commit on ${def}`] : [] : [`+ git init -b ${def} + initial commit`]), ...(isRepo && (await git(c, 'rev-parse', '--verify', dev)).exitCode === 0 ? [] : [`+ git branch ${dev} ${def}`]),
       ...want.filter(w => !have.includes(w)).map(w => `+ ${exPath}: ${w}`), ...cfgEdit.lines]
     if (lines.length) lines.push('keys: branches -> committed .cadre/config.json; relaxations (jailWritable, knownRed) -> ~/.claude/cadre.json')
     return { lines, targets: [exPath, cfgPath], async apply(save) {
-      if (!isRepo) {
-        for (const a of [['init', '-b', def], ['add', '-A'], ['commit', '--allow-empty', '-m', 'chore: initial commit']]) { const r = await git(c, ...a); if (r.exitCode) return no(`git ${a[0]} failed: ${r.stderr.trim().split('\n').pop()}`) }
+      if (!isRepo) { const r = await git(c, 'init', '-b', def); if (r.exitCode) return no(`git init failed: ${tail(r)}`) }
+      if ((await git(c, 'rev-parse', '--verify', 'HEAD')).exitCode) for (const a of [['add', '-A'], ['commit', '--allow-empty', '-m', 'chore: initial commit']]) {
+        const r = await git(c, ...a); if (r.exitCode) return no(/identity|auto-detect email|who you are/i.test(r.stderr) ? 'git commit failed: git has no author name/email; run git config --global user.name "…" and user.email "…", then confirm again' : `git ${a[0]} failed: ${tail(r)}`)
       }
-      if ((await git(c, 'rev-parse', '--verify', dev)).exitCode) { const r = await git(c, 'branch', dev, def); if (r.exitCode) return no(`git branch ${dev} ${def} failed: ${r.stderr.trim().split('\n').pop()}`) }
+      if ((await git(c, 'rev-parse', '--verify', dev)).exitCode) { const r = await git(c, 'branch', dev, def); if (r.exitCode) return no(`git branch ${dev} ${def} failed: ${tail(r)}`) }
       for (const b of [def, dev]) if ((await git(c, 'rev-parse', '--verify', b)).exitCode) return no(`branch "${b}" does not resolve`)
       const cur = (await c.h.readText(exPath)) ?? ''
       await save(exPath, cur + (cur && !cur.endsWith('\n') ? '\n' : '') + want.filter(w => !cur.split('\n').includes(w)).map(w => w + '\n').join(''))
@@ -97,6 +102,19 @@ const S2: Stage = {
   },
 }
 
+// the ONE prompt main gets when an agentic stage is reached (task language only, ADR 0006 lint); sent like setup's hand-off (commands/doctor.handOff)
+export const MISSION = [
+  "Set this project's mission with the human.",
+  '1. Ask the human (AskUserQuestion, one round) for the goal in one line, the constraints and the non-goals.',
+  '2. Draft it: TaskCreate with subject = the goal, description = "Goal: …\nConstraints: …\nNon-goals: …", metadata {"kind":"mission"}.',
+  '3. Stop. The human approves the mission on its card; the next step follows on its own.',
+].join('\n')
+export const DISCOVER = [
+  'Find out how this project is built and tested.',
+  'Spawn ONE Agent with the prompt "discover how this repo builds and tests" (no task id in it). It gets its full instructions on its own and reports back.',
+  'Wait for it to finish, then stop. Do not read the files yourself; the next step follows on its own.',
+].join('\n')
+
 const S3: Stage = {
   n: 3, name: 'mission',
   done: async c => {
@@ -105,10 +123,8 @@ const S3: Stage = {
     if (m) await c.h.board.update(b => ({ ...b, mission: m }))
     return !!m
   },
-  propose: async c => ({ lines: [], targets: [], async apply() {
-    await c.h.ui.update(u => ({ ...u, initRequest: 'mission' }))
-    return no('mission request queued: main will ask you for goal, constraints and non-goals and draft the mission; approve it with /cadre approve <id>@<code>')
-  } }),
+  propose: async c => ((await c.h.board.read()).plan?.slug === 'mission' ? { wait: 'the mission draft waits for your approval on its card' }
+    : { brief: MISSION, working: ['Claude is working on the mission…', 'answer its questions in the transcript, then approve the mission on its card'] }),
 }
 
 const known = async (c: Ctx) => ((await c.h.store.get(`init.discovery:${c.rk}`)) as D.Pkg[] | undefined)
@@ -124,7 +140,7 @@ const S4: Stage = {
   async propose(c) {
     if (!(await S1.done(c)) || !(await S2.done(c))) return 'init 4: run stages 1 and 2 first (discovery needs the repo and the store)'
     const pkgs = await known(c)
-    if (!pkgs) { await c.h.ui.update(u => ({ ...u, initRequest: 'discovery' })); return 'init 4: discovery requested; main will spawn the discovery explorer. When it reports, run /cadre init again.' }
+    if (!pkgs) return { brief: DISCOVER, working: ['Claude is working on discovery…', 'an explorer reads CI config, manifests and test dirs; the diff follows when it reports'] }
     const sig = fnv1a64(canon(pkgs)); let audit = (await c.h.store.get(`init.audit:${c.rk}`)) as { sig: string; runs: D.Run[] } | undefined
     if (audit?.sig !== sig) { audit = { sig, runs: [] }; for (const p of pkgs) audit.runs.push(await D.exec(c.h, c.root, c.home, p, { audit: true })); await c.h.store.set(`init.audit:${c.rk}`, audit) }
     const bad = pkgs.findIndex((_, i) => !audit!.runs[i].setupOk); if (bad >= 0) return `init 4: setup ${JSON.stringify(pkgs[bad].setup)} failed in ${pkgs[bad].root}; fix it and have main re-run discovery`
@@ -223,40 +239,76 @@ const S8: Stage = {
   done: async c => Object.keys(c.cfg.sync).length > 0 || !!(await c.h.store.get(`init.skip8:${c.rk}`)),
   async propose(c) {
     const a = c.args[0]
-    if (a === 'skip') { await c.h.store.set(`init.skip8:${c.rk}`, true); return 'init 8: sync skipped (re-run /cadre init 8 <adapter> any time)' }
+    if (a === 'skip') return { lines: [], targets: [], async apply() { await c.h.store.set(`init.skip8:${c.rk}`, true); return ok('sync skipped (/cadre init 8 <adapter> adds it later)') } }
     if (a) return wire.syncAdd(c.h, a)
     const names = Object.keys(c.cfg.adapters)
     return `init 8 (optional): sync this project with an external tracker?\n${names.length ? `configured adapters: ${names.join(', ')}\nrun /cadre init 8 <adapter>` : 'no adapters configured (add one under adapters in ~/.claude/cadre.json)'}, or /cadre init 8 skip`
   },
 }
 const STAGES = [S1, S2, S3, S4, S5, S6, S7, S8]
+const tag = (st: Stage) => `${st.n}/${STAGES.length} ${st.name}`
+const rel = (c: Ctx, l: string) => l.replaceAll(`${c.root}/`, '').replaceAll(`${c.home}/`, '~/')   // the card shows repo-relative and ~ paths
+const strip = (l: string) => l.replace(/^init \d+( \(optional\))?: /, '')
+const one = (t: string) => strip(t).split('\n').filter(Boolean).join(' ').slice(0, 140)   // the command text is ONE line (UI-DESIGN D2); the detail goes to the card
 
 async function setState(c: Ctx, n: number, state: 'pending' | 'proposed' | 'done') {
-  await c.h.board.update(b => ({ ...b, init: [...b.init.filter(i => i.stage !== n), { stage: n, state }].sort((x, y) => x.stage - y.stage) }))
-  await emit(c.h, 'init.stage', { stage: n, state })
+  let same = false
+  await c.h.board.update(b => (same = b.init.some(i => i.stage === n && i.state === state)) ? b : { ...b, init: [...b.init.filter(i => i.stage !== n), { stage: n, state }].sort((x, y) => x.stage - y.stage) })
+  if (state === 'done' && (n === 3 || n === 4)) await c.h.ui.update(({ initRequest: _r, ...u }) => u)
+  if (!same) await emit(c.h, 'init.stage', { stage: n, state, name: STAGES[n - 1]?.name })   // a re-proposal of the same state is not news
 }
 const saver = (c: Ctx): Save => async (path, text) => { const old = await c.h.readText(path); if (old === text) return; if (old !== null) await c.h.write(`${path}.bak`, old); await c.h.write(path, text) }
 async function reread(c: Ctx, targets: string[]) { return Object.fromEntries(await Promise.all(targets.map(async t => [t, await c.h.readText(t)]))) }
 
-// A stage that returns text instead of a diff, or fails, is `pending` while main owes it a request (mission, discovery: the consumers in briefs/admission/tools look for pending), else `proposed`.
+// A stage that waits on main (mission, discovery: the consumers in briefs/admission/tools look for pending) is `pending`, else `proposed`.
 const waiting = async (c: Ctx) => ((await c.h.ui.read()).initRequest ? 'pending' as const : 'proposed' as const)
-
-// Show the diff and arm a fresh nonce-salted code (never printed: the human reads it from the band). A diff-less plan applies at once.
-async function show(c: Ctx, st: Stage): Promise<string> {
-  const p = await st.propose(c); if (typeof p === 'string') { await setState(c, st.n, await waiting(c)); return p }
-  const save = saver(c)
-  if (!p.lines.length) return finish(c, st, await p.apply(save))
-  const text = `init ${st.n} ${st.name}: proposed changes\n${p.lines.join('\n')}`
-  const sig = fnv1a64(text + canon(await reread(c, p.targets)))
-  await c.h.ui.update(u => ({ ...u, 'init.pending': { stage: st.n, sig } }))
-  await initPropose(c.h, st.n, text, { title: `init stage ${st.n} diff ready · confirm it`, short: `init ${st.n} diff ready`, sub: 'init', change: `init ${st.n}`, lines: [`stage ${st.n} ${st.name}: proposed changes`, ...p.lines.slice(0, 14).map(x => `  ${x}`)] })
-  await setState(c, st.n, 'proposed')
-  return `${text}\n\nConfirm with the code shown in the cadre band: /cadre init confirm <code>`
+// one init card at a time (setup's init:90 is its own)
+const clear = async (c: Ctx) => settle(c.h, ...((await c.h.board.read()).decisions ?? []).filter(d => d.id.startsWith('init:') && d.id !== 'init:90').map(d => d.id))
+// a card with no code: a reason, a question, or "Claude is working on it"
+async function note(c: Ctx, st: Stage, lines: string[], working = false): Promise<void> {
+  await clear(c)
+  await ask(c.h, { id: `init:${st.n}`, kind: 'init', title: `init ${tag(st)} · ${working ? 'Claude is on it' : 'needs you'}`, short: `init ${st.n}/${STAGES.length} ${st.name}`, lines: lines.map(l => rel(c, l)), hash: fnv1a64(lines.join('\n')), tab: 'epic', fallback: `/cadre init ${st.n}`,
+    options: [...(st.n === 8 ? [{ key: 's', label: 'Skip', verb: 'reject', run: 'init 8 skip' }] : []), { key: 'r', label: working ? 'Retry' : 'Re-check', verb: 'change', run: `init ${st.n}` }, { key: 'x', label: 'Cancel', verb: 'reject', run: 'init cancel' }] })
 }
+
+// Propose a stage: a diff goes on the card with a fresh nonce-salted code (never printed); a diff-less plan applies at once; `why` = the last attempt's failure, shown on top.
+async function show(c: Ctx, st: Stage, why?: string): Promise<string> {
+  const p = await st.propose(c), bang = why ? [`! last try: ${why}`] : []
+  if (typeof p === 'string') { await setState(c, st.n, await waiting(c)); await note(c, st, [...bang, ...p.split('\n').map(strip)]); return `stage ${tag(st)}: ${one(p)} · see the card` }
+  if ('wait' in p) { await setState(c, st.n, 'pending'); await settle(c.h, `init:${st.n}`); return `stage ${tag(st)}: ${p.wait}` }
+  if ('brief' in p) return agentic(c, st, p)
+  if (!p.lines.length) { if (!why) return finish(c, st, await p.apply(saver(c))); await note(c, st, bang); return `stage ${tag(st)}: ${one(why)} · see the card` }
+  const text = `init ${st.n} ${st.name}: proposed changes\n${p.lines.join('\n')}`, shown = p.lines.map(l => `  ${rel(c, l)}`)
+  const sig = fnv1a64(text + canon(await reread(c, p.targets)))
+  await clear(c)
+  await c.h.ui.update(u => ({ ...u, 'init.pending': { stage: st.n, sig, lines: p.lines } }))
+  await initPropose(c.h, st.n, text, { title: `init ${tag(st)} · confirm`, short: `init ${st.n}/${STAGES.length} ${st.name}`, sub: 'init', change: `init ${st.n}`, lines: [...bang, ...shown.slice(0, 14), ...(shown.length > 14 ? [`  … ${shown.length - 14} more lines`] : [])] })
+  await setState(c, st.n, 'proposed')
+  return `stage ${tag(st)}${why ? ` failed: ${one(why)} ·` : ''} ready · confirm on the card`
+}
+// stages 3 and 4 need the model: ONE brief to main per stage run, the way setup hands off (commands/doctor.handOff: sent from a press, queued from a typed command)
+async function agentic(c: Ctx, st: Stage, p: Agentic): Promise<string> {
+  await c.h.ui.update(u => ({ ...u, initRequest: st.name }))
+  await setState(c, st.n, 'pending')
+  if (!(await c.h.secret.read()).setupFix?.sent) await handOff(c.h, p.brief, st.n, 'init')   // a refused (queued) one is sent again by Retry
+  await note(c, st, p.working, true)
+  return `stage ${tag(st)}: Claude is working on it`
+}
+// applied: mark done and propose the next incomplete stage (no retyping); failed: the reason stays on the card and the stage is proposed again
 async function finish(c: Ctx, st: Stage, r: { ok: boolean; text: string }): Promise<string> {
-  await setState(c, st.n, r.ok ? 'done' : await waiting(c))
-  const next = r.ok ? STAGES.find(s => s.n > st.n) : undefined
-  return `init ${st.n} ${st.name}: ${r.text}${next ? `\nnext: /cadre init (stage ${next.n} ${next.name})` : ''}`
+  if (!r.ok) return show(c, st, r.text)
+  await setState(c, st.n, 'done'); await settle(c.h, `init:${st.n}`); c.seen.add(st.n)
+  return `stage ${tag(st)} done · ${await next(c)}`
+}
+async function next(c: Ctx): Promise<string> {
+  c.cfg = (await load(c.h, { home: c.home, root: c.root, repoKey: c.rk })).config; c.args = []   // stage 1 just wrote the repo config
+  const b = await c.h.board.read()
+  for (const s of STAGES) {
+    if (c.seen.has(s.n)) continue
+    if (!(await s.done(c).catch(() => false))) return show(c, s)
+    if (b.init.some(i => i.stage === s.n && i.state !== 'done')) await setState(c, s.n, 'done')   // done elsewhere (the mission approved on its card)
+  }
+  await clear(c); return 'all stages done'
 }
 
 async function confirm(c: Ctx, code: string | undefined): Promise<string> {
@@ -264,29 +316,38 @@ async function confirm(c: Ctx, code: string | undefined): Promise<string> {
   if (!pend || !code) await initConfirm(c.h, 0, '')
   if (!pend) return 'init: nothing pending; run /cadre init'
   const st = STAGES.find(s => s.n === pend.stage); if (!st) return 'init: nothing pending; run /cadre init'   // a pending setup code is burned by the attempt
-  if (!good) return `init: wrong code (burned); a new diff and code follow\n${await show(c, st)}`
+  if (!good) return `init: wrong code (burned) · ${await show(c, st)}`
   const was = ((await c.h.ui.read())['init.pending'] as { sig: string } | undefined)?.sig
-  const p = await st.propose(c); if (typeof p === 'string') return p
+  const p = await st.propose(c); if (typeof p === 'string' || !('lines' in p)) return `init: ${await show(c, st)}`
   const text = `init ${st.n} ${st.name}: proposed changes\n${p.lines.join('\n')}`
-  if (fnv1a64(text + canon(await reread(c, p.targets))) !== was) return `init: files changed since the diff was shown; nothing written; re-shown\n${await show(c, st)}`
-  const save = saver(c)
-  return finish(c, st, await p.apply(save))
+  if (fnv1a64(text + canon(await reread(c, p.targets))) !== was) return `init: files changed since the diff; nothing written · ${await show(c, st, 'files changed since the diff was shown; nothing was written')}`
+  return `init: ${await finish(c, st, await p.apply(saver(c)))}`
 }
 
+const ctxOf = async (h: Host, args: string[]): Promise<Ctx> => {
+  const root = await h.cwd(), home = await h.home(), rk = repoKeyOf(root)
+  return { h, root, home, rk, cfg: (await load(h, { home, root, repoKey: rk })).config, args, seen: new Set() }
+}
 // doctor: which stages are complete (read-only predicates)
 export async function progress(h: Host): Promise<{ n: number; name: string; done: boolean }[]> {
-  const root = await h.cwd(), home = await h.home(), rk = repoKeyOf(root), cfg = (await load(h, { home, root, repoKey: rk })).config, c: Ctx = { h, root, home, rk, cfg, args: [] }
+  const c = await ctxOf(h, [])
   return Promise.all(STAGES.map(async s => ({ n: s.n, name: s.name, done: await s.done(c).catch(() => false) })))
+}
+// main's turn ended: `end` = the turn the hand-off started (commands/doctor.afterFix); else any main turn while discovery waits and its report is in.
+// Moved on: the next card follows. Still owed at the end of the hand-off turn: the card says Claude stopped, Retry hands it over again.
+export async function after(h: Host, end: boolean): Promise<void> {
+  const p = (await h.board.read()).init.find(i => (i.stage === 3 || i.stage === 4) && i.state === 'pending'); if (!p) return
+  if (!end && !(p.stage === 4 && (await h.store.get(`init.discovery:${repoKeyOf(await h.cwd())}`)))) return
+  const c = await ctxOf(h, []), st = STAGES[p.stage - 1], q = await st.propose(c)
+  if (typeof q === 'object' && 'brief' in q) return note(c, st, [`Claude stopped before finishing ${st.name}.`, 'Retry hands it the step again.'])
+  await next(c)
 }
 
 export async function run(h: Host, args: string[]): Promise<string> {
-  const root = await h.cwd(), home = await h.home(), rk = repoKeyOf(root)
-  const cfg = (await load(h, { home, root, repoKey: rk })).config, c: Ctx = { h, root, home, rk, cfg, args: [] }
+  const c = await ctxOf(h, [])
   if (args[0] === 'confirm') return confirm(c, args[1])
   const st = args[0] ? STAGES.find(s => String(s.n) === args[0] || s.name === args[0]) : undefined
   if (args[0] && !st) return `init: unknown stage "${args[0]}" (1 repo, 2 store, 3 mission, 4 discovery, 5 containment, 6 workflow, 7 changelog, 8 sync)`
   c.args = args.slice(1)
-  if (st) return show(c, st)
-  for (const s of STAGES) if (!(await s.done(c))) return show(c, s)
-  return 'init: all stages complete'
+  return `init: ${st ? await show(c, st) : await next(c)}`
 }

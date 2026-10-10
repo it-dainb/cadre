@@ -4,7 +4,7 @@ import type { Host } from '../types'
 import type { Config } from '../config'
 import { canon, fnv1a64, leaseLive } from '../core/board'
 import { cfgOf, initConfirm, initPropose, storeOf } from '../core/dispatch'
-import { ask, settle } from '../core/decide'
+import { ask, handOff, settle } from '../core/decide'
 import { exists, jailMode, ok as gitOk } from '../core/git'
 import { wtRootOf } from '../core/branches'
 import { qk } from '../core/session'
@@ -13,7 +13,7 @@ import { policyOf } from '../policy/guards'
 import { apply as mapply, plan as mplan } from '../policy/settings'
 import { call } from '../task-management/protocol'
 import { openPane } from '../ui/index'
-import { progress } from './init'
+import { after as initAfter, progress } from './init'
 
 export type Row = ['ok' | 'warn' | 'crit', string, string?]   // level, line, fix (a command for the human)
 const PIN = '2.1.295', SETUP = 90, STAMP = 'cadre:setup', PATCH = { env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } }
@@ -149,12 +149,7 @@ async function runActs(h: Host, P: Plan, path: string): Promise<{ st: string[][]
   }
   return { st }
 }
-// one hand-off per run. A press holds no turn, so the prompt goes now; typed in a command it is refused, so it waits for the next turn.complete.
-// setupFix = {n, text (the brief), sent, turn}: `turn` is the id of the turn our brief started (turnStarted, below); only THAT turn's end re-checks.
-async function handOff(h: Host, text: string, n: number): Promise<void> {
-  await h.secret.update(s => ({ ...s, setupFix: { n, text, sent: true } }))
-  void Promise.resolve().then(() => h.submit!(text)).catch(() => h.secret.update(s => ({ ...s, setupFix: { n, text } })))
-}
+// one hand-off per run (core/decide.handOff); only the end of the turn it started (turnStarted, below) re-checks.
 // ours = the brief itself, or a turn with no typed prompt (the engine may not pass a plugin message as text); a user's own prompt in between differs.
 // turn.start (every turn, any caller of $.prompt.submit: a press's own call is invisible to our prompt.submit hook, G6): the first turn after the send whose text is our brief (or empty) is the fix turn
 export async function turnStarted(h: Host, e: { text?: string; turnId?: string }): Promise<void> {
@@ -164,10 +159,11 @@ export async function turnStarted(h: Host, e: { text?: string; turnId?: string }
 // main's turn.complete: send a queued brief; at the end of the fix turn run the scripted actions it skipped, then re-check (card, stamp). Never hands off again.
 export async function afterFix(h: Host, e: { turnId?: string } = {}): Promise<void> {
   const f = (await h.secret.read()).setupFix
-  if (!f) return
+  if (!f) return initAfter(h, false)   // init discovery may have reported in a later turn
   if (!f.sent) { await h.secret.update(s => ({ ...s, setupFix: { ...f, sent: true } })); return void (await h.submit?.(f.text!).catch(() => h.secret.update(({ setupFix: _f, ...s }) => s))) }
   if (!f.turn || f.turn !== e.turnId) return   // another turn ended (the one that was running when the brief was queued, or the brief has not started): no early re-check
   await h.secret.update(({ setupFix: _f, ...s }) => s)
+  if (f.kind === 'init') return initAfter(h, true)
   const P = await preflight(h, await cfgOf(h)); if (P.acts.length) await runActs(h, P, await userPath(h))
   await setup(h, [])
 }

@@ -28,3 +28,11 @@ export function flagDecision(taskId: string, flag: string, title?: string): Deci
     : flag === 'lost-epic' ? 'the epic branch is gone. Re-cut it from dev, or end the epic.' : `${flag}: Keep accepts the state${options.some(o => o.verb === 'cancel') ? ', Cancel task ends it' : ''}.`
   return { id: `flag:${taskId}:${flag}`, kind: 'flag', title: text, short: git ? `${flag} moved` : undefined, lines: [...(title ? [`${taskId} ${title}`] : []), why], hash: flag, options, tab: 'epic', sel: git ? undefined : taskId, crit: git }
 }
+
+// Hand main ONE brief (setup's fixes, ADR 0007; init stages 3/4, ADR 0009). $.prompt.submit is refused while a command.run holds the turn (PC-05), so it goes now from a press,
+// else it waits in secret.setupFix for the next main turn.complete (commands/doctor.afterFix). setupFix = {n, text, sent, turn, kind}: `turn` = the turn the brief started.
+// kind 'init': init stages 3/4 hand main their brief the same way (commands/init); at that turn's end init continues instead of the setup re-check.
+export async function handOff(h: Host, text: string, n: number, kind?: 'init'): Promise<void> {
+  await h.secret.update(s => ({ ...s, setupFix: { n, text, sent: true, kind } }))
+  void Promise.resolve().then(() => h.submit!(text)).catch(() => h.secret.update(s => ({ ...s, setupFix: { n, text, kind } })))
+}

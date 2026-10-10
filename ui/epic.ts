@@ -81,7 +81,15 @@ export function evText(ev: CadreEvent, v: View): string {
     case 'sync.state_changed': return `${d.target} ${d.state === 'ok' ? 'back' : d.state}${d.conflicts ? ` · ${d.conflicts} conflict` : d.pending ? ` · ${d.pending} pending` : ''}`
     case 'drive.status': return `drive ${d.state}`
     case 'cost.updated': return `tokens ${d.tokens}`
-    default: return `${ev.type} ${JSON.stringify(d)}`
+    case 'task.phase_changed': return `${id} ${d.from} → ${d.to}`
+    case 'task.skipped': return `${id} skipped (${d.on})`
+    case 'init.stage': return `init: stage ${d.stage}${d.name ? ` ${d.name}` : ''} ${d.state}`
+    case 'plan.landed': return `plan ${d.planId} landed`
+    case 'plan.released': return `released ${d.version}`
+    case 'release.proposed': return `release ${d.version} ready`
+    case 'agent.bound': return `${d.agentId} bound to ${d.taskId} (${d.role})`
+    case 'agent.unbound': return `${d.agentId} unbound (${d.reason})`
+    default: return ev.type
   }
 }
 // latest first; the clock is epic time (the timeline's axis), the lane is the agent that made the event

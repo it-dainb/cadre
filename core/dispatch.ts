@@ -10,7 +10,7 @@ import type { Config } from '../config/index'
 import { canon, fnv1a64, stamp, withConditions } from './board'
 import { emit } from './events'
 import { ask, settle, settleIf } from './decide'
-import { scoped } from '../commands/init'
+import { run as initRun, scoped } from '../commands/init'
 import { apply, epicNext } from './machine'
 import { missingList } from './validate'
 import { cutEpic } from './branches'
@@ -158,7 +158,8 @@ async function approve(h: Host, c: Command): Promise<Out> {
     await store.record('mission', epic.title, epic.description); await store.dropDrafts([plan.id])
     await h.board.update(b => ({ ...b, mission: epic.title, plan: null, epic: null, tasks: [], approval: { planId: null, missing: [] }, sheet: [] }) as typeof b)
     await h.secret.update(({ approval: _a, nonce: _n, ...r }) => r); await settleIf(h, 'plan:')
-    return { text: `Mission "${epic.title}" approved and recorded.` }
+    const more = (await h.board.read()).init.some(i => i.stage === 3 && i.state !== 'done') ? ` · ${await initRun(h, [])}` : ''   // init stage 3: continue with the next stage
+    return { text: `Mission "${epic.title}" approved and recorded${more || '.'}` }
   }
   const ids = drafts.map(t => t.id), first = !plan.approvedAt
   await store.approve(ids)

@@ -20,7 +20,7 @@ export const TABLE: Record<EventType, Row> = {
   'sync.state_changed': ['sync', 'info', false, ['target', 'state', 'at'], ['pending', 'conflicts']],
   'drive.status': ['mod', 'info', false, ['state']],
   'cost.updated': ['mod', 'info', false, ['tokens']],
-  'init.stage': ['mod', 'info', false, ['stage', 'state']],
+  'init.stage': ['mod', 'info', false, ['stage', 'state'], ['name']],
   'plan.landed': ['mod', 'info', false, ['planId', 'sha']],
   'plan.released': ['mod', 'info', false, ['version', 'sha']],
   'release.proposed': ['mod', 'info', true, ['version']],

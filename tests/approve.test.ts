@@ -85,6 +85,12 @@ describe('approve: plan@code8, burn on use, completeness (DESIGN 3.1)', () => {
     expect(await w.h.board.read()).toMatchObject({ mission: 'Ship auth', plan: null, epic: null })
     expect((await w.store.list({})).some(t => t.type === 'milestone')).toBe(true)
   })
+  test('init stage 3: approving the mission continues init with the next stage (one line)', async () => {
+    const w = await world(); await w.h.board.update(b => ({ ...b, init: [{ stage: 3, state: 'pending' }] }))
+    const m = (await w.call('TaskCreate', { subject: 'Ship auth', description: 'goal', metadata: { kind: 'mission' } })).result.task.id
+    const t = (await w.text({ cmd: 'approve', args: [`${m}@${await code(w)}`] })).text
+    expect(t).toStartWith('Mission "Ship auth" approved and recorded · init: stage '); expect(t).not.toContain('\n')
+  })
   test('M12: reject on an amended plan reverts the amendment to todo; the approved task is never deleted', async () => {
     const w = await world(); const { plan: p, task } = await plan(w)
     await w.text({ cmd: 'approve', args: [`${p}@${await code(w)}`] })
