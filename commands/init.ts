@@ -1,6 +1,6 @@
 // /cadre init: the staged wizard (DESIGN 10.1, ADR 0009). Each stage: propose -> diff on the card -> confirm (press or `confirm <code>`) -> re-read -> .bak -> validate -> save,
 // then the next incomplete stage is proposed. A stage is complete when its validated keys exist. Pending diff: ui['init.pending']; code: secret.initConfirm. Command text: one line.
-import type { Host } from '../types'
+import type { DecisionField, Host } from '../types'
 import { canon, fnv1a64 } from '../core/board'
 import { emit } from '../core/events'
 import { initConfirm, initPropose, missionOf } from '../core/dispatch'
@@ -18,6 +18,7 @@ import { spec } from '../agents'
 import * as D from '../core/discover'
 import { realRoot, setPolicy } from '../policy/guards'
 import { wtRootOf } from '../core/branches'
+import { IDENT_FIELDS, identity, identityArgs, setIdentity } from '../core/git'
 
 // Wired by later waves: the beads TaskStore factory and sync add (11.3). Defaults refuse loudly.
 export const wire: { store(h: Host, cfg: Config, root: string): Promise<TaskStore>; syncAdd(h: Host, adapter: string): Promise<string> } = {
@@ -27,7 +28,8 @@ export const wire: { store(h: Host, cfg: Config, root: string): Promise<TaskStor
 
 type J = Record<string, any>
 type Save = (path: string, text: string) => Promise<void>
-interface Plan { lines: string[]; targets: string[]; apply(save: Save): Promise<{ ok: boolean; text: string }> }
+type Need = { reason: string; fields: DecisionField[] }   // apply is blocked on what only the human can supply: ask, then resume the SAME stage (ADR 0009)
+interface Plan { lines: string[]; targets: string[]; apply(save: Save): Promise<{ ok: boolean; text: string; need?: Need }> }
 interface Ctx { h: Host; root: string; home: string; rk: string; cfg: Config; args: string[]; seen: Set<number> }   // seen: stages finished in this run (auto-advance never loops)
 // a stage answers a diff (Plan), a reason/question for the human (string), a brief for main (agentic: 3 mission, 4 discovery), or waits on another card
 type Agentic = { brief: string; working: string[] }
@@ -71,9 +73,11 @@ const S1: Stage = {
       ...want.filter(w => !have.includes(w)).map(w => `+ ${exPath}: ${w}`), ...cfgEdit.lines]
     if (lines.length) lines.push('keys: branches -> committed .cadre/config.json; relaxations (jailWritable, knownRed) -> ~/.claude/cadre.json')
     return { lines, targets: [exPath, cfgPath], async apply(save) {
+      const born = isRepo && (await git(c, 'rev-parse', '--verify', 'HEAD')).exitCode === 0, id = born ? null : await identity(c.h.run, await c.h.env())
+      if (id && !id.ok) return { ok: false, text: 'the first commit needs your git name and email', need: { reason: 'The first commit needs your git name and email (git has none). cadre sets them with git config --global, then finishes this stage.', fields: IDENT_FIELDS(id) } }
       if (!isRepo) { const r = await git(c, 'init', '-b', def); if (r.exitCode) return no(`git init failed: ${tail(r)}`) }
       if ((await git(c, 'rev-parse', '--verify', 'HEAD')).exitCode) for (const a of [['add', '-A'], ['commit', '--allow-empty', '-m', 'chore: initial commit']]) {
-        const r = await git(c, ...a); if (r.exitCode) return no(/\bident|auto-detect email|who you are/i.test(r.stderr) ? 'git commit failed: git has no author name/email; run git config --global user.name "…" and user.email "…", then confirm again' : `git ${a[0]} failed: ${tail(r)}`)
+        const r = await git(c, ...a); if (r.exitCode) return no(`git ${a[0]} failed: ${tail(r)}`)
       }
       if ((await git(c, 'rev-parse', '--verify', dev)).exitCode) { const r = await git(c, 'branch', dev, def); if (r.exitCode) return no(`git branch ${dev} ${def} failed: ${tail(r)}`) }
       for (const b of [def, dev]) if ((await git(c, 'rev-parse', '--verify', b)).exitCode) return no(`branch "${b}" does not resolve`)
@@ -297,7 +301,8 @@ async function agentic(c: Ctx, st: Stage, p: Agentic): Promise<string> {
   return `stage ${tag(st)}: Claude is working on it`
 }
 // applied: mark done and propose the next incomplete stage (no retyping); failed: the reason stays on the card and the stage is proposed again
-async function finish(c: Ctx, st: Stage, r: { ok: boolean; text: string }): Promise<string> {
+async function finish(c: Ctx, st: Stage, r: { ok: boolean; text: string; need?: Need }): Promise<string> {
+  if (r.need) { await blocked(c, st, r.need); return `stage ${tag(st)}: ${r.text} · fill it in on the card` }
   if (!r.ok) return show(c, st, r.text)
   await setState(c, st.n, 'done'); await settle(c.h, `init:${st.n}`); c.seen.add(st.n)
   return `stage ${tag(st)} done · ${await next(c)}`
@@ -311,6 +316,28 @@ async function next(c: Ctx): Promise<string> {
     if (b.init.some(i => i.stage === s.n && i.state !== 'done')) await setState(c, s.n, 'done')   // done elsewhere (the mission approved on its card)
   }
   await clear(c); return 'all stages done'
+}
+
+// Resume contract (ADR 0009): a confirmed stage blocked on human input records {stage, need, sig} and asks with fields; `init resume <n> k=v…` applies the input and re-runs
+// the SAME stage (no new code: the diff was confirmed, and the sig must still match), then the normal flow continues. Only identity (name, email) exists today.
+async function blocked(c: Ctx, st: Stage, need: Need, error?: string, typed: Record<string, string> = {}): Promise<void> {
+  const sig = ((await c.h.ui.read())['init.pending'] as { sig: string } | undefined)?.sig
+  await c.h.ui.update(u => ({ ...u, 'init.blocked': { stage: st.n, need, sig } }))
+  await clear(c)
+  const fields = need.fields.map(f => ({ ...f, value: typed[f.key] ?? f.value }))
+  await ask(c.h, { id: `init:${st.n}`, kind: 'init', title: `init ${tag(st)} · needs you`, short: `init ${st.n}/${STAGES.length} ${st.name}`, lines: [need.reason], fields, error, hash: fnv1a64(need.reason + canon(fields) + (error ?? '')), tab: 'epic',
+    fallback: `/cadre init resume ${st.n} ${need.fields.map(f => `${f.key}="…"`).join(' ')}`, options: [{ key: 'a', label: 'Continue', verb: 'approve', run: `init resume ${st.n} {fields}` }, { key: 'x', label: 'Cancel', verb: 'reject', run: 'init cancel' }] })
+}
+async function resume(c: Ctx, n: string | undefined, args: string[]): Promise<string> {
+  const b = (await c.h.ui.read())['init.blocked'] as { stage: number; need: Need; sig?: string } | undefined, st = STAGES.find(s => String(s.n) === n)
+  if (!b || !st || b.stage !== st.n) return 'init: nothing to resume; run /cadre init'
+  const v = identityArgs(args), typed = Object.fromEntries(args.filter(a => a.includes('=')).map(a => [a.slice(0, a.indexOf('=')), a.slice(a.indexOf('=') + 1)]))
+  const err = typeof v === 'string' ? v : await setIdentity(c.h.run, v)
+  if (err) { await blocked(c, st, b.need, err, typed); return `init: stage ${tag(st)}: ${err} · see the card` }
+  await c.h.ui.update(({ 'init.blocked': _b, fields: f, ...u }) => ({ ...u, fields: { ...(f as object), [`init:${st.n}`]: undefined } }))
+  const p = await st.propose(c); if (typeof p === 'string' || !('lines' in p)) return `init: ${await show(c, st)}`
+  if (fnv1a64(`init ${st.n} ${st.name}: proposed changes\n${p.lines.join('\n')}` + canon(await reread(c, p.targets))) !== b.sig) return `init: files changed since the diff; nothing written · ${await show(c, st, 'files changed since the diff was shown; nothing was written')}`
+  return `init: git identity set · ${await finish(c, st, await p.apply(saver(c)))}`
 }
 
 async function confirm(c: Ctx, code: string | undefined): Promise<string> {
@@ -352,6 +379,7 @@ export async function after(h: Host, end: boolean): Promise<void> {
 export async function run(h: Host, args: string[]): Promise<string> {
   const c = await ctxOf(h, [])
   if (args[0] === 'confirm') return confirm(c, args[1])
+  if (args[0] === 'resume') return resume(c, args[1], args.slice(2))
   const st = args[0] ? STAGES.find(s => String(s.n) === args[0] || s.name === args[0]) : undefined
   if (args[0] && !st) return `init: unknown stage "${args[0]}" (1 repo, 2 store, 3 mission, 4 discovery, 5 containment, 6 workflow, 7 changelog, 8 sync)`
   c.args = args.slice(1)

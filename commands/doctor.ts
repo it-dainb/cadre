@@ -1,11 +1,11 @@
 // /cadre setup (once per machine: preflight, a plan of user-level actions, one confirm, execute, stamp) and /cadre doctor (read-only diagnosis). ADR 0007.
 // The command text is ONE line; the report goes to the human surface only (pane tab "doctor" + ui.log). Setup runs only user-level actions after the confirm; sudo and PATH fixes stay with the human.
-import type { Host } from '../types'
+import type { DecisionField, Host } from '../types'
 import type { Config } from '../config'
 import { canon, fnv1a64, leaseLive } from '../core/board'
 import { cfgOf, initConfirm, initPropose, storeOf } from '../core/dispatch'
 import { ask, handOff, settle } from '../core/decide'
-import { exists, jailMode, ok as gitOk } from '../core/git'
+import { IDENT_FIELDS, exists, identity, identityArgs, jailMode, ok as gitOk, setIdentity } from '../core/git'
 import { wtRootOf } from '../core/branches'
 import { qk } from '../core/session'
 import { assess } from '../policy/containment'
@@ -23,11 +23,11 @@ const userPath = async (h: Host) => `${await h.home()}/.claude/settings.json`
 
 // ---- machine checks (shared by setup and doctor); every probe goes through h.run so tests inject fixtures ----
 // acts = what setup can run itself (user-level, no sudo); human = what only the human can run once (sudo, PATH fixes)
-export type Act = { label: string; argv?: string[]; settings?: true }
+export type Act = { label: string; argv?: string[]; settings?: true; identity?: true }   // identity: git config --global user.name/email with the values typed on the card
 const BD_SH = 'curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash'
 // a human-run fix is a script under <cache>/cadre/fix (0700, harmless until run); the card, the pane and the copy button only ever show the ONE short line that runs it (ADR 0007, 0.5.1)
 export type Script = { path: string; text: string; run?: string; full?: string; exec?: true }   // run = the short line that runs it; full = the same fix as one copy-safe command
-export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; facts: Record<string, string>; acts: Act[]; human: string[]; own: Row[]; scripts: Script[] }> {
+export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; facts: Record<string, string>; acts: Act[]; human: string[]; own: Row[]; scripts: Script[]; fields?: DecisionField[] }> {
   const r = (argv: string[]) => h.run(argv, { timeoutMs: 5000 }).catch(() => undefined), text = (x?: { stdout: string; stderr: string }) => `${x?.stdout}${x?.stderr}`, out = async (argv: string[]) => (await r(argv))?.stdout.trim() ?? ''
   const mac = (await r(['uname', '-s']))?.stdout.trim() === 'Darwin', pm = mac ? 'brew install' : 'apt install', rows: Row[] = [], facts: Record<string, string> = {}, acts: Act[] = [], human: string[] = [], own: Row[] = [], scripts: Script[] = []
   const add = (x: Row, mine = false): void => { rows.push(x); if (mine) own.push(x); if (x[2]?.startsWith('! ') && !mine) human.push(x[2]) }
@@ -42,6 +42,9 @@ export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; fact
   add(!facts.cc ? ['warn', 'Claude Code version unreadable'] : facts.cc === PIN ? ['ok', `Claude Code ${PIN} (the pinned build)`] : ['warn', `Claude Code ${facts.cc}: ${cmp} the tested ${PIN}; ${cmp === 'newer than' ? 'usually fine' : 'update it with claude update'}`])
   const g = await r(['git', '--version']), gv = ver(text(g))
   add(!g || g.exitCode || !gv ? ['crit', 'git not found', fix('git', 'installs git (needed for worktrees).', `${pm} git`, !mac)] : atLeast(gv, '2.17') ? ['ok', `git ${gv}`] : ['crit', `git ${gv} is too old for worktrees`, fix('git', 'upgrades git to 2.17 or newer (needed for worktrees).', `${pm} git`, !mac)])
+  const id = g && !g.exitCode ? await identity(h.run, await h.env()) : undefined, fields = id && !id.ok ? IDENT_FIELDS(id) : undefined   // commits land on the user's branches: their own name and email (ADR 0009)
+  if (id?.ok) add(['ok', 'git identity set'])
+  else if (id) { acts.push({ label: 'setting your git identity', identity: true }); add(['crit', 'git identity missing: commits need your name and email', 'enter them on the setup card (/cadre setup)'], true) }
   const b = await r([cfg.store.bin, 'version']), bv = ver(text(b)); facts.bd = bv
   const rev = b?.exitCode === 0 && /--if-revision/.test(text(await r([cfg.store.bin, 'update', '--help'])))
   if (b && !b.exitCode && bv && atLeast(bv, '1.3.0')) add(['ok', `bd ${bv} (${rev ? 'if-revision supported' : 'no if-revision: read-check-write fallback'})`])
@@ -75,7 +78,7 @@ export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; fact
   while (p.length > 1 && !(await h.stat(p))) p = p.slice(0, p.lastIndexOf('/')) || '/'
   if ((await r(['test', '-w', p]))?.exitCode === 0) { add(['ok', `${mac ? 'macOS' : 'Linux'}; worktree root ${root} is writable`]); if (p !== root) acts.push({ label: 'creating the worktree folder', argv: ['mkdir', '-p', root] }) }
   else add(['crit', `worktree root ${root} is not writable`, `set worktrees.root in ~/.claude/cadre.json, or fix the permissions of ${p}`])
-  return { rows, facts, acts, human, own, scripts }
+  return { rows, facts, acts, human, own, scripts, fields }
 }
 // setup only (doctor stays read-only). Returns path -> reason for every script that could not be written
 const put = async (h: Host, ss: Script[]): Promise<Map<string, string>> => {
@@ -97,7 +100,7 @@ async function report(h: Host, name: string, rows: Row[], text?: string, extra: 
 }
 
 // ---- setup: preflight, plan, one confirm, execute, then (dormant repos only) hand what is left to the main agent ----
-type Plan = { rows: Row[]; facts: Record<string, string>; acts: Act[]; human: string[]; own: Row[]; hash: string; scripts: Script[]; copy?: string }   // copy = what [y] puts on the clipboard
+type Plan = { rows: Row[]; facts: Record<string, string>; acts: Act[]; human: string[]; own: Row[]; hash: string; scripts: Script[]; copy?: string; fields?: DecisionField[] }   // copy = what [y] puts on the clipboard
 async function preflight(h: Host, cfg: Config): Promise<Plan> {
   const m = await machine(h, cfg), p = await userPlan(h), acts = [...m.acts], bad = await put(h, m.scripts)
   const first = m.scripts.find(x => x.run && m.human.includes(`! ${x.run}`)), copy = first && (bad.has(first.path) ? first.full : first.run)
@@ -123,7 +126,7 @@ export const brief = (home: string, rows: Row[], failed?: { label: string; argv:
   'When you are done, stop. The checks run again on their own.',
 ].join('\n').replaceAll(`${home}/`, '~/')
 
-async function card(h: Host, P: Plan, fixing?: number, ran = false): Promise<void> {
+async function card(h: Host, P: Plan, fixing?: number, ran = false, error?: string, typed: Record<string, string> = {}): Promise<void> {
   const L = left(P, !ran), can = !!L.length && await asleep(h), code = (await h.secret.read()).initConfirm?.code
   const lines = fixing !== undefined ? [`Claude is fixing setup… (${fixing} issue${fixing > 1 ? 's' : ''})`] : [
     ...(P.acts.length ? ['cadre runs:', ...P.acts.map((a, i) => `  ${i + 1}. ${a.label}`)] : []),
@@ -131,21 +134,23 @@ async function card(h: Host, P: Plan, fixing?: number, ran = false): Promise<voi
     ...(P.human.length ? ['Run in a terminal (needs your password; ! sudo inside Claude cannot ask for it):', ...P.human.map(x => `  ${x.replace(/^! /, '')}`)] : []),
   ]
   if (!lines.length) return settle(h, `init:${SETUP}`)
-  const ok = !!code && fixing === undefined && (P.acts.length || can)
-  await ask(h, { id: `init:${SETUP}`, kind: 'init', title: fixing !== undefined ? 'setup · Claude is fixing it' : 'setup · needs you', short: 'setup needs you', lines, hash: fnv1a64(P.hash + lines.join('\n')), tab: 'epic', fallback: '/cadre setup confirm {code}',
-    options: [...(ok ? [{ key: 'a', label: 'Fix all', verb: 'approve', run: 'setup confirm {code}' }] : []), ...(h.ops?.copy && P.copy ? [{ key: 'y', label: 'Copy command', verb: 'change', run: 'setup copy' }] : []), { key: 'r', label: 'Re-check', verb: 'change', run: 'setup' }, { key: 'x', label: 'Cancel', verb: 'reject', run: 'setup cancel' }] }, code)
+  const ok = !!code && fixing === undefined && (P.acts.length || can), fields = ok && P.acts.some(a => a.identity) ? P.fields?.map(f => ({ ...f, value: typed[f.key] ?? f.value })) : undefined   // the identity act takes its values from the card (ADR 0009)
+  await ask(h, { id: `init:${SETUP}`, kind: 'init', title: fixing !== undefined ? 'setup · Claude is fixing it' : 'setup · needs you', short: 'setup needs you', lines, fields, error, hash: fnv1a64(P.hash + lines.join('\n') + canon(fields ?? []) + (error ?? '')), tab: 'epic', fallback: `/cadre setup confirm {code}${fields ? ' name="…" email="…"' : ''}`,
+    options: [...(ok ? [{ key: 'a', label: 'Fix all', verb: 'approve', run: `setup confirm {code}${fields ? ' {fields}' : ''}` }] : []), ...(h.ops?.copy && P.copy ? [{ key: 'y', label: 'Copy command', verb: 'change', run: 'setup copy' }] : []), { key: 'r', label: 'Re-check', verb: 'change', run: 'setup' }, { key: 'x', label: 'Cancel', verb: 'reject', run: 'setup cancel' }] }, code)
 }
 type Failed = { label: string; argv: string[]; out: string[] }
 // the plan's actions in order; the first failure stops the run (its last output lines are the evidence)
-async function runActs(h: Host, P: Plan, path: string): Promise<{ st: string[][]; failed?: Failed }> {
+async function runActs(h: Host, P: Plan, path: string, id?: { name: string; email: string }): Promise<{ st: string[][]; failed?: Failed }> {
   const st: string[][] = P.acts.map(a => [a.label, '']), tail: string[] = []
   for (const [i, a] of P.acts.entries()) {
+    if (a.identity && !id) continue   // no values typed (the re-check after a hand-off): the card asks again
     st[i][1] = 'run'; await shown(h, P, { acts: st }); h.toast(`setup: ${a.label}`)
     let bad = ''
     if (a.settings) await mapply({ readText: h.readText, writeText: h.write }, path, PATCH).catch((e: Error) => { bad = e.message })
+    else if (a.identity) bad = (await setIdentity(h.run, id!)) ?? ''
     else { const x = await h.run(a.argv!, { timeoutMs: 300000 }).catch((e: Error) => ({ exitCode: 1, stdout: '', stderr: e.message })); if (x.exitCode) { bad = `exit ${x.exitCode}`; tail.push(...`${x.stdout}\n${x.stderr}`.split('\n').filter(Boolean).slice(-8)) } }
     st[i][1] = bad ? 'fail' : 'ok'
-    if (bad) return { st, failed: { label: a.label, argv: a.argv ?? ['write', 'user settings'], out: tail.length ? tail : [bad] } }
+    if (bad) return { st, failed: { label: a.label, argv: a.argv ?? (a.identity ? ['git', 'config', '--global'] : ['write', 'user settings']), out: tail.length ? tail : [bad] } }
   }
   return { st }
 }
@@ -172,12 +177,17 @@ export async function setup(h: Host, args: string[]): Promise<string> {
   let P = await preflight(h, cfg), note = '', fixed = 0, ran = false, fixing: number | undefined, stopped = ''
   if (args[0] === 'copy') { return P.copy && (await h.ops?.copy?.(P.copy))?.isCopied ? 'copied' : 'not copied: select the line in the card' }
   if (args[0] === 'confirm') {
+    const id = P.acts.some(a => a.identity) ? identityArgs(args.slice(2)) : undefined
+    if (typeof id === 'string') {   // refused input: nothing ran, the code is not burned, the card says why and keeps what was typed
+      await card(h, P, undefined, false, id, Object.fromEntries(args.slice(2).filter(a => a.includes('=')).map(a => [a.slice(0, a.indexOf('=')), a.slice(a.indexOf('=') + 1)])))
+      return `setup: ${id} · see the card`
+    }
     const was = ((await h.ui.read())['setup.pending'] as string | undefined), good = await initConfirm(h, SETUP, args[1] ?? '')   // burns on every attempt
     if (!good) return 'setup: wrong code or nothing pending (burned); run /cadre setup again'
     if (P.hash !== was) note = 'setup: the plan changed since it was shown; nothing ran; confirm again with the new code'
     else {
       await h.ui.update(({ 'setup.pending': _p, ...u }) => u)
-      const r = await runActs(h, P, path), st = r.st, failed = r.failed
+      const r = await runActs(h, P, path, id), st = r.st, failed = r.failed
       if (failed) stopped = `setup: stopped at "${failed.label}"; output in the cadre pane`
       ran = true; fixed = st.filter(x => x[1] === 'ok').length
       const before = P; P = await preflight(h, cfg)

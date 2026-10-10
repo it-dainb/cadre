@@ -6,7 +6,7 @@ import { emit } from './events'
 import { ask, settleIf } from './decide'
 import { BLOCKING, epicNext } from './machine'
 import { cut, insert } from './changelog'
-import { IDENT, casRef, checkRun, exists, git, jailMode, op, tip, worktreeRemove, writableJail } from './git'
+import { casRef, checkRun, exists, git, jailMode, op, tip, worktreeRemove, writableJail } from './git'
 import { inferVersion, landDev, lastTag, mergeEpic, release, wtPath, wtRootOf } from './branches'
 import { repoKeyOf } from '../commands/init'
 
@@ -21,7 +21,7 @@ const refresh = async (h: Host, root: string, br: string, was: boolean, old: str
   if (was) await op(h, async () => git(h.run, root, ['read-tree', '-m', '-u', old, await tip(h.run, root, br)])).catch(() => h.toast(`cadre: ${br} moved; your edits kept · git stash, then checkout ${br}`))
 }
 const commitPaths = async (h: Host, wt: string, paths: string[], msg: string, amend = false) => {
-  await git(h.run, wt, ['add', '--', ...paths]); await git(h.run, wt, [...IDENT, 'commit', '--no-verify', ...(amend ? ['--amend', '--no-edit'] : ['-m', msg])]); return tip(h.run, wt, 'HEAD')
+  await git(h.run, wt, ['add', '--', ...paths]); await git(h.run, wt, ['commit', '--no-verify', ...(amend ? ['--amend', '--no-edit'] : ['-m', msg])]); return tip(h.run, wt, 'HEAD')
 }
 
 // setup + suites.integration per touched package (files = null: every package). Returns the failure text, or null when green.

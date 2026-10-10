@@ -5,6 +5,7 @@ import { MemoryStore } from '../task-management/adapters/memory/store'
 import { fnv1a64 } from '../core/board'
 import { TABLE, ofEpic } from '../core/events'
 import { afterFix, turnStarted } from '../commands/doctor'
+import { argsOf, press } from '../commands/cadre'
 import { evText } from '../ui/epic'
 import { levelOf } from '../ui/notify'
 import { skeleton } from '../core/changelog'
@@ -15,7 +16,7 @@ import { banned } from './fixtures/wording'
 type R = { exitCode: number; stdout?: string; stderr?: string }
 const ROOT = '/repo', HOME = '/hm/u', RK = repoKeyOf(ROOT)
 // In-memory repo + fs behind a scripted process.run; `extra` answers non-git argv (jailed runs, find, ...).
-function mk(o: { repo?: boolean; branches?: string[]; files?: Record<string, string>; extra?: (argv: string[]) => R | undefined; noIdentity?: { on: boolean } } = {}) {
+function mk(o: { repo?: boolean; branches?: string[]; files?: Record<string, string>; extra?: (argv: string[]) => R | undefined; noIdentity?: { on: boolean }; hookFails?: { on: boolean } } = {}) {
   const files = { ...o.files }, g = { repo: o.repo ?? true, branches: new Set(o.branches ?? ['main', 'dev']) }, calls: string[][] = []
   const h = fakeHost({ files }) as Host & { logs: string[] }
   let n = 0
@@ -32,7 +33,9 @@ function mk(o: { repo?: boolean; branches?: string[]; files?: Record<string, str
       if (argv[1] === 'symbolic-ref') return bad()
       if (j === 'git branch --show-current') return ok('main')
       if (argv[1] === 'init') { g.repo = true; return ok() }
-      if (argv[1] === 'commit') { if (o.noIdentity?.on) return { exitCode: 128, stdout: '', stderr: 'Author identity unknown\n\nfatal: unable to auto-detect email address' }; g.branches.add('main'); return ok() }
+      if (argv[1] === 'var') return o.noIdentity?.on ? { exitCode: 128, stdout: '', stderr: 'fatal: unable to auto-detect email address' } : ok('A <a@b> 1 +0000')
+      if (argv[1] === 'config') { if (argv[2] === '--global' && argv[3] === 'user.email' && o.noIdentity) o.noIdentity.on = false; return argv[2] === '--get' ? (argv[3] === 'user.name' && o.noIdentity ? ok('Ann Lee') : bad()) : ok() }
+      if (argv[1] === 'commit') { if (o.noIdentity?.on || o.hookFails?.on) return { exitCode: 1, stdout: '', stderr: 'pre-commit hook failed' }; g.branches.add('main'); return ok() }
       if (argv[1] === 'branch' && !g.branches.has(argv[3])) return { exitCode: 128, stdout: '', stderr: `fatal: not a valid object name: '${argv[3]}'` }
       if (argv[1] === 'branch') { g.branches.add(argv[2]); return ok() }
       return ok()
@@ -253,16 +256,42 @@ test('rootFor: an agent cwd (worktree or view) maps back to the repo root record
 
 describe('init flow (ADR 0009)', () => {
   test('regression: a failed first commit leaves an unborn repo; the press says why on the card and a retry finishes the stage', async () => {
-    const id = { on: true }, { h, files, calls, code } = mk({ repo: false, branches: [], noIdentity: id }); store()
+    const hook = { on: true }, { h, files, calls, code } = mk({ repo: false, branches: [], hookFails: hook }); store()
     await run(h, [])
     const r1 = await run(h, ['confirm', await code()])   // git init ran, the commit did not: before the fix the re-proposal could never finish (`git branch dev main` on an unborn main)
-    expect(r1).toBe('init: stage 1/8 repo failed: git commit failed: git has no author name/email; run git config --global user.name "…" and user.email "…", then confirm again · ready · confirm on the card')
+    expect(r1).toBe('init: stage 1/8 repo failed: git commit failed: pre-commit hook failed · ready · confirm on the card')
     expect(files[`${ROOT}/.cadre/config.json`]).toBeUndefined(); expect(await cardOf(h)).toContain('! last try: git commit failed')
     expect(await cardOf(h)).toContain('+ initial commit on main'); expect(await cardOf(h)).not.toContain('git init')
-    id.on = false; calls.length = 0
+    hook.on = false; calls.length = 0
     expect(await run(h, ['confirm', await code()])).toContain('stage 1/8 repo done · stage 2/8 store ready')
     expect(calls.filter(a => a[0] === 'git' && ['init', 'add', 'commit', 'branch'].includes(a[1]) && a[2] !== '--show-current').map(a => a[1])).toEqual(['add', 'commit', 'branch'])
     expect(JSON.parse(files[`${ROOT}/.cadre/config.json`]).branches).toEqual({ main: 'main', dev: 'dev' })
+  })
+  test('resume: no git identity -> the card asks Name/Email (prefilled) -> submit -> git config --global (argv) -> the SAME stage completes -> stage 2 card', async () => {
+    const id = { on: true }, { h, files, calls, code } = mk({ repo: false, branches: [], noIdentity: id }); store()
+    await run(h, [])
+    expect(await run(h, ['confirm', await code()])).toBe('init: stage 1/8 repo: the first commit needs your git name and email · fill it in on the card')
+    expect(calls.some(a => a[1] === 'init' || a[1] === 'commit')).toBe(false)   // asked before anything ran: no half-made repo
+    const d = ((await h.board.read()).decisions ?? [])[0]
+    expect(d.fields).toEqual([{ key: 'name', label: 'Name', value: 'Ann Lee' }, { key: 'email', label: 'Email', value: '' }]); expect(d.fallback).toBe('/cadre init resume 1 name="…" email="…"')
+    expect(d.options.map(o => o.run)).toEqual(['init resume 1 {fields}', 'init cancel'])
+    expect(await run(h, ['resume', '1', 'name=Ann Lee', 'email=nope'])).toContain('email needs a form like')
+    const d2 = ((await h.board.read()).decisions ?? [])[0]; expect(d2.error).toContain('email needs'); expect(d2.fields?.map(f => f.value)).toEqual(['Ann Lee', 'nope'])   // typed values kept
+    expect(id.on).toBe(true)
+    expect(await run(h, ['resume', '1', 'name=Ann Lee', 'email=ann@example.com'])).toBe('init: git identity set · stage 1/8 repo done · stage 2/8 store ready · confirm on the card')
+    expect(calls.filter(a => a[1] === 'config' && a[2] === '--global')).toEqual([['git', 'config', '--global', 'user.name', 'Ann Lee'], ['git', 'config', '--global', 'user.email', 'ann@example.com']])
+    expect(JSON.parse(files[`${ROOT}/.cadre/config.json`]).branches.main).toBe('main'); expect((await h.board.read()).decisions?.map(d => d.title)).toEqual(['init 2/8 store · confirm'])
+    expect(await run(h, ['resume', '1', 'name=x', 'email=x@y'])).toContain('nothing to resume')   // consumed
+  })
+  test('the card press sends the typed fields as k=v argv (spaces kept, no shell); the typed fallback parses name="…"', async () => {
+    const id = { on: true }, { h, calls, code } = mk({ repo: false, branches: [], noIdentity: id }); store()
+    await run(h, []); await run(h, ['confirm', await code()])
+    const d = ((await h.board.read()).decisions ?? [])[0]
+    await h.ui.update(u => ({ ...u, fields: { [d.id]: { email: 'ann@example.com' } } }))   // typed on the card; name keeps its prefill
+    expect((await press(h, d.id, 'a', d.hash)).text).toContain('git identity set · stage 1/8 repo done')
+    expect(calls.filter(a => a[1] === 'config' && a[2] === '--global').map(a => a[4])).toEqual(['Ann Lee', 'ann@example.com'])
+    expect(argsOf('init resume 1 name="Ann Lee" email="a@b.c"')).toEqual(['init', 'resume', '1', 'name=Ann Lee', 'email=a@b.c'])
+    expect(argsOf('init resume 1 name="$(rm -rf ~)" email=a@b')).toEqual(['init', 'resume', '1', 'name=$(rm -rf ~)', 'email=a@b'])
   })
   test('auto-advance: confirming a stage proposes the next incomplete one, progress in the card title; all done is said', async () => {
     const { h, code } = mk({ repo: false, branches: [] }); store()

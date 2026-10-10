@@ -61,6 +61,7 @@ function host($): Host {
     env: async () => ({
       CADRE_STRICTNESS: await $.env.get('CADRE_STRICTNESS'), CADRE_STORE: await $.env.get('CADRE_STORE'),
       CADRE_ALLOW_SDK_APPROVAL: await $.env.get('CADRE_ALLOW_SDK_APPROVAL'), CADRE_DISABLE: await $.env.get('CADRE_DISABLE'),
+      GIT_AUTHOR_NAME: await $.env.get('GIT_AUTHOR_NAME'), GIT_AUTHOR_EMAIL: await $.env.get('GIT_AUTHOR_EMAIL'),   // identity prefill (core/git.identity)
     }),
     readText: async path => { try { return String(await $.fs.read(path)) } catch { return null } },
     log: t => { void $.ui.log(t) },

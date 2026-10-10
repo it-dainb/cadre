@@ -57,9 +57,10 @@ export function acts(h: Host): Acts {
     // a press: the typed command as the human's origin (ADR 0008). A refusal means the card went stale (code burned, drawn anew): say so and redraw it.
     press: (id, key, hash) => later(h, async () => {
       const r = await h.press!(id, key, hash); await ack(h)
-      const bad = /^(refused|cadre:)|burned|changed since|nothing pending|wrong code/.test(r.text)
-      h.toast(bad ? `cadre: it changed or was refused; review again · ${r.text.split('\n')[0].slice(0, 60)}` : `cadre: ${r.text.split('\n')[0].slice(0, 36)}`); h.ops?.invalidate()
+      const l = r.text.split('\n')[0]   // a toast is a pointer (<= 60 chars); the reason stays on the card
+      h.toast(l.length <= 53 ? `cadre: ${l}` : `cadre: ${l.slice(0, Math.max(20, l.lastIndexOf(' ', 36)))}… · see the card`); h.ops?.invalidate()
     }),
+    input: (id, key, x) => later(h, () => h.ui.update(u => { const f = (u.fields as Record<string, Record<string, string>> | undefined) ?? {}; return { ...u, fields: { ...f, [id]: { ...f[id], [key]: x } } } })),   // a typed field value (card fields, ADR 0009)
     step: (what, d) => later(h, async () => {
       const v = await read(h), ids = cols(at(v).tasks).flat().map(t => t.id), cur = v.t ?? v.now
       const unit = 60000 * timeline(v, lastW || 116).mpc, evs = v.ring.filter(e => levelOf(e) >= 2).map(e => e.at)

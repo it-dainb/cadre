@@ -12,7 +12,7 @@ import { NOOP, view } from './fixtures/ui/epic'
 type R = { exitCode: number; stdout: string; stderr: string }
 const HOME = '/hm/u', USER = `${HOME}/.claude/settings.json`
 // scripted machine: `tools` maps argv[0] to its output (absent = not installed); `jail` = overlay | copy | none
-function mk(o: { shadow?: string; npmFails?: boolean; tools?: Record<string, string>; os?: string; repo?: boolean; jail?: 'overlay' | 'copy' | 'none'; cc?: string; files?: Record<string, string> } = {}) {
+function mk(o: { shadow?: string; npmFails?: boolean; tools?: Record<string, string>; os?: string; repo?: boolean; jail?: 'overlay' | 'copy' | 'none'; cc?: string; files?: Record<string, string>; noIdent?: { on: boolean } } = {}) {
   let installed = false, moved = false; const files = { ...o.files }, calls: string[][] = [], writes: string[] = [], tools = o.tools ?? { git: 'git version 2.43.0', bd: 'bd version 1.3.1', bwrap: 'bubblewrap 0.11.0', socat: 'socat version 1.8' }
   const h = fakeHost({ files }) as Host & { toasts: string[] }
   const rand = (() => { let n = 0; return () => `n${++n}`.padEnd(16, '0') })()
@@ -32,6 +32,8 @@ function mk(o: { shadow?: string; npmFails?: boolean; tools?: Record<string, str
       if (argv[0] === 'test') return out('')
       if (argv[0] === 'bwrap') return !tools.bwrap || (o.jail === 'none' && argv[1] !== '--version') ? out('', 127) : argv[1] === '--help' ? out(o.jail === 'copy' ? 'usage' : '--overlay-src') : out(tools.bwrap)
       if (argv[0] === 'bd' && argv[1] === 'update') return out('--if-revision')
+      if (argv[0] === 'git' && argv[1] === 'var') return o.noIdent?.on ? { exitCode: 128, stdout: '', stderr: 'fatal: unable to auto-detect email address' } : out('Ann <a@b> 1 +0000')
+      if (argv[0] === 'git' && argv[1] === 'config') { if (argv[2] === '--global' && argv[3] === 'user.email' && o.noIdent) o.noIdent.on = false; return argv[2] === '--get' ? out(argv[3] === 'user.name' && o.noIdent ? 'Ann' : '', o.noIdent ? 0 : 1) : out('') }
       if (argv[0] === 'git') return argv[1] === '--version' ? (tools.git ? out(tools.git) : out('', 127)) : o.repo && j.includes('rev-parse --git-dir') ? out('.git') : out('', 1)
       if (tools[argv[0]]) return out(tools[argv[0]])
       return j.startsWith('git') ? out('', 1) : out('', 127)
@@ -42,7 +44,7 @@ function mk(o: { shadow?: string; npmFails?: boolean; tools?: Record<string, str
 const rowsOf = async (h: Host) => (await machine(h, defaults() as any)).rows, lvl = (rs: any[], re: RegExp) => rs.find(r => re.test(r[1]))
 
 describe('machine checks', () => {
-  test('a healthy machine is all ok', async () => { expect((await rowsOf(mk())).map(r => r[0])).toEqual(Array(6).fill('ok')) })
+  test('a healthy machine is all ok', async () => { expect((await rowsOf(mk())).map(r => r[0])).toEqual(Array(7).fill('ok')) })
   test('missing tools fail with the exact command for the human', async () => {
     const rs = await rowsOf(mk({ tools: {} }))
     expect(lvl(rs, /git/)).toEqual(['crit', 'git not found', '! sudo sh ~/.cache/cadre/fix/git.sh'])
@@ -97,6 +99,19 @@ describe('setup', () => {
     expect(JSON.parse(h.files[USER])).toEqual({ theme: 'dark', env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } }); expect(h.files[`${USER}.bak`]).toBe('{"theme":"dark"}\n')
     expect(h.toasts).toEqual(['setup: installing bd', 'setup: writing user settings']); expect(h.toasts.every(x => x.length <= 60)).toBe(true)
     expect(await h.store.get('cadre:setup')).toMatchObject({ bd: '1.3.1' }); expect((await h.secret.read()).initConfirm).toBeUndefined()
+  })
+  test('git identity missing: crit row; the setup card asks Name/Email (prefilled), a bad email is refused on the card (code kept), the act sets it, re-check green', async () => {
+    const id = { on: true }, h = mk({ noIdent: id, files: { [USER]: '{"env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"}}' } })
+    expect(lvl(await rowsOf(h), /git identity/)[0]).toBe('crit')
+    expect(await setup(h, [])).toBe('setup: 1 action ready · confirm with the code on the band')
+    const d = (await h.board.read()).decisions!.find(x => x.id === 'init:90')!, code = (await sigOf(h)).code
+    expect(d.fields).toEqual([{ key: 'name', label: 'Name', value: 'Ann' }, { key: 'email', label: 'Email', value: '' }]); expect(d.options[0].run).toBe('setup confirm {code} {fields}')
+    const v = view(62, { board: { decisions: [d] } }); v.sec = { dcode: {} }; expect(txt(drawCard(v, 100, NOOP)).join('\n')).toContain('Email: ')   // an Input per field
+    expect(await setup(h, ['confirm', code, 'name=Ann', 'email=bad'])).toBe('setup: email needs a form like you@example.com · see the card')
+    expect((await h.board.read()).decisions!.find(x => x.id === 'init:90')!.error).toContain('email'); expect(id.on).toBe(true)
+    expect(await setup(h, ['confirm', code, 'name=Ann', 'email=ann@example.com'])).toBe('setup: all ok')
+    expect(h.calls.filter(a => a[1] === 'config' && a[2] === '--global')).toEqual([['git', 'config', '--global', 'user.name', 'Ann'], ['git', 'config', '--global', 'user.email', 'ann@example.com']])
+    expect(lvl(await rowsOf(h), /git identity/)[0]).toBe('ok')
   })
   test('a failed action stops the run, shows its last output lines, and writes nothing after it', async () => {
     const h = mk({ tools: NOBD, npmFails: true }); await setup(h, []); const t = await setup(h, ['confirm', (await sigOf(h)).code])
@@ -213,7 +228,7 @@ describe('doctor', () => {
   test('is read-only: no file writes, no mutating commands, one line of text', async () => {
     const h = mk({ files: { [USER]: '{}' } }), t = await doctor(h)
     expect(t).toMatch(/^doctor: \d+ fail, \d+ warn — report in the cadre pane$/); expect(banned(t)).toEqual([]); expect(h.writes).toEqual([]); expect(h.files).toEqual({ [USER]: '{}' })
-    expect(h.calls.filter(a => a[0] === 'git' && !/rev-parse|for-each-ref|--version/.test(a.join(' ')))).toEqual([])
+    expect(h.calls.filter(a => a[0] === 'git' && !/rev-parse|for-each-ref|--version|^git var|^git config --get/.test(a.join(' ')))).toEqual([])
     expect(JSON.stringify((await h.ui.read())['doctor.rows'])).toContain('not inside a git repo'); expect(h.logs).toHaveLength(1); expect(h.logs[0]).toMatch(/^doctor: .*see the cadre pane$/)
   })
   test('read-only even with a sudo fix: no scripts written; the line shows only once setup wrote the script', async () => {

@@ -14,7 +14,12 @@ export function card(v: View, w: number, a: Acts): Line[] {
   const tag = attention(v).find(x => x.d === d)?.tag ?? 'attn', live = v.t === null
   const nav: Line = all.length > 1 ? [S(`${i + 1} of ${all.length}   `), S('prev', undefined, { k: 'p', hk: 'p', p: () => a.step('dec', -1) }), S('  '), S('next', undefined, { k: 'n', hk: 'n', p: () => a.step('dec', 1) })] : []
   const btns: Line = live ? d.options.flatMap((o, j) => [...(j ? [S('   ')] : []), S(o.label, 'suggestion', { k: o.key, hk: o.key, b: true, p: () => (o.fill ? a.fill(o.fill) : a.press(d.id, o.key, d.hash)) })]) : [S('(read-only in replay)')]
-  const body: Line[] = [[S(`${tg(tag)} ${gl(c, tag)} ${d.title}`.slice(0, n), col(tag), { b: true })], L(''), ...d.lines.map(x => (x.length > n && /^\s*(sudo )?sh \S+\.sh$/.test(x) ? x.replace(/(sudo )?sh /, '') : x)).flatMap(x => wrap(x, n, '  ').map(y => L(y))), L(''), ...(nav.length ? [nav] : []), btns]
+  // fields (ADR 0009): one Input per field, prefilled; typed values live in cadre.ui `fields`; Enter in a field submits the first option (Tab moves between fields)
+  const typed = ((v.ui.fields as Record<string, Record<string, string>> | undefined) ?? {})[d.id] ?? {}, go = d.options[0]
+  const fs: Line[] = (d.fields ?? []).map((f, j) => { const val = typed[f.key] ?? f.value ?? ''
+    return live ? [S(`${f.label}: ${val}`, undefined, { k: `f:${d.id}:${f.key}`, il: `${f.label}: `, iv: val, ...(j ? {} : { af: true as const }), chg: x => a.input?.(d.id, f.key, x), inp: x => { a.input?.(d.id, f.key, x); if (go) a.press(d.id, go.key, d.hash) } })] : [S(`${f.label}: ${val}`)] })
+  const body: Line[] = [[S(`${tg(tag)} ${gl(c, tag)} ${d.title}`.slice(0, n), col(tag), { b: true })], L(''), ...d.lines.map(x => (x.length > n && /^\s*(sudo )?sh \S+\.sh$/.test(x) ? x.replace(/(sudo )?sh /, '') : x)).flatMap(x => wrap(x, n, '  ').map(y => L(y))),
+    ...(fs.length ? [L(''), ...fs, ...(d.error ? [[S(`! ${d.error}`, 'error')]] : []), L('Tab: next field · Enter: submit · Esc: back to the buttons', 'inactive')] : []), L(''), ...(nav.length ? [nav] : []), btns]
   const under = d.tab === 'plan' ? sheet(v, w, a) : cols(v.b.tasks).flat().map(t => L(`${t.id} ${t.title}`))
   return [bar('╔', '═', '╗'), ...body.map(fr), bar('╚', '═', '╝'), ...dim(under)]
 }

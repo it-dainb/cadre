@@ -1,6 +1,6 @@
 // Branch names, epic cut, integration and release ref steps (DESIGN 3.6, 3.9). Pure over Host.run; refs move by CAS (3.7).
 import type { Host } from '../types'
-import { IDENT, casRef, exists, git, op, tip, worktreeAdd, worktreeRemove } from './git'
+import { casRef, exists, git, op, tip, worktreeAdd, worktreeRemove } from './git'
 
 export const slug = (title: string): string => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) || 'task'
 export const taskBranch = (commitType: string, id: string, title: string) => `${commitType}/${id}-${slug(title)}`
@@ -26,7 +26,7 @@ export async function mergeEpic(h: Host, o: { dev: string; epic: string; tmp: st
     const devTip = await tip(run, root, o.dev)
     await git(run, root, ['worktree', 'add', '--detach', o.tmp, devTip])
     try {
-      await git(run, o.tmp, [...IDENT, 'merge', '--no-ff', '--no-verify', '-m', o.msg, o.epic])
+      await git(run, o.tmp, ['merge', '--no-ff', '--no-verify', '-m', o.msg, o.epic])
       return { sha: await tip(run, o.tmp, 'HEAD'), devTip }
     } catch (e) { await worktreeRemove(run, root, o.tmp); throw e }
   })
@@ -47,7 +47,7 @@ export async function release(h: Host, o: { dev: string; main: string; version: 
     const [mainTip, devTip] = [await tip(run, root, o.main), await tip(run, root, o.dev)]
     await worktreeAdd(run, root, o.tmp, `release-tmp-${o.version}`, mainTip)
     try {
-      await git(run, o.tmp, [...IDENT, 'merge', '--no-ff', '--no-verify', '-m', o.msg, devTip])
+      await git(run, o.tmp, ['merge', '--no-ff', '--no-verify', '-m', o.msg, devTip])
       const sha = await tip(run, o.tmp, 'HEAD')
       if (!(await casRef(run, root, `refs/heads/${o.main}`, sha, mainTip))) throw new Error(`${o.main} moved during release`)
       await git(run, root, ['tag', '-a', `v${o.version}`, '-m', `v${o.version}`, sha])

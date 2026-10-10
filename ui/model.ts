@@ -6,10 +6,10 @@ import { ofEpic } from '../core/events'
 export type Cfg = { glyphs: 'unicode' | 'ascii'; flash: boolean; notify: 'on' | 'off'; escalateAfterMs: number; maxTurns: number }
 export const CFG: Cfg = { glyphs: 'unicode', flash: true, notify: 'on', escalateAfterMs: 120_000, maxTurns: 100 }
 // A drawn line = segments: text, theme color, bold/inverse, and (for presses) a Button key, hotkey and action. Tests flatten them with txt().
-export type Seg = { t: string; c?: string; b?: boolean; i?: boolean; d?: boolean; k?: string; hk?: string; p?: () => void; inp?: (v: string) => void }
+export type Seg = { t: string; c?: string; b?: boolean; i?: boolean; d?: boolean; k?: string; hk?: string; p?: () => void; inp?: (v: string) => void; chg?: (v: string) => void; il?: string; iv?: string; af?: true }   // inp: an Input (submit), chg: on change, il/iv: its label/value
 export type Line = Seg[]
 export type View = { b: Snapshot; ring: CadreEvent[]; sec: Secret; ui: Record<string, any>; c: Cfg; now: number; sx: string; t: number | null }
-export type Acts = { go(tab: string): void; pick(id: string): void; fill(cmd: string): void; press(id: string, key: string, hash: string): void; step(what: string, d: number): void }   // handlers; the render never writes state
+export type Acts = { go(tab: string): void; pick(id: string): void; fill(cmd: string): void; press(id: string, key: string, hash: string): void; step(what: string, d: number): void; input?(id: string, key: string, v: string): void }   // handlers; the render never writes state
 
 export async function read(h: Host): Promise<View> {
   const [s, r, sec, ui, now] = await Promise.all([h.board.read(), h.events.read(), h.secret.read(), h.ui.read(), h.now()])
@@ -42,7 +42,7 @@ const pr = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).
 // Line[] -> element tree. Only place that builds elements: E = $.ui.resolve(e); constructors take `children` among the props.
 export const draw = (E: any, ls: Line[]) =>
   E.Box({ flexDirection: 'column', children: ls.map(l => E.Box({ flexDirection: 'row', children: (l.length ? l : [S(' ')]).map(s => {
-    if (s.inp) return E.Input({ key: s.k, placeholder: 'task id', autoFocus: true, onSubmit: s.inp })
+    if (s.inp) return E.Input(pr({ key: s.k, label: s.il, value: s.iv, placeholder: s.il ? undefined : 'task id', autoFocus: s.il ? s.af : true, onSubmit: s.inp, onInput: s.chg }))
     const x = E.Text(pr({ color: s.c, dimColor: s.d || undefined, bold: s.b || undefined, inverse: s.i || undefined, wrap: 'truncate-end', children: s.t }))
     return s.k ? E.Button(pr({ key: s.k, plain: true, hotkey: s.hk, onPress: s.p, children: [x] })) : x
   }) })) })

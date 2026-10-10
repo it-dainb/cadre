@@ -54,8 +54,10 @@ export const configText = (cfg: unknown, prefix?: string): string => {
   const def = new Map(flat(defaults())), rows = flat(cfg).filter(([k, v]) => (prefix ? k.startsWith(prefix) : def.get(k) !== v))
   return (rows.length ? `config${prefix ? ` ${prefix}` : ' (differs from the defaults; /cadre config show <prefix> lists a section)'}:\n${rows.map(([k, v]) => `${k} = ${v}`).join('\n')}` : prefix ? `no config keys under ${prefix}` : 'config: all defaults').slice(0, 2000)
 }
+// words; `k="a b"` is one argv element `k=a b` (card fields typed by hand, ADR 0009). argv only: nothing reaches a shell
+export const argsOf = (t: string): string[] => (t.match(/\w+="[^"]*"|\S+/g) ?? []).map(a => a.replace(/^(\w+)="([^"]*)"$/, '$1=$2'))
 export const run: Hook = async (h, e) => {
-  const [cmd = 'status', ...args] = String(e.args ?? '').trim().split(/\s+/).filter(Boolean)
+  const [cmd = 'status', ...args] = argsOf(String(e.args ?? ''))
   const kind = e.origin?.kind === 'press' ? 'unclassified' : e.origin?.kind ?? 'unclassified'   // 'press' is ours alone
   try { return await dispatch(h, { schemaVersion: 1, cmd, args, origin: { kind, name: e.origin?.name } }, route) } catch (x) { return { text: `cadre: ${(x as Error).message}` } }
 }
@@ -63,6 +65,7 @@ export const run: Hook = async (h, e) => {
 export async function press(h: Host, id: string, key: string, hash: string): Promise<Out> {
   const d = ((await h.board.read()).decisions ?? []).find(x => x.id === id), o = d?.options.find(x => x.key === key)?.run
   if (!d || d.hash !== hash || !o) return { text: 'refused: it changed; review again' }   // the old code died with the old content (every change draws a new one); nothing runs
-  const [cmd, ...args] = o.replace('{code}', (await h.secret.read()).dcode?.[id] ?? '').split(/\s+/).filter(Boolean)
+  const typed = ((await h.ui.read()).fields as Record<string, Record<string, string>> | undefined)?.[id] ?? {}
+  const [cmd, ...args] = o.replace('{code}', (await h.secret.read()).dcode?.[id] ?? '').split(/\s+/).filter(Boolean).flatMap(a => (a === '{fields}' ? (d.fields ?? []).map(f => `${f.key}=${typed[f.key] ?? f.value ?? ''}`) : [a]))   // card fields as k=v argv elements
   try { return await dispatch(h, { schemaVersion: 1, cmd, args, origin: { kind: 'press' } }, route) } catch (x) { return { text: `cadre: ${(x as Error).message}` } }
 }

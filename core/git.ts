@@ -3,7 +3,22 @@ import type { Host } from '../types'
 
 export type Res = { exitCode: number; stdout: string; stderr: string }
 export type Run = (argv: readonly string[], init?: { cwd?: string; env?: Record<string, string>; stdin?: string; timeoutMs?: number }) => Promise<Res>
-export const IDENT = ['-c', 'user.name=cadre', '-c', 'user.email=cadre@localhost']   // the one git identity for commits the mod makes
+// Commits the mod makes land on the user's branches, so they carry the USER's git identity, never a made-up one (ADR 0009). Missing: init stage 1 and setup ask for it.
+export async function identity(run: Run, env: Record<string, string | undefined> = {}): Promise<{ ok: boolean; name: string; email: string }> {   // env: GIT_AUTHOR_* prefill
+  const get = async (k: string) => (await run(['git', 'config', '--get', k]).catch(() => undefined))?.stdout.trim() ?? ''
+  return { ok: (await run(['git', 'var', 'GIT_COMMITTER_IDENT']).catch(() => ({ exitCode: 1 }))).exitCode === 0 && (await run(['git', 'var', 'GIT_AUTHOR_IDENT']).catch(() => ({ exitCode: 1 }))).exitCode === 0, name: (await get('user.name')) || env.GIT_AUTHOR_NAME || '', email: (await get('user.email')) || env.GIT_AUTHOR_EMAIL || '' }
+}
+export const IDENT_FIELDS = (cur: { name: string; email: string }) => [{ key: 'name', label: 'Name', value: cur.name }, { key: 'email', label: 'Email', value: cur.email }]
+// from `name=… email=…` args (argv elements; a value may hold spaces): the values or the reason they are refused
+export function identityArgs(args: string[]): { name: string; email: string } | string {
+  const v = Object.fromEntries(args.filter(a => /^\w+=/.test(a)).map(a => [a.slice(0, a.indexOf('=')), a.slice(a.indexOf('=') + 1).trim()]))
+  return !v.name ? 'name is empty' : !/^[^\s@<>]+@[^\s@<>]+$/.test(v.email ?? '') ? 'email needs a form like you@example.com' : /[<>\n]/.test(v.name) ? 'name has < > or a newline' : { name: v.name, email: v.email }
+}
+// argv only, no shell: the values never meet an interpreter
+export async function setIdentity(run: Run, id: { name: string; email: string }): Promise<string | null> {
+  for (const [k, x] of [['user.name', id.name], ['user.email', id.email]]) { const r = await run(['git', 'config', '--global', k, x]); if (r.exitCode) return `git config ${k} failed: ${r.stderr.trim().split('\n').pop()}` }
+  return null
+}
 // paths the mod owns in a repo: agents never change them (close refuses, guards fence, the brief names them)
 export const PROTECTED = ['.git/', '.cadre/', '.beads/', '.claude/', '.mcp.json', 'CHANGELOG.md']
 export const isProt = (p: string, changelog?: string) => [...PROTECTED, ...(changelog ? [changelog] : [])].some(x => (x.endsWith('/') ? p.startsWith(x) : p === x))   // changelog: the configured changelog.path (repo-relative)
@@ -46,7 +61,7 @@ export async function worktreeRemove(run: Run, root: string, path: string, branc
 export async function commitAll(run: Run, wt: string, msg: string): Promise<string | null> {
   await git(run, wt, ['add', '-A'])
   if (await ok(run, wt, ['diff', '--cached', '--quiet'])) return null
-  await git(run, wt, [...IDENT, 'commit', '--no-verify', '-m', msg])
+  await git(run, wt, ['commit', '--no-verify', '-m', msg])
   return tip(run, wt, 'HEAD')
 }
 // Task squash (3.8), in the task worktree: detach at the epic tip, squash-merge the reviewed commit, commit. Conflict -> throws (caller blocks the task).
@@ -54,7 +69,7 @@ export async function squash(run: Run, wt: string, epicTip: string, source: stri
   await git(run, wt, ['checkout', '--detach', epicTip])
   const r = await run(['git', '-C', wt, 'merge', '--squash', source])
   if (r.exitCode) { await run(['git', '-C', wt, 'merge', '--abort']); await run(['git', '-C', wt, 'reset', '--hard', epicTip]); throw new Error(`conflict squashing ${source.slice(0, 7)}`) }
-  await git(run, wt, [...IDENT, 'commit', '--no-verify', '--allow-empty', '-m', msg])
+  await git(run, wt, ['commit', '--no-verify', '--allow-empty', '-m', msg])
   return tip(run, wt, 'HEAD')
 }
 // Ref CAS: update-ref <ref> <new> <old>; false when the ref moved under us.
