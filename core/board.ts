@@ -1,5 +1,6 @@
 // Read model (DESIGN 2.5): snapshot, model/human views, CAS helper, binding table. Snapshot types live in types/index.d.ts.
 import type { Binding, Host, Snapshot, SnapTask } from '../types'
+import type { Task } from '../task-management/store'
 
 export const emptySnapshot = (repo = ''): Snapshot => ({
   schemaVersion: 1, seq: 0, repo, mission: null, epic: null, plan: null, tasks: [],
@@ -23,7 +24,7 @@ export const humanView = (s: Snapshot): Snapshot => structuredClone(s)   // band
 // model view (main context, TaskGet, cards, adapters without grant): drops volatile fields so the hash only moves on real change
 export function modelView(s: Snapshot): Omit<Snapshot, 'seq' | 'cost'> {
   const { seq: _s, cost: _c, ...v } = structuredClone(s)
-  v.tasks.forEach(t => { delete (t as Partial<SnapTask>).phaseSince })
+  v.tasks.forEach(t => { delete (t as Partial<SnapTask>).phaseSince; delete t.ctx })   // volatile: the hash only moves on real change
   v.sync.forEach(x => { delete (x as Partial<typeof x>).at })
   const { turns: _t, costUsd: _u, startedAt: _a, ...drive } = v.drive
   return { ...v, drive: drive as Snapshot['drive'] }
@@ -47,3 +48,12 @@ export const bindAgent = (h: Host, agentId: string, b: Binding) => h.bind.update
 export const unbindAgent = (h: Host, agentId: string) => h.bind.update(({ [agentId]: _gone, ...rest }) => rest)
 export const bindingOf = (t: Record<string, Binding>, agentId?: string): Binding | undefined => (agentId ? t[agentId] : undefined)
 export const agentsOf = (t: Record<string, Binding>, taskId: string): string[] => Object.keys(t).filter(a => t[a].taskId === taskId)
+
+// ui/ hooks register here at load (core never imports ui/, DESIGN 2.3): register.ts sets them.
+export const UI: { mapCard?: (h: Host, toolUseId: string, taskId: string) => Promise<unknown>; banner?: (h: Host, o: { decisions?: number; next?: string; stale?: number }) => Promise<void> } = {}
+export const safe = async <T>(h: Host, what: string, f: () => Promise<T>) => { try { return await f() } catch (x) { h.log(`cadre: ${what} failed: ${x}`) } }
+// session = this process's random id (secret atom); a lease is live while leaseUntil is in the future
+export const leaseLive = (t: Pick<Task, 'leaseUntil'>, now: number) => !!t.leaseUntil && Date.parse(t.leaseUntil) > now
+export async function sessionOf(h: Host): Promise<string> {
+  const n = h.rand(4); await h.secret.update(s => (s.session ? s : { ...s, session: n })); return (await h.secret.read()).session!
+}

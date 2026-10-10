@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { PLAN_RULES, attachment, brief, context, drainDelta, missingLine, pushDelta, queueCard, renderCard, renderContract } from '../core/briefs'
+import { attachment, brief, context, drainDelta, pushDelta, queueCard, renderCard, renderContract } from '../core/briefs'
 import { viewHash } from '../core/board'
 import { fakeHost, task } from './support'
 import { DESIGN, GOLDEN } from './fixtures/briefs/golden'
@@ -18,22 +18,18 @@ describe('briefs: goldens per role (4.2), static header first, variable task dat
     test(`${role}: byte-for-byte`, async () => { expect(brief(role, { ...base, ...extra[role] })).toBe(GOLDEN[role]) })
   test('the header is static: identical across tasks; task data comes after it', async () => {
     const a = brief('worker', { ...base, id: 'x-1' }), b = brief('worker', { ...base, id: 'y-9', title: 'Other' })
-    expect(a.split('\n\n')[0]).toBe(b.split('\n\n')[0]); expect(a.split('\n\n')[0].length).toBeLessThan(1500); expect(a.indexOf('# TASK-x-1')).toBeGreaterThan(a.indexOf('cadre worker brief'))
+    expect(a.split('\n\n')[0]).toBe(b.split('\n\n')[0]); expect(a.split('\n\n')[0].length).toBeLessThan(1500); expect(a.indexOf('# TASK-x-1')).toBeGreaterThan(a.indexOf('Worker brief'))
   })
   test('caps: notes 500, spec 4 KB, context 3 KB, diff 3 KB; empty sections are dropped', async () => {
     const w = brief('worker', { ...base, notes: 'n'.repeat(900), description: 'd'.repeat(9000), findings: ['f'.repeat(9000)] })
-    expect(w.split('## Orchestrator notes\n')[1].length).toBeLessThanOrEqual(500)
+    expect(w.split('## Notes\n')[1].length).toBeLessThanOrEqual(500)
     const spec = w.slice(w.indexOf('## Description'), w.indexOf('## Findings')); expect(spec.length).toBeLessThanOrEqual(4096 + 40)
-    expect(w.slice(w.indexOf('## Findings'), w.indexOf('## Orchestrator')).length).toBeLessThanOrEqual(3072 + 4)
+    expect(w.slice(w.indexOf('## Findings'), w.indexOf('## Notes')).length).toBeLessThanOrEqual(3072 + 4)
     expect(brief('reviewer', { ...base, diff: 'x'.repeat(9000) }).length).toBeLessThan(9000)
     expect(brief('worker', { id: 'a', title: 't', type: 'docs' })).not.toContain('## Handoff')
   })
   test('contract renders compact lines; none and unparsable pass through', async () => {
     expect(renderContract(JSON.stringify({ none: true, reason: 'internal' }))).toBe('none: internal'); expect(renderContract('not json')).toBe('not json'); expect(renderContract(undefined)).toBe('')
-  })
-  test('plan rules <= 1.5 KB and byte-stable; missing line <= 200 chars', async () => {
-    expect(PLAN_RULES.length).toBeLessThanOrEqual(1500); expect(PLAN_RULES).not.toMatch(/\d{4}-\d\d-\d\d|p\d|bd-/)
-    expect(missingLine([])).toBe(''); expect(missingLine(['scenarios on a1', 'changelog on a2'])).toBe('missing: scenarios on a1; changelog on a2'); expect(missingLine(['x'.repeat(500)]).length).toBe(200)
   })
 })
 

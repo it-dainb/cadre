@@ -6,7 +6,7 @@ import { canon, fnv1a64, humanView, modelView } from '../../core/board'
 import { emit, ofEpic, subscribe } from '../../core/events'
 import { ROUTES, cfgOf, dispatch, initConfirm, initPropose, isHuman, storeOf } from '../../core/dispatch'
 import type { Route } from '../../core/dispatch'
-import { sessionOf } from '../../core/admission'
+import { sessionOf } from '../../core/board'
 import { repoKeyOf, wire } from '../../commands/init'
 import { AdapterError, call } from '../protocol'
 import type { AdapterCfg } from '../protocol'
@@ -47,10 +47,11 @@ async function failed(h: Host, k: string, now: number, e: unknown): Promise<'off
   return code === 'Auth' ? 'auth' : code === 'Conflict' ? 'conflict' : 'offline'
 }
 
-async function setState(h: Host, target: string, state: 'ok' | 'offline' | 'conflict' | 'auth', pending: number): Promise<void> {
-  const at = await h.now(); let was: string | undefined
-  await h.board.update(s => { was = s.sync.find(x => x.target === target)?.state; return { ...s, sync: [...s.sync.filter(x => x.target !== target), { target, state, pending, at }] } })
-  if (was !== state && !(was === undefined && state === 'ok')) await emit(h, 'sync.state_changed', { target, state, at }, { severity: state === 'ok' ? 'info' : 'warn' })
+const SYNC_ADD = 9   // its own confirm stage: init's stage 8 (sync) must not accept a sync-add code, nor the reverse
+export async function setState(h: Host, target: string, state: 'ok' | 'offline' | 'conflict' | 'auth', pending: number): Promise<void> {
+  const at = await h.now(); let was: string | undefined, conflicts = 0
+  await h.board.update(s => { was = s.sync.find(x => x.target === target)?.state; conflicts = s.tasks.filter(t => t.flags.some(f => f === 'external' || f.startsWith('drift'))).length; return { ...s, sync: [...s.sync.filter(x => x.target !== target), { target, state, pending, at }] } })
+  if (was !== state && !(was === undefined && state === 'ok')) await emit(h, 'sync.state_changed', { target, state, at, ...(pending ? { pending } : {}), ...(conflicts ? { conflicts } : {}) }, { severity: state === 'ok' ? 'info' : 'warn' })
 }
 
 async function cycle(h: Host, cfg: any, target: string, store: TaskStore, force: boolean): Promise<boolean> {
@@ -186,7 +187,7 @@ export async function syncAdd(h: Host, name: string, args: string[] = []): Promi
   try {
     if (args[0] === 'confirm') {
       const p = st.pending; if (!p) return 'sync add: nothing pending'
-      if (!(await initConfirm(h, 8, args[1] ?? ''))) return 'sync add: wrong code (burned); run /cadre sync add again for a new diff'
+      if (!(await initConfirm(h, SYNC_ADD, args[1] ?? ''))) return 'sync add: wrong code (burned); run /cadre sync add again for a new diff'
       const s = await stepOf(h, p.n, name, a, st.d, p.args)
       if (!('lines' in s) || s.lines.join('\n') !== p.text) return 'sync add: the remote state changed since the diff was shown; nothing written; run /cadre sync add again'
       await s.apply(); st.n = p.n + 1; delete st.pending; await h.store.set(k, st)
@@ -195,7 +196,7 @@ export async function syncAdd(h: Host, name: string, args: string[] = []): Promi
     const s = await stepOf(h, st.n, name, a, st.d, args)
     if ('msg' in s) { await h.store.set(k, st); return s.msg }
     if (!s.lines.length) { await s.apply(); st.n++; await h.store.set(k, st); return syncAdd(h, name, []) }
-    const text = s.lines.join('\n'); st.pending = { n: st.n, args, text }; await h.store.set(k, st); await initPropose(h, 8, text)
+    const text = s.lines.join('\n'); st.pending = { n: st.n, args, text }; await h.store.set(k, st); await initPropose(h, SYNC_ADD, text)
     return `sync add ${name} step ${st.n}/5: proposed changes\n${text}\n\nConfirm with the code shown in the cadre band: /cadre sync add ${name} confirm <code>`
   } catch (e) { return `sync add ${name}: ${e instanceof AdapterError ? `${e.code}: ` : ''}${(e as Error).message}` }
 }

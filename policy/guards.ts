@@ -3,6 +3,8 @@ import type { Binding, Host, Hook } from '../types'
 import { MAIN_TOOLS, allowlist } from '../agents/index'
 import { repoKeyOf } from '../commands/init'
 import { logCall } from '../core/specview'
+import { PROTECTED } from '../core/git'
+import { idsIn } from '../core/briefs'
 import { strictOf } from '../config/index'
 
 // Paths the guards need, written to $.store `cadre:<repoKey>:policy` by init/session.start/tdd (absolute, realpath'd). Absent keys disable the rule they feed.
@@ -12,7 +14,7 @@ export const policyOf = async (h: Host): Promise<Policy> => ((await h.store.get(
 export const setPolicy = async (h: Host, patch: Policy) => h.store.set(await policyKey(h), { ...(await policyOf(h)), ...patch })
 
 const SHELL = ['Bash', 'PowerShell', 'Monitor'], FILE = ['Read', 'Grep', 'Glob', 'Write', 'Edit', 'NotebookEdit'], FENCED = ['Edit', 'Write', 'NotebookEdit']
-const MOD_DIRS = ['.git', '.cadre', '.beads', '.claude'], MOD_FILES = ['.mcp.json', 'CHANGELOG.md']
+const MOD_DIRS = PROTECTED.filter(p => p.endsWith('/')).map(p => p.slice(0, -1)), MOD_FILES = PROTECTED.filter(p => !p.endsWith('/'))
 const under = (p: string, root?: string) => !!root && (p === root || p.startsWith(root.replace(/\/$/, '') + '/'))
 const join = (cwd: string, p: string) => (p.startsWith('/') ? p : `${cwd.replace(/\/$/, '')}/${p}`)
 const modOwned = (real: string, home?: string) => {
@@ -64,29 +66,29 @@ async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, 
   const tester = w.role === 'tester' && !w.main
   const fenced = FENCED.includes(tool) || (tool === 'Read' && !!pol.home && typeof (input as any)?.file_path === 'string' && (input as any).file_path.includes('/.claude/plugins/store/'))
   if (!tester && !fenced) return
-  if (!FILE.includes(tool)) return tester && !tool.startsWith('mcp__cadre__') ? `cadre: ${tool} is not a tester tool` : undefined   // the role's own report tool passed the allowlist
+  if (!FILE.includes(tool)) return tester && !tool.startsWith('mcp__cadre__') ? `${tool} is not available to you; use Read, Write or Edit inside your working directory` : undefined   // the role's own report tool passed the allowlist
   const cwd = w.b?.worktree ?? pol.repo ?? '/'
   const p = inputPath(tool, input, cwd)
   const real = p === undefined ? undefined : await placed(h, join(cwd, p))
-  if (real === undefined) return 'cadre: cannot place the path'
-  if (tester) return under(real, w.b!.worktree) ? 'allow' : `cadre: tester is confined to ${w.b!.worktree}`
+  if (real === undefined) return 'that path cannot be used; give a plain path inside your working directory'
+  if (tester) return under(real, w.b!.worktree) ? 'allow' : 'write only inside your working directory'
   const own = w.owner && under(real, w.b!.worktree)
-  if (!w.main && !own) return under(real, (await h.env()).TMPDIR || '/tmp') ? 'tmp' : `cadre: a subagent writes only inside its own worktree (${w.b?.worktree ?? 'none bound'}) or $TMPDIR`   // positive jail: file tools are not OS-sandboxed (ADR 0006)
-  if (!own && (under(real, pol.repo) || under(real, pol.wtRoot))) return 'cadre: only an active task owner writes, and only in its worktree'
-  if (modOwned(real, pol.home)) return 'cadre: mod-owned path'
-  if (w.owner && w.task?.step === 'worker' && (pol.locks?.[w.b!.taskId] ?? []).some(l => real === l || under(real, l))) return 'cadre: locked spec test'
+  if (!w.main && !own) return under(real, (await h.env()).TMPDIR || '/tmp') ? 'tmp' : 'write only inside your working directory (or $TMPDIR)'   // positive jail: file tools are not OS-sandboxed (ADR 0006)
+  if (!own && (under(real, pol.repo) || under(real, pol.wtRoot))) return 'project files are edited by the task agent only; spawn it for the task'
+  if (modOwned(real, pol.home)) return 'that path is managed for you and cannot be edited; leave it alone'
+  if (w.owner && w.task?.step === 'worker' && (pol.locks?.[w.b!.taskId] ?? []).some(l => real === l || under(real, l))) return 'locked spec test: do not edit it; if it is wrong, report outcome "spec_change"'
 }
 
 // Pure L1 facts that need no state: the sandbox flag.
-const escape = (e: any) => (e?.dangerouslyDisableSandbox === true || e?.input?.dangerouslyDisableSandbox === true ? 'cadre: dangerouslyDisableSandbox is denied' : undefined)
+const escape = (e: any) => (e?.dangerouslyDisableSandbox === true || e?.input?.dangerouslyDisableSandbox === true ? 'running unrestricted is not allowed; run the command normally' : undefined)
 
 // Event-only judgement for the re-entry .catch (G2): a deny reason, or undefined to let the call through. Must not use $.
 export const judge = (e: any): string | undefined => {
   if (escape(e)) return escape(e)
-  if (!e.agentId) return MAIN_TOOLS.includes(e.tool) ? undefined : `cadre: ${e.tool} is not allowed for main`
-  if (SHELL.includes(e.tool) || (e.tool.startsWith('mcp__') && !e.tool.startsWith('mcp__cadre__'))) return 'cadre: shell and foreign tools need a live binding; refused on re-entry'   // bindings are unreadable here: over-deny
+  if (!e.agentId) return MAIN_TOOLS.includes(e.tool) ? undefined : `${e.tool} is not available to main; spawn an agent for it`
+  if (SHELL.includes(e.tool) || (e.tool.startsWith('mcp__') && !e.tool.startsWith('mcp__cadre__'))) return 'this tool is not available here; use a different one'   // bindings are unreadable here: over-deny
   const p = e.file_path ?? e.notebook_path
-  if (FENCED.includes(e.tool) && typeof p === 'string' && modOwned(p)) return 'cadre: mod-owned path'
+  if (FENCED.includes(e.tool) && typeof p === 'string' && modOwned(p)) return 'that path is managed for you and cannot be edited; leave it alone'
 }
 
 // #5 tool.call guards: L1 allowlist, fence. Judge before next. Advisory: denies become warnings.
@@ -95,8 +97,8 @@ export const guard: Hook = async (h, e, next) => {
     const bad = escape(e); if (bad) return bad
     const w = await who(h, e.agentId), pol = await policyOf(h)
     const list = w.main ? MAIN_TOOLS : allowlist(w.role, w.role === 'worker' ? pol.mcpAllow : [])
-    if (!list.includes(e.tool)) return `cadre: ${e.tool} is not in the ${w.main ? 'main' : w.role} allowlist`
-    if (SHELL.includes(e.tool) && !(w.role === 'worker' && w.owner && w.task?.step === 'worker')) return 'cadre: shell only for a bound worker in the worker step'
+    if (!list.includes(e.tool)) return `${e.tool} is not available to ${w.main ? 'main' : `the ${w.role}`}; use another tool`
+    if (SHELL.includes(e.tool) && !(w.role === 'worker' && w.owner && w.task?.step === 'worker')) return 'shell is available only while you implement your task; use run_check or inspect'
     const f = await fence(h, w, e.tool, e, pol)
     return f === 'allow' || f === 'tmp' ? undefined : f
   }
@@ -124,10 +126,6 @@ export const check: Hook = async (h, e, next) => {
   return f === 'allow' || f === undefined ? { decision: 'allow', reason: 'cadre: inside its own tree' } : next(e)
 }
 
-// Known-id matcher (4.6): maximal [A-Za-z0-9.-] runs, trailing . - stripped, optional TASK- removed, exact lookup.
-export const idsIn = (text: string, known: Set<string>): string[] =>
-  (text.match(/[A-Za-z0-9.-]+/g) ?? []).map(r => r.replace(/[.-]+$/, '').replace(/^TASK-/, '')).filter(r => known.has(r))
-
 // #7 session.send: SendMessage naming another task id -> {isDelivered:false} (4.6).
 export const send: Hook = async (h, e, next) => {
   const b = (await h.bind.read())
@@ -135,14 +133,14 @@ export const send: Hook = async (h, e, next) => {
   if (!own) return next(e)
   const known = new Set((await h.board.read()).tasks.map(t => t.id))
   const other = idsIn(`${e.to} ${e.text}`, known).find(id => id !== own.taskId)
-  return other ? { isDelivered: false, reason: `cadre: this agent works on ${own.taskId} only; it may not name ${other}` } : next(e)
+  return other ? { isDelivered: false, reason: `you work on ${own.taskId} only; do not name ${other}` } : next(e)
 }
 
 // config.set: refuse strictness changes while tasks run.
 export const configSet: Hook = async (h, e, next) => {
   if (!/(^|\.)strictness$/.test(e.key) || e.value === e.previous) return next(e)
   const running = (await h.board.read()).tasks.some(t => t.state === 'active' || t.state === 'review')
-  return running ? { deny: 'cadre: strictness cannot change while tasks are running' } : next(e)
+  return running ? { deny: 'strictness cannot be changed while tasks are running; retry when they finish' } : next(e)
 }
 
 // Realpath of the worktree root once (its deepest existing ancestor is resolved): fence rule 3, locks and bindings all compare real paths (M13).

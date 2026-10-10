@@ -10,7 +10,7 @@ import { nextAction } from './render'
 import { queueCard, renderCard } from './briefs'
 import { LEASE, casDrive } from './drive'
 import { realRoot, setPolicy } from '../policy/guards'
-import { epicBranch, slug } from './branches'
+import { epicBranch, slug, wtRootOf } from './branches'
 
 export const qk = async (h: Host) => `cadre:${repoKeyOf(await h.cwd())}:resumes`
 export interface Entry { sessionId: string; agentId: string; taskId: string; text: string }
@@ -73,7 +73,7 @@ export const warm = (h: Host) => safe(h, 'rehydrate', () => rehydrate(h))
 // ---- session.start (and after /cadre config set): $.store `cadre:<repoKey>:policy` for guards/effect (13.1-13.2), cfg.ui mirrored into cadre.ui.cfg ----
 export async function start(h: Host): Promise<void> {
   const cfg = await cfgOf(h), root = await h.cwd(), home = await h.home(), repo = (await h.stat(root, { resolve: true }))?.realPath ?? root
-  await setPolicy(h, { repo, wtRoot: `${await realRoot(h, cfg.worktrees.root || `${home}/.cache/cadre/wt`)}/${repoKeyOf(root)}`, home, mcpAllow: cfg.mcpAllow,
+  await setPolicy(h, { repo, wtRoot: `${await realRoot(h, await wtRootOf(h, cfg))}/${repoKeyOf(root)}`, home, mcpAllow: cfg.mcpAllow,
     protect: [cfg.branches.main || 'main', cfg.branches.dev], effectCheck: cfg.effectCheck })   // locks are kept: core/tdd owns them
   await h.ui.update(u => ({ ...u, cfg: { ...(u.cfg as object | undefined), glyphs: cfg.ui.glyphs, maxTurns: cfg.drive.maxTurns } }))
   await safe(h, 'prune', () => prune(h))

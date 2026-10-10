@@ -4,7 +4,7 @@ import type { Hook, Host } from '../types'
 import { resolveDeps, type Deps } from '../core/admission'
 import { raise, report, runCheck } from '../core/close'
 import { discovered } from '../commands/init'
-import { warm } from '../core/reuse'
+import { warm } from '../core/session'
 import { RETRIES, refuse, clearRetries, validateReport } from '../core/validate'
 import * as G from '../core/git'
 
@@ -16,7 +16,7 @@ export const SPECS = [
     inputSchema: { type: 'object', additionalProperties: false, required: ['schemaVersion', 'role'], properties: { schemaVersion: V, role: { type: 'string', enum: ['worker', 'tester', 'reviewer', 'explorer'] }, outcome: { type: 'string', enum: ['done', 'blocked', 'spec_change'] }, summary: S, reason: S, risks: ARR, questions: ARR, tests: ARR, followups: ARR, verdict: { type: 'string', enum: ['pass', 'changes'] }, findings: ARR, coverage: ARR, contractStatus: ARR, answer: S, citations: ARR, discovery: OBJ } } },
   { name: 'inspect', isDeferred: false, description: 'Read git facts of your task tree. what: status | files | log | diff | show. rev and path are optional; show needs a path. Output: exit, seconds, truncated, capped body.',
     inputSchema: { type: 'object', additionalProperties: false, required: ['what'], properties: { schemaVersion: V, what: { type: 'string', enum: ['status', 'files', 'log', 'diff', 'show'] }, task: S, rev: S, path: S } } },
-  { name: 'run_check', isDeferred: false, description: 'Run a named check of your task package in the offline jail on your tree. Output: exit, seconds, truncated, capped body, log path.',
+  { name: 'run_check', isDeferred: false, description: 'Run a named check of your task package on your tree. Output: exit, seconds, truncated, capped body.',
     inputSchema: { type: 'object', additionalProperties: false, required: ['name', 'task'], properties: { schemaVersion: V, name: S, task: S } } },
 ] as const
 
@@ -26,8 +26,8 @@ async function onReport(h: Host, d: Deps, agentId: string | undefined, r: any): 
   const key = `report:${agentId ?? 'main'}`
   if (!agentId) return bad('only a spawned agent reports')
   if (r?.role === 'explorer' && r.discovery && !(await h.bind.read())[agentId]) {
-    if (!(await h.board.read()).init.some(i => i.stage === 4 && i.state === 'pending')) return bad('no discovery request is open')   // only while init stage 4 waits for it
-    const err = await discovered(h, r); return err ? bad(String(err)) : 'discovery recorded. Stop.'
+    if (!(await h.board.read()).init.some(i => i.stage === 4 && i.state === 'pending') || (await h.ui.read()).discoveryAgent !== agentId) return bad('no discovery request is open')   // only while init stage 4 waits, only from the explorer admission spawned for it
+    const err = await discovered(h, r); if (!err) await h.ui.update(({ discoveryAgent: _d, ...u }) => u); return err ? bad(String(err)) : 'discovery recorded. Stop.'
   }
   const env = validateReport(r); if (env) return bad(await refuse(h, key, env))
   try {
@@ -50,7 +50,7 @@ async function onInspect(h: Host, d: Deps, agentId: string | undefined, i: any):
   if (!agentId && !['status', 'files', 'log'].includes(what)) return bad('main may inspect status, files and log only')
   if (i.task && b && i.task !== b.taskId) return bad(`task: you are bound to ${b.taskId}`)
   const rev = i.rev as string | undefined, path = i.path as string | undefined
-  if (path !== undefined && (typeof path !== 'string' || path.startsWith('/') || path.startsWith('-') || path.split('/').includes('..'))) return bad('path: expected a relative path inside the tree, e.g. "src/a.ts"')
+  if (path !== undefined && (typeof path !== 'string' || path.startsWith('/') || path.startsWith('-') || path.split('/').includes('..'))) return bad('path: expected a relative path inside your working directory, e.g. "src/a.ts"')
   if (rev !== undefined && (typeof rev !== 'string' || rev.startsWith('-') || !SAFE.test(rev) || !(await G.exists(h.run, tree, rev)))) return bad(`rev: ${JSON.stringify(rev)} is not a known commit`)
   const task = b ? await d.store.get(b.taskId) : undefined, C = task?.meta['cadre.sourceCommit'], base = task?.meta['cadre.base']
   if (rev && C && b?.role === 'reviewer' && !(await G.ok(h.run, tree, ['merge-base', '--is-ancestor', rev, C]))) return bad(`rev: ${rev} is outside the reviewed range (up to ${C.slice(0, 7)})`)
@@ -62,7 +62,7 @@ async function onInspect(h: Host, d: Deps, agentId: string | undefined, i: any):
   const t0 = await h.now(), r = await h.run(['git', '-C', tree, ...argv]), out = r.stdout + r.stderr, cut = out.length > 16384
   let log = ''
   if (cut) { log = `${d.root}/.cadre/tmp/logs/inspect-${t0}.log`; await h.write(log, out).catch(() => { log = '' }) }
-  return `exit=${r.exitCode} · ${Math.round(((await h.now()) - t0) / 1000)}s · truncated=${cut ? 'yes' : 'no'}\n${cut ? out.slice(-4096) : out}${log ? `\nlog: ${log}` : ''}`
+  return `exit=${r.exitCode} · ${Math.round(((await h.now()) - t0) / 1000)}s · truncated=${cut ? 'yes' : 'no'}\n${cut ? out.slice(-4096) : out}`
 }
 
 async function onCheck(h: Host, d: Deps, agentId: string | undefined, i: any): Promise<string> {

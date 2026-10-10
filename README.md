@@ -67,7 +67,6 @@ Layers, low → high: built-in defaults → plugin `userConfig` → `~/.claude/c
 | `mcpAllow` | S | `[]` |
 | `jail`, `jailWritable` | S | `auto`, `[]` |
 | `effectCheck` | S | `auto` |
-| `tdd.enforce`, `changelog.enforce` | S | `true` |
 | `roles.testerView` | S | `view` (`full` = tester sees the worktree) |
 | `adapters.<name>` | U | none |
 | `store.kind`, `store.bin`, `store.dir` | U | `beads`, `bd`, repo |

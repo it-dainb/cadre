@@ -5,7 +5,7 @@ export type Cls = 'S' | 'U' | 'O'
 export const defaults = () => ({
   strictness: 'strict', 'approval': { allowSdk: false }, mcpAllow: [] as string[],
   jail: 'auto', jailWritable: [] as string[], effectCheck: 'auto',
-  tdd: { enforce: true }, changelog: { enforce: true, path: 'CHANGELOG.md' },
+  changelog: { path: 'CHANGELOG.md' },
   roles: {
     testerView: 'view', tdd: { author: 'separate' },
     worker: { tier: 'standard', effort: 'default' }, tester: { tier: 'standard', effort: 'default' },
@@ -30,7 +30,7 @@ export type Config = ReturnType<typeof defaults>
 
 // Longest dotted prefix wins. Anything not listed is O.
 export const CLASS: Record<string, Cls> = {
-  strictness: 'S', approval: 'S', mcpAllow: 'S', jail: 'S', jailWritable: 'S', effectCheck: 'S', tdd: 'S', 'changelog.enforce': 'S', 'roles.testerView': 'S',
+  strictness: 'S', approval: 'S', mcpAllow: 'S', jail: 'S', jailWritable: 'S', effectCheck: 'S', 'roles.testerView': 'S',
   adapters: 'U', store: 'U', 'store.timeoutMs': 'O', 'store.pollMs': 'O', worktrees: 'U', drive: 'U', 'cost.prices': 'U', disable: 'U',
 }
 // Free-form subtrees: keys under them are not validated against the defaults.
@@ -39,5 +39,5 @@ export const OPEN = ['adapters', 'sync', 'types', 'packages', 'cost.prices']
 export const TIGHTEN: Record<string, ['bool', boolean] | ['enum', ...string[]] | ['list']> = {
   strictness: ['enum', 'advisory', 'strict'], 'approval.allowSdk': ['bool', false], mcpAllow: ['list'],
   jail: ['enum', 'off', 'auto', 'on'], jailWritable: ['list'], effectCheck: ['enum', 'off', 'auto', 'always'],
-  'tdd.enforce': ['bool', true], 'changelog.enforce': ['bool', true], 'roles.testerView': ['enum', 'full', 'view'],
+  'roles.testerView': ['enum', 'full', 'view'],
 }

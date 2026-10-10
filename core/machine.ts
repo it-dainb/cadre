@@ -7,10 +7,12 @@ import { strictOf } from '../config/index'
 
 // A pipeline step lives in one beads task; its step decides the category. reviewer/merge = `review` (merge = review pass, awaiting close).
 export const STEP_CAT: Record<string, Category> = { tester: 'active', red: 'active', worker: 'active', green: 'active', explorer: 'active', report: 'active', reviewer: 'review', merge: 'review' }
+// flags that stop a claim, an integration and a release until the human resolves them
+export const BLOCKING = /^(git:|external$|drift$|conflict$|lost-|integration-failed$)/
 export type Pipe = (type: string) => readonly string[]
 
 export type MKind = 'approve' | 'amend' | 'claim' | 'advance' | 'verdict' | 'close' | 'block' | 'unblock' | 'rewind' | 'release' | 'cancel' | 'skip'
-export interface MEvent { kind: MKind; id: string; at: number; actor?: Actor; owner?: string; verdict?: 'pass' | 'changes'; on?: string }   // rewind: `on` = the step to return to (spec_change accept)
+export interface MEvent { kind: MKind; id: string; at: number; actor?: Actor; owner?: string; verdict?: 'pass' | 'changes'; on?: string; cites?: number }   // rewind: `on` = the step to return to (spec_change accept)
 export type EmitSpec = { type: 'task.transitioned' | 'task.phase_changed' | 'task.skipped'; data: Record<string, unknown> }
 export type Result = { ok: true; board: Snapshot; events: EmitSpec[] } | { ok: false; error: string }
 
@@ -47,7 +49,7 @@ export function transition(s: Snapshot, m: MEvent, pipe: Pipe): Result {
     case 'cancel': case 'skip': state = 'cancelled'; break
   }
   const next: SnapTask = { ...t, state, step, owner, phaseSince: step !== t.step ? m.at : t.phaseSince }
-  const events: EmitSpec[] = [{ type: 'task.transitioned', data: { taskId: t.id, from: t.state, to: state } }]
+  const events: EmitSpec[] = [{ type: 'task.transitioned', data: { taskId: t.id, from: t.state, to: state, ...(m.kind === 'close' && m.cites !== undefined ? { cites: m.cites } : {}) } }]
   if (step !== t.step) events.push({ type: 'task.phase_changed', data: { taskId: t.id, from: t.step, to: step } })
   if (m.kind === 'skip') events.push({ type: 'task.skipped', data: { taskId: t.id, on: m.on ?? '' } })
   return { ok: true, board: withConditions({ ...s, tasks: s.tasks.map(x => (x.id === t.id ? next : x)) }), events }
@@ -61,7 +63,7 @@ export const pendingSkips = (s: Snapshot): { id: string; on: string }[] =>
 export async function apply(h: Host, m: MEvent, pipe: Pipe): Promise<Result> {
   let res!: Result
   const t0 = (await h.board.read()).tasks.find(x => x.id === m.id), fl = t0?.flags.find(f => f === 'external' || f === 'drift')   // sync flags (11.4): strict refuses the next transition until /cadre resolve
-  if (fl && !['release', 'cancel', 'block'].includes(m.kind) && (await strictOf(h)) !== 'advisory') return { ok: false, error: `${m.id} has flag ${fl}; resolve it first (/cadre resolve)` }
+  if (fl && !['release', 'cancel', 'block'].includes(m.kind) && (await strictOf(h)) !== 'advisory') return { ok: false, error: `${m.id} has flag ${fl}; ask the human to resolve it (/cadre resolve)` }
   await commit(h, s => { res = transition(s, m, pipe); return res.ok ? res.board : s })
   if (!res.ok) return res
   let seq = 0

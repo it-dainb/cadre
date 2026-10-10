@@ -1,6 +1,7 @@
 // Model-visible text built by the mod (DESIGN 4.2-4.6, 8.2): role briefs (static header first), per-agent deltas, main's diff-gated context line,
 // reminder suppression, resume card, id matcher. Caps from 1.4: header 1.5 KB, spec 4 KB, context 3 KB, notes 500, delta 1 KB, line 1 KB, card 3 KB.
 import type { Hook, Host, Role, Snapshot } from '../types'
+import { scoped } from '../commands/init'
 import { modelView, viewHash } from './board'
 import { contextLine } from './render'
 
@@ -18,10 +19,10 @@ export function idsIn(text: string, known: Iterable<string>): string[] {
 
 // ---- role briefs ----
 const HEAD: Record<Role, string> = {
-  tester: 'cadre tester brief. Write black-box tests for the task below, in the spec view only, under the test paths named. Finish with report{role:"tester"}.',
-  worker: 'cadre worker brief. Do exactly the task below in your cwd (its worktree). Conform to the contract; locked tests stay as they are; the mod commits. Finish with report{role:"worker"}.',
-  reviewer: 'cadre reviewer brief. Disprove the claim that the commit below satisfies its scenarios and contract. Read-only. Finish with report{role:"reviewer"}.',
-  explorer: 'cadre explorer brief. Read-only. Answer with citations. Finish with report{role:"explorer"}.',
+  tester: 'Tester brief. Write black-box tests for the task below, under the test paths named. Finish with report{role:"tester"}.',
+  worker: 'Worker brief. Do exactly the task below in your working directory. Conform to the contract; locked tests stay as they are; your changes are committed for you. Finish with report{role:"worker"}.',
+  reviewer: 'Reviewer brief. Disprove the claim that the commit below satisfies its scenarios and contract. Read-only. Finish with report{role:"reviewer"}.',
+  explorer: 'Explorer brief. Read-only. Answer with citations. Finish with report{role:"explorer"}.',
 }
 export interface BriefIn {
   id: string; title: string; type: string; description?: string; scenarios?: string; contract?: string; notes?: string
@@ -43,11 +44,11 @@ const join = (xs: string[]) => xs.filter(Boolean).join('\n\n')
 
 export function brief(role: Role, b: BriefIn): string {
   const spec = (s: string[]) => cap(join(s), 4096), ctx = (s: string[]) => cap(join(s), 3072)
-  const notes = sec('Orchestrator notes', cap(b.notes ?? '', 500)), head = HEAD[role]
+  const notes = sec('Notes', cap(b.notes ?? '', 500)), head = HEAD[role]
   const contract = sec('Contract', renderContract(b.contract))
   if (role === 'explorer') return join([head, `# ${b.question !== undefined ? 'QUESTION' : `TASK-${b.id}`}\n${b.question ?? b.title}`, sec('Scope', 'read-only; no edits, no shell'), notes])
   if (role === 'tester')
-    return join([head, `# SPEC TASK-${b.id}`, spec([sec('Scenarios', b.scenarios), contract]), sec('Test paths', b.testPaths), sec('View', 'spec view; tests only; read FILES.md first (it lists what the view holds: you cannot list directories)'), notes])
+    return join([head, `# SPEC TASK-${b.id}`, spec([sec('Scenarios', b.scenarios), contract]), sec('Test paths', b.testPaths), sec('Folder', 'tests only; read FILES.md first: it lists what you can see (you cannot list directories)'), notes])
   if (role === 'reviewer')
     return join([head, `# REVIEW TASK-${b.id}`, sec('Source commit', b.sourceCommit), sec('Diff', [b.diffStat ?? '', cap(b.diff ?? '', 3072)]),
       spec([sec('Scenarios', b.scenarios), contract, sec('Spec tests', b.locked)]),
@@ -62,19 +63,15 @@ export const DISCOVERY = `${HEAD.explorer}
 # DISCOVERY
 Read CI config, task runners, manifests, README/CONTRIBUTING and test dirs (CI wins over prose). Per package report setup argv, checks {name: argv}, tdd {paths, report?, stubs?, skeleton?}, viewInclude, and fetches[] = checks whose CI step fetches at test time. Answer report{discovery:{packages:[…]}, citations}; every argv cites its source file.`
 
-// ---- plan rules (3.1): carried once per plan in the first TaskCreate answer; byte-stable ----
-export const PLAN_RULES = `cadre plan rules. A plan is an epic of 1-7 tasks. Each task needs: type (feature|bug|refactor|docs|test|spike), package, scenarios "S1: Given <state> When <action> Then <outcome>", changelog {category, entry} or {none, reason}, and an interface contract {symbols:[{name, kind, params, returns, errors?, doc?, status:new|changed|unchanged}]} or {none:true, reason} where the type requires one. Drafts may be incomplete; completeness is checked when the human approves. Never approve, never set owner or status in_progress: the mod claims at spawn.`
-export const missingLine = (missing: readonly string[]) => (missing.length ? cap(`missing: ${missing.join('; ')}`, 200) : '')
-
 // ---- deltas (4.3): <= 1 KB per bound agentId, drained by the tool.call wrap into context, or by a queued resume ----
-const dk = (agentId: string) => `cadre:deltas:${agentId}`
-export async function pushDelta(h: Host, agentId: string, text: string): Promise<void> { const q = ((await h.store.get(dk(agentId))) as string[] | undefined) ?? []; await h.store.set(dk(agentId), [...q, text]) }
+const dk = (h: Host, agentId: string) => scoped(h, `deltas:${agentId}`)
+export async function pushDelta(h: Host, agentId: string, text: string): Promise<void> { const q = ((await h.store.get(await dk(h, agentId))) as string[] | undefined) ?? []; await h.store.set(await dk(h, agentId), [...q, text]) }
 export async function drainDelta(h: Host, agentId: string): Promise<string | null> {
-  const q = ((await h.store.get(dk(agentId))) as string[] | undefined) ?? []
+  const q = ((await h.store.get(await dk(h, agentId))) as string[] | undefined) ?? []
   if (!q.length) return null
   const out: string[] = []; let n = 0
   for (const t of q) { if (out.length && n + t.length + 1 > 1024) break; out.push(t); n += t.length + 1 }
-  const rest = q.slice(out.length); await (rest.length ? h.store.set(dk(agentId), rest) : h.store.del(dk(agentId)))
+  const rest = q.slice(out.length); await (rest.length ? h.store.set(await dk(h, agentId), rest) : h.store.del(await dk(h, agentId)))
   return cap(out.join('\n'), 1024)
 }
 
@@ -88,7 +85,7 @@ function lineOf(s: Snapshot): string {
 
 // one-time resume card (8.2), <= 3 KB. Rendered from computed data by whoever rehydrates, queued with queueCard.
 export interface CardIn { mission: string | null; epic: { id: string; title: string; intent?: string } | null; decisions: string[]; questions: string[]; inflight: { id: string; step: string; owner?: string; checkpoint?: string }[]; drive: string; next: string }
-export const renderCard = (c: CardIn): string => cap(join(['cadre resume card', sec('Mission', c.mission ?? 'none'), sec('Epic', c.epic ? `${c.epic.id} ${c.epic.title}${c.epic.intent ? `\n${c.epic.intent}` : ''}` : 'none'),
+export const renderCard = (c: CardIn): string => cap(join(['Resume card', sec('Mission', c.mission ?? 'none'), sec('Epic', c.epic ? `${c.epic.id} ${c.epic.title}${c.epic.intent ? `\n${c.epic.intent}` : ''}` : 'none'),
   sec('Last decisions', c.decisions.slice(-5)), sec('Open questions', c.questions), sec('In flight', c.inflight.map(t => `- ${t.id} ${t.step}${t.owner ? ` owner ${t.owner}` : ''}${t.checkpoint ? ` checkpoint ${t.checkpoint}` : ''}`)), `drive: ${c.drive}`, `next: ${c.next}`]), 3072)
 export const queueCard = (h: Host, card: string) => h.secret.update(s => ({ ...s, ctx: { key: s.ctx?.key ?? '', card } }))
 

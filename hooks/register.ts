@@ -3,12 +3,15 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 import type { Host } from '../types'
-import { emptySnapshot } from '../core/board'
+import { UI, emptySnapshot } from '../core/board'
 import { emptyRing, subscribe } from '../core/events'
-import { drain, step, compact, submit, goal, start, tick as heartbeat, warm, UI } from '../core/reuse'
+import { drain, step, compact, submit } from '../core/reuse'
+import { goal } from '../core/drive'
+import { start, warm } from '../core/session'
+import '../config/route'   // registers ROUTES.config
 import { observe } from '../core/close'
 import '../core/integrate'   // registers ROUTES.release
-import { admit } from '../core/admission'
+import { admit, tick as heartbeat } from '../core/admission'
 import { contain } from '../policy/containment'
 import { check, guard, send, judge, configSet } from '../policy/guards'
 import { answer, describe } from '../native/tasks'
@@ -95,7 +98,7 @@ function host($): Host {
 }
 
 // Fail-closed handlers (G1, G2). On re-entry every $ rejects, so decide from the event alone.
-const FAIL = 'cadre: guard failed; refused'
+const FAIL = 'refused: temporary failure; retry once, then ask the human'
 const why = ($, next) => { if (next.error && next.error.kind !== 're-entry') void $.ui.log(`cadre: hook failed: ${next.error.kind}: ${next.error.message}`); return FAIL }   // the engine redacts the error in its own log: keep the reason in ours
 function denyCall($, e, next) { return next.error?.kind === 're-entry' ? (judge(e) ? { deny: judge(e) } : next(e)) : next.called ? next(e) : { deny: why($, next) } }
 function denySpawn($, e, next) { return next.error?.kind === 're-entry' ? next(e) : next.called ? next(e) : { deny: why($, next) } }

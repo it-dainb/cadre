@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { check, configSet, realRoot, guard, idsIn, inputPath, judge, send, setPolicy } from '../policy/guards'
+import { check, configSet, realRoot, guard, inputPath, judge, send, setPolicy } from '../policy/guards'
+import { idsIn } from '../core/briefs'
 import { fakeHost, task } from './support'
 import type { Binding, Role } from '../types'
 
@@ -135,7 +136,7 @@ describe('round 1 fixes (ADR 0006)', () => {
     expect(await call(h, { tool: 'Bash', command: 'ls' })).toEqual({ ok: 'Bash' })
   })
   test('sec-L1: re-entry judge refuses shells and foreign tools for an agent', () => {
-    expect(judge({ tool: 'Bash', agentId: 'w1' })).toMatch(/binding/); expect(judge({ tool: 'mcp__x__y', agentId: 'w1' })).toMatch(/binding/)
+    expect(judge({ tool: 'Bash', agentId: 'w1' })).toMatch(/not available/); expect(judge({ tool: 'mcp__x__y', agentId: 'w1' })).toMatch(/not available/)
     expect(judge({ tool: 'Read', agentId: 'w1' })).toBeUndefined()
   })
   test('M13: realRoot resolves the deepest existing ancestor (symlinked ~/.cache)', async () => {

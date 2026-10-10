@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { admitWith, beat, leaseLive } from '../core/admission'
+import { admitWith, beat } from '../core/admission'
+import { leaseLive } from '../core/board'
 import type { Deps } from '../core/admission'
 import { defaults } from '../config/index'
 import { MemoryStore } from '../task-management/adapters/memory/store'
@@ -59,7 +60,7 @@ describe('claim (3.4)', () => {
     const { next, seen } = ok(); const r = await admitWith(h, d, spawn(`please do TASK-${ids[0]} carefully`), next)
     expect(r).toEqual({ model: 'sonnet', agentId: 'ag1' }); expect(seen).toHaveLength(1)
     expect(seen[0]).toMatchObject({ subagentType: 'cadre:worker', model: 'sonnet', cwd: `/wt/repo-1/${ids[0]}` })
-    expect(seen[0].prompt).toContain(`# TASK-${ids[0]} task 0 (feature)`); expect(seen[0].prompt).toContain('S1: Given x When y Then z'); expect(seen[0].prompt).toContain('## Orchestrator notes')
+    expect(seen[0].prompt).toContain(`# TASK-${ids[0]} task 0 (feature)`); expect(seen[0].prompt).toContain('S1: Given x When y Then z'); expect(seen[0].prompt).toContain('## Notes')
     expect((await h.board.read()).tasks[0]).toMatchObject({ state: 'active', step: 'worker', owner: 'cadre/u/aaaaaa' })   // tester/red skipped until M5
     expect(await w.store.get(ids[0])).toMatchObject({ category: 'active', assignee: 'cadre/u/aaaaaa' })
     expect((await w.store.get(ids[0])).meta).toMatchObject({ 'cadre.step': 'worker', 'cadre.base': 'abc1234', 'cadre.worktree': `/wt/repo-1/${ids[0]}` })
@@ -76,9 +77,9 @@ describe('claim (3.4)', () => {
   test('one-id rule: two ids, fork with an id, teammate, workflow are refused; nothing is claimed', async () => {
     const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}, {}); await w.board(h, epic, ids)
     const { next, seen } = ok()
-    expect(((await admitWith(h, d, spawn(`${ids[0]} and ${ids[1]}`), next)) as any).deny).toContain('one agent = one task')
-    expect(((await admitWith(h, d, spawn(ids[0], { fork: true }), next)) as any).deny).toContain('never forks')
-    expect(((await admitWith(h, d, spawn(ids[0], { isTeammate: true }), next)) as any).deny).toContain('teammates')
+    expect(((await admitWith(h, d, spawn(`${ids[0]} and ${ids[1]}`), next)) as any).deny).toContain('one agent takes one task')
+    expect(((await admitWith(h, d, spawn(ids[0], { fork: true }), next)) as any).deny).toContain('cannot be a fork')
+    expect(((await admitWith(h, d, spawn(ids[0], { isTeammate: true }), next)) as any).deny).toContain('agent teams')
     expect(((await admitWith(h, d, spawn(ids[0], { workflow: { runId: 'r', agentIndex: 0 } }), next)) as any).deny).toContain('workflow')
     expect(seen).toEqual([]); expect((await w.store.get(ids[0])).category).toBe('todo'); expect((await h.board.read()).tasks.map(t => t.state)).toEqual(['todo', 'todo'])
   })
@@ -87,17 +88,17 @@ describe('claim (3.4)', () => {
     await admitWith(h, d, spawn('where is the parser?'), next)
     expect(seen[0]).toMatchObject({ subagentType: 'cadre:explorer', model: 'haiku' }); expect(seen[0].prompt).toContain('# QUESTION\nwhere is the parser?')
     await admitWith(h, d, spawn('x', { fork: true }), next); expect(seen[1].subagentType).toBe('general-purpose')
-    await h.board.update(s => ({ ...s, init: [{ stage: 4, state: 'pending' }] })); await admitWith(h, d, spawn('go'), next); expect(seen[2].prompt).toContain('# DISCOVERY')
+    await h.board.update(s => ({ ...s, init: [{ stage: 4, state: 'pending' }] })); await admitWith(h, d, spawn('go'), next); expect(seen[2].prompt).toContain('# DISCOVERY'); expect((await h.ui.read()).discoveryAgent).toBe('ag1')   // sec L2: bound at spawn
   })
   test('maxParallel, not-ready (blocking dep), flags, and a type that needs the tester step are refused', async () => {
     const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}, { deps: [{ id: '0', type: 'blocks' }] }, { type: 'test' }, {}); await w.board(h, epic, ids)
     const { next, seen } = ok()
     expect(((await admitWith(h, d, spawn(ids[1]), next)) as any).deny).toContain('not ready')
-    expect(((await admitWith(h, d, spawn(ids[2]), next)) as any).deny).toContain('tester step')
+    expect(((await admitWith(h, d, spawn(ids[2]), next)) as any).deny).toContain('not available')
     await h.board.update(s => ({ ...s, tasks: s.tasks.map(t => (t.id === ids[3] ? { ...t, condition: { on: ids[0], state: 'not-met' as const } } : t)) })); expect(((await admitWith(h, d, spawn(ids[3]), next)) as any).deny).toContain('never runs')
     await h.board.update(s => ({ ...s, tasks: s.tasks.map(t => (t.id === ids[3] ? { ...t, flags: ['git:dev'] } : t)) })); expect(((await admitWith(h, d, spawn(ids[3]), next)) as any).deny).toContain('flag git:dev')
     await h.board.update(s => ({ ...s, tasks: s.tasks.map((t, i) => (i === 3 ? { ...t, flags: [], condition: undefined } : i === 0 ? { ...t, state: 'active' } : { ...t, state: i === 1 ? 'active' : t.state }) as SnapTask) })); d.cfg.maxParallel = 2
-    expect(((await admitWith(h, d, spawn(ids[3]), next)) as any).deny).toContain('maxParallel 2'); expect(seen).toEqual([])
+    expect(((await admitWith(h, d, spawn(ids[3]), next)) as any).deny).toContain('limit 2'); expect(seen).toEqual([])
   })
   test('a rejected spawn ({deny}) or a thrown next releases the claim and the board, removes the new worktree; a throw is rethrown', async () => {
     const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}); await w.board(h, epic, ids)
@@ -128,7 +129,7 @@ describe('next step / rebind (lease staleness, 8.4)', () => {
   }
   test('a live lease with a live same-role agent: denied ("resumed automatically"); another session with a live lease: denied', async () => {
     const w = world(), a = await w.mk('a'), b = await w.mk('b'), id = await active(w, a.h, a.d)
-    expect(((await admitWith(a.h, a.d, spawn(id), ok('x').next)) as any).deny).toContain('resumed automatically')
+    expect(((await admitWith(a.h, a.d, spawn(id), ok('x').next)) as any).deny).toContain('wait for its result')
     const { epic } = { epic: (await a.h.board.read()).epic! }; await w.board(b.h, epic, [id], [{ state: 'active', step: 'worker' }])
     expect(((await admitWith(b.h, b.d, spawn(id), ok('y').next)) as any).deny).toContain('another session')
   })
@@ -155,17 +156,17 @@ describe('next step / rebind (lease staleness, 8.4)', () => {
   })
   test('mod-run steps (green) and merge have no agent', async () => {
     const w = world(), { h, d } = await w.mk('a'), id = await active(w, h, d, { step: 'green' })
-    expect(((await admitWith(h, d, spawn(id), ok().next)) as any).deny).toContain('mod-run')
+    expect(((await admitWith(h, d, spawn(id), ok().next)) as any).deny).toContain('runs without an agent')
   })
   test('recovery: worktree dir gone but branch present -> prune + re-add; branch gone -> lost-wip, released; epic branch gone -> lost-epic', async () => {
     const w = world(), { h, d } = await w.mk('a'), id = await active(w, h, d); w.clock.now += 6 * 60_000
     w.dirs.clear(); expect(((await admitWith(h, d, spawn(id), ok('ag2').next)) as any).agentId).toBe('ag2')
     expect(w.calls.some(c => c.slice(3).join(' ') === 'worktree prune')).toBe(true); expect(w.calls.some(c => c.slice(3, 6).join(' ') === `worktree add /wt/repo-1/${id}`)).toBe(true)
     w.clock.now += 6 * 60_000; w.dirs.clear(); w.refs.delete(`feat/${id}-task-0`)
-    expect(((await admitWith(h, d, spawn(id), ok('ag3').next)) as any).deny).toContain('lost-wip')
+    expect(((await admitWith(h, d, spawn(id), ok('ag3').next)) as any).deny).toContain('branch is gone')
     expect((await w.store.get(id)).category).toBe('todo'); expect((await h.board.read()).tasks[0].state).toBe('todo')
     expect(ofEpic(await h.events.read(), (await h.board.read()).epic!).some(e => e.type === 'flag.raised' && e.data.flag === 'lost-wip')).toBe(true)
-    w.refs.delete('epic/p1-x'); expect(((await admitWith(h, d, spawn(id), ok('ag4').next)) as any).deny).toContain('lost-epic'); expect((await h.board.read()).plan!.state).toBe('blocked')
+    w.refs.delete('epic/p1-x'); expect(((await admitWith(h, d, spawn(id), ok('ag4').next)) as any).deny).toContain('recreate it from dev'); expect((await h.board.read()).plan!.state).toBe('blocked')
   })
 })
 
@@ -183,7 +184,7 @@ describe('review spawn', () => {
   })
   test('review-passed (merge) is main\'s to complete; no sourceCommit yet is refused', async () => {
     const m = await inReview('merge'); expect(((await admitWith(m.h, m.d, spawn(m.id), ok().next)) as any).deny).toContain('TaskUpdate completed')
-    const r = await inReview('reviewer'); await r.w.store.setMeta(r.id, { 'cadre.sourceCommit': '' }, r.d.actor); expect(((await admitWith(r.h, r.d, spawn(r.id), ok().next)) as any).deny).toContain('no sourceCommit')
+    const r = await inReview('reviewer'); await r.w.store.setMeta(r.id, { 'cadre.sourceCommit': '' }, r.d.actor); expect(((await admitWith(r.h, r.d, spawn(r.id), ok().next)) as any).deny).toContain('no commit to review')
   })
   test('a rejected review spawn drops its reservation', async () => {
     const { h, d, id } = await inReview('reviewer'); await admitWith(h, d, spawn(id), async () => ({ deny: 'no' })); expect(await h.bind.read()).toEqual({})
@@ -217,7 +218,7 @@ describe('tester step with a spec view (3.5)', () => {
     expect(a.seen[0]).toMatchObject({ subagentType: 'cadre:tester', cwd: view }); expect(a.seen[0].prompt).toContain('# SPEC TASK'); expect(a.seen[0].prompt).toContain('test/**')
     expect((await h.bind.read()).tt1.worktree).toBe(view)
     await h.board.update(s => ({ ...s, tasks: s.tasks.map(t => ({ ...t, step: 'worker' })) }))   // red✓ happened (tdd.testerDone advances), but no specCommit recorded
-    expect(((await admitWith(h, d, spawn(id), ok('wk1').next)) as any).deny).toContain('no red record')
+    expect(((await admitWith(h, d, spawn(id), ok('wk1').next)) as any).deny).toContain('spec tests are not recorded')
     await w.store.setMeta(id, { 'cadre.specCommit': 'abc1234', 'cadre.locked': JSON.stringify(['test/s.json']), 'cadre.red': 'red ✓ 1 failing' }, d.actor)
     const b = ok('wk1'); await admitWith(h, d, spawn(id), b.next)
     expect(b.seen[0]).toMatchObject({ subagentType: 'cadre:worker', cwd: `/wt/repo-1/${id}` }); expect(b.seen[0].prompt).toContain('test/s.json'); expect(b.seen[0].prompt).toContain('red ✓ 1 failing')

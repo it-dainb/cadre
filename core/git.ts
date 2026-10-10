@@ -3,7 +3,10 @@ import type { Host } from '../types'
 
 export type Res = { exitCode: number; stdout: string; stderr: string }
 export type Run = (argv: readonly string[], init?: { cwd?: string; env?: Record<string, string>; stdin?: string; timeoutMs?: number }) => Promise<Res>
-const ID = ['-c', 'user.name=cadre', '-c', 'user.email=cadre@localhost']
+export const IDENT = ['-c', 'user.name=cadre', '-c', 'user.email=cadre@localhost']   // the one git identity for commits the mod makes
+// paths the mod owns in a repo: agents never change them (close refuses, guards fence, the brief names them)
+export const PROTECTED = ['.git/', '.cadre/', '.beads/', '.claude/', '.mcp.json', 'CHANGELOG.md']
+export const isProt = (p: string) => PROTECTED.some(x => (x.endsWith('/') ? p.startsWith(x) : p === x))
 
 // git -C <cwd> <args>: stdout trimmed; a non-zero exit throws with git's own stderr (P6: facts only, never parsed for decisions).
 export async function git(run: Run, cwd: string, args: readonly string[]): Promise<string> {
@@ -43,7 +46,7 @@ export async function worktreeRemove(run: Run, root: string, path: string, branc
 export async function commitAll(run: Run, wt: string, msg: string): Promise<string | null> {
   await git(run, wt, ['add', '-A'])
   if (await ok(run, wt, ['diff', '--cached', '--quiet'])) return null
-  await git(run, wt, [...ID, 'commit', '--no-verify', '-m', msg])
+  await git(run, wt, [...IDENT, 'commit', '--no-verify', '-m', msg])
   return tip(run, wt, 'HEAD')
 }
 // Task squash (3.8), in the task worktree: detach at the epic tip, squash-merge the reviewed commit, commit. Conflict -> throws (caller blocks the task).
@@ -51,7 +54,7 @@ export async function squash(run: Run, wt: string, epicTip: string, source: stri
   await git(run, wt, ['checkout', '--detach', epicTip])
   const r = await run(['git', '-C', wt, 'merge', '--squash', source])
   if (r.exitCode) { await run(['git', '-C', wt, 'merge', '--abort']); await run(['git', '-C', wt, 'reset', '--hard', epicTip]); throw new Error(`conflict squashing ${source.slice(0, 7)}`) }
-  await git(run, wt, [...ID, 'commit', '--no-verify', '--allow-empty', '-m', msg])
+  await git(run, wt, [...IDENT, 'commit', '--no-verify', '--allow-empty', '-m', msg])
   return tip(run, wt, 'HEAD')
 }
 // Ref CAS: update-ref <ref> <new> <old>; false when the ref moved under us.

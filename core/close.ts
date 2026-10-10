@@ -10,8 +10,8 @@ import { agentsOf, unbindAgent } from './board'
 import { apply, STEP_CAT } from './machine'
 import { emit } from './events'
 import { card, comment, commitMessage, noReportCard, type Rec } from './render'
-import { checkpoint, queueResume } from './reuse'
-import { resolveGit, sweep } from './effect'
+import { queueResume } from './reuse'
+import { checkpoint, resolveGit, sweep } from './effect'
 import { policyOf } from '../policy/guards'
 import { integrateEpic } from './integrate'
 import { green as tddGreen, lockedViolations, verifyOf, resolveSpec, specChange, testerDone } from './tdd'
@@ -19,9 +19,7 @@ import { modeOf, pkgOf } from './specview'
 import * as G from './git'
 
 
-const PROTECTED = ['.git/', '.cadre/', '.beads/', '.claude/', '.mcp.json', 'CHANGELOG.md']
-const isProt = (p: string) => PROTECTED.some(x => (x.endsWith('/') ? p.startsWith(x) : p === x))
-const NUDGE: Record<string, string> = { worker: 'You stopped without calling mcp__cadre__report. Call it now: {"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"} (or outcome "blocked" with reason).', tester: 'You stopped without calling mcp__cadre__report. Call it now with role "tester", outcome "done", summary and tests.', reviewer: 'You stopped without calling mcp__cadre__report. Call it now with role "reviewer", verdict, summary, findings, coverage and contractStatus.', explorer: 'You stopped without calling mcp__cadre__report. Call it now with role "explorer" and your answer.' }
+const NUDGE: Record<string, string> = { worker: 'You stopped without calling report. Call it now: {"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"} (or outcome "blocked" with reason).', tester: 'You stopped without calling report. Call it now with role "tester", outcome "done", summary and tests.', reviewer: 'You stopped without calling report. Call it now with role "reviewer", verdict, summary, findings, coverage and contractStatus.', explorer: 'You stopped without calling report. Call it now with role "explorer" and your answer.' }
 const num = (v?: string) => Number(v ?? 0) || 0
 const sha7 = (s: string) => s.slice(0, 7)
 
@@ -50,8 +48,8 @@ export async function runCheck(h: Host, d: Deps, task: Task, wt: string, name: s
   const r = await G.checkRun(h.run, await modeOf(h, d), { wt, scratch, pkgRoot, argv, writable: d.cfg.jailWritable })
   const secs = Math.round(((await h.now()) - t0) / 1000), out = r.stdout + r.stderr, cut = out.length > 16384, path = `${d.root}/.cadre/tmp/logs/${task.id}-${name}-${t0}.log`
   await h.write(path, out).catch(() => {})
-  await emit(h, 'check.ran', { taskId: task.id, name, ok: r.exitCode === 0 }, { taskId: task.id })
-  return { found: true, ok: r.exitCode === 0, secs, text: `exit=${r.exitCode} · ${secs}s · truncated=${cut ? 'yes' : 'no'}\n${cut ? out.slice(-4096) : out}\nlog: ${path}` }
+  await emit(h, 'check.ran', { taskId: task.id, name, ok: r.exitCode === 0, secs, ...(task.meta['cadre.step'] ? { phase: task.meta['cadre.step'] } : {}) }, { taskId: task.id })
+  return { found: true, ok: r.exitCode === 0, secs, text: `exit=${r.exitCode} · ${secs}s · truncated=${cut ? 'yes' : 'no'}\n${cut ? out.slice(-4096) : out}` }
 }
 
 // ---- 6.3 semantic validation of a reviewer report ----
@@ -80,7 +78,7 @@ async function numstat(h: Host, wt: string, range: string) {
 async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any, auto = false): Promise<string> {
   const task = await d.store.get(t.id), wt = b.worktree, base = task.meta['cadre.base'], pol = await policyOf(h)
   const dirty = (await G.git(h.run, wt, ['status', '--porcelain'])).split('\n').filter(Boolean).flatMap(l => l.slice(3).split(' -> ')), changed = new Set([...dirty, ...(await G.git(h.run, wt, ['diff', '--name-only', `${task.meta['cadre.specCommit'] ?? base}..HEAD`])).split('\n').filter(Boolean)])   // since the red commit: the spec files it added are the worker's baseline, not its edits
-  const locked = pol.locks?.[t.id] ?? [], bad = [...changed].filter(p => isProt(p) || locked.includes(`${wt}/${p}`))
+  const locked = pol.locks?.[t.id] ?? [], bad = [...changed].filter(p => G.isProt(p) || locked.includes(`${wt}/${p}`))
   if (bad.length) throw new Error(`protected or locked paths changed: ${bad.join(', ')}. Restore them (git checkout ${sha7(base)} -- <path>) and report again`)
   const sum = String(r.summary ?? '').split('\n')[0].slice(0, 60)
   const C = (await G.op(h, () => G.commitAll(h.run, wt, `wip(${t.id}): ${sum || 'work'}`))) ?? (await G.tip(h.run, wt, 'HEAD'))
@@ -142,7 +140,7 @@ async function verdict(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
 async function explorerDone(h: Host, d: Deps, t: SnapTask, agentId: string, r: any): Promise<string> {
   const p = pipe(d), at = await h.now()
   await apply(h, { kind: 'advance', id: t.id, at, actor: 'mod' }, p)
-  const m = await apply(h, { kind: 'close', id: t.id, at, actor: 'mod' }, p); if (!m.ok) throw new Error(m.error)
+  const m = await apply(h, { kind: 'close', id: t.id, at, actor: 'mod', cites: (r.citations ?? []).length }, p); if (!m.ok) throw new Error(m.error)
   await record(h, d, t.id, 'answer', 'explorer', { citations: (r.citations ?? []).length }, { answer: r.answer })
   await d.store.close(t.id, { outcome: 'done', note: String(r.answer ?? '').slice(0, 500), session: d.session })
   await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'explorer', to: 'done', flags: x.flags, next: 'read the answer (TaskGet)' }) }))
@@ -228,7 +226,7 @@ export async function closeTask(h: Host, d: Deps, id: string): Promise<string | 
   if (await G.git(h.run, wt, ['status', '--porcelain'])) return `${id}: the worktree has uncommitted changes`
   if (!task.meta['cadre.changelog']) return `${id}: no changelog decision`
   const files = (await G.git(h.run, wt, ['diff', '--name-only', `${base}..${C}`])).split('\n').filter(Boolean), spc = task.meta['cadre.specCommit']
-  const bad = [...files.filter(isProt), ...(spc ? await lockedViolations(h.run, wt, spc, JSON.parse(task.meta['cadre.locked'] ?? '[]'), C) : [])]; if (bad.length) return `${id}: protected or locked paths differ: ${bad.join(', ')}`
+  const bad = [...files.filter(G.isProt), ...(spc ? await lockedViolations(h.run, wt, spc, JSON.parse(task.meta['cadre.locked'] ?? '[]'), C) : [])]; if (bad.length) return `${id}: protected or locked paths differ: ${bad.join(', ')}`
   const rep = task.meta['cadre.report'] ? JSON.parse(task.meta['cadre.report']).summary : undefined
   const msg = commitMessage({ type: spec.commit ?? 'chore', scope: task.meta['cadre.scope'] || undefined, breaking: task.meta['cadre.breaking'] === 'true', description: t.title, summary: rep, id, reviewSha: C, checks: task.meta['cadre.checks'] ? [task.meta['cadre.checks']] : [] })
   let sha = '', fail = ''

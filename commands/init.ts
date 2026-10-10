@@ -16,6 +16,7 @@ import type { TypeRegistry } from '../task-management/registry'
 import { spec } from '../agents'
 import * as D from '../core/discover'
 import { setPolicy } from '../policy/guards'
+import { wtRootOf } from '../core/branches'
 
 // Wired by later waves: the beads TaskStore factory and sync add (11.3). Defaults refuse loudly.
 export const wire: { store(h: Host, cfg: Config, root: string): Promise<TaskStore>; syncAdd(h: Host, adapter: string): Promise<string> } = {
@@ -31,6 +32,7 @@ interface Stage { n: number; name: string; done(c: Ctx): Promise<boolean>; propo
 
 const base = (p: string) => p.split('/').filter(Boolean).pop() ?? 'repo'
 export const repoKeyOf = (root: string) => `${base(root)}-${fnv1a64(root).slice(0, 6)}`
+export const scoped = async (h: Host, name: string) => `cadre:${repoKeyOf(await h.cwd())}:${name}`   // $.store keys are per repo (13.5)
 const git = (c: Ctx, ...a: string[]) => c.h.run(['git', ...a], { cwd: c.root })
 const ok = (text: string) => ({ ok: true, text }), no = (text: string) => ({ ok: false, text })
 const readJ = async (h: Host, p: string): Promise<J> => { const t = await h.readText(p); try { return t ? JSON.parse(t) : {} } catch { return {} } }
@@ -164,13 +166,13 @@ const SANDBOX = (wt: string, repo: string) => ({
   sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: true,
     filesystem: { allowWrite: [wt], denyWrite: [repo] } },   // ref entries are redundant under the repo-level deny (ADR 0001 S24)
 })
-const wtOf = (c: Ctx) => `${c.cfg.worktrees.root || `${c.home}/.cache/cadre/wt`}/${c.rk}`
+const wtOf = async (c: Ctx) => `${await wtRootOf(c.h, c.cfg)}/${c.rk}`
 const S5: Stage = {
   n: 5, name: 'containment',
   async done(c) { if ((await c.h.board.read()).init.some(i => i.stage === 5 && i.state === 'done')) return true   // $.settings.read() is this session's: it shows the new file only after a restart
-    const real = (await c.h.stat(c.root, { resolve: true }))?.realPath ?? c.root; return assess(await c.h.settings().catch(() => ({})), real, wtOf(c)).state === 'contained' },
+    const real = (await c.h.stat(c.root, { resolve: true }))?.realPath ?? c.root; return assess(await c.h.settings().catch(() => ({})), real, await wtOf(c)).state === 'contained' },
   async propose(c) {
-    const real = (await c.h.stat(c.root, { resolve: true }))?.realPath ?? c.root, wt = wtOf(c), setP = `${c.root}/.claude/settings.local.json`, usrP = `${c.home}/.claude/settings.json`
+    const real = (await c.h.stat(c.root, { resolve: true }))?.realPath ?? c.root, wt = await wtOf(c), setP = `${c.root}/.claude/settings.local.json`, usrP = `${c.home}/.claude/settings.json`
     const patch = SANDBOX(wt, real), strict = c.args[0] === 'allowlist'
     const merge = (j: J, p: J): J => ({ ...j, env: { ...j.env, ...p.env }, sandbox: { ...j.sandbox, ...p.sandbox, filesystem: { ...j.sandbox?.filesystem, allowWrite: union(j.sandbox?.filesystem?.allowWrite, p.sandbox.filesystem.allowWrite), denyWrite: union(j.sandbox?.filesystem?.denyWrite, p.sandbox.filesystem.denyWrite) } } })
     const e1 = await edit(c.h, setP, j => merge(j, patch))

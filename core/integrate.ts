@@ -3,14 +3,12 @@
 import type { Host } from '../types'
 import { ROUTES, cfgOf, storeOf } from './dispatch'
 import { emit } from './events'
-import { epicNext } from './machine'
+import { BLOCKING, epicNext } from './machine'
 import { cut, insert } from './changelog'
-import { casRef, checkRun, exists, git, jailMode, op, tip, worktreeRemove, writableJail } from './git'
-import { inferVersion, landDev, lastTag, mergeEpic, release, wtPath } from './branches'
+import { IDENT, casRef, checkRun, exists, git, jailMode, op, tip, worktreeRemove, writableJail } from './git'
+import { inferVersion, landDev, lastTag, mergeEpic, release, wtPath, wtRootOf } from './branches'
 import { repoKeyOf } from '../commands/init'
 
-const BLOCKING = /^(git:|external$|drift$|conflict$|lost-|integration-failed$)/   // = core/admission
-const ID = ['-c', 'user.name=cadre', '-c', 'user.email=cadre@localhost']
 
 const setPlan = (h: Host, ev: string, patch: Record<string, unknown> = {}) =>
   h.board.update(b => { const n = b.plan && epicNext(b.plan.state, ev); return n ? { ...b, plan: { ...b.plan!, ...patch, state: n } } : b })
@@ -22,7 +20,7 @@ const refresh = async (h: Host, root: string, br: string, was: boolean, old: str
   if (was) await op(h, async () => git(h.run, root, ['read-tree', '-m', '-u', old, await tip(h.run, root, br)])).catch(() => h.toast(`${br} moved, but your checkout has conflicting edits: commit or stash them, then run git checkout -f ${br}`))
 }
 const commitPaths = async (h: Host, wt: string, paths: string[], msg: string, amend = false) => {
-  await git(h.run, wt, ['add', '--', ...paths]); await git(h.run, wt, [...ID, 'commit', '--no-verify', ...(amend ? ['--amend', '--no-edit'] : ['-m', msg])]); return tip(h.run, wt, 'HEAD')
+  await git(h.run, wt, ['add', '--', ...paths]); await git(h.run, wt, [...IDENT, 'commit', '--no-verify', ...(amend ? ['--amend', '--no-edit'] : ['-m', msg])]); return tip(h.run, wt, 'HEAD')
 }
 
 // setup + suites.integration per touched package (files = null: every package). Returns the failure text, or null when green.
@@ -62,8 +60,8 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
   const gf = await gitFlags(h); if (gf.length) return `git flag ${gf[0]} is open (someone changed a protected ref); /cadre resolve git keep|restore first`
   let got = false; await h.board.update(b => { got = b.plan?.state === 'approved'; return got ? { ...b, plan: { ...b.plan!, state: 'integrating' } } : b })
   if (!got) return 'integration is already running'
-  const [root, home, cfg, store] = [await h.cwd(), await h.home(), await cfgOf(h), await storeOf(h)]
-  const dev = cfg.branches.dev, tmp = wtPath(cfg.worktrees.root || `${home}/.cache/cadre/wt`, repoKeyOf(root), `int-${epicId}`)
+  const [root, cfg, store] = [await h.cwd(), await cfgOf(h), await storeOf(h)]
+  const dev = cfg.branches.dev, tmp = wtPath(await wtRootOf(h, cfg), repoKeyOf(root), `int-${epicId}`)
   const fail = async (why: string, flag: boolean) => {
     await worktreeRemove(h.run, root, tmp).catch(() => {})
     await setPlan(h, 'fail', flag ? { flags: [...(p.flags ?? []).filter(f => f !== 'integration-failed'), 'integration-failed'] } : {})
@@ -104,7 +102,7 @@ export async function releaseDev(h: Host, want?: string): Promise<string> {
   const gf = await gitFlags(h), bf = [...(s.plan?.flags ?? []), ...s.tasks.flatMap(t => t.flags)].find(f => BLOCKING.test(f))
   if (gf.length || bf) return no(`flag ${gf[0] ?? bf} is open; /cadre resolve it first`)
   if (want && !/^\d+\.\d+\.\d+$/.test(want)) return no(`version "${want}": expected x.y.z`)
-  const [root, home, cfg] = [await h.cwd(), await h.home(), await cfgOf(h)], dev = cfg.branches.dev
+  const [root, cfg] = [await h.cwd(), await cfgOf(h)], dev = cfg.branches.dev
   const main = cfg.branches.main || ((await exists(h.run, root, 'main')) ? 'main' : 'master')
   if (!(await exists(h.run, root, dev))) return no(`no ${dev} branch`)
   const devTip = await tip(h.run, root, dev), cl = await h.run(['git', '-C', root, 'show', `${devTip}:${cfg.changelog.path}`])
@@ -113,7 +111,7 @@ export async function releaseDev(h: Host, want?: string): Promise<string> {
   let cutText: string
   try { cutText = cut(cl.stdout, version, new Date(await h.now()).toISOString().slice(0, 10)) } catch (e) { return no((e as Error).message) }
   if (await exists(h.run, root, `refs/tags/v${version}`)) return no(`tag v${version} already exists`)
-  const wtr = cfg.worktrees.root || `${home}/.cache/cadre/wt`, key = repoKeyOf(root), tmp = wtPath(wtr, key, `rel-${version}`)
+  const key = repoKeyOf(root), tmp = wtPath(await wtRootOf(h, cfg), key, `rel-${version}`)
   await op(h, () => git(h.run, root, ['worktree', 'add', '--detach', tmp, devTip]))
   let cdev = ''
   try {
@@ -124,7 +122,7 @@ export async function releaseDev(h: Host, want?: string): Promise<string> {
   const [onDev, onMain, mainWas] = [await checkedOut(h, root, dev), await checkedOut(h, root, main), await tip(h.run, root, main)]
   if (!(await op(h, () => casRef(h.run, root, `refs/heads/${dev}`, cdev, devTip)))) return no(`${dev} moved during release; retry`)
   let sha: string
-  try { sha = await release(h, { dev, main, version, tmp: wtPath(wtr, key, `relm-${version}`), msg: `release v${version}` }) }
+  try { sha = await release(h, { dev, main, version, tmp: wtPath(await wtRootOf(h, cfg), key, `relm-${version}`), msg: `release v${version}` }) }
   catch (e) { await op(h, () => casRef(h.run, root, `refs/heads/${dev}`, devTip, cdev)); return no(`merge into ${main} failed: ${(e as Error).message}; ${dev} restored`) }
   await refresh(h, root, dev, onDev, devTip); await refresh(h, root, main, onMain, mainWas)
   if (s.plan?.state === 'done-on-dev') await setPlan(h, 'release', { released: { version, at: await h.now() } })

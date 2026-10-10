@@ -1,11 +1,14 @@
 // L3 effect check (DESIGN 13.1): fingerprint, in-flight window attribution, stash quarantine, flags, protected-ref restore by CAS. Slot #6 `wrap` (+ later duties).
 // Git runs through the injected h.run (ADR 0003): kit-testable with a scripted run.
 import type { Hook, Host } from '../types'
+import type { TaskStore } from '../task-management/store'
+import * as G from './git'
 import { emit } from './events'
+import { scoped } from '../commands/init'
 import { inputPath, policyOf } from '../policy/guards'
 import { drainDelta, idsIn } from './briefs'
 import { logCall } from './specview'
-import { UI } from './reuse'
+import { UI } from './board'
 import { noReportCard } from './render'
 
 const WRITERS = ['Edit', 'Write', 'NotebookEdit', 'Bash', 'PowerShell', 'Monitor']
@@ -82,7 +85,7 @@ export async function audit(h: Host, caller: string | null): Promise<void> {
     const ts = await h.now(), name = `cadre-q-${tid || 'main'}-${ts}`
     const r = await git(h, t, 'stash', 'push', '-u', '-m', name, '--', ...bad)
     await raise(h, r.exitCode ? `quarantine-failed:${tid || 'main'}` : `quarantine:${tid || 'main'}`, tid, {}, `${bad.length} path(s) quarantined (${name})`)
-    if (!r.exitCode) { const q = ((await h.store.get('quarantine')) as unknown[]) ?? []; await h.store.set('quarantine', [...q, { name, tree: t, paths: bad, ts }]); Object.assign(after, await fingerprint(h, [t], pol.repo)) }
+    if (!r.exitCode) { const qk = await scoped(h, 'quarantine'), q = ((await h.store.get(qk)) as unknown[]) ?? []; await h.store.set(qk, [...q, { name, tree: t, paths: bad, ts }]); Object.assign(after, await fingerprint(h, [t], pol.repo)) }
   }
   if (scope.includes(pol.repo) && base.refs !== undefined) {   // rule 3: protected refs moved outside a cadre merge (epoch unchanged)
     const was = refMap(base.refs), is = refMap(now.refs)
@@ -143,4 +146,18 @@ export async function resolveGit(h: Host, flag: string, how: 'keep' | 'restore')
   await h.git.update(g => { const { [flag]: _d, ...flags } = g.flags ?? {}; return { ...g, flags, fp: { ...g.fp, refs } } })
   await emit(h, 'flag.resolved', { taskId: '', flag })
   return { ok: true }
+}
+
+// ---- checkpoint (8.4): commit a dirty worktree as wip; dirty locked paths refuse it and raise locked-dirty ----
+export async function checkpoint(h: Host, store: TaskStore, actor: string, taskId: string, wt: string): Promise<string | null> {
+  const dirty = (await h.run(['git', '-C', wt, 'status', '--porcelain', '-z'])).stdout.split('\0').filter(l => l.length > 3).map(l => l.slice(3))   // untrimmed: ' M a' keeps its column
+  if (!dirty.length) return null
+  const locks = (await policyOf(h)).locks?.[taskId] ?? []
+  if (dirty.some(p => locks.some(l => l === p || l.endsWith(`/${p}`) || p.startsWith(`${l.replace(/\/$/, '')}/`)))) {
+    await h.board.update(s => ({ ...s, tasks: s.tasks.map(t => (t.id === taskId && !t.flags.includes('locked-dirty') ? { ...t, flags: [...t.flags, 'locked-dirty'] } : t)) }))
+    await emit(h, 'flag.raised', { taskId, flag: 'locked-dirty' }, { taskId }); return null
+  }
+  const cp = await G.op(h, () => G.commitAll(h.run, wt, `wip(${taskId}): checkpoint`))
+  if (cp) await store.setMeta(taskId, { 'cadre.checkpoint': cp }, actor)
+  return cp ?? null
 }

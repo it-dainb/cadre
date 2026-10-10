@@ -1,15 +1,20 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { UI, prune, checkpoint, compact, drain, drive, goal, queueResume, rehydrate, step, submit, tick } from '../core/reuse'
+import { compact, drain, queueResume, step, submit } from '../core/reuse'
+import { UI } from '../core/board'
+import { checkpoint } from '../core/effect'
+import { drive, goal } from '../core/drive'
+import { prune, rehydrate } from '../core/session'
+import { tick } from '../core/admission'
 import { wrap } from '../core/effect'
 import { ROUTES } from '../core/dispatch'
 import { pushDelta } from '../core/briefs'
 import { emit } from '../core/events'
-import { viewHash } from '../core/board'
+import { viewHash, modelView } from '../core/board'
 import { defaults } from '../config/index'
 import { MemoryStore } from '../task-management/adapters/memory/store'
 import { defaults as types } from '../task-management/registry'
 import { fakeHost, task } from './support'
-import { repoKeyOf } from '../commands/init'
+import { repoKeyOf, scoped } from '../commands/init'
 import type { Binding } from '../types'
 import { guard, setPolicy } from '../policy/guards'
 import { controlOf } from '../task-management/sync-engine/loop'
@@ -99,7 +104,7 @@ describe('compaction (8.3, S49) and rehydrate (8.2, 13.4)', () => {
     const msgs = [{ role: 'user', text: 'old', toolUses: [] }, { role: 'assistant', text: 'x', toolUses: [{}] }, { role: 'user', text: '', toolUses: [], toolResults: [{}] }, { role: 'user', text: 'last ask', toolUses: [], handle: 'h9' }]
     const r = await compact(h, { trigger: 'manual', messages: msgs }, () => { called = true })
     expect(called).toBe(false)
-    expect(r.messages[0]).toMatchObject({ role: 'user', toolUses: [] }); expect(r.messages[0].text).toContain('cadre resume card')
+    expect(r.messages[0]).toMatchObject({ role: 'user', toolUses: [] }); expect(r.messages[0].text).toContain('Resume card')
     expect(r.messages.slice(1).map((m: any) => m.text)).toEqual(['old', 'x', '', 'last ask'])
     expect((await h.secret.read()).ctx.key).toBe(viewHash(await h.board.read()))
   })
@@ -125,7 +130,7 @@ describe('compaction (8.3, S49) and rehydrate (8.2, 13.4)', () => {
     const s = await fresh.board.read()
     expect(s.epic).toBe(epic); expect(s.tasks.map((t: any) => t.id)).toContain(a); expect(s.seq > 0).toBe(true); expect(s.drive).toMatchObject({ on: true, turns: 1 })
     expect(Object.keys(await fresh.bind.read())).toEqual(['ag1']); expect(banner[0].stale).toBe(1)
-    expect((await fresh.secret.read()).ctx.card).toContain('cadre resume card'); expect(fresh.toasts.join()).toContain('/goal')
+    expect((await fresh.secret.read()).ctx.card).toContain('Resume card'); expect(fresh.toasts.join()).toContain('/goal')
     await turn(fresh, { reason: 'answer' }); expect(submitted.length).toBe(2)   // the new session holds the lease and drives on
     expect(await rehydrate(fresh)).toBe(false)   // once
     UI.banner = undefined
@@ -177,7 +182,7 @@ describe('drive (9)', () => {
     expect(submitted).toEqual([])
     await tick(h); expect(submitted).toEqual([])
     await turn(h, { reason: 'answer' }, order)
-    expect(order).toEqual(['next', 'submit']); expect(submitted[0]).toMatch(/^cadre drive: /); expect((await h.board.read()).drive.turns).toBe(1)
+    expect(order).toEqual(['next', 'submit']); expect(submitted[0]).toMatch(/^Continue: /); expect((await h.board.read()).drive.turns).toBe(1)
   })
   test('pauses at a human gate (blocked task) and resumes when it clears; agent turns never drive', async () => {
     const { h, a, submitted } = await mk()
@@ -237,14 +242,14 @@ describe('result card paths (6.4, S39, S40)', () => {
     await h.bind.update(() => ({ ag1: B(a, 'S1') }))
     await h.board.update((s: any) => ({ ...s, tasks: s.tasks.map((t: any) => (t.id === a ? { ...t, card: `TASK ${a} tester → worker\nnext: spawn worker` } : t)) }))
     const r = await wrap(h, { tool: 'Agent', prompt: `do TASK-${a}` }, () => ({ result: { content: [{ type: 'text', text: 'raw answer' }] } }))
-    expect(r.result.content[0].text).toContain('wait: the worker stopped without reporting')
+    expect(r.result.content[0].text).toContain('wait: the worker is finishing its report')
   })
   test('background notification: prompt.submit origin task-notification rewritten to the card (agent found via the agent.bound ring)', async () => {
     const { h, a } = await mk()
     await h.board.update((s: any) => ({ ...s, tasks: s.tasks.map((t: any) => (t.id === a ? { ...t, card: 'CARD' } : t)) }))
     await emit(h, 'agent.bound', { agentId: 'ag7', taskId: a, role: 'worker' }, { agentId: 'ag7', taskId: a })
     const r = await submit(h, { text: '<task-notification>\n<task-id>ag7</task-id>\n<tool-use-id>tu9</tool-use-id>\n<result>long</result>', origin: { kind: 'task-notification' } }, (e: any) => e)
-    expect(r.text).toBe('cadre result card (agent ag7): CARD')
+    expect(r.text).toBe('Result of agent ag7: CARD')
     expect((await submit(h, { text: 'hello', origin: { kind: 'composer' } }, (e: any) => e)).text).toBe('hello')
   })
   test('agent calls: deltas drained into context; tester calls logged for the view audit', async () => {
@@ -297,11 +302,11 @@ describe('round 2: effort, pruning, tester deny log', () => {
     await h.bind.update(() => ({ ag1: B(a, 'S1'), ag2: B(b, 'S1') }))
     await queueResume(h, { agentId: 'ag1', taskId: a, text: 'x' }); await queueResume(h, { agentId: 'ag2', taskId: b, text: 'y' })   // a is claimed (lease live), b is not
     await h.store.set(`cadre:${repoKeyOf('/repo')}:board`, { epic: 'e', bind: await h.bind.read() })
-    await h.store.set('quarantine', [{ ts: -40 * day }, { ts: -day }])
+    await h.store.set(await scoped(h, 'quarantine'), [{ ts: -40 * day }, { ts: -day }])
     await prune(h)
     expect(((await h.store.get(`cadre:${repoKeyOf('/repo')}:resumes`)) as any[]).map(x => x.agentId)).toEqual(['ag1'])
     expect(Object.keys(((await h.store.get(`cadre:${repoKeyOf('/repo')}:board`)) as any).bind)).toEqual(['ag1'])
-    expect(await h.store.get('quarantine')).toEqual([{ ts: -day }])
+    expect(await h.store.get(await scoped(h, 'quarantine'))).toEqual([{ ts: -day }])
   })
   test('guards: a tester call the guards deny still reaches the view call log (3.5.2)', async () => {
     const { h, a } = await mk()
@@ -309,5 +314,22 @@ describe('round 2: effort, pruning, tester deny log', () => {
     const r: any = await guard(h, { tool: 'Bash', agentId: 't1', command: 'ls' }, () => ({ ok: 1 }))
     expect(typeof r.deny).toBe('string')
     expect(await h.store.get('cadre:tlog:t1')).toEqual([{ tool: 'Bash', path: undefined, outcome: r.deny }])
+  })
+})
+
+describe('fx-data: board ctx, per-repo keys, checkpoint only while the task works', () => {
+  test('turn.step mirrors the owner ctx% onto its board task; the model view ignores it; cost:all is per repo', async () => {
+    const { h, a } = await mk()
+    await h.bind.update(() => ({ ag1: B(a, 'S1') }))
+    const g = step(h, { agentId: 'ag1' }, async function* () { return { usage: { input_tokens: 40_000, output_tokens: 1 } } } as any); let r = await g.next(); while (!r.done) r = await g.next()
+    const s = await h.board.read(); expect(s.tasks[0].ctx).toBe(20); expect(JSON.stringify(modelView(s))).not.toContain('"ctx"')
+    expect(await h.store.get(`cadre:${repoKeyOf('/repo')}:cost:all`)).toBeDefined(); expect(await h.store.get('cadre:cost:all')).toBeUndefined()
+  })
+  test('L3: a worker turn after report{done} (task in review) is not checkpointed', async () => {
+    const { h, a, runs } = await mk({ dirty: ['src/a.ts'] })
+    await h.bind.update(() => ({ ag1: B(a, 'S1') }))
+    await turn(h, { reason: 'answer', agentId: 'ag1' }); expect(runs.some(r => r.join(' ').includes('checkpoint'))).toBe(true)
+    runs.length = 0; await h.board.update((s: any) => ({ ...s, tasks: s.tasks.map((t: any) => (t.id === a ? { ...t, state: 'review', step: 'reviewer' } : t)) }))
+    await turn(h, { reason: 'answer', agentId: 'ag1' }); expect(runs.some(r => r.join(' ').includes('checkpoint'))).toBe(false)
   })
 })

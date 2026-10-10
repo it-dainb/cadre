@@ -1,21 +1,22 @@
 // Domain events (DESIGN 2.5): envelope, per-type actor/severity/needsHuman table, in-module bus, 500/epic ring, rebuild hook.
 // The attention LEVEL (silent/band/toast/notify) is UI policy computed from severity + needsHuman; never stored here.
 import type { Actor, CadreEvent, EventRing, EventType, Host, Severity } from '../types'
+import type { TaskStore } from '../task-management/store'
 
 export const CAP = 500
-type Row = [actor: Actor, severity: Severity, needsHuman: boolean, dataKeys: string[]]
+type Row = [actor: Actor, severity: Severity, needsHuman: boolean, dataKeys: string[], optionalKeys?: string[]]
 // Defaults per type; an emit site may override actor/severity/needsHuman (e.g. sync offline -> warn, flag.raised needing /cadre resolve).
 export const TABLE: Record<EventType, Row> = {
-  'task.transitioned': ['mod', 'info', false, ['taskId', 'from', 'to']],
+  'task.transitioned': ['mod', 'info', false, ['taskId', 'from', 'to'], ['cites']],   // cites: a spike's citation count on done
   'task.phase_changed': ['mod', 'info', false, ['taskId', 'from', 'to']],
   'task.skipped': ['mod', 'info', false, ['taskId', 'on']],
   'agent.bound': ['mod', 'info', false, ['agentId', 'taskId', 'role']],
   'agent.unbound': ['mod', 'info', false, ['agentId', 'reason']],                 // reason: answer|stopped|stale|rebind
-  'check.ran': ['mod', 'info', false, ['taskId', 'name', 'ok']],
+  'check.ran': ['mod', 'info', false, ['taskId', 'name', 'ok'], ['phase', 'failing', 'secs', 'exit']],
   'flag.raised': ['mod', 'warn', true, ['taskId', 'flag']],
   'flag.resolved': ['human', 'info', false, ['taskId', 'flag']],
   'approval.pending': ['mod', 'info', true, ['planId', 'missing']],
-  'sync.state_changed': ['sync', 'info', false, ['target', 'state', 'at']],
+  'sync.state_changed': ['sync', 'info', false, ['target', 'state', 'at'], ['pending', 'conflicts']],
   'drive.status': ['mod', 'info', false, ['state']],
   'cost.updated': ['mod', 'info', false, ['tokens']],
   'init.stage': ['mod', 'info', false, ['stage', 'state']],
@@ -61,4 +62,25 @@ export async function rebuild(h: Host, epic: string, evs: { at: number; type: Ev
     return { seq: r.seq + out.length, epics: { ...r.epics, [epic]: out.slice(-CAP) } }
   })
   return first
+}
+
+// ring rebuild (2.5): the journal gives at-stamped transitions; at-stamped records (cadre.rec.<kind>) give phases (and transitions without a journal). Fresh seqs.
+const fromRec = (kind: string, id: string, at: number, text: string, tr: boolean) => {
+  const ev = (type: 'task.phase_changed' | 'task.transitioned', from: string, to: string) => ({ at, type, taskId: id, data: { taskId: id, from, to } })
+  const T = (from: string, to: string) => (tr ? [ev('task.transitioned', from, to)] : [])
+  if (kind === 'red') return [ev('task.phase_changed', 'red', 'worker')]
+  if (kind === 'report') return [ev('task.phase_changed', 'worker', 'reviewer'), ...T('active', 'review')]
+  if (kind === 'review') return /verdict: pass/.test(text) ? [ev('task.phase_changed', 'reviewer', 'merge')] : [ev('task.phase_changed', 'reviewer', 'worker'), ...T('review', 'active')]
+  return kind === 'close' ? T('review', 'done') : kind === 'blocked' ? T('active', 'blocked') : kind === 'answer' ? T('active', 'done') : []
+}
+export async function ring(h: Host, store: TaskStore, epic: string): Promise<number> {
+  const tasks = await store.list({ parent: epic }), ids = new Set(tasks.map(t => t.id)), j = await store.events('0', 5000).catch(() => null), evs: Parameters<typeof rebuild>[2] = [], last: Record<string, string> = {}
+  for (const r of j?.events ?? []) {
+    if (!ids.has(r.id) || !r.category || r.at === undefined) continue
+    if (last[r.id] && last[r.id] !== r.category) evs.push({ at: r.at, type: 'task.transitioned', taskId: r.id, data: { taskId: r.id, from: last[r.id], to: r.category } })
+    last[r.id] = r.category
+  }
+  for (const t of tasks) for (const [k, v] of Object.entries(t.meta)) { const at = Number(/ @(\d+) /.exec(v)?.[1]); if (k.startsWith('cadre.rec.') && at) evs.push(...fromRec(k.slice(10), t.id, at, v, !j)) }
+  if (!evs.length) return 0
+  await rebuild(h, epic, evs); return evs.length
 }
