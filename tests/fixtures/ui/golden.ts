@@ -83,6 +83,6 @@ export const GOLDEN: Record<string, string[]> = {
   "explorer        ##########o                                             |",
   "sync                                              *:::::::::::::*       |",
   "----------------------------------------------------------------------------------------------------------------------",
-  "Enter/n/p: select node · h/l: time ±1 step · b/f: prev/next attention event · e: live · t: timeline · g: go to id"
+  "n: next  p: prev  h: back  l: fwd  b: prev !  f: next !  e: live  t: timeline  g: go to id"
  ],
 }

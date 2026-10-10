@@ -8,7 +8,7 @@ export const sheetOf = (v: View): SheetTask[] => ((v.b as { sheet?: SheetTask[] 
 const syms = (v: View, s: Sym['status']) => sheetOf(v).reduce((n, t) => n + t.contract.filter(x => x.status === s).length, 0)
 export const stats = (v: View) => { const n = sheetOf(v).reduce((a, t) => a + t.scenarios.length, 0); return n ? ` · ${n} scenarios · ${syms(v, 'new')} new / ${syms(v, 'changed')} changed symbols` : '' }
 export const sheetSig = (v: View) => Object.fromEntries(sheetOf(v).map(t => [t.id, fnv1a64(canon(t))]))   // what "amended while open" compares against
-const wrap = (s: string, n: number, ind = '   '): string[] => {
+export const wrap = (s: string, n: number, ind = '   '): string[] => {
   const out: string[] = []; let cur = ''
   for (const w of s.split(' ')) { if (cur && cur.length + 1 + w.length > n) { out.push(cur); cur = ind + w } else cur = cur ? `${cur} ${w}` : w }
   return [...out, cur]
@@ -50,7 +50,7 @@ export function sheet(v: View, w: number, a: Acts): Line[] {
   }
   out.push(L(T(c, '─'.repeat(w))))
   const dis = v.t !== null || !cmd
-  out.push([{ t: `${tg('attn')} `, c: col('attn'), b: true }, ...(dis ? [S('(read-only)')] : [fillBtn('a', wide ? `a: load approve command (${cmd})` : `a: approve cmd${changed.length ? ` (${cmd})` : ''}`, `/cadre approve ${cmd}`), ...(changed.length && !wide ? [] : [S(' · '), fillBtn('x', wide ? 'x: load reject command' : 'x: reject', `/cadre reject ${p.id} `)])]),
-    S(' · '), S(wide ? 'n/p: task' : 'n/p', undefined, { k: 'n', hk: 'n', p: () => a.step('sheet', 1) }), S(' ', undefined, { k: 'p', hk: 'p', p: () => a.step('sheet', -1) }), ...(wide ? [S(' · PgDn: scroll')] : [])])
+  out.push([{ t: `${tg('attn')} `, c: col('attn'), b: true }, ...(dis ? [S('(read-only)')] : [fillBtn('a', wide ? `load approve command (${cmd})` : `approve cmd${changed.length ? ` (${cmd})` : ''}`, `/cadre approve ${cmd}`), ...(changed.length && !wide ? [] : [S(' · '), fillBtn('x', wide ? 'load reject command' : 'reject', `/cadre reject ${p.id} `)])]),
+    S(' · '), S(wide ? 'next task' : 'next', undefined, { k: 'n', hk: 'n', p: () => a.step('sheet', 1) }), S(' '), S(wide ? 'prev task' : 'prev', undefined, { k: 'p', hk: 'p', p: () => a.step('sheet', -1) }), ...(wide ? [S(' · PgDn: scroll')] : [])])
   return out
 }

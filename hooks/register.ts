@@ -18,7 +18,7 @@ import { answer, describe } from '../native/tasks'
 import { wrap } from '../core/effect'
 import { handle, SPECS } from '../tools/index'
 import { context, attachment } from '../core/briefs'
-import { run } from '../commands/cadre'
+import { press, run } from '../commands/cadre'
 import { nudge } from '../commands/doctor'
 import { tick } from '../task-management/sync-engine/loop'
 import { onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapCard, resumeBanner } from '../ui/index'
@@ -92,6 +92,7 @@ function host($): Host {
   }
   h.config = async () => { const root = await h.cwd(); return (await load(h, { home: await h.home(), root, repoKey: repoKeyOf(root) })).config }
   h.taskStore = async () => wire.store(h, await h.config!(), await h.cwd())
+  h.press = line => press(h, line)
   h.sendTo = (agentId, text) => $.session.send({ to: { agentId }, text })   // core/reuse.drain only
   h.submit = text => $.prompt.submit({ text })   // drive, from #1 after next only
   h.usage = () => $.session.usage()

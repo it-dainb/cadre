@@ -4,12 +4,15 @@ import type { Host } from '../types'
 import { band as bandOf } from './band'
 import { pane, sel } from './pane'
 import { sheet, sheetOf, sheetSig } from './sheet'
+import { card } from './card'
 import { blit, cells, timeline } from './timeline'
-import { ack, levelOf } from './notify'
+import { ack, levelOf, onEvent as notifyEvent } from './notify'
+import { decisions, defaultTab } from './card'
+export { defaultTab }
 import { strictOf } from '../config/index'
 import { type Acts, S, at, cols, draw, gl, kindOf, read, t0, tg, txt, col, REDO } from './model'
 
-export { onEvent, ack, syncStatus } from './notify'
+export { ack, syncStatus } from './notify'
 let lastW = 0   // width of the last pane draw: a cache for cursor-only blits (a resize is a redraw), not state
 const later = (h: Host, fn: () => Promise<unknown>) => h.ops?.after(1, () => fn().catch(e => h.toast(`cadre: ${e}`)))
 
@@ -21,20 +24,39 @@ export async function prefill(h: Host, cmd: string): Promise<void> {
 }
 
 // Open the pane on a tab (called by /cadre open|approve and by presses). Where nothing draws, the content goes to $.ui.log instead (C3).
-export async function openPane(h: Host, tab: string): Promise<void> {
+export async function openPane(h: Host, tab: string, o: { focus?: boolean; quiet?: boolean } = {}): Promise<void> {
   const v = await read(h)
-  await h.ui.update(u => ({ ...u, tab, ...(tab === 'plan' ? { seen: { code: v.sec.approval?.code8 ?? '', sig: sheetSig(v) } } : {}) }))
-  const r = await h.ops!.open({ id: 'cadre', title: 'cadre', focus: true, columns: 120 })
-  if (!r.isPlaced) { h.toast(`cadre: pane not shown${r.reason ? ` · ${r.reason.slice(0, 30)}` : ''} · /cadre status`); if (tab === 'plan') h.log(txt(sheet(v, 100, NOOP)).join('\n')) }
-  await ack(h)
+  await h.ui.update(u => ({ ...u, tab, ...(tab === 'plan' || tab === 'card' ? { seen: { code: v.sec.approval?.code8 ?? '', sig: sheetSig(v) } } : {}) }))
+  const r = await h.ops!.open({ id: 'cadre', title: 'cadre', ...(o.focus === false ? {} : { focus: true }), columns: 120 })   // `focus: false` is refused by the engine: leave it out
+  if (!r.isPlaced && !o.quiet) {
+    h.toast(`cadre: pane not shown${r.reason ? ` · ${r.reason.slice(0, 30)}` : ''} · /cadre status`)
+    if (tab === 'plan') h.log(txt(sheet(v, 100, NOOP)).join('\n'))
+    if (tab === 'card' && decisions(v)[0]) h.log([...txt(card(v, 100, NOOP)).filter(x => !/^\s*$/.test(x)), `or type ${decisions(v)[0].cmd ?? ''}`].join('\n'))
+  }
+  if (!o.quiet) await ack(h)
 }
-const NOOP: Acts = { go() {}, pick() {}, fill() {}, step() {} }
+const NOOP: Acts = { go() {}, pick() {}, fill() {}, press() {}, step() {} }
+// a decision appears: show its card, focused only while the composer is empty (the engine also refuses focus over a dialog, and an unasked open needs the columns, UI-02). Once per decision.
+export async function onEvent(h: Host, e: Parameters<typeof notifyEvent>[1]): Promise<void> {
+  await notifyEvent(h, e)
+  if (!h.ops || levelOf(e) < 2 && e.type !== 'release.proposed') return
+  const d = decisions(await read(h))[0], ui = await h.ui.read()
+  if (!d || ui.ck === d.key) return
+  await h.ui.update(u => ({ ...u, ck: d.key }))
+  await openPane(h, 'card', { quiet: true, focus: !(await h.ops.peek()).trim() })
+}
 
 export function acts(h: Host): Acts {
   return {
     go: tab => later(h, () => openPane(h, tab)),
     pick: id => later(h, async () => { await h.ui.update(u => ({ ...u, sel: id, go: false })); await openPane(h, 'epic') }),
     fill: cmd => later(h, async () => { await prefill(h, cmd); await ack(h) }),
+    // a press: the typed command as the human's origin (ADR 0008). A refusal means the card went stale (code burned, drawn anew): say so and redraw it.
+    press: cmd => later(h, async () => {
+      const r = await h.press!(cmd); await ack(h)
+      const bad = /^(refused|cadre:)|burned|changed since|nothing pending|wrong code/.test(r.text)
+      h.toast(bad ? `cadre: it changed or was refused; review again · ${r.text.split('\n')[0].slice(0, 60)}` : `cadre: ${r.text.split('\n')[0].slice(0, 80)}`); h.ops?.invalidate()
+    }),
     step: (what, d) => later(h, async () => {
       const v = await read(h), ids = cols(at(v).tasks).flat().map(t => t.id), cur = v.t ?? v.now
       const unit = 60000 * timeline(v, lastW || 116).mpc, evs = v.ring.filter(e => levelOf(e) >= 2).map(e => e.at)

@@ -76,7 +76,7 @@ import { pane } from '../../../ui/pane'
 import { sheet, sheetSig } from '../../../ui/sheet'
 import { dag } from '../../../ui/epic'
 import { type Acts, T, txt } from '../../../ui/model'
-export const NOOP: Acts = { go() {}, pick() {}, fill() {}, step() {} }
+export const NOOP: Acts = { go() {}, pick() {}, fill() {}, press() {}, step() {} }
 export const rtrim = (ls: string[]) => ls.map(l => l.trimEnd())
 export const withStub = (ts: SnapTask[]): SnapTask[] => [...ts, { ...ts[0], id: 'a8', title: 'Ship docs', type: 'docs', kind: 'docs', state: 'todo', step: '', deps: [D('a1'), D('a6')] }]
 export const CASES: Record<string, () => string[]> = {

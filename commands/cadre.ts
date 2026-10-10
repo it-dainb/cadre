@@ -5,7 +5,8 @@ import { ROUTES, cfgOf, dispatch, gateDraw, gateOf, redraw, registryOf, resolveE
 import { modelView } from '../core/board'
 import { wake, warm } from '../core/session'
 import { contextLine, subject } from '../core/render'
-import { openPane } from '../ui/index'
+import { defaultTab, openPane } from '../ui/index'
+import { read } from '../ui/model'
 import { run as initRun } from './init'
 import { doctor, setup } from './doctor'
 import { defaults } from '../config/index'
@@ -24,7 +25,7 @@ async function route(h: Host, c: Command): Promise<Out> {
   if (!['setup', 'doctor', 'init', 'open'].includes(c.cmd) && !(await wake(h))) return { text: 'cadre is off in this repo · run /cadre init' }   // per-repo opt-in (ADR 0007)
   switch (c.cmd) {
     case 'status': return status(h)
-    case 'open': await openPane(h, a ?? 'epic'); return { text: `Opened the cadre pane (${a ?? 'epic'}).` }
+    case 'open': await openPane(h, a ?? defaultTab(await read(h))); return { text: `Opened the cadre pane (${a ?? 'epic'}).` }
     case 'approve': {   // no token: the sheet opens in the pane's Plan tab; the one-line text is all the model sees
       const id = (a ?? '').split('@')[0], s = await h.board.read(), gate = s.plan?.id === id ? null : await gateOf(await storeOf(h), id)
       if (gate) { await gateDraw(h, gate); await openPane(h, 'plan'); return { text: `Approval for gate ${id} opened in the cadre pane.` } }
@@ -34,8 +35,11 @@ async function route(h: Host, c: Command): Promise<Out> {
     }
     case 'resolve': if (a && a === (await h.board.read()).plan?.id) return resolveEpic(h, a, c.args[1] ?? ''); break
     case 'restore': return restore(h, a)
-    case 'init': return { text: await initRun(h, c.args) }
-    case 'setup': return { text: await setup(h, c.args) }
+    case 'init': case 'setup': {   // a diff / plan awaiting its confirm shows as the decision card (ADR 0008); the typed confirm stays as the fallback
+      const text = await (c.cmd === 'init' ? initRun : setup)(h, c.args)
+      if (c.args[0] !== 'cancel' && (await h.secret.read()).initConfirm) await openPane(h, 'card').catch(() => {})
+      return { text }
+    }
     case 'doctor': return { text: await doctor(h) }
     case 'config': if (!a || a === 'show') return { text: configText(await cfgOf(h), c.args[1]) }
   }
@@ -52,5 +56,11 @@ export const configText = (cfg: unknown, prefix?: string): string => {
 }
 export const run: Hook = async (h, e) => {
   const [cmd = 'status', ...args] = String(e.args ?? '').trim().split(/\s+/).filter(Boolean)
-  try { return await dispatch(h, { schemaVersion: 1, cmd, args, origin: { kind: e.origin?.kind ?? 'unclassified', name: e.origin?.name } }, route) } catch (x) { return { text: `cadre: ${(x as Error).message}` } }
+  const kind = e.origin?.kind === 'press' ? 'unclassified' : e.origin?.kind ?? 'unclassified'   // 'press' is ours alone
+  try { return await dispatch(h, { schemaVersion: 1, cmd, args, origin: { kind, name: e.origin?.name } }, route) } catch (x) { return { text: `cadre: ${(x as Error).message}` } }
+}
+// a Button press (ui/): the same typed command, bound to the code it was drawn with, as the human's origin (ADR 0008)
+export async function press(h: Host, line: string): Promise<Out> {
+  const [cmd, ...args] = line.split(/\s+/).filter(Boolean)
+  try { return await dispatch(h, { schemaVersion: 1, cmd, args, origin: { kind: 'press' } }, route) } catch (x) { return { text: `cadre: ${(x as Error).message}` } }
 }

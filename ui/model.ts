@@ -6,10 +6,10 @@ import { ofEpic } from '../core/events'
 export type Cfg = { glyphs: 'unicode' | 'ascii'; flash: boolean; notify: 'on' | 'off'; escalateAfterMs: number; maxTurns: number }
 export const CFG: Cfg = { glyphs: 'unicode', flash: true, notify: 'on', escalateAfterMs: 120_000, maxTurns: 100 }
 // A drawn line = segments: text, theme color, bold/inverse, and (for presses) a Button key, hotkey and action. Tests flatten them with txt().
-export type Seg = { t: string; c?: string; b?: boolean; i?: boolean; k?: string; hk?: string; p?: () => void; inp?: (v: string) => void }
+export type Seg = { t: string; c?: string; b?: boolean; i?: boolean; d?: boolean; k?: string; hk?: string; p?: () => void; inp?: (v: string) => void }
 export type Line = Seg[]
 export type View = { b: Snapshot; ring: CadreEvent[]; sec: Secret; ui: Record<string, any>; c: Cfg; now: number; sx: string; t: number | null }
-export type Acts = { go(tab: string): void; pick(id: string): void; fill(cmd: string): void; step(what: string, d: number): void }   // handlers; the render never writes state
+export type Acts = { go(tab: string): void; pick(id: string): void; fill(cmd: string): void; press(cmd: string): void; step(what: string, d: number): void }   // handlers; the render never writes state
 
 export async function read(h: Host): Promise<View> {
   const [s, r, sec, ui, now] = await Promise.all([h.board.read(), h.events.read(), h.secret.read(), h.ui.read(), h.now()])
@@ -34,16 +34,16 @@ export const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, Math.
 export const fit = (s: string, n: number) => cut(s, n).padEnd(n)
 export const S = (t: string, c?: string, o: Partial<Seg> = {}): Seg => ({ t, ...(c ? { c } : {}), ...o })
 export const L = (t: string, c?: string): Line => [S(t, c)]
-export const wid = (l: Line) => l.reduce((n, s) => n + s.t.length, 0)
+export const wid = (l: Line) => l.reduce((n, s) => n + s.t.length + (s.hk ? s.hk.length + 2 : 0), 0)
 export const padL = (l: Line, w: number): Line => [...l, S(' '.repeat(Math.max(0, w - wid(l))))]
-export const txt = (ls: Line[]) => ls.map(l => l.map(s => s.t).join(''))
+export const txt = (ls: Line[]) => ls.map(l => l.map(s => (s.hk ? `${s.hk}: ` : '') + s.t).join(''))   // a plain Button draws `hotkey: label` itself (UI-14): labels carry no key
 export const ago = (ms: number) => `${Math.max(0, Math.round(ms / 60000))}m`
 const pr = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined))
 // Line[] -> element tree. Only place that builds elements: E = $.ui.resolve(e); constructors take `children` among the props.
 export const draw = (E: any, ls: Line[]) =>
   E.Box({ flexDirection: 'column', children: ls.map(l => E.Box({ flexDirection: 'row', children: (l.length ? l : [S(' ')]).map(s => {
     if (s.inp) return E.Input({ key: s.k, placeholder: 'task id', autoFocus: true, onSubmit: s.inp })
-    const x = E.Text(pr({ color: s.c, bold: s.b || undefined, inverse: s.i || undefined, wrap: 'truncate-end', children: s.t }))
+    const x = E.Text(pr({ color: s.c, dimColor: s.d || undefined, bold: s.b || undefined, inverse: s.i || undefined, wrap: 'truncate-end', children: s.t }))
     return s.k ? E.Button(pr({ key: s.k, plain: true, hotkey: s.hk, onPress: s.p, children: [x] })) : x
   }) })) })
 
@@ -96,18 +96,31 @@ export function at(v: View): Snapshot {
 export const t0 = (v: View) => v.b.plan?.approvedAt ?? v.ring[0]?.at ?? v.now
 
 // --- attention items (derived from the board + secret; no secrets in text) ---
-export type Item = { key: string; tag: TagK; text: string; short?: string; cmd?: string; tab: string; sel?: string }
+// btn = the decision's buttons (ADR 0008): `cmd` is the typed command run as a press, bound to the code/hash drawn now; `fill` loads the composer instead
+export type Btn = { hk: string; label: string; cmd?: string; fill?: string }
+export type Item = { key: string; tag: TagK; text: string; short?: string; cmd?: string; tab: string; sel?: string; btn?: Btn[] }
+export const B = (hk: string, label: string, cmd: string): Btn => ({ hk, label, cmd })
 export function attention(v: View): Item[] {
   const b = v.b, p = b.plan, out: Item[] = []
   if (p && b.approval.planId === p.id && !b.approval.missing.length && p.state === 'draft')
-    out.push({ key: `approve:${p.id}`, tag: 'attn', text: `approve plan ${p.id} · ${b.tasks.length} tasks`, short: `approve ${p.id} (${b.tasks.length} tasks)`, cmd: v.sec.approval?.planId === p.id ? `/cadre approve ${p.id}@${v.sec.approval.code8}` : undefined, tab: 'plan' })
+    out.push({ key: `approve:${p.id}`, tag: 'attn', text: `approve plan ${p.id} · ${b.tasks.length} tasks`, short: `approve ${p.id} (${b.tasks.length} tasks)`, cmd: v.sec.approval?.planId === p.id ? `/cadre approve ${p.id}@${v.sec.approval.code8}` : undefined, tab: 'plan',
+      btn: v.sec.approval?.planId === p.id ? [B('a', 'Approve', `approve ${p.id}@${v.sec.approval.code8}`), B('x', 'Reject', `reject ${p.id} rejected in the pane`), { hk: 'c', label: 'Change', fill: `Change ${p.id}: ` }] : undefined })
   const ic = v.sec.initConfirm   // the init confirm code is shown on the band only (UI-D7): the human reads it here and types the line
-  if (ic) out.push({ key: `init:${ic.stage}`, tag: 'attn', ...(ic.stage === 90 ? { text: 'setup plan ready · confirm it', short: 'setup plan ready', cmd: `/cadre setup confirm ${ic.code}` } : { text: `init stage ${ic.stage} diff ready · confirm it`, short: `init ${ic.stage} diff ready`, cmd: `/cadre init confirm ${ic.code}` }), tab: 'epic' })
+  if (ic) {
+    const [sub, cf] = ic.stage === 90 ? ['setup', 'setup'] : ic.stage === 9 ? ['sync add', 'sync add'] : ['init', 'init']
+    out.push({ key: `init:${ic.stage}`, tag: 'attn', ...(ic.stage === 90 ? { text: 'setup plan ready · confirm it', short: 'setup plan ready' } : { text: `${sub} stage ${ic.stage} diff ready · confirm it`, short: `${sub} ${ic.stage} diff ready` }),
+      cmd: `/cadre ${cf} confirm ${ic.code}`, tab: 'epic', btn: [B('a', 'Confirm', `${cf} confirm ${ic.code}`), ...(ic.stage === 9 ? [] : [B('x', 'Cancel', `${sub} cancel`), B('c', 'Change', ic.stage === 90 ? 'setup' : `init ${ic.stage}`)])] })
+  }
   const g = b.tasks.find(t => t.type === 'gate' && t.id === v.sec.approval?.planId)   // a human gate rides the approval fields (planId = the gate id)
-  if (g && v.sec.approval) out.push({ key: `approve:${g.id}`, tag: 'attn', text: `approve gate ${g.id} · ${g.title}`, short: `approve gate ${g.id}`, cmd: `/cadre approve ${g.id}@${v.sec.approval.code8}`, tab: 'epic', sel: g.id })
+  if (g && v.sec.approval) out.push({ key: `approve:${g.id}`, tag: 'attn', text: `approve gate ${g.id} · ${g.title}`, short: `approve gate ${g.id}`, cmd: `/cadre approve ${g.id}@${v.sec.approval.code8}`, tab: 'epic', sel: g.id, btn: [B('a', 'Approve', `approve ${g.id}@${v.sec.approval.code8}`), { hk: 'c', label: 'Change', fill: `Change ${g.id}: ` }] })
   if (b.containment.state === 'degraded') out.push({ key: 'mode:containment', tag: 'crit', text: 'Containment degraded · run /cadre init', tab: 'epic' })
   for (const t of b.tasks) {
-    for (const f of t.flags) out.push({ key: `flag:${t.id}:${f}`, tag: f.startsWith('git:') ? 'crit' : 'warn', text: f.startsWith('git:') ? `${f} · ${f.split(':')[1]} moved outside a cadre merge · merges blocked` : `${t.id} flagged ${f}`, tab: 'epic', sel: t.id })
+    for (const f of t.flags) {
+      const git = f.startsWith('git:'), r = (how: string) => `resolve ${t.id} ${how}`
+      out.push({ key: `flag:${t.id}:${f}`, tag: git ? 'crit' : 'warn', text: git ? `${f} · ${f.split(':')[1]} moved outside a cadre merge · merges blocked` : `${t.id} flagged ${f}`, short: git ? `${f} moved` : undefined, tab: 'epic', sel: t.id,
+        btn: git ? [B('r', 'Restore', `resolve git restore ${f}`), B('k', 'Keep', `resolve git keep ${f}`)] : f === 'spec_change' ? [B('a', 'Accept', r('accept')), B('x', 'Reject', r('reject'))]
+          : [...(f === 'conflict' || f === 'drift' ? [B('a', 'Accept', r('accept'))] : []), B('k', 'Keep', r('keep')), B('x', 'Cancel task', r('cancel'))] })
+    }
     if (t.state === 'blocked') out.push({ key: `q:${t.id}`, tag: 'attn', text: `${t.id} blocked: needs an answer`, tab: 'epic', sel: t.id })
   }
   return out

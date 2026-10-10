@@ -40,12 +40,12 @@ export function band(v: View, w: number, a: Acts): Line[] {
   const top = items[0], wide = w >= 100, res = v.ui.res as { w: string; n: string; at: number } | undefined
   if (!top && res && ((v.ui.ack as number | undefined) ?? 0) < res.at) return [tag('ok', wide ? res.w : res.n)]
   if (!top) return wide && p!.state !== 'done-on-dev' && p!.state !== 'released' ? [status(v, w), row2(v, w)] : [status(v, w)]
-  const c = v.c, open = top.tab === 'plan' ? '1: open sheet' : '1: open'
+  const c = v.c, label = top.tab === 'plan' ? 'open sheet' : 'open', open = `1: ${label}`
   const body = (top.tag === 'attn' ? '' : `${tg(top.tag)} ${gl(c, top.tag)} `) + (wide ? top.text + (top.tab === 'plan' ? stats(v) : '') : top.short ?? top.text)
   const head = `${tg('attn')} ${gl(c, 'attn')} ${wide ? 'NEEDS YOU · ' : ''}${body}`
-  const r1: Line = [{ t: tg('attn'), c: col('attn'), b: true }, S(head.slice(tg('attn').length)), S(' '.repeat(Math.max(1, w - head.length - open.length))), S(open, undefined, { k: 'att', hk: '1', p: () => (top.sel ? a.pick(top.sel) : a.go(top.tab)) })]
+  const r1: Line = [{ t: tg('attn'), c: col('attn'), b: true }, S(head.slice(tg('attn').length)), S(' '.repeat(Math.max(1, w - head.length - open.length))), S(label, undefined, { k: 'att', hk: '1', p: () => (top.btn ? a.go('card') : top.sel ? a.pick(top.sel) : a.go(top.tab)) })]
   if (w < 50) return [r1]
   const cmd = top.cmd ? (wide ? `  type  ${top.cmd}   (or press 1, then a)` : `  ${top.cmd}`) : ''
-  const r2: Line | null = cmd ? padL(L(cmd), w - 12).concat(wide ? [S('d: Epic view', undefined, { k: 'dag', hk: 'd', p: () => a.go('epic') })] : []) : null
+  const r2: Line | null = cmd ? padL(L(cmd), w - 12).concat(wide ? [S('Epic view', undefined, { k: 'dag', hk: 'd', p: () => a.go('epic') })] : []) : null
   return [r1, ...(r2 ? [r2, ...(p ? [status(v, w, 'attn')] : [])] : p ? [wide ? row2(v, w) : status(v, w)] : [])]
 }

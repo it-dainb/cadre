@@ -248,7 +248,7 @@ async function show(c: Ctx, st: Stage): Promise<string> {
   if (!p.lines.length) return finish(c, st, await p.apply(save))
   const text = `init ${st.n} ${st.name}: proposed changes\n${p.lines.join('\n')}`
   const sig = fnv1a64(text + canon(await reread(c, p.targets)))
-  await c.h.ui.update(u => ({ ...u, 'init.pending': { stage: st.n, sig } }))
+  await c.h.ui.update(u => ({ ...u, 'init.pending': { stage: st.n, sig, name: st.name, lines: p.lines.slice(0, 14) } }))
   await initPropose(c.h, st.n, text)
   await setState(c, st.n, 'proposed')
   return `${text}\n\nConfirm with the code shown in the cadre band: /cadre init confirm <code>`

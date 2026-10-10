@@ -96,6 +96,7 @@ export interface Host {
   version?(): Promise<string>                           // $.session.version().version: the running Claude Code build (commands/doctor)
   taskStore?(): Promise<any>; config?(): Promise<any>   // the TaskStore (a core/dispatch storeOf) and resolved Config; register.ts wires them (config falls back to env layer + defaults)
   sendTo?(agentId: string, text: string): Promise<{ isDelivered: boolean; reason?: string }>   // $.session.send({to:{agentId}}): core/reuse.drain only (the one sender)
+  press?(line: string): Promise<{ text: string }>   // a pane/band Button press: runs `<sub> <args>` through the dispatcher as origin {kind:'press'} (commands/cadre.press; ADR 0008)
   submit?(text: string): Promise<unknown>; usage?(): Promise<{ context?: { percent?: number }; cost?: { usd: number } }>   // $.prompt.submit (drive, #1 only) · $.session.usage
 }
 // UI side effects (ui/ only). Built per hook by host($); optional so test hosts may omit it.

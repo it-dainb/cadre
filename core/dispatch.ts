@@ -90,7 +90,7 @@ export async function touched(h: Host, store: TaskStore, reg: TypeRegistry): Pro
 // ---- origin ----
 // null = human; else the refusal reason. composer (CC-07) | sdk under approval.allowSdk | adapter:<name> with a `commands` grant (user config) + the current session token
 export async function isHuman(h: Host, o: Origin): Promise<string | null> {
-  if (o.kind === 'composer') return null
+  if (o.kind === 'composer' || o.kind === 'press') return null   // a Button press cannot be synthesized by code or a model (UI-17); commands/cadre.run never lets an engine origin claim it (ADR 0008)
   const cfg = await cfgOf(h)
   if (o.kind === 'sdk') return cfg.approval.allowSdk ? null : 'sdk origin is not accepted (approval.allowSdk is off)'
   if (o.kind === 'adapter') {
@@ -207,6 +207,7 @@ export async function dispatch(h: Host, c: Command, route: Route): Promise<Out> 
       return refuse(why)
     }
   }
+  if ((c.cmd === 'init' || c.cmd === 'setup') && c.args[0] === 'cancel') { await h.secret.update(({ initConfirm: _c, ...r }) => ({ ...r, initNonce: h.rand(8) })); return { text: `${c.cmd}: cancelled; nothing ran` } }   // the card's Cancel: burns the code
   if (c.cmd === 'approve' && c.args[0]?.includes('@')) return approve(h, c)
   if (c.cmd === 'reject') return reject(h, c)
   if (c.cmd === 'adapter' && c.args[0] === 'token') { await newToken(h); return { text: 'New session token drawn; it is shown by toast only.' } }

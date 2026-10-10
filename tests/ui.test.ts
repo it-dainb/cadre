@@ -16,7 +16,7 @@ import { WIRE } from './fixtures/ui/wireframes'
 
 const sq = (ls: string[]) => ls.map(l => l.replace(/─{10,}/g, '─').replace(/\s+/g, ' ').trim())
 // v1 draws tabs Epic + Plan only (UI-DESIGN 5: 2/3/4 are later); the wireframe's Epic⚑ at 62 m has no attention item behind it (its own band is calm); sheet ids are bd-<id> in the wireframe; the human timeline lane (`*o`: a plan-ready toast and an approve that has no event type) is not compared, nor the last future column of the sync outage (drawn one column long)
-const v1 = (ls: string[]) => sq(ls).filter(l => !/^(human|hum) /.test(l)).map(l => l.replace(/^(syn .*?)╌+$/, '$1').replace(' 2: Task 3: Sync 4: Cost', '').replace(' 2:Task', '').replace('Epic⚑', 'Epic').replace(/bd-/g, ''))
+const v1 = (ls: string[]) => sq(ls).filter(l => !/^(human|hum) /.test(l)).map(l => l.replace(/^(syn .*?)╌+$/, '$1').replace(' 2: Task 3: Sync 4: Cost', '').replace(' 2:Task', '').replace('Epic⚑', 'Epic').replace(/bd-/g, '')).map(l => l.replace(/^(Enter\/)?n\/p( node)?: select node.*$|^n\/p node ·.*$|^(n: next|n: node) .*$/, 'KEYS').replace('1:Epic 7:Plan', '1: Epic 7: Plan').replace('n: next task p: prev task', 'n/p: task').replace(/n: next p: prev(?= ·|$)|n: next p: prev$/, 'n/p'))   // ADR 0008: the engine draws `key: label`, so the footer keys are labelled Buttons (same keys, same groups)
 const segs = (ls: Line[]) => ls.flat()
 const E: any = Object.fromEntries(['Box', 'Text', 'Button', 'Raster'].map(n => [n, (p: any) => ({ type: n, props: p })]))
 const flat = (n: any): any[] => (n && typeof n === 'object' ? [n, ...(Array.isArray(n) ? n : (n.props?.children ?? []).flatMap?.(flat) ?? flat(n.props?.children))] : [])
@@ -190,10 +190,10 @@ describe('keys', () => {
     expect(txt(band(np, 115, NOOP)).join('\n')).toContain('/cadre init confirm 1a2b3c4d'); expect(band({ ...np, sec: {} } as any, 115, NOOP)).toEqual([])
     delete v.sec.initConfirm; expect(txt(band(v, 115, NOOP))[0]).toContain('Containment degraded')
   })
-  test('presses route to handlers: 1 opens the sheet for an approval, the flagged node for a flag', async () => {
-    const got: string[] = [], a = { go: (t: string) => { got.push(`go:${t}`) }, pick: (i: string) => { got.push(`pick:${i}`) }, fill: () => {}, step: () => {} }
+  test('presses route to handlers: 1 opens the decision card (approval, git flag); d the epic', async () => {
+    const got: string[] = [], a = { go: (t: string) => { got.push(`go:${t}`) }, pick: (i: string) => { got.push(`pick:${i}`) }, fill: () => {}, press: () => {}, step: () => {} }
     segs(band(approval(), 115, a)).find(s => s.hk === '1')!.p!(); segs(band(view(82), 115, a)).find(s => s.hk === '1')!.p!(); segs(band(approval(), 115, a)).find(s => s.hk === 'd')!.p!()
-    expect(got).toEqual(['go:plan', 'pick:a6', 'go:epic'])
+    expect(got).toEqual(['go:card', 'go:card', 'go:epic'])   // a decision's band button opens its card (ADR 0008)
   })
 })
 
