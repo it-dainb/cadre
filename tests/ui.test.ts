@@ -14,7 +14,9 @@ import { BASE, CASES, withStub, MIN, NOOP, SHEET, approval, ring, rtrim, view } 
 import { GOLDEN } from './fixtures/ui/golden'
 import { WIRE } from './fixtures/ui/wireframes'
 
-const sq = (ls: string[]) => ls.map(l => l.replace(/\s+/g, ' ').trim())
+const sq = (ls: string[]) => ls.map(l => l.replace(/─{10,}/g, '─').replace(/\s+/g, ' ').trim())
+// v1 draws tabs Epic + Plan only (UI-DESIGN 5: 2/3/4 are later); the wireframe's Epic⚑ at 62 m has no attention item behind it (its own band is calm); sheet ids are bd-<id> in the wireframe; the human timeline lane (`*o`: a plan-ready toast and an approve that has no event type) is not compared, nor the last future column of the sync outage (drawn one column long)
+const v1 = (ls: string[]) => sq(ls).filter(l => !/^(human|hum) /.test(l)).map(l => l.replace(/^(syn .*?)╌+$/, '$1').replace(' 2: Task 3: Sync 4: Cost', '').replace(' 2:Task', '').replace('Epic⚑', 'Epic').replace(/bd-/g, ''))
 const segs = (ls: Line[]) => ls.flat()
 const E: any = Object.fromEntries(['Box', 'Text', 'Button', 'Raster'].map(n => [n, (p: any) => ({ type: n, props: p })]))
 const flat = (n: any): any[] => (n && typeof n === 'object' ? [n, ...(Array.isArray(n) ? n : (n.props?.children ?? []).flatMap?.(flat) ?? flat(n.props?.children))] : [])
@@ -49,6 +51,15 @@ describe('goldens (wireframes of UI-DESIGN 6)', () => {
     expect(sq(txt(band(view(95, { ui: { ctx: 41, rel: 'v1.4.0' }, board: { cost: { tokens: 1, cachePct: 88 } } }), 115, NOOP)))).toEqual(sq(WIRE['Band, epic landed|120']))
     expect(sq(txt(band(approval(), 55, NOOP))).slice(0, 2)).toEqual(sq(WIRE['Band, attention (narrow)|60']).slice(0, 2))
     expect(txt(band(view(62), 55, NOOP))).toEqual(['[RUN] p3 ✓✓✓│▶✓│⏸◌ 4/7 ▶1 ⏸1 ctx34%'])
+  })
+  test('epic + approval sheet match the approved wireframes modulo spacing (live wide, replay stacked, sheet wide, narrow, amended)', async () => {
+    const full = (p: ReturnType<typeof pane>) => [...txt(p.before), ...p.tl!.rows, ...txt(p.after)], rel = { rel: 'v1.4.0' }
+    expect(v1(full(pane(view(62, { ui: rel }), 118, 40, NOOP)))).toEqual(v1(WIRE['Epic view, live, wide|120']))
+    expect(v1(full(pane({ ...view(62, { t: 50 }), ring: view(95).ring }, 58, 40, NOOP)))).toEqual(v1(WIRE['Epic view, replay t-12m, stacked|60']))
+    expect(v1(txt(sheet(approval(), 116, NOOP)))).toEqual(v1(WIRE['Approval sheet, wide|120']))
+    expect(v1(txt(sheet(approval(), 56, NOOP)))).toEqual(v1(WIRE['Approval sheet, narrow|60']))
+    const am = v1(CASES['sheet amended|56']()), w = v1(WIRE['Approval sheet, amended while open|60'])
+    expect([am[0], am[1], am.at(-1)]).toEqual([w[0], w[1], w.at(-1)])
   })
   test('band: idle with no plan draws nothing; under 50 columns only line 1; long strips fold the done end', async () => {
     const v = view(0); expect(band({ ...v, b: { ...v.b, plan: null } }, 115, NOOP)).toEqual([])
@@ -164,16 +175,15 @@ describe('Plan tab = approval sheet', () => {
     expect(page).toContain('a3 · fix'); expect(page).toContain('- validateToken(t: Token) -> Claims|null'); expect(page).toContain('task 3/7')
   })
   test('amended while open: banner names the changed task and the footer carries the new code', async () => {
-    const t = GOLDENS('sheet amended|56'); expect(t[0]).toContain('plan changed since you opened it'); expect(t[1]).toContain('a3 scenarios')
+    const t = CASES['sheet amended|56'](); expect(t[0]).toContain('plan changed since you opened it'); expect(t[1]).toContain('a3 scenarios')
   })
 })
-const GOLDENS = (k: string) => GOLDEN[k]
 
 describe('notification policy (UI-DESIGN 4)', () => {
   const rows: [EventType, Record<string, unknown>, number, string | undefined][] = [
     ['approval.pending', { planId: 'p3', missing: [], rev: 'r1' }, 3, 'approve:p3:r1'], ['flag.raised', { taskId: 'a7', flag: 'drift:pm:status' }, 3, 'flag:a7:drift:pm:status'],
     ['task.transitioned', { taskId: 'a6', from: 'active', to: 'blocked', hash: 'h' }, 3, 'q:a6:h'], ['task.transitioned', { taskId: 'a1', from: 'review', to: 'done' }, 1, undefined],
-    ['task.phase_changed', { taskId: 'a1', from: 'tester', to: 'red' }, 0, undefined], ['check.ran', { taskId: 'a1', name: 'test', ok: false }, 1, undefined], ['check.ran', { taskId: 'a1', name: 'test', ok: true }, 0, undefined],
+    ['task.phase_changed', { taskId: 'a1', from: 'tester', to: 'red' }, 0, undefined], ['task.transitioned', { taskId: 'a2', from: 'review', to: 'active' }, 1, undefined], ['task.transitioned', { taskId: 'a2', from: 'active', to: 'review' }, 0, undefined], ['sync.state_changed', { target: 'pm', state: 'ok', conflicts: 1, at: 1 }, 2, 'off:pm'], ['check.ran', { taskId: 'a1', name: 'test', ok: false }, 1, undefined], ['check.ran', { taskId: 'a1', name: 'test', ok: true }, 1, undefined],
     ['sync.state_changed', { target: 'pm', state: 'offline', at: 1 }, 2, 'off:pm'], ['sync.state_changed', { target: 'pm', state: 'ok', at: 1 }, 1, 'off:pm'],
     ['drive.status', { state: 'paused', reason: 'approve p4' }, 3, 'drive:paused'], ['drive.status', { state: 'finished' }, 3, 'drive:finished'], ['drive.status', { state: 'armed' }, 0, undefined],
     ['cost.updated', { tokens: 1 }, 0, undefined], ['cost.updated', { tokens: 1, threshold: 80 }, 2, 'cost:80'], ['init.stage', { stage: 4, state: 'proposed' }, 2, 'init:4'],
@@ -250,6 +260,10 @@ describe('render hooks, handlers, fallbacks', () => {
     const a = mk(); await seed(a.h); const t = await renderPane(a.h, { surface: 'terminal', props: { bodyColumns: 118, scroll: { bodyRows: 40 } } })
     const r = flat(t).find((n: any) => n.type === 'Raster'); expect([r.props.key, r.props.columns, r.props.rows, r.props.cells.length]).toEqual(['tl', 118, 9, 4 * Math.ceil(118 * 9 * 12 / 3)])
     await tickUi(a.h); expect(a.of('blit')[0]).toMatchObject({ requestId: 'cadre', key: 'tl' }); expect(a.of('blit')[0].cells.length).toBe(r.props.cells.length)
+  })
+  test('M10: the tick copies the resolved strictness into the ui atom; the render reads it (the hook cannot read env/config)', async () => {
+    const a = mk(); await seed(a.h); a.h.config = async () => ({ strictness: 'advisory' }) as any
+    expect((await read(a.h)).sx).toBe('strict'); await tickUi(a.h); expect((await read(a.h)).sx).toBe('advisory')
   })
   test('openPane: tab + focus request; where nothing draws the sheet goes to $.ui.log (with the footer code)', async () => {
     const a = mk(); await seed(a.h, approval(62, 'ab12cd34')); await openPane(a.h, 'plan')

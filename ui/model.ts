@@ -14,7 +14,7 @@ export type Acts = { go(tab: string): void; pick(id: string): void; fill(cmd: st
 export async function read(h: Host): Promise<View> {
   const [s, r, sec, ui, now] = await Promise.all([h.board.read(), h.events.read(), h.secret.read(), h.ui.read(), h.now()])
   const b = humanView(s)
-  return { b, ring: ofEpic(r, b.epic ?? ''), sec, ui, c: { ...CFG, ...(ui.cfg as object) }, now, sx: h.options.strictness ?? 'strict', t: typeof ui.t === 'number' ? ui.t : null }
+  return { b, ring: ofEpic(r, b.epic ?? ''), sec, ui, c: { ...CFG, ...(ui.cfg as object) }, now, sx: (ui.sx as string | undefined) ?? h.options.strictness ?? 'strict', t: typeof ui.t === 'number' ? ui.t : null }
 }
 
 export type TagK = 'attn' | 'crit' | 'warn' | 'run' | 'ok' | 'ready' | 'wait' | 'idle'

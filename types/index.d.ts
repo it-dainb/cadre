@@ -13,7 +13,7 @@ export interface SnapTask {
   state: Category; step: string; phaseSince: number; owner?: string
   deps: { id: string; type: SnapDepType }[]
   condition?: { on: string; state: 'pending' | 'met' | 'not-met' }
-  flags: string[]; card?: string
+  flags: string[]; card?: string; ctx?: number   // ctx: the owner's context fill %
 }
 export interface Plan {
   id: string; slug: string; state: PlanState; epicBranch: string; approvedAt?: number

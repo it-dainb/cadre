@@ -34,13 +34,14 @@ export function ring(): CadreEvent[] {
       if (st !== nst) ev(m, 'task.transitioned', { taskId: s.id, from: st, to: nst }, { taskId: s.id })
       if (step !== nstep) ev(m, 'task.phase_changed', { taskId: s.id, from: step, to: nstep }, { taskId: s.id })
       st = nst; step = nstep
-      if (ph === 'report') { ev(m, 'task.transitioned', { taskId: s.id, from: st, to: 'done' }, { taskId: s.id }); st = 'done' }
+      if (ph === 'report') { ev(m, 'task.transitioned', { taskId: s.id, from: st, to: 'done', cites: 4 }, { taskId: s.id }); st = 'done' }
       if (ph === 'impl' && m === 84) ev(m, 'flag.resolved', { taskId: s.id, flag: 'git:dev:agent' }, { taskId: s.id, actor: 'human' })
     }
   }
+  ev(9, 'check.ran', { taskId: 'a1', name: 'test', phase: 'red', ok: true, failing: 3 }, { taskId: 'a1' }); ev(24, 'check.ran', { taskId: 'a1', name: 'test', phase: 'green', ok: true, secs: 41 }, { taskId: 'a1' })
   ev(53, 'task.transitioned', { taskId: 'a5', from: 'todo', to: 'cancelled' }, { taskId: 'a5' }); ev(53, 'task.skipped', { taskId: 'a5', on: 'a3' }, { taskId: 'a5' })
   SPANS.forEach(([role, id, f, t], i) => { ev(f, 'agent.bound', { agentId: `g${i}`, taskId: id, role }, { agentId: `g${i}`, taskId: id }); ev(t, 'agent.unbound', { agentId: `g${i}`, reason: 'answer' }, { agentId: `g${i}` }) })
-  ev(40, 'sync.state_changed', { target: 'pm', state: 'offline', at: BASE + 40 * MIN }, { actor: 'sync', severity: 'warn' }); ev(54, 'sync.state_changed', { target: 'pm', state: 'ok', at: BASE + 54 * MIN }, { actor: 'sync' })
+  ev(40, 'sync.state_changed', { target: 'pm', state: 'offline', at: BASE + 40 * MIN, pending: 2 }, { actor: 'sync', severity: 'warn' }); ev(54, 'sync.state_changed', { target: 'pm', state: 'ok', at: BASE + 54 * MIN, conflicts: 1 }, { actor: 'sync' })
   return out.sort((a, b) => a.at - b.at).map((e, i) => ({ ...e, seq: i + 1 }))
 }
 // the epic as of `nowMin`: tasks folded from the ring (same fold as replay), plan, mode, counters
@@ -50,7 +51,7 @@ export function view(nowMin: number, o: { t?: number | null; cfg?: Partial<Cfg>;
     plan: { id: 'p3', slug: 'auth-login', state: nowMin >= 93 ? 'done-on-dev' : 'approved', epicBranch: 'epic/p3-auth-login', approvedAt: BASE },
     drive: { on: true, level: 'epic', epicId: 'p3', turns: 12, costUsd: 0, startedAt: BASE }, containment: { state: 'contained', unsandboxed: 0 }, cost: { tokens: 1, cachePct: 87 }, sync: [{ target: 'pm', state: 'ok', pending: 0, at: 0 }] }
   const folded = at({ b: proto, ring: evs, sec: {}, ui: {}, c: CFG, now: BASE + nowMin * MIN, sx: 'strict', t: BASE + nowMin * MIN })
-  const tasks = folded.tasks.map(t => (t.id === 'a2' && t.state === 'active' ? { ...t, owner: 'worker 1' } : t))
+  const tasks = folded.tasks.map(t => (t.id === 'a2' && t.state === 'active' ? { ...t, owner: 'worker 1', ctx: 41 } : t))
   const b: Snapshot = { ...proto, ...o.board, tasks: o.board?.tasks ?? (o.tweak ? o.tweak(tasks) : tasks), plan: o.board?.plan ?? folded.plan }
   return { b, ring: evs, sec: o.code8 ? { approval: { planId: 'p3', code8: o.code8 } } : {}, ui: { ctx: 34, ...o.ui }, c: { ...CFG, ...o.cfg }, now: BASE + nowMin * MIN, sx: 'strict', t: o.t === undefined || o.t === null ? null : BASE + o.t * MIN }
 }
@@ -92,5 +93,5 @@ export const CASES: Record<string, () => string[]> = {
   'epic live wide ascii|118': () => { const v = view(62, { cfg: { glyphs: 'ascii' } }), p = pane(v, 118, 40, NOOP); return [...txt(p.before), ...p.tl!.rows.map(r => T(v.c, r)), ...txt(p.after)] },
   'sheet wide|116': () => txt(sheet(approval(), 116, NOOP)),
   'sheet narrow|56': () => txt(sheet(approval(), 56, NOOP)),
-  'sheet amended|56': () => { const v = approval(), t = v.b as any; return txt(sheet({ ...v, sec: { approval: { planId: 'p3', code8: '5c1e09fa' } }, ui: { seen: { code: 'ab12cd34', sig: { ...sheetSig(v), a3: 'old' } } }, b: t }, 56, NOOP)).slice(0, 4) },
+  'sheet amended|56': () => { const v = approval(), t = v.b as any; return txt(sheet({ ...v, sec: { approval: { planId: 'p3', code8: '5c1e09fa' } }, ui: { seen: { code: 'ab12cd34', sig: { ...sheetSig(v), a3: 'old' } } }, b: t }, 56, NOOP)) },
 }

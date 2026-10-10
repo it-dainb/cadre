@@ -6,6 +6,7 @@ import { pane, sel } from './pane'
 import { sheet, sheetOf, sheetSig } from './sheet'
 import { blit, cells, timeline } from './timeline'
 import { ack, levelOf } from './notify'
+import { strictOf } from '../config/index'
 import { type Acts, S, at, cols, draw, gl, kindOf, read, t0, tg, txt, col, REDO } from './model'
 
 export { onEvent, ack, syncStatus } from './notify'
@@ -76,4 +77,8 @@ export async function resumeBanner(h: Host, o: { decisions?: number; next?: stri
   const w = `↺ cadre resumed from beads · ${o.decisions ?? 0} decisions${o.next ? ` · next: ${o.next}` : ''} · ${dw}${on ? '' : ' until /cadre drive on'}`
   await h.ui.update(u => ({ ...u, res: { w, n: `↺ resumed ${v.b.plan?.id} · ${gl(c, 'run')}${n} · ${dw}`, at: v.now } }))
 }
-export async function tickUi(h: Host): Promise<void> { if (lastW) await blit(h, await read(h), lastW).catch(() => {}) }   // live cursor advance (30 s clock)
+// the render hook cannot read env/config, so the tick keeps the resolved strictness (M10) in the ui atom for it
+export async function tickUi(h: Host): Promise<void> {
+  const sx = await strictOf(h).catch(() => undefined); if (sx) await h.ui.update(u => (u.sx === sx ? u : { ...u, sx }))
+  if (lastW) await blit(h, await read(h), lastW).catch(() => {})   // live cursor advance (30 s clock)
+}
