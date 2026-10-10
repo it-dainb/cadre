@@ -29,6 +29,12 @@ export async function cfgOf(h: Host): Promise<Config> {
 }
 export const registryOf = async (h: Host): Promise<TypeRegistry> => ((await cfgOf(h)).types as TypeRegistry) ?? typeDefaults()
 
+// the recorded mission (stage 3 / approve of a mission draft): the newest open milestone. A new session's board is cold, beads is the truth.
+export async function missionOf(store: TaskStore): Promise<string | null> {
+  const ms = (await store.list({})).filter(t => t.type === 'milestone' && t.category !== 'done' && t.category !== 'cancelled').sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+  return ms[0]?.title ?? null
+}
+
 // ---- draft <-> board mirror ----
 const BLOCKING = ['blocks', 'waits-for', 'conditional-blocks']
 export const snapOf = (t: Task, reg: TypeRegistry): SnapTask => {

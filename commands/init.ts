@@ -3,7 +3,7 @@
 import type { Host } from '../types'
 import { canon, fnv1a64 } from '../core/board'
 import { emit } from '../core/events'
-import { initConfirm, initPropose } from '../core/dispatch'
+import { initConfirm, initPropose, missionOf } from '../core/dispatch'
 import { load } from '../config'
 import type { Config } from '../config'
 import { diff as jdiff } from '../policy/settings'
@@ -95,7 +95,12 @@ const S2: Stage = {
 
 const S3: Stage = {
   n: 3, name: 'mission',
-  done: async c => (await c.h.board.read()).mission !== null,
+  done: async c => {
+    if ((await c.h.board.read()).mission !== null) return true
+    const m = await wire.store(c.h, c.cfg, c.root).then(missionOf).catch(() => null)   // a new session: the board is cold, the recorded mission lives in beads
+    if (m) await c.h.board.update(b => ({ ...b, mission: m }))
+    return !!m
+  },
   propose: async c => ({ lines: [], targets: [], async apply() {
     await c.h.ui.update(u => ({ ...u, initRequest: 'mission' }))
     return no('mission request queued: main will ask you for goal, constraints and non-goals and draft the mission; approve it with /cadre approve <id>@<code>')

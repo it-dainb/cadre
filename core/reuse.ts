@@ -4,7 +4,7 @@ import type { Binding, Hook, Host, Snapshot } from '../types'
 import { StoreError, type TaskStore } from '../task-management/store'
 import { controlOf, resetDelivery } from '../task-management/sync-engine/loop'
 import { repoKeyOf } from '../commands/init'
-import { ROUTES, cfgOf, mirror, registryOf, storeOf } from './dispatch'
+import { ROUTES, cfgOf, mirror, missionOf, registryOf, storeOf } from './dispatch'
 import { isCold, modelView, stamp, viewHash } from './board'
 import { emit, rebuild, subscribe } from './events'
 import { nextAction } from './render'
@@ -151,7 +151,9 @@ async function adopt(h: Host, b0: Snapshot) {
   await h.secret.update(x => ({ ...x, adoptTried: true }))
   const store = await storeOf(h), all = await store.list({}), prefix = (await cfgOf(h)).branches.epicPrefix
   const e = all.filter(t => t.type === 'epic' && !t.meta['cadre.kind'] && t.category !== 'done' && t.category !== 'cancelled' && all.some(c => c.parent === t.id && c.category !== 'draft')).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))[0]
-  return e && { mission: b0.mission, epic: e.id, plan: { id: e.id, slug: slug(e.title), state: 'approved', epicBranch: epicBranch(prefix, e.id, e.title), approvedAt: await h.now() }, drive: b0.drive, bind: {}, session: undefined }
+  const mission = b0.mission ?? (await missionOf(store))
+  if (!e && mission) await h.board.update(b => ({ ...b, mission }))
+  return e && { mission, epic: e.id, plan: { id: e.id, slug: slug(e.title), state: 'approved', epicBranch: epicBranch(prefix, e.id, e.title), approvedAt: await h.now() }, drive: b0.drive, bind: {}, session: undefined }
 }
 export async function rehydrate(h: Host): Promise<boolean> {
   const b0 = await h.board.read()

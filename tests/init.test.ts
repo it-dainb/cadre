@@ -127,6 +127,10 @@ describe('stage 3 mission', () => {
     expect(out).toContain('mission request queued'); expect((await h.ui.read()).initRequest).toBe('mission')
     await h.board.update(b => ({ ...b, mission: 'm-1' })); expect(await run(h, ['3'])).toContain('mission request queued')
   })
+  test('a new session (cold board) finds the recorded mission in beads: stage 3 is done and the board gets it', async () => {
+    const { h } = mk(), st = store(); await st.init({ types: {} as any, journal: false }); await st.record('mission', 'Ship it', 'goal')
+    expect(await run(h, ['3'])).not.toContain('mission request queued'); expect((await h.board.read()).mission).toBe('Ship it')
+  })
 })
 
 // bwrap jail answer by mode: setup = no flag, check = --unshare-net, home = --overlay.

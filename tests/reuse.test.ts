@@ -147,6 +147,9 @@ describe('compaction (8.3, S49) and rehydrate (8.2, 13.4)', () => {
     expect(s.epic).toBe(epic); expect(s.plan).toMatchObject({ id: epic, slug: 'auth', state: 'approved', epicBranch: `epic/${epic}-auth` }); expect(s.tasks.map((t: any) => t.id)).toContain(a)
     const g = fakeHost() as any; Object.assign(g, { taskStore: async () => { const m = new MemoryStore(() => 1000); await m.init({ types: types(), journal: false }); const e = await m.createEpic('x', 'g'); await m.createDraft({ title: 't', description: 'd', type: 'feature', parent: e }); return m }, config: h.config, usage: h.usage, submit: h.submit })
     expect(await rehydrate(g)).toBe(false); expect((await g.board.read()).epic).toBeNull()
+    const m = fakeHost() as any, ms = new MemoryStore(() => 1000); await ms.init({ types: types(), journal: false }); await ms.record('mission', 'Ship it', 'goal')
+    Object.assign(m, { taskStore: async () => ms, config: h.config, usage: h.usage, submit: h.submit })
+    expect(await rehydrate(m)).toBe(false); expect((await m.board.read()).mission).toBe('Ship it')   // a recorded mission survives into a cold session
     void store
   })
   test('ring rebuilt from the journal (transitions) + at-stamped records (phases), fresh seqs; adapters reset; records-only without a journal', async () => {
