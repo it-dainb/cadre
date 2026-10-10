@@ -9,6 +9,7 @@ import { emptyRing } from '../core/events'
 import { drain, step, compact } from '../core/reuse'
 import { observe } from '../core/close'
 import { admit } from '../core/admission'
+import { contain } from '../policy/containment'
 import { check, guard, send, judge, configSet } from '../policy/guards'
 import { answer, describe } from '../native/tasks'
 import { wrap } from '../core/effect'
@@ -47,6 +48,11 @@ function host($): Host {
     log: t => { void $.ui.log(t) },
     toast: t => { void $.ui.toast(t) },
     options,
+    stat: async (p, o) => { try { return await $.fs.stat(p, { resolve: !!o?.resolve }) } catch { return undefined } },
+    run: (argv, init) => $.process.run(argv, init),
+    settings: () => $.settings.read(),
+    write: async (p, t) => { await $.fs.write(p, t) },
+    cwd: () => $.session.cwd(), home: async () => String((await $.env.get('HOME')) ?? ''),
   }
 }
 
@@ -69,6 +75,7 @@ export const register: Register = (on, opts) => {
     for (const a of roster({ roles: cfg.roles, models: cfg.models, mcpAllow: cfg.mcpAllow })) await $.agent.register(a)
     await $.command.register({ name: 'cadre', description: 'cadre: plan, approve, status, resolve, release, drive, init', argumentHint: '<sub> [args]', immediate: true })
     await $.env.set('CLAUDE_CODE_ENABLE_TODO_TOOLS', '1')
+    await contain(host($)).catch(() => {})   // L2 check -> board.containment (13.1)
     $.clock.every(5000, () => { void tick(host($)).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
     return next(e)
   })

@@ -13,6 +13,7 @@ export function fakeHost(o: { t0?: number; files?: Record<string, string>; env?:
     store: { get: async k => kv.get(k), set: async (k, v) => { kv.set(k, v) }, del: async k => { kv.delete(k) } },
     env: async () => o.env ?? {}, readText: async p => o.files?.[p] ?? null,
     log: s => { logs.push(s) }, toast: s => { toasts.push(s) }, options: o.options ?? {}, logs, toasts,
+    stat: async (p, r) => ({ kind: 'file', realPath: r?.resolve ? p : undefined }), run: async () => ({ exitCode: 1, stdout: '', stderr: 'no run' }), settings: async () => ({}), write: async (p, t) => { if (o.files) o.files[p] = t }, cwd: async () => '/repo', home: async () => '/home/u',
   }
 }
 export const task = (id: string, o: Partial<SnapTask> = {}): SnapTask =>

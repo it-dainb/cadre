@@ -61,3 +61,11 @@ Two registrations of one event need distinct matchers; the always-true regexes a
 ## Tests and tooling
 `tests/support.ts`: `fakeHost({t0?, files?, env?, options?})` (in-memory Host; `now()` advances 10 per call) · `task(id, overrides)` (a `SnapTask`). `tests/store-contract.ts`: `contract(name, make)`. `tests/fixtures/events/golden.ts` (envelope table + sample data per type: **update when you add an event type**), `tests/fixtures/readmodel/snapshot.golden.ts`. The kit has no fs, `$.state` or timers: measure with `scripts/budget.mjs`, use `fakeHost` for state, `mock.clock` for time.
 **LOC rule** (`budget.mjs`): non-blank, non-comment lines of `.ts` under `hooks core native policy commands task-management agents config tools`, excluding `adapters/memory`, `adapters/fake`, `ui/`, `tests/`, `scripts/`, `*.d.ts`. Only the total (≤ 5000) and `ui/` (≤ 750) are enforced.
+
+## Policy (wave 2, w2-policy)
+| Module | Exports |
+|---|---|
+| `policy/guards.ts` | slots `guard` `check` `send` `configSet` `judge(e)` · `policyOf(h)` reads `$.store 'policy'` = `{repo, wtRoot (= <wtRoot>/<repoKey>), home, mcpAllow, locks: {taskId: paths}, protect: branches, effectCheck}` (**init/session.start must write it**; absent keys disable the rule they feed) · `inputPath(tool, input, cwd)` · `idsIn(text, knownIds)` (§4.6 matcher). Tester root = its binding's `worktree` (view path); an agent's cwd = its binding `worktree`, main's = `policy.repo`. |
+| `policy/settings.ts` | `deepMerge` `diff` `plan(fs,path,patch)` `apply(fs,path,patch)` (.bak, re-read; fs = `{readText, writeText}` = `h.readText`/`h.write`) |
+| `policy/containment.ts` | `assess(settings, repo, wtRepo)` · `contain(h)` (called in `session.start`; writes `board.containment`) |
+| `core/effect.ts` | `wrap` (#6) · `audit(h, caller\|null)` · `sweep(h)` (**core/close.observe must call it at every turn.complete, and before merges**) · `resolveGit(h, flag, 'keep'\|'restore')` · `writes(tool)` · `parse`. State lives in `GitState` optional fields `fp/win/flags`; open git flags = `git.flags` keys (merges refuse while any `git:*`). Git goes through `h.run`. Host additions: `stat`, `run`, `settings`. |

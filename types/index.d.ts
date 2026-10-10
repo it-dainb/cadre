@@ -45,12 +45,19 @@ export interface EventRing { seq: number; epics: Record<string, CadreEvent[]> } 
 export interface Secret {
   approval?: { planId: string; code8: string }; initConfirm?: { stage: number; code: string }
   nonce?: string; initNonce?: string; token?: string
+  session?: string                                      // this session's id (core/admission.sessionOf; resume queue key)
+  ctx?: { key: string; card?: string }                  // main context: last-sent diff key; a queued one-time resume card (core/briefs)
 }
 export interface Binding {
   taskId: string; role: Role; step: string; worktree: string; sessionId: string
   lastReviewedCommit?: string; ctxTokens: number; startedAt: number
 }
-export interface GitState { busy: boolean; epoch: number }
+export interface GitState {
+  busy: boolean; epoch: number
+  fp?: Record<string, string>                          // L3 baseline fingerprint (core/effect)
+  win?: { loops: string[]; open: Record<string, string> }   // in-flight window since the baseline: loop ids ('' = main), open calls by tool_use_id
+  flags?: Record<string, { ref?: string; old?: string; tip?: string }>   // open git:* flags (restore info for agent-window ref moves)
+}
 
 declare module 'claude-code' {
   interface PluginState {
@@ -77,6 +84,11 @@ export interface Host {
   readText(path: string): Promise<string | null>      // null if missing
   log(text: string): void; toast(text: string): void  // local display only
   options: { strictness?: string }                    // plugin.json userConfig
+  stat(path: string, o?: { resolve?: boolean }): Promise<{ kind: string; realPath?: string } | undefined>   // $.fs.stat; undefined when missing
+  run(argv: readonly string[], init?: { cwd?: string; env?: Record<string, string>; stdin?: string; timeoutMs?: number }): Promise<{ exitCode: number; stdout: string; stderr: string }>   // $.process.run, no shell
+  settings(): Promise<Record<string, any>>             // $.settings.read(): effective merged settings
+  write(path: string, text: string): Promise<void>     // $.fs.write (creates dirs); mod-owned files only, after human confirmation (CC-16)
+  cwd(): Promise<string>; home(): Promise<string>      // session cwd (repo root) · $HOME
 }
 // Every hook slot has this shape; a slot returns next(e) to pass through.
 export type Hook = (h: Host, e: any, next: (e: any) => any) => any

@@ -19,13 +19,14 @@ test('session.start registers the four agents, /cadre (immediate) and arms one 5
 
 test('every slot is a pass-through until its owner fills it: tool.call, tool.check, prompt.submit, command.run reach the engine', async ($, on) => {
   const seen: string[] = []
+  on('store.get', () => ({ value: undefined })); on('env.get', () => ({ value: undefined }))   // policy/guards reads its paths from $.store, strictness from env
   on('tool.call', ($, e) => { seen.push(`call:${e.tool}`); return { result: 'ok' } })
   on('tool.check', () => ({ decision: 'allow' }))
   on('prompt.submit', ($, e) => { seen.push('prompt'); return { text: e.text } })
   on('command.run', () => ({ text: 'engine' }))
   expect(await $.tool.call({ tool: 'Read', file_path: '/w/a.ts' })).toEqual({ result: 'ok' })
-  expect(await $.tool.call({ tool: 'mcp__cadre__report' } as any)).toEqual({ result: 'ok' })
+  expect(await $.tool.call({ tool: 'mcp__cadre__inspect' } as any)).toEqual({ result: 'ok' })
   expect((await $.prompt.submit({ text: 'hello' })).text).toBe('hello')
   expect((await $.command.run({ command: 'cadre', args: 'status' })).text).toBe('engine')
-  expect(seen).toEqual(['call:Read', 'call:mcp__cadre__report', 'prompt'])
+  expect(seen).toEqual(['call:Read', 'call:mcp__cadre__inspect', 'prompt'])
 })

@@ -1,0 +1,1 @@
+export default {"env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"},"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"autoAllowBashIfSandboxed":true,"filesystem":{"allowWrite":["/wt/repo"],"denyWrite":["/x/repo","/x/repo/.git/packed-refs"]}}}
