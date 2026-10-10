@@ -153,7 +153,7 @@ export const register: Register = (on, opts) => {
   on('command.run', { command: 'goal' }, ($, e, next) => goal(host($), e, next)).catch(passOn)   // observer only: pass-through, never rewritten (9)
   on('config.set', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return configSet(host($), e, next) }).catch(denySpawn)
   // ui (UI-DESIGN): every ui.render hook names its component (U7); render is pure, state is written from handlers only
-  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return renderBand(host($), e, next) })
+  on('ui.render', { component: 'AbovePrompt' }, ($, e, next) => renderBand(host($), e, next))   // not gated: a pending init/setup code draws here even while the repo is dormant; with nothing pending the band draws nothing
   on('ui.render', { component: 'Pane', requestId: 'cadre' }, ($, e) => renderPane(host($), e))
   on('ui.render', { component: 'ToolUse', props: { tool: 'Agent' } }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return renderCard(host($), e, next) })
 }
