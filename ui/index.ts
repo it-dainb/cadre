@@ -24,14 +24,17 @@ export async function prefill(h: Host, cmd: string): Promise<void> {
 }
 
 // Open the pane on a tab (called by /cadre open|approve and by presses). Where nothing draws, the content goes to $.ui.log instead (C3).
-export async function openPane(h: Host, tab: string, o: { focus?: boolean; quiet?: boolean } = {}): Promise<void> {
+const OPEN = { id: 'cadre', title: 'cadre', columns: 120 }
+// The open call is the first thing a command or press does: only there does the engine count it as asked (any width); inside after() it is "unasked" (>= 144 columns, live capture ADR 0008)
+export async function openPane(h: Host, tab: string, o: { focus?: boolean; quiet?: boolean; pre?: ReturnType<NonNullable<Host['ops']>['open']> } = {}): Promise<void> {
+  const opened = o.pre ?? h.ops!.open({ ...OPEN, ...(o.focus === false ? {} : { focus: true as const }) })   // `focus: false` is refused by the engine: leave it out
   const v = await read(h)
   await h.ui.update(u => ({ ...u, tab, ...(tab === 'plan' || tab === 'card' ? { seen: { code: v.sec.approval?.code8 ?? '', sig: sheetSig(v) } } : {}) }))
-  const r = await h.ops!.open({ id: 'cadre', title: 'cadre', ...(o.focus === false ? {} : { focus: true }), columns: 120 })   // `focus: false` is refused by the engine: leave it out
+  const r = await opened
   if (!r.isPlaced && !o.quiet) {
     h.toast(`cadre: pane not shown${r.reason ? ` · ${r.reason.slice(0, 30)}` : ''} · /cadre status`)
     if (tab === 'plan') h.log(txt(sheet(v, 100, NOOP)).join('\n'))
-    if (tab === 'card' && decisions(v)[0]) h.log([...txt(card(v, 100, NOOP)).filter(x => !/^\s*$/.test(x)), `or type ${decisions(v)[0].cmd ?? ''}`].join('\n'))
+    if (tab === 'card' && decisions(v)[0]) h.log(`${decisions(v)[0].text} · type ${decisions(v)[0].cmd ?? '/cadre status'}`)
   }
   if (!o.quiet) await ack(h)
 }
@@ -48,8 +51,8 @@ export async function onEvent(h: Host, e: Parameters<typeof notifyEvent>[1]): Pr
 
 export function acts(h: Host): Acts {
   return {
-    go: tab => later(h, () => openPane(h, tab)),
-    pick: id => later(h, async () => { await h.ui.update(u => ({ ...u, sel: id, go: false })); await openPane(h, 'epic') }),
+    go: tab => { const pre = h.ops!.open({ ...OPEN, focus: true }); later(h, () => openPane(h, tab, { pre })) },
+    pick: id => { const pre = h.ops!.open({ ...OPEN, focus: true }); later(h, async () => { await h.ui.update(u => ({ ...u, sel: id, go: false })); await openPane(h, 'epic', { pre }) }) },
     fill: cmd => later(h, async () => { await prefill(h, cmd); await ack(h) }),
     // a press: the typed command as the human's origin (ADR 0008). A refusal means the card went stale (code burned, drawn anew): say so and redraw it.
     press: cmd => later(h, async () => {
