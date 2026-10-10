@@ -61,16 +61,16 @@ export const casRef = (run: Run, root: string, ref: string, next: string, old: s
 export const diffStat = (run: Run, wt: string, range: string) => git(run, wt, ['diff', '--stat', range])
 export async function diffPatch(run: Run, wt: string, range: string, cap = 3072): Promise<string> { return (await git(run, wt, ['diff', range])).slice(0, cap) }
 
-// Jail argv (3.10). `scratch` is bound at /tmp (so it must NOT live under /tmp, or it masks wt); `writable` = jailWritable cache dirs. argv is appended after `--`.
+// Jail argv (3.10). `scratch` is bound at /tmp FIRST, so a worktree that itself lives under /tmp (a sandboxed HOME, an eval) is bound on top and stays visible; `writable` = jailWritable cache dirs. argv is appended after `--`.
 type J = { wt: string; scratch: string; pkgRoot: string; argv: readonly string[]; writable?: readonly string[]; env?: Record<string, string> }
-const RO = ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc']
-const tail = (j: J) => [...Object.entries(j.env ?? {}).flatMap(([k, v]) => ['--setenv', k, v]), '--bind', j.scratch, '/tmp', ...(j.writable ?? []).flatMap(w => ['--bind', w, w]), '--chdir', j.pkgRoot, '--', ...j.argv]
+const RO = (j: J) => ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', j.scratch, '/tmp']
+const tail = (j: J) => [...Object.entries(j.env ?? {}).flatMap(([k, v]) => ['--setenv', k, v]), ...(j.writable ?? []).flatMap(w => ['--bind', w, w]), '--chdir', j.pkgRoot, '--', ...j.argv]
 // checks: tree writable, writes discarded, no network
-export const overlayJail = (j: J): string[] => ['bwrap', '--unshare-net', ...RO, '--overlay-src', j.wt, '--tmp-overlay', j.wt, ...tail(j)]
+export const overlayJail = (j: J): string[] => ['bwrap', '--unshare-net', ...RO(j), '--overlay-src', j.wt, '--tmp-overlay', j.wt, ...tail(j)]
 // setup / skeleton: the worktree is really written, network on
-export const writableJail = (j: J): string[] => ['bwrap', ...RO, '--bind', j.wt, j.wt, ...tail(j)]
+export const writableJail = (j: J): string[] => ['bwrap', ...RO(j), '--bind', j.wt, j.wt, ...tail(j)]
 // init discovery: writable jail + an overlay over $HOME; what setup wrote lands in <scratch>/home-up
-export const homeJail = (j: J & { home: string }): string[] => ['bwrap', ...RO, '--bind', j.wt, j.wt, '--overlay-src', j.home, '--overlay', `${j.scratch}/home-up`, `${j.scratch}/home-work`, j.home, ...tail(j)]
+export const homeJail = (j: J & { home: string }): string[] => ['bwrap', ...RO(j), '--bind', j.wt, j.wt, '--overlay-src', j.home, '--overlay', `${j.scratch}/home-up`, `${j.scratch}/home-work`, j.home, ...tail(j)]
 
 // A19 fallback (bwrap < 0.11 has no overlay, S42/S46). copyJail: j.wt is a throwaway COPY of the tree, bound writable and discarded; network stays off.
 export const copyJail = (j: J): string[] => ['bwrap', '--unshare-net', ...writableJail(j).slice(1)]

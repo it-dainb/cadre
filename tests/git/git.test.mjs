@@ -52,10 +52,10 @@ test('squash conflict: throws and leaves the worktree clean at the epic tip', as
 })
 test('jail argv, exactly per 3.10', () => {
   const j = { wt: '/w/t', scratch: '/s', pkgRoot: '/w/t/pkg', argv: ['npm', 'test'], writable: ['/c'] }
-  assert.deepEqual(G.overlayJail(j), ['bwrap', '--unshare-net', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--overlay-src', '/w/t', '--tmp-overlay', '/w/t', '--bind', '/s', '/tmp', '--bind', '/c', '/c', '--chdir', '/w/t/pkg', '--', 'npm', 'test'])
-  assert.deepEqual(G.writableJail(j), ['bwrap', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', '/w/t', '/w/t', '--bind', '/s', '/tmp', '--bind', '/c', '/c', '--chdir', '/w/t/pkg', '--', 'npm', 'test'])
+  assert.deepEqual(G.overlayJail(j), ['bwrap', '--unshare-net', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', '/s', '/tmp', '--overlay-src', '/w/t', '--tmp-overlay', '/w/t', '--bind', '/c', '/c', '--chdir', '/w/t/pkg', '--', 'npm', 'test'])
+  assert.deepEqual(G.writableJail(j), ['bwrap', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', '/s', '/tmp', '--bind', '/w/t', '/w/t', '--bind', '/c', '/c', '--chdir', '/w/t/pkg', '--', 'npm', 'test'])
   assert.ok(!G.writableJail(j).includes('--unshare-net'))
   const hj = G.homeJail({ ...j, home: '/home/u' })
-  assert.deepEqual(hj.slice(0, 14), ['bwrap', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', '/w/t', '/w/t', '--overlay-src', '/home/u', '--overlay'])
-  assert.deepEqual(hj.slice(14, 18), ['/s/home-up', '/s/home-work', '/home/u', '--bind'])
+  assert.deepEqual(hj.slice(0, 17), ['bwrap', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', '/s', '/tmp', '--bind', '/w/t', '/w/t', '--overlay-src', '/home/u', '--overlay'])
+  assert.deepEqual(hj.slice(17, 21), ['/s/home-up', '/s/home-work', '/home/u', '--bind'])
 })

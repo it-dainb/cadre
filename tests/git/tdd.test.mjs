@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile, execFileSync } from 'node:child_process'
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const G = await import('../../core/git.ts')
@@ -18,7 +18,7 @@ const { policyOf } = await import('../../policy/guards.ts')
 
 const run = (argv, init = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: init.cwd, env: init.env ? { ...process.env, ...init.env } : undefined }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })).stdin?.end(init.stdin))
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()
-// scratch must not be under /tmp (the jail binds scratch AT /tmp)
+// scratch is bound AT /tmp; the worktree is bound on top of it, so it may live under /tmp too
 const base = () => { const r = join(homedir(), '.cache', 'cadre-test'); mkdirSync(r, { recursive: true }); return mkdtempSync(join(r, 't-')) }
 
 test('copy-jail (real bwrap): writes die with the copy, /tmp is the scratch, network is off, HOME scratch audit lists what setup wrote', async () => {
@@ -34,6 +34,12 @@ test('copy-jail (real bwrap): writes die with the copy, /tmp is the scratch, net
   const home = join(scratch, 'home'); mkdirSync(home)
   const a = await run(G.homeScratchJail({ wt, scratch, pkgRoot: wt, scratchHome: home, argv: ['sh', '-c', 'mkdir -p "$HOME/.cache/pnpm" "$XDG_CACHE_HOME/x"; echo $HOME > $HOME/.cache/pnpm/h'] }))
   assert.equal(a.exitCode, 0, a.stderr); assert.equal(readFileSync(join(home, '.cache/pnpm/h'), 'utf8').trim(), home)
+})
+
+test('writable jail (real bwrap): a worktree under /tmp stays visible when scratch is bound at /tmp (eval sandboxes)', async () => {
+  const t = mkdtempSync(join(tmpdir(), 'cadre-wt-')), wt = join(t, 'wt'), b = base(), scratch = join(b, 'scratch'); mkdirSync(wt); mkdirSync(scratch); writeFileSync(join(wt, 'a.txt'), 'x')
+  const r = await run(G.writableJail({ wt, scratch, pkgRoot: wt, argv: ['sh', '-c', 'cat a.txt && echo y > w.txt'] }))
+  assert.equal(r.exitCode, 0, r.stderr); assert.equal(readFileSync(join(wt, 'w.txt'), 'utf8'), 'y\n')
 })
 
 // ---- a repo with a package whose "tests" are json cases run by run.mjs, which writes JUnit to /tmp/cadre/r.xml ----
