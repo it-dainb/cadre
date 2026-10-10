@@ -4,6 +4,8 @@ Status: accepted · Date: 2026-10-10 · Design: `design/DESIGN.md` v2.5 §14 · 
 Run: `harness/run.sh` (Docker, `cadre-harness`: non-root, seccomp/apparmor/systempaths unconfined, only the OAuth creds file mounted). Plugin = a `git archive HEAD` copy of `cadre/`, loaded with `--plugin-dir`. Models: haiku for exploratory runs and smokes, sonnet for the evals. Spend: about US$5 (evals ≈ $0.1–0.25 each, ~25 runs, plus ~40 haiku runs).
 Evidence: `docs/evidence/live/` (debug logs `*.debug.log.gz`, eval JSON `eval-*.json`, readable traces `trace-*.txt`, the drivers `drv.py`/`ev.sh`/`s.sh`/`sync.sh`, the probe mod `probe-mod/`). Smoke records: `tests/smoke/S*.md` "Result (live, 2026-10-10)".
 
+> **Evidence is local-only.** `docs/evidence/` is gitignored and was removed from the published history: the raw debug logs and transcripts carry account and host details. Paths below refer to a local checkout that ran the harness.
+
 ## What ran
 
 | # | What | Result | Evidence |
