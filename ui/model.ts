@@ -101,6 +101,8 @@ export function attention(v: View): Item[] {
   const b = v.b, p = b.plan, out: Item[] = []
   if (p && b.approval.planId === p.id && !b.approval.missing.length && p.state === 'draft')
     out.push({ key: `approve:${p.id}`, tag: 'attn', text: `approve plan ${p.id} · ${b.tasks.length} tasks`, short: `approve ${p.id} (${b.tasks.length} tasks)`, cmd: v.sec.approval?.planId === p.id ? `/cadre approve ${p.id}@${v.sec.approval.code8}` : undefined, tab: 'plan' })
+  const ic = v.sec.initConfirm   // the init confirm code is shown on the band only (UI-D7): the human reads it here and types the line
+  if (ic) out.push({ key: `init:${ic.stage}`, tag: 'attn', text: `init stage ${ic.stage} diff ready · confirm it`, short: `init ${ic.stage} diff ready`, cmd: `/cadre init confirm ${ic.code}`, tab: 'epic' })
   const g = b.tasks.find(t => t.type === 'gate' && t.id === v.sec.approval?.planId)   // a human gate rides the approval fields (planId = the gate id)
   if (g && v.sec.approval) out.push({ key: `approve:${g.id}`, tag: 'attn', text: `approve gate ${g.id} · ${g.title}`, short: `approve gate ${g.id}`, cmd: `/cadre approve ${g.id}@${v.sec.approval.code8}`, tab: 'epic', sel: g.id })
   if (b.containment.state === 'degraded') out.push({ key: 'mode:containment', tag: 'crit', text: 'Containment degraded · run /cadre init', tab: 'epic' })

@@ -183,6 +183,11 @@ describe('keys', () => {
     const g = view(62, { code8: 'zz99c0de', tweak: ts => ts.map(t => (t.id === 'a6' ? { ...t, type: 'gate' } : t)) }); g.sec.approval!.planId = 'a6'
     expect(txt(band(g, 115, NOOP)).join('\n')).toMatch(/approve gate a6 .*\n.*\/cadre approve a6@zz99c0de/)
   })
+  test('attention: a pending init diff shows its confirm code on the band (the only place a human can read it)', async () => {
+    const v = view(62, { board: { containment: { state: 'degraded', unsandboxed: 0 } } }); v.sec.initConfirm = { stage: 4, code: '1a2b3c4d' }
+    expect(txt(band(v, 115, NOOP)).join('\n')).toMatch(/init stage 4 diff ready.*\n.*\/cadre init confirm 1a2b3c4d/)
+    delete v.sec.initConfirm; expect(txt(band(v, 115, NOOP))[0]).toContain('Containment degraded')
+  })
   test('presses route to handlers: 1 opens the sheet for an approval, the flagged node for a flag', async () => {
     const got: string[] = [], a = { go: (t: string) => { got.push(`go:${t}`) }, pick: (i: string) => { got.push(`pick:${i}`) }, fill: () => {}, step: () => {} }
     segs(band(approval(), 115, a)).find(s => s.hk === '1')!.p!(); segs(band(view(82), 115, a)).find(s => s.hk === '1')!.p!(); segs(band(approval(), 115, a)).find(s => s.hk === 'd')!.p!()
