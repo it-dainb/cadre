@@ -52,6 +52,7 @@ export async function buildView(h: Host, d: Deps, task: Task, wt: string): Promi
     await G.git(h.run, wt, ['archive', '--format=tar', '-o', `${scratch}/v.tar`, src, '--', ...take]); await must(h, ['tar', '-xf', `${scratch}/v.tar`, '-C', `${scratch}/x`])
     await must(h, ['cp', '-a', `${scratch}/x/${root ? `${root}/` : ''}.`, view])
   }
+  await h.write(`${view}/FILES.md`, `# Files in this view\n\nThe agent tools cannot list directories: Read these for the test conventions (runner, import style, naming).\n\n${take.map(p => `- ${root ? p.slice(root.length + 1) : p}`).join('\n') || '(none)'}\n`)
   await h.write(`${view}/SCENARIOS.md`, `# Scenarios ${task.id}\n\n${task.acceptance ?? ''}\n`)
   await h.write(`${view}/INTERFACE.md`, `# Interface ${task.id}\n\n${renderContract(task.design)}\n\n\`\`\`json\n${task.design ?? ''}\n\`\`\`\n`)
   if (pkg?.tdd?.stubs) {   // generator output only, run in the offline jail; CADRE_OUT is where it writes

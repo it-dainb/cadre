@@ -47,7 +47,7 @@ export function brief(role: Role, b: BriefIn): string {
   const contract = sec('Contract', renderContract(b.contract))
   if (role === 'explorer') return join([head, `# ${b.question !== undefined ? 'QUESTION' : `TASK-${b.id}`}\n${b.question ?? b.title}`, sec('Scope', 'read-only; no edits, no shell'), notes])
   if (role === 'tester')
-    return join([head, `# SPEC TASK-${b.id}`, spec([sec('Scenarios', b.scenarios), contract]), sec('Test paths', b.testPaths), sec('View', 'spec view; tests only'), notes])
+    return join([head, `# SPEC TASK-${b.id}`, spec([sec('Scenarios', b.scenarios), contract]), sec('Test paths', b.testPaths), sec('View', 'spec view; tests only; read FILES.md first (it lists what the view holds: you cannot list directories)'), notes])
   if (role === 'reviewer')
     return join([head, `# REVIEW TASK-${b.id}`, sec('Source commit', b.sourceCommit), sec('Diff', [b.diffStat ?? '', cap(b.diff ?? '', 3072)]),
       spec([sec('Scenarios', b.scenarios), contract, sec('Spec tests', b.locked)]),
