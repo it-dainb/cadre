@@ -3,3 +3,6 @@ node_modules/
 .cadre/tmp/
 .omc/
 docs/evidence/
+harness/claude-*
+harness/out/
+harness/state/
