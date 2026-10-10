@@ -143,3 +143,17 @@ Image built from `harness/` with no local binary: the official installer path gi
 | Interactive `CADRE_SOURCE=marketplace harness/tui.sh start mk` | `/plugin` header `1 mod active · cadre`; `/cadre status` shows the seeded plan; asking main to spawn the task ran the tester, then handed off to the worker (pipeline active from the cached plugin) |
 
 The only warning is the unset `userConfig` option (defaults apply) and `containment degraded` until `/cadre init`, both expected. No fixes were needed.
+
+## setup / doctor (live)
+
+`harness/tui.sh` (haiku, 220 columns), container built from `harness/`: bwrap 0.8.0, git 2.39, bd 1.3.1, socat present.
+
+| Check | Result |
+|---|---|
+| Fresh container, `/cadre setup` | Command text `setup: 0 fail, 2 warn — report in the cadre pane`. Pane tab `doctor`: Claude Code 2.1.295 ok, git ok, bd ok (no if-revision: fallback), bwrap warn (0.8.0 has no overlay: copy-jail, fix `! sudo apt install bubblewrap  # upgrade to >= 0.11`), socat ok, worktree root writable, user settings warn (proposed `+ env.CLAUDE_CODE_ENABLE_TODO_TOOLS: "1"`). The code is on the band only; the log line carries `<code>`. |
+| `/cadre setup confirm deadbeef` | refused and burned; the real code typed next is refused too (burn on every attempt); `settings.json` unchanged |
+| `/cadre setup`, then `confirm <code read from the band>` | `settings.json` gets `env.CLAUDE_CODE_ENABLE_TODO_TOOLS`, `settings.json.bak` holds the old bytes, stamp written (only the bwrap warn remains) |
+| `/cadre doctor` in a seeded repo (`evals/execute-p1-ts`) | machine rows plus: init stages incomplete (1, 3, 5, 6, 8) fix `/cadre init`; containment degraded fix `/cadre init containment`; beads 1.3.1 reachable, journal on; branch main unset (crit) fix `/cadre init repo`; dev ok; no stale leases, flags, quarantined refs, queued resumes; drive off |
+| Second container, `bd` and `socat` hidden from PATH | `[CRIT] bd not found` fix `! npm install -g @beads/bd`; `[CRIT] socat not found` fix `! sudo apt install socat`; beads rows crit with fix `/cadre init store` |
+
+Fixed after the run: with bd missing the beads row appeared twice (probe, then list); the list now runs only when the probe passes. Two other crit rows in that container (user namespace, worktree root) came from my stripped PATH lacking `true` and `test`, not from the checks. The pane truncates a row wider than the pane (the log line has it whole). Not shown: the plugin's own version (a mod has no API for it).
