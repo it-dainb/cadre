@@ -21,6 +21,7 @@ function mk(o: { shadow?: string; npmFails?: boolean; tools?: Record<string, str
     stat: async (p: string) => (p === '/hm' || p === '/' || p === '/hm/u' || p === '/hm/u/.cache' || p.startsWith('/hm/u/.cache/cadre') ? { kind: 'dir' } : undefined),
     run: async (argv: string[]): Promise<R> => {
       calls.push(argv); const j = argv.join(' '), out = (stdout: string, exitCode = 0): R => ({ exitCode, stdout, stderr: '' })
+      if (argv[0] === 'chmod') return out('')
       if (argv[0] === 'mv') { if (argv[1] === o.shadow) moved = true; return out('') }
       if (argv[0] === 'npm') return argv[1] === 'install' ? (o.npmFails ? { exitCode: 1, stdout: '', stderr: 'npm ERR! EACCES\nnpm ERR! permission denied' } : (installed = true, out('added 1 package'))) : argv[1] === 'prefix' ? out('/hm/u/.npm') : out('10.0.0')
       if (argv[0] === 'sh') return out(argv[2] === 'command -v "$0"' ? (moved ? '/hm/u/.npm/bin/bd' : o.shadow ?? (tools.bd || installed ? '/hm/u/.npm/bin/bd' : '')) : argv[2] === 'command -v bwrap' ? '/usr/bin/bwrap' : '')
@@ -151,6 +152,12 @@ describe('setup: human-run fixes are scripts, the card shows one short line (0.5
     expect(await setup(h, ['copy'])).toBe('copied'); expect(got).toEqual([LINE])
     const bare = await dormant(); await setup(bare, []); expect((await card(bare)).options.map(x => x.label)).toEqual(['Re-check', 'Cancel']); expect(await setup(bare, ['copy'])).toContain('not copied')
   })
+  test('a script that cannot be written: no path to a missing file, a pane note, the whole command in ONE log line, [y] copies it', async () => {
+    const got: string[] = [], h = await dormant(got); (h as any).write = async (p: string) => { if (p.endsWith('.sh')) throw new Error('EROFS: read-only file system') }
+    await setup(h, []); const t = (await card(h)).lines.join('\n'); expect(t).toContain("couldn't write the fix script (EROFS: read-only file system); the exact command is in the cadre log"); expect(t).not.toContain('fix/bwrap-apparmor.sh')
+    const l = h.logs.filter(x => x.startsWith('fix command: ')); expect(l).toHaveLength(1); expect(l[0]).toContain("sudo sh -c 'printf "); expect(l[0]).toContain('/etc/apparmor.d/bwrap'); expect(l[0]).toContain('&& systemctl reload apparmor'); expect(l[0]).not.toContain('\n')
+    expect((await card(h)).options.map(x => x.label)).toContain('Copy command'); expect(await setup(h, ['copy'])).toBe('copied'); expect(got).toEqual([l[0].slice('fix command: '.length)])
+  })
   test('re-check after the human ran it: the row is green and the card is gone', async () => {
     const o: any = { jail: 'none', files: OK }, h = await dormant(undefined, o); await setup(h, []); expect(await card(h)).toBeDefined()
     o.jail = 'overlay'; await setup(h, []); expect((await h.board.read()).decisions ?? []).toEqual([])
@@ -208,6 +215,11 @@ describe('doctor', () => {
     expect(t).toMatch(/^doctor: \d+ fail, \d+ warn — report in the cadre pane$/); expect(banned(t)).toEqual([]); expect(h.writes).toEqual([]); expect(h.files).toEqual({ [USER]: '{}' })
     expect(h.calls.filter(a => a[0] === 'git' && !/rev-parse|for-each-ref|--version/.test(a.join(' ')))).toEqual([])
     expect(JSON.stringify((await h.ui.read())['doctor.rows'])).toContain('not inside a git repo'); expect(h.logs).toHaveLength(1); expect(h.logs[0]).toMatch(/^doctor: .*see the cadre pane$/)
+  })
+  test('read-only even with a sudo fix: no scripts written; the line shows only once setup wrote the script', async () => {
+    const o = { jail: 'none' as const, files: { [USER]: '{}', '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n' } }, h = mk(o), line = 'sudo sh ~/.cache/cadre/fix/bwrap-apparmor.sh'
+    await doctor(h); expect(h.writes).toEqual([]); let rows = JSON.stringify((await h.ui.read())['doctor.rows']); expect(rows).toContain('run /cadre setup to prepare the fix'); expect(rows).not.toContain(line)
+    await setup(h, []); await doctor(h); rows = JSON.stringify((await h.ui.read())['doctor.rows']); expect(rows).toContain(line)
   })
   test('a dormant repo: one warn row for the project, no other project rows', async () => {
     const h = mk({ repo: true }); await h.secret.update(x => ({ ...x, active: false })); await doctor(h)

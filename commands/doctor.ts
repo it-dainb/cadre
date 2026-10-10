@@ -26,7 +26,7 @@ const userPath = async (h: Host) => `${await h.home()}/.claude/settings.json`
 export type Act = { label: string; argv?: string[]; settings?: true }
 const BD_SH = 'curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash'
 // a human-run fix is a script under <cache>/cadre/fix (0700, harmless until run); the card, the pane and the copy button only ever show the ONE short line that runs it (ADR 0007, 0.5.1)
-export type Script = { path: string; text: string; exec?: true }
+export type Script = { path: string; text: string; run?: string; full?: string; exec?: true }   // run = the short line that runs it; full = the same fix as one copy-safe command
 export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; facts: Record<string, string>; acts: Act[]; human: string[]; own: Row[]; scripts: Script[] }> {
   const r = (argv: string[]) => h.run(argv, { timeoutMs: 5000 }).catch(() => undefined), text = (x?: { stdout: string; stderr: string }) => `${x?.stdout}${x?.stderr}`, out = async (argv: string[]) => (await r(argv))?.stdout.trim() ?? ''
   const mac = (await r(['uname', '-s']))?.stdout.trim() === 'Darwin', pm = mac ? 'brew install' : 'apt install', rows: Row[] = [], facts: Record<string, string> = {}, acts: Act[] = [], human: string[] = [], own: Row[] = [], scripts: Script[] = []
@@ -34,7 +34,7 @@ export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; fact
   const home = await h.home(), dir = `${(await h.env()).XDG_CACHE_HOME || `${home}/.cache`}/cadre/fix`, shown = dir.startsWith(`${home}/`) ? `~${dir.slice(home.length)}` : dir
   const fix = (name: string, why: string, cmd: string, root = true): string => {
     const run = `${root ? 'sudo ' : ''}sh ${shown}/${name}.sh`
-    scripts.push({ path: `${dir}/${name}.sh`, exec: true, text: `#!/bin/sh\n# cadre setup: ${why}\n# Run it once, yourself: ${run}\nset -eu\n${cmd}\n` })
+    scripts.push({ path: `${dir}/${name}.sh`, exec: true, run, full: `${root ? 'sudo ' : ''}sh -c '${cmd.split('\n').join(' && ').replaceAll("'", "'\\''")}'`, text: `#!/bin/sh\n# cadre setup: ${why}\n# Run it once, yourself: ${run}\nset -eu\n${cmd}\n` })
     return `! ${run}`
   }
   facts.cc = (await h.version?.().catch(() => '')) ?? ''
@@ -77,7 +77,12 @@ export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; fact
   else add(['crit', `worktree root ${root} is not writable`, `set worktrees.root in ~/.claude/cadre.json, or fix the permissions of ${p}`])
   return { rows, facts, acts, human, own, scripts }
 }
-const put = async (h: Host, ss: Script[]) => { for (const s of ss) { await h.write(s.path, s.text).catch(() => {}); if (s.exec) await h.run(['chmod', '700', s.path]).catch(() => {}) } }
+// setup only (doctor stays read-only). Returns path -> reason for every script that could not be written
+const put = async (h: Host, ss: Script[]): Promise<Map<string, string>> => {
+  const bad = new Map<string, string>()
+  for (const s of ss) { try { await h.write(s.path, s.text); if (s.exec && (await h.run(['chmod', '700', s.path])).exitCode) throw new Error('chmod failed') } catch (e) { bad.set(s.path, (e as Error).message.split('\n')[0].slice(0, 60)) } }
+  return bad
+}
 const userPlan = async (h: Host) => mplan(h, await userPath(h), PATCH).catch((e: Error) => e)
 
 // ---- report: one line to the model; the rows go to the pane and ONE summary line to the log (never a multi-line string: the transcript shows it as U+FFFD) ----
@@ -90,13 +95,19 @@ async function report(h: Host, name: string, rows: Row[], text?: string, extra: 
 }
 
 // ---- setup: preflight, plan, one confirm, execute, then (dormant repos only) hand what is left to the main agent ----
-type Plan = { rows: Row[]; facts: Record<string, string>; acts: Act[]; human: string[]; own: Row[]; hash: string; scripts: Script[] }
+type Plan = { rows: Row[]; facts: Record<string, string>; acts: Act[]; human: string[]; own: Row[]; hash: string; scripts: Script[]; copy?: string }   // copy = what [y] puts on the clipboard
 async function preflight(h: Host, cfg: Config): Promise<Plan> {
-  const m = await machine(h, cfg), p = await userPlan(h), acts = [...m.acts]; await put(h, m.scripts)
+  const m = await machine(h, cfg), p = await userPlan(h), acts = [...m.acts], bad = await put(h, m.scripts)
+  const first = m.scripts.find(x => x.run && m.human.includes(`! ${x.run}`)), copy = first && (bad.has(first.path) ? first.full : first.run)
+  for (const x of m.scripts) if (bad.has(x.path) && x.run) {   // no path to a missing file: a pane note, the whole command in ONE log line
+    const note = `couldn't write the fix script (${bad.get(x.path)}); the exact command is in the cadre log`
+    for (const r of m.rows) if (r[2] === `! ${x.run}`) r[2] = note
+    m.human = m.human.map(l => (l === `! ${x.run}` ? note : l)); h.log(`fix command: ${x.full}`)
+  }
   if (p instanceof Error) m.rows.push(['crit', p.message])
   else if (p.lines.length) { acts.push({ label: 'writing user settings', settings: true }); m.rows.push(['warn', `user settings need a change (${p.lines.join('; ')})`]) }
   else m.rows.push(['ok', 'user settings: env CLAUDE_CODE_ENABLE_TODO_TOOLS is set'])
-  return { ...m, acts, hash: fnv1a64(JSON.stringify(acts) + (p instanceof Error ? '' : p.lines.join('\n') + canon(p.old))) }
+  return { ...m, acts, copy, hash: fnv1a64(JSON.stringify(acts) + (p instanceof Error ? '' : p.lines.join('\n') + canon(p.old))) }
 }
 const shown = (h: Host, P: Pick<Plan, 'acts' | 'human'>, extra: Record<string, unknown> = {}) => h.ui.update(u => ({ ...u, 'setup.plan': { acts: P.acts.map(a => [a.label, '']), human: P.human, ...extra } }))
 const left = (P: Plan, planned = false) => P.rows.filter(r => r[0] === 'crit' && !/\bsudo\b/.test(r[2] ?? '') && !(planned && P.own.includes(r)))   // what no password can fix: Claude can try (planned: minus what our own actions are about to fix)
@@ -120,7 +131,7 @@ async function card(h: Host, P: Plan, fixing?: number, ran = false): Promise<voi
   if (!lines.length) return settle(h, `init:${SETUP}`)
   const ok = !!code && fixing === undefined && (P.acts.length || can)
   await ask(h, { id: `init:${SETUP}`, kind: 'init', title: fixing !== undefined ? 'setup · Claude is fixing it' : 'setup · needs you', short: 'setup needs you', lines, hash: fnv1a64(P.hash + lines.join('\n')), tab: 'epic', fallback: '/cadre setup confirm {code}',
-    options: [...(ok ? [{ key: 'a', label: 'Fix all', verb: 'approve', run: 'setup confirm {code}' }] : []), ...(h.ops?.copy && P.human.some(x => x.startsWith('! ')) ? [{ key: 'y', label: 'Copy command', verb: 'change', run: 'setup copy' }] : []), { key: 'r', label: 'Re-check', verb: 'change', run: 'setup' }, { key: 'x', label: 'Cancel', verb: 'reject', run: 'setup cancel' }] }, code)
+    options: [...(ok ? [{ key: 'a', label: 'Fix all', verb: 'approve', run: 'setup confirm {code}' }] : []), ...(h.ops?.copy && P.copy ? [{ key: 'y', label: 'Copy command', verb: 'change', run: 'setup copy' }] : []), { key: 'r', label: 'Re-check', verb: 'change', run: 'setup' }, { key: 'x', label: 'Cancel', verb: 'reject', run: 'setup cancel' }] }, code)
 }
 type Failed = { label: string; argv: string[]; out: string[] }
 // the plan's actions in order; the first failure stops the run (its last output lines are the evidence)
@@ -161,7 +172,7 @@ export async function afterFix(h: Host, e: { turnId?: string } = {}): Promise<vo
 export async function setup(h: Host, args: string[]): Promise<string> {
   const cfg = await cfgOf(h), path = await userPath(h)
   let P = await preflight(h, cfg), note = '', fixed = 0, ran = false, fixing: number | undefined, stopped = ''
-  if (args[0] === 'copy') { const x = P.human.find(l => l.startsWith('! ')); return x && (await h.ops?.copy?.(x.slice(2)))?.isCopied ? 'copied' : 'not copied: select the line in the card' }
+  if (args[0] === 'copy') { return P.copy && (await h.ops?.copy?.(P.copy))?.isCopied ? 'copied' : 'not copied: select the line in the card' }
   if (args[0] === 'confirm') {
     const was = ((await h.ui.read())['setup.pending'] as string | undefined), good = await initConfirm(h, SETUP, args[1] ?? '')   // burns on every attempt
     if (!good) return 'setup: wrong code or nothing pending (burned); run /cadre setup again'
@@ -221,6 +232,7 @@ async function project(h: Host, cfg: Config): Promise<Row[]> {
 }
 export async function doctor(h: Host): Promise<string> {
   const cfg = await cfgOf(h)
-  const m = await machine(h, cfg); await put(h, m.scripts)   // only the harmless fix scripts, so the lines doctor shows exist
+  const m = await machine(h, cfg)   // read-only: a fix line only when its script already exists (setup writes them)
+  for (const x of m.scripts) if (x.run && (await h.readText(x.path)) === null) for (const r of m.rows) if (r[2] === `! ${x.run}`) r[2] = 'run /cadre setup to prepare the fix'
   return report(h, 'doctor', [...m.rows, ...(await project(h, cfg))])
 }
