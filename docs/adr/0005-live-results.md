@@ -84,3 +84,19 @@ Regressions found and fixed (root cause, test each):
 2. `main-never-edits` counted a refused Edit attempt (`tool_used`). Refused attempts are not edits (same rule as Bash); `main-never-edits`/`main-never-bash` are now judged by results (`1772ca4`). Source stayed untouched in every run.
 3. Real wording defect: main's Edit refusal said "spawn it for the task", so sonnet spawned `general-purpose` agents (retyped to explorers, which cannot report) and never planned (`TaskCreate` 0x, score 0.67). The deny now ends in the right next action: "plan the change with TaskCreate, or spawn the agent of a planned task" (`a52bf2b`, `tests/policy-guards.test.ts`). Re-run: 1.0.
 Spend: about US$3 (6 first-pass evals + 8 re-runs, ~14 haiku smokes).
+
+### G2/G4 (verifier gaps), same re-run
+Each row used a fresh `git archive HEAD` copy; the hash is HEAD at that run. Evidence in `docs/evidence/live/rerun2/` (`drv2.py` = stream-json driver with `drain:`, `m6.script`, `scaffold-m4.sh`, `scaffold-m6.sh`).
+
+| Check | HEAD | Result |
+|---|---|---|
+| **M4** live chain: p-p1.2 depends on p-p1.1 (sonnet, foreground) | 98aa5a5 | **PASS**: tester→worker→reviewer→`TaskUpdate completed` for .1, then the same for .2 (only after .1 closed); both squashed onto `epic/p-p1-…` (`165e61e`, `eeb1903`). `m4.debug.log.gz` |
+| **M6b** drive, run 1 (3-task epic: model drafts the plan with `TaskCreate`, sdk-origin `/cadre approve`, `/cadre drive on`) | 98aa5a5 | Drive ran for real (first live run): all 3 tasks closed, `Continue: complete the epic` ×3, then `Drive paused: no progress in 3 turns`. Defect: the card said only "complete the epic"; main did not know the action |
+| M6b run 2 | 9262117 | Card now `complete the epic: TaskUpdate <id> completed`; the call was refused: "completed does not apply to a draft". Defect: approval leaves the epic bead `draft` (`native/tasks.ts` draft test) |
+| **M6b run 3** | 12cdca0 | **PASS**: approval → 3 tasks (tester/worker/reviewer each, foreground) → `TaskUpdate <epic> completed` → toast "Epic landed on dev · release v0.1.0? /cadre release" → "drive finished", `drive off`. `dev` = merge commit with the 3 squashes and 3 changelog lines under Unreleased; release not run (human: `/cadre release`). `m6-drive-run3-landed.*` |
+| G4 `execute-p1-ts` ×3 (`--runs 3`, sonnet) | 98aa5a5 | **3/3 = 1.0** (`eval-execute-p1-ts-x3.json`, $0.62) |
+| G4 `execute-p1-rust` tester-before-worker judge | a0ae076+ | judge fixed (it reads the Agent-result cards main sees); rust re-run **1.0** |
+| **S10** restart half (`--resume` of a finished-plan session, then a plain prompt) | 12cdca0 | Board comes back from beads: `resumed · epic p-p1 · (re-adopted)`, resume card `next: complete the epic …`. A first-line `/cadre status` said `no plan` (fixed, below). `s10.debug.log.gz`, `s10b.debug.log.gz` |
+| S10 `/reload-plugins` half; S29 (link click, queued Enter) | n/a | **PENDING-HUMAN** (TUI). S10 repro: `claude --plugin-dir <cadre>` in the seeded repo, run a plan to `active`, `/reload-plugins`, `/cadre status` (identical), quit, `claude --continue` (resume card, `drive` off). S29 repro: pane approve link click → origin `composer`, model never sees a live `code8`; queue Enter before/after a plan amendment → the second mismatches the token |
+
+Notes: drive starts at the next `turn.complete` after arming, so one kickoff prompt follows `/cadre drive on` (main then drove all three tasks itself; drive's own `Continue:` prompt fired only for the epic completion). Fixes (root cause + test each): `9262117` the card names the action; `12cdca0` an approved epic is not a draft in `TaskUpdate`; `dc5e84d` `/cadre status` warms a cold board.
