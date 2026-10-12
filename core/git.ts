@@ -3,21 +3,10 @@ import type { Host } from '../types'
 
 export type Res = { exitCode: number; stdout: string; stderr: string }
 export type Run = (argv: readonly string[], init?: { cwd?: string; env?: Record<string, string>; stdin?: string; timeoutMs?: number }) => Promise<Res>
-// Commits the mod makes land on the user's branches, so they carry the USER's git identity, never a made-up one (ADR 0009). Missing: init stage 1 and setup ask for it.
+// Commits the mod makes land on the user's branches, so they carry the USER's git identity, never a made-up one (ADR 0009). Missing: Claude asks for it during setup/init (ADR 0010).
 export async function identity(run: Run, env: Record<string, string | undefined> = {}): Promise<{ ok: boolean; name: string; email: string }> {   // env: GIT_AUTHOR_* prefill
   const get = async (k: string) => (await run(['git', 'config', '--get', k]).catch(() => undefined))?.stdout.trim() ?? ''
   return { ok: (await run(['git', 'var', 'GIT_COMMITTER_IDENT']).catch(() => ({ exitCode: 1 }))).exitCode === 0 && (await run(['git', 'var', 'GIT_AUTHOR_IDENT']).catch(() => ({ exitCode: 1 }))).exitCode === 0, name: (await get('user.name')) || env.GIT_AUTHOR_NAME || '', email: (await get('user.email')) || env.GIT_AUTHOR_EMAIL || '' }
-}
-export const IDENT_FIELDS = (cur: { name: string; email: string }) => [{ key: 'name', label: 'Name', value: cur.name }, { key: 'email', label: 'Email', value: cur.email }]
-// from `name=… email=…` args (argv elements; a value may hold spaces): the values or the reason they are refused
-export function identityArgs(args: string[]): { name: string; email: string } | string {
-  const v = Object.fromEntries(args.filter(a => /^\w+=/.test(a)).map(a => [a.slice(0, a.indexOf('=')), a.slice(a.indexOf('=') + 1).trim()]))
-  return !v.name ? 'name is empty' : !/^[^\s@<>]+@[^\s@<>]+$/.test(v.email ?? '') ? 'email needs a form like you@example.com' : /[<>\n]/.test(v.name) ? 'name has < > or a newline' : { name: v.name, email: v.email }
-}
-// argv only, no shell: the values never meet an interpreter
-export async function setIdentity(run: Run, id: { name: string; email: string }): Promise<string | null> {
-  for (const [k, x] of [['user.name', id.name], ['user.email', id.email]]) { const r = await run(['git', 'config', '--global', k, x]); if (r.exitCode) return `git config ${k} failed: ${r.stderr.trim().split('\n').pop()}` }
-  return null
 }
 // paths the mod owns in a repo: agents never change them (close refuses, guards fence, the brief names them)
 export const PROTECTED = ['.git/', '.cadre/', '.beads/', '.claude/', '.mcp.json', 'CHANGELOG.md']

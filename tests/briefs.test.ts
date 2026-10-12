@@ -65,15 +65,6 @@ describe('main context line (4.5): gated, diff-gated, main only', () => {
   test('a subagent prompt is never touched (main only, S35)', async () => {
     const h = fakeHost(); await h.board.update(s => ({ ...s, ...planBoard() })); expect((await submit(h, { text: 'x', agentId: 'ag1' })).context).toBeUndefined()
   })
-  test('pending init requests are exempt from the plan gate and from the diff gate, and carry their own next:', async () => {
-    const h = fakeHost(); await h.board.update(s => ({ ...s, seq: 1, init: [{ stage: 4, state: 'pending' as const }] }))
-    for (let i = 0; i < 2; i++) { const r = await submit(h); expect(r.context).toHaveLength(1); expect(r.context[0]).toBe('next: spawn the discovery explorer') }
-    await h.board.update(s => ({ ...s, init: [{ stage: 3, state: 'pending' as const }] })); expect((await submit(h)).context[0]).toContain('draft TaskCreate{kind:"mission"}')
-  })
-  test('the discovery explorer runs (or reported): no second "spawn" in main context (live: main was told to spawn again after its report)', async () => {
-    const h = fakeHost(); await h.board.update(s => ({ ...s, seq: 1, init: [{ stage: 4, state: 'pending' as const }] })); await h.ui.update(u => ({ ...u, discoveryAgent: 'ag1' }))
-    expect((await submit(h)).context).toBeUndefined()
-  })
   test('existing context entries are kept; the line is appended', async () => {
     const h = fakeHost(); await h.board.update(s => ({ ...s, ...planBoard() })); expect((await submit(h, { text: 'x', context: ['keep'] })).context[0]).toBe('keep')
   })

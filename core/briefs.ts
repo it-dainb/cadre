@@ -1,7 +1,7 @@
 // Model-visible text built by the mod (DESIGN 4.2-4.6, 8.2): role briefs (static header first), per-agent deltas, main's diff-gated context line,
 // reminder suppression, resume card, id matcher. Caps from 1.4: header 1.5 KB, spec 4 KB, context 3 KB, notes 500, delta 1 KB, line 1 KB, card 3 KB.
-import type { Hook, Host, Role, Snapshot } from '../types'
-import { explorerOut, scoped } from '../commands/init'
+import type { Hook, Host, Role } from '../types'
+import { scoped } from '../commands/init'
 import { modelView, viewHash } from './board'
 import { contextLine } from './render'
 
@@ -58,11 +58,6 @@ export function brief(role: Role, b: BriefIn): string {
       sec('Findings / checks', [...(b.findings ?? []), b.greenCard ?? '']), sec('Decisions', b.decisions), sec('Handoff', b.handoff),
       sec('Paths of other active tasks', (b.others ?? []).slice(0, 10)), sec('Protected paths', b.protectedPaths)]), notes])
 }
-// discovery brief (10.2): the marker-less spawn while init stage 4 is pending
-export const DISCOVERY = `${HEAD.explorer}
-# DISCOVERY
-Read CI config, task runners, manifests, README/CONTRIBUTING and test dirs (CI wins over prose). Per package report setup argv, checks {name: argv}, tdd {paths, report?, stubs?, skeleton?}, viewInclude, and fetches[] = checks whose CI step fetches at test time. Answer report{discovery:{packages:[…]}, citations}; every argv cites its source file.`
-
 // ---- deltas (4.3): <= 1 KB per bound agentId, drained by the tool.call wrap into context, or by a queued resume ----
 const dk = (h: Host, agentId: string) => scoped(h, `deltas:${agentId}`)
 export async function pushDelta(h: Host, agentId: string, text: string): Promise<void> { const q = ((await h.store.get(await dk(h, agentId))) as string[] | undefined) ?? []; await h.store.set(await dk(h, agentId), [...q, text]) }
@@ -75,28 +70,19 @@ export async function drainDelta(h: Host, agentId: string): Promise<string | nul
   return cap(out.join('\n'), 1024)
 }
 
-// ---- main's context line (4.5): render.contextLine; here only the init-request next: and the diff gate ----
-function lineOf(s: Snapshot, init: boolean): string {
-  const p = init ? s.init.find(i => i.state === 'pending' && (i.stage === 3 || i.stage === 4)) : undefined, full = contextLine(modelView(s))
-  if (!p) return full
-  const nx = p.stage === 4 ? 'spawn the discovery explorer' : 'ask the human for the mission (goal, constraints, non-goals) and draft TaskCreate{kind:"mission"}', base = full.split('\nnext:')[0]
-  return `${base ? `${base}\n` : ''}next: ${nx}`
-}
-
 // one-time resume card (8.2), <= 3 KB. Rendered from computed data by whoever rehydrates, queued with queueCard.
 export interface CardIn { mission: string | null; epic: { id: string; title: string; intent?: string } | null; decisions: string[]; questions: string[]; inflight: { id: string; step: string; owner?: string; checkpoint?: string }[]; drive: string; next: string }
 export const renderCard = (c: CardIn): string => cap(join(['Resume card', sec('Mission', c.mission ?? 'none'), sec('Epic', c.epic ? `${c.epic.id} ${c.epic.title}${c.epic.intent ? `\n${c.epic.intent}` : ''}` : 'none'),
   sec('Last decisions', c.decisions.slice(-5)), sec('Open questions', c.questions), sec('In flight', c.inflight.map(t => `- ${t.id} ${t.step}${t.owner ? ` owner ${t.owner}` : ''}${t.checkpoint ? ` checkpoint ${t.checkpoint}` : ''}`)), `drive: ${c.drive}`, `next: ${c.next}`]), 3072)
 export const queueCard = (h: Host, card: string) => h.secret.update(s => ({ ...s, ctx: { key: s.ctx?.key ?? '', card } }))
 
-// prompt.submit, main only (S35), while a plan exists or an init request is pending; only when the view hash changed (7). The card goes first, once, and counts as sent.
+// prompt.submit, main only (S35), while a plan exists; only when the view hash changed (7). The card goes first, once, and counts as sent.
 export const context: Hook = async (h, e, next) => {
   if (e.agentId) return next(e)
-  const [s, sc] = [await h.board.read(), await h.secret.read()], card = sc.ctx?.card, init = s.init.some(i => i.state === 'pending') && !(await explorerOut(h)), key = viewHash(s)   // the explorer runs or reported: no second "spawn" 
-  if (!card && !s.plan && !init) return next(e)
-  if (!card && !init && sc.ctx?.key === key) return next(e)
+  const [s, sc] = [await h.board.read(), await h.secret.read()], card = sc.ctx?.card, key = viewHash(s)
+  if (!card && (!s.plan || sc.ctx?.key === key)) return next(e)
   await h.secret.update(x => ({ ...x, ctx: { key } }))
-  return next({ ...e, context: [...(e.context ?? []), ...(card ? [card] : []), ...(s.plan || init ? [lineOf(s, init)] : [])] })
+  return next({ ...e, context: [...(e.context ?? []), ...(card ? [card] : []), ...(s.plan ? [contextLine(modelView(s))] : [])] })
 }
 // prompt.attachment: native todo/task reminders are noise next to the board line (BT-23, PC-11)
 export const attachment: Hook = (h, e, next) => (e.type === 'todo_reminder' || e.type === 'task_reminder' ? { text: null } : next(e))

@@ -1,4 +1,4 @@
-// Stage 4 discovery (DESIGN 10.2): brief for the explorer, report{discovery} parsing, jailed runs (audit + validate). Pure helpers + h.run; no language logic.
+// Init discovery checks (DESIGN 10.2, ADR 0010): the package list's shape (parse) and the jailed runs that validate it. Pure helpers + h.run; no language logic.
 import type { Host } from '../types'
 import * as G from './git'
 
@@ -9,18 +9,12 @@ export interface Pkg {
 export type Verdict = 'pass' | 'red' | 'net' | 'knownRed'
 export interface Run { setupOk: boolean; caches: string[]; results: Record<string, Verdict>; junit?: boolean }
 
-export const brief = (): string => `cadre discovery (read-only). Find how this repo is built and tested; CI config wins over prose.
-Read: CI config, task runners, manifests, README/CONTRIBUTING, test dirs. Per package answer ONE mcp__cadre__report {role:"explorer", discovery:{packages:[
-{root, setup:[argv] (or [] when none), checks:{name:[argv]}, fetches?:[names of checks whose CI step fetches at test time], tdd:{paths:[globs], report?:"/tmp/cadre/<n>.xml" (JUnit), stubs?:[argv], skeleton?:[argv]}, viewInclude?:[paths]}]}, citations:[{path,line}]}.
-Every argv cites the file it came from. Commands only; no shell strings. Do not run anything.`
-
 const isArgv = (v: unknown): v is string[] => Array.isArray(v) && v.length > 0 && v.every(x => typeof x === 'string' && x !== '')
-export function parse(r: any): Pkg[] | string {
-  const ps = r?.discovery?.packages
-  if (!Array.isArray(ps) || !ps.length) return 'discovery.packages: expected [{root, setup, checks, tdd}], e.g. {"root":".","setup":["npm","ci"],"checks":{"test":["npm","test"]},"tdd":{"paths":["test/**"]}}'
-  if (!Array.isArray(r.citations) || !r.citations.length) return 'citations: expected [{path,line}] naming the files the argv came from'
+// the `packages` list of .cadre/config.json (written by Claude during init): shape check, with an example in every refusal
+export function parse(ps: any): Pkg[] | string {
+  if (!Array.isArray(ps) || !ps.length) return 'packages: expected [{root, setup, checks, tdd}], e.g. {"root":".","setup":["npm","ci"],"checks":{"test":["npm","test"]},"tdd":{"paths":["test/**"]}}'
   for (const [i, p] of ps.entries()) {
-    const at = `discovery.packages[${i}]`
+    const at = `packages[${i}]`
     if (typeof p?.root !== 'string' || p.root.startsWith('/') || p.root.split('/').includes('..')) return `${at}.root: expected a repo-relative path like "." or "packages/api"`
     if (p.setup !== undefined && !(Array.isArray(p.setup) && !p.setup.length) && !isArgv(p.setup)) return `${at}.setup: expected an argv array like ["npm","ci"], or [] when the repo has no setup step`
     const cs = Object.entries(p.checks ?? {}); if (!cs.length || cs.some(([, a]) => !isArgv(a))) return `${at}.checks: expected {"test":["npm","test"]}`

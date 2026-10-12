@@ -21,21 +21,25 @@ $CC --plugin-dir .                  # in the repo you want to manage
 Debug a run: add `--debug-file cadre.log`. Live smokes/evals run in Docker via [`harness/`](harness/README.md) (also able to install from the marketplace: `CADRE_SOURCE=marketplace`). Live evidence (`docs/evidence/`) is local-only and gitignored.
 
 ## First run: `/cadre setup`, then `/cadre init`
-`/cadre setup` (once per machine, human only) checks Claude Code, `git`, `bd`, `bwrap`, `socat`, the worktree root and the user settings cadre relies on, then shows a plan in the cadre pane (Doctor tab). Everything it can fix without a password becomes an action (installing `bd`, the settings merge, creating the worktree folder); The decision card has [a] Fix all, [r] Re-check, [x] Cancel. Fix all runs the actions in order (including moving a stale `bd` in a folder you own aside as `bd.cadre-old`, never deleting it), re-checks, and, in a repo where cadre is not on, hands anything still failing (a failed action, an odd npm prefix) to Claude as one prompt; when Claude stops, the checks run again by themselves. In a repo where cadre is on, main has no shell, so only the scripted fixes run and the card says to open Claude in another folder. What needs root (installing bubblewrap and socat, the AppArmor profile for bwrap on Ubuntu 24.04+, removing a stale `bd` from a system folder) is never automated, because `! sudo` inside Claude cannot ask for a password. Setup writes each such fix as a script under `~/.cache/cadre/fix/` (read it first; it does nothing until you run it) and the card shows one short line per fix, e.g. `sudo sh ~/.cache/cadre/fix/bwrap-apparmor.sh`; [y] copies it, you paste it into a terminal, then press [r]. Less safe alternatives are only described in `~/.cache/cadre/fix/README`. A newer Claude Code than the tested build only warns. `/cadre doctor` re-runs the machine checks and adds the project ones (init stages, containment, beads, branches, leases, flags, sync, drive); it is read-only and safe any time. The command text is one line, the log gets one summary line, and the full report is in the pane: the `8: Doctor` tab keeps the last report (`/cadre open doctor` reopens it; `/cadre doctor` re-runs it).
+Both are run by Claude, in the open: the command hands Claude one short prompt ("Follow `<plugin>/guides/setup.md` step by step"), and you watch its Bash, Read and Write calls in the transcript, with the usual spinner and timer. The guides ([`guides/setup.md`](guides/setup.md), [`guides/init.md`](guides/init.md)) list each phase with the exact commands and what "done" means. cadre itself only checks: after each of Claude's turns it runs the checks again, ticks the checklist card (`✓` done, `✗` Claude's to fix, `…` waits for you, `·` later), and if something Claude owns still fails it sends one follow-up naming the failing check (at most 3 per run; then the card shows what is left and [r] Retry). A run ends when every check passes, on [x] Cancel, or after 20 Claude turns / 30 minutes. During a run Claude may use Bash and edit only the setup files (`.cadre/`, `.git/info/exclude`, `.claude/settings.local.json`, `CHANGELOG.md`, `~/.claude/settings.json`, `~/.claude/cadre.json`), never source files; only a `/cadre setup|init` you type or press starts one. See ADR 0010.
+
+`/cadre setup` (once per machine) checks Claude Code, `git` and your git identity, `bd` >= 1.3.0, `bwrap`, `socat`, the worktree root and the user settings cadre relies on. Claude asks you (AskUserQuestion) for anything only you know, such as your git name and email, installs `bd` at user level, moves a stale `bd` in a folder you own aside as `bd.cadre-old`, and merges the settings (with a `.bak`). What needs root (installing bubblewrap and socat, the AppArmor profile for bwrap on Ubuntu 24.04+, removing a stale `bd` from a system folder) is never run for you: cadre writes each fix as a script under `~/.cache/cadre/fix/` (read it first; it does nothing until you run it), Claude gives you the one line to paste into a terminal (e.g. `sudo sh ~/.cache/cadre/fix/bwrap-apparmor.sh`) and asks when you are done; the next check sees the result. Less safe alternatives are only described in `~/.cache/cadre/fix/README`. A newer Claude Code than the tested build only warns. `/cadre doctor` re-runs the machine checks and adds the project ones (init, containment, beads, branches, leases, flags, sync, drive); it is read-only and safe any time. The full report is in the pane's `8: Doctor` tab.
 
 ## Per project: `/cadre init`
-`/cadre init` runs the next incomplete stage; `/cadre init <stage>` re-runs one. Each stage shows its diff on the decision card (`init 2/8 · store`, repo-relative paths): [a] Confirm validates by running, then saves (a `.bak` is written first), and the next stage's card follows on its own. A failed stage stays on the card with the reason (`! last try: …`) and a new code. The typed `/cadre init confirm <code>` still works; the code is redrawn on every attempt. The command answer is one line. Stages 3 and 4 hand Claude one prompt: it asks you for the mission (then you approve it on its card), and it spawns the discovery explorer (diff 2 follows its report). Stage 1 on a folder with no repo makes the first commit, which carries your git identity. If git has none, the card asks for your name and email, sets them (`git config --global`) and finishes the stage. `/cadre setup` does the same. See ADR 0009.
+Claude follows the init guide; the checklist has these items:
 
-| # | Stage | Result |
-|---|---|---|
-| 1 | repo | git repo, default branch, `dev` branch, `.git/info/exclude` |
-| 2 | store | `bd init`, custom statuses/types, journal consent |
-| 3 | mission | goal, constraints, non-goals recorded as a milestone |
-| 4 | discovery | explorer reads CI/manifests; setup and checks are validated in a jail |
-| 5 | containment | sandbox settings merge + learned cache dirs |
-| 6 | workflow profile | type registry, role tiers, `tdd.author`, drive bounds |
-| 7 | changelog | Keep-a-Changelog skeleton |
-| 8 | sync (optional) | external tracker adapter |
+| Item | Done when |
+|---|---|
+| repository | git repo with a first commit, the main and `dev` branches, `.git/info/exclude` lines, `branches` in `.cadre/config.json` (this file turns cadre on in the repo) |
+| task store | `bd init` with cadre's statuses and types, journal on |
+| mission | goal, constraints, non-goals: Claude asks you, drafts it, **you approve it on its card** |
+| build and test commands | `packages` in `.cadre/config.json`, found by Claude from CI config, manifests and the README |
+| commands pass on a clean checkout | cadre runs each package's setup and checks in a jail, offline; a failing one goes back to Claude |
+| workflow | the type registry and roles resolve (defaults unless you change them) |
+| changelog | `CHANGELOG.md` in Keep a Changelog 1.1.0 |
+| safety settings | sandbox settings plus the cache folders learned above: cadre shows the diff on a card and **writes it only after you confirm** |
+
+Sync with an external tracker is separate and optional: `/cadre sync add <adapter>`.
 
 ## The loop
 1. **Plan.** Main drafts a plan with `TaskCreate` (`metadata.kind:"plan"`, then tasks). Each task has a `type`, `package`, Given/When/Then `scenarios`, a `changelog` entry or `{none, reason}`, and an interface `contract`. Drafts live in beads and never run.
@@ -53,9 +57,9 @@ Types (`feature`, `bug`, `refactor`, `docs`, `test`, `spike`) and their pipeline
 | `reject <planId> <why>` | human | drop drafts |
 | `resolve <id> keep\|accept\|reject\|cancel` · `resolve git keep\|restore` | human | clear flags / quarantined git effects |
 | `release [x.y.z]` | human | cut a release |
-| `setup [confirm <code>]` | human | one-time machine check; proposes user-settings changes |
+| `setup [cancel]` | human | one-time machine setup, done by Claude, checked by cadre |
 | `doctor` | anyone | read-only diagnosis, report in the cadre pane |
-| `init [<stage>] [confirm <code>]` | human | staged setup |
+| `init [cancel \| confirm <code>]` | human | project setup, done by Claude, checked by cadre; `confirm` = the safety settings card |
 | `sync add <adapter>` · `sync [now]` | human · anyone | external tracker setup · wake sync |
 | `adapter token` | human | new adapter session token (toast only) |
 | `config [show\|set <k> <v>]` | `set`: human | show/change config |

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
+import '../commands/agentrun'   // registers RUN.recheck (the mission approval re-checks a running init)
 import { FULL, plan, world } from './fixtures/native/world'
 
 const code = async (w: Awaited<ReturnType<typeof world>>) => (await w.h.secret.read()).approval!.code8
@@ -85,12 +86,12 @@ describe('approve: plan@code8, burn on use, completeness (DESIGN 3.1)', () => {
     expect(await w.h.board.read()).toMatchObject({ mission: 'Ship auth', plan: null, epic: null })
     expect((await w.store.list({})).some(t => t.type === 'milestone')).toBe(true)
   })
-  test('init stage 3: approving the mission continues init with the next stage (one line)', async () => {
-    const w = await world(); await w.h.board.update(b => ({ ...b, init: [{ stage: 3, state: 'pending' }] }))
+  test('init: approving the mission re-checks the running init (one line)', async () => {
+    const w = await world(); await w.h.secret.update(s => ({ ...s, run: { kind: 'init', at: 0, turns: 0, follow: 0, guide: '/p/guides/init.md' } }))
     const m = (await w.call('TaskCreate', { subject: 'Ship auth', description: 'goal', metadata: { kind: 'mission' } })).result.task.id
     expect((await w.h.board.read()).decisions?.map(d => [d.title, ...d.lines].join('|'))).toEqual(['approve the mission · Ship auth|goal'])   // the card shows the mission, not "0 tasks"
     const t = (await w.text({ cmd: 'approve', args: [`${m}@${await code(w)}`] })).text
-    expect(t).toStartWith('Mission "Ship auth" approved and recorded · init: stage '); expect(t).not.toContain('\n')
+    expect(t).toStartWith('Mission "Ship auth" approved and recorded · init: '); expect(t).not.toContain('\n')
   })
   test('M12: reject on an amended plan reverts the amendment to todo; the approved task is never deleted', async () => {
     const w = await world(); const { plan: p, task } = await plan(w)

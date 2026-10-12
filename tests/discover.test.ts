@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { brief, caches, parse } from '../core/discover'
+import { caches, parse } from '../core/discover'
 import * as G from '../core/git'
 
 describe('discovery (DESIGN 10.2)', () => {
@@ -21,14 +21,13 @@ describe('discovery (DESIGN 10.2)', () => {
     expect(caches('./.cache\n./.cache/pnpm\n./.cargo\n./.cargo/registry\n./.cargo/target\n./build\n')).toEqual(['.cache/pnpm', '.cargo/registry'])
     expect(caches('')).toEqual([])
   })
-  test('report parsing: examples in errors, root escapes and bad report paths refused', async () => {
-    const ok = { citations: [{ path: 'ci.yml', line: 1 }], discovery: { packages: [{ root: 'api', setup: ['npm', 'ci'], checks: { test: ['npm', 'test'] }, fetches: ['test'], tdd: { paths: ['t/**'], report: '/tmp/cadre/j.xml' } }] } }
-    expect(parse(ok)).toEqual(ok.discovery.packages)
-    const bad = (f: (p: any) => void, why: string) => { const r = JSON.parse(JSON.stringify(ok)); f(r.discovery.packages[0]); expect(parse(r)).toContain(why) }
+  test('package list parsing: examples in errors, root escapes and bad report paths refused', async () => {
+    const ok = [{ root: 'api', setup: ['npm', 'ci'], checks: { test: ['npm', 'test'] }, fetches: ['test'], tdd: { paths: ['t/**'], report: '/tmp/cadre/j.xml' } }]
+    expect(parse(ok)).toEqual(ok)
+    const bad = (f: (p: any) => void, why: string) => { const r = JSON.parse(JSON.stringify(ok)); f(r[0]); expect(parse(r)).toContain(why) }
     bad(p => { p.root = '../x' }, '.root'); bad(p => { p.setup = 'npm ci' }, '.setup'); bad(p => { p.checks = {} }, '.checks')
     bad(p => { p.tdd.report = '/var/j.xml' }, '/tmp/cadre/'); bad(p => { p.fetches = ['nope'] }, '.fetches')
-    expect(parse({ ...ok, citations: [] })).toContain('citations'); expect(parse({})).toContain('discovery.packages')
-    for (const setup of [[], undefined]) { const r = JSON.parse(JSON.stringify(ok)); if (setup) r.discovery.packages[0].setup = setup; else delete r.discovery.packages[0].setup; expect((parse(r) as any)[0].setup).toEqual([]) }   // no install step (live: the explorer reported setup [])
-    expect(brief()).toContain('mcp__cadre__report'); expect(brief()).toContain('CI config wins')
+    expect(parse([])).toContain('packages: expected'); expect(parse(undefined)).toContain('e.g.')
+    for (const setup of [[], undefined]) { const r = JSON.parse(JSON.stringify(ok)); if (setup) r[0].setup = setup; else delete r[0].setup; expect((parse(r) as any)[0].setup).toEqual([]) }   // no install step
   })
 })

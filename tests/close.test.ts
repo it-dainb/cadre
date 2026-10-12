@@ -22,22 +22,6 @@ describe('MCP tool specs (5.2)', () => {
   })
 })
 
-describe('discovery report (sec L2)', () => {
-  test('an unbound explorer\'s discovery is accepted only while init stage 4 is pending', async () => {
-    const store = new MemoryStore(); await store.init({ types: {} as any, journal: false }); const h = fakeHost(), d = deps(store)
-    const call = () => handleWith(h, d as any, { tool: 'mcp__cadre__report', agentId: 'x1', input: { schemaVersion: 1, role: 'explorer', discovery: { packages: [{ root: '/abs' }] } } }).then(r => r.result)
-    expect(await call()).toBe('error: no discovery request is open')
-    await h.board.update(s => ({ ...s, init: [{ stage: 4, state: 'pending' }] }))
-    expect(await call()).toBe('error: no discovery request is open')   // pending, but x1 is not the explorer admission spawned for it
-    await h.ui.update(u => ({ ...u, discoveryAgent: 'x9' })); expect(await call()).toBe('error: no discovery request is open')
-    await h.ui.update(u => ({ ...u, discoveryAgent: 'x1' }))
-    expect(await call()).toContain('error: citations')   // parsed: the whole report goes to init (live: the nested object was always refused)
-    const ok = { schemaVersion: 1, role: 'explorer', discovery: { packages: [{ root: '.', setup: [], checks: { test: ['npm', 'test'] }, tdd: { paths: ['test/**'] } }] }, citations: [{ path: 'package.json', line: 1 }] }
-    expect(await handleWith(h, d as any, { tool: 'mcp__cadre__report', agentId: 'x1', input: ok }).then(r => r.result)).toBe('discovery recorded. Stop.')
-    expect((await h.ui.read()).discoveryAgent).toBeUndefined()
-  })
-})
-
 describe('report refusals (kit, no git)', () => {
   const w = async () => { const store = new MemoryStore(); await store.init({ types: {} as any, journal: false }); return { h: fakeHost(), d: deps(store) } }
   test('main and unbound agents cannot report; a bad envelope is refused with an example and counts retries', async () => {

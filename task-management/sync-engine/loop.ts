@@ -201,7 +201,6 @@ export async function syncAdd(h: Host, name: string, args: string[] = []): Promi
   } catch (e) { return `sync add ${name}: ${e instanceof AdapterError ? `${e.code}: ` : ''}${(e as Error).message}` }
 }
 
-wire.syncAdd = (h, name) => syncAdd(h, name)
 ROUTES.sync = async (h, c) => {
   if (c.args[0] === 'add') return { text: await syncAdd(h, c.args[1] ?? '', c.args.slice(2)) }
   if (c.args[0] === 'now') await tick(h, true)

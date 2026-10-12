@@ -84,7 +84,7 @@ export function validateReport(r: any): string | null {
   if (r.schemaVersion !== 1) return bad('schemaVersion', '1', r.schemaVersion)
   if (!(r.role in ROLE_KEYS)) return bad('role', 'worker|tester|reviewer|explorer', r.role)
   const miss = ROLE_KEYS[r.role].find(k => r[k] === undefined); if (miss) return `${miss}: required for role ${r.role}`
-  if (r.role === 'explorer' && !(str(r.answer) || r.discovery)) return 'answer: required for role explorer (or discovery)'
+  if (r.role === 'explorer' && !str(r.answer)) return 'answer: required for role explorer'
   if (r.role === 'worker' && !['done', 'blocked', 'spec_change'].includes(r.outcome)) return bad('outcome', 'done|blocked|spec_change', r.outcome)
   if (r.role === 'reviewer' && !['pass', 'changes'].includes(r.verdict)) return bad('verdict', 'pass|changes', r.verdict)
   if (typeof r.summary === 'string' && r.summary.length > 1500) return `summary: at most 1500 chars, got ${r.summary.length}`

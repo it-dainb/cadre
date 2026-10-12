@@ -19,7 +19,8 @@ import { wrap } from '../core/effect'
 import { handle, SPECS } from '../tools/index'
 import { context, attachment } from '../core/briefs'
 import { press, run } from '../commands/cadre'
-import { afterFix, nudge, turnStarted } from '../commands/doctor'
+import { nudge } from '../commands/doctor'
+import { turnEnd } from '../commands/agentrun'
 import { tick } from '../task-management/sync-engine/loop'
 import { onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapCard, resumeBanner } from '../ui/index'
 import { load } from '../config/index'
@@ -98,6 +99,7 @@ function host($): Host {
   h.submit = text => $.prompt.submit({ text })   // drive, from #1 after next only
   h.usage = () => $.session.usage()
   h.version = async () => String((await $.session.version()).version)
+  h.root = async () => $.plugin.root
   return h
 }
 
@@ -134,8 +136,7 @@ export const register: Register = (on, opts) => {
   // 1. resume-drain: the only sender, after await next(e), never from a timer. 2. observe.
   on('turn.complete', { reason: /./ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return drain(host($), e, next) })
   on('turn.complete', { reason: /^/ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return observe(host($), e, next) })
-  on('turn.complete', { reason: /./ }, async ($, e, next) => { const r = await next(e); if (!e.agentId) await afterFix(host($), e).catch(() => {}); return r })   // setup's hand-off to main: send it / re-check when main stops; works in dormant repos too
-  on('turn.start', async ($, e, next) => { await turnStarted(host($), e).catch(() => {}); return next(e) }).catch(passOn)   // marks the turn that setup's hand-off started
+  on('turn.complete', { reason: /./ }, async ($, e, next) => { const r = await next(e); await turnEnd(host($), e).catch(() => {}); return r })   // agent-run setup/init (ADR 0010): re-check when main stops; works in dormant repos too
   // 3. admission
   on('agent.spawn', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return admit(host($), e, next) }).catch(denySpawn)
   // 4. tool.check allow

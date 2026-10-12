@@ -168,7 +168,7 @@ describe('presses: one generic handler -> the dispatcher as the human (origin pr
   test('Cancel on a setup card burns its code and says so in one plain line; other origins cannot cancel', async () => {
     const w = await world(); await initPropose(w.h, 90, 'p', { title: 't', lines: ['  1. x'], sub: 'setup', change: 'setup' }); const d = await top(w.h)
     expect((await dispatch(w.h, { schemaVersion: 1, cmd: 'setup', args: ['cancel'], origin: { kind: 'sdk' } }, async () => ({ text: '' }))).text).toContain('refused')
-    const r = await press(w.h, d.id, 'x', d.hash); expect(r.text).toBe('setup: cancelled; nothing ran'); expect(banned(r.text)).toEqual([]); expect((await w.h.secret.read()).initConfirm).toBeUndefined(); expect(decisions(await read(w.h))).toEqual([])
+    const r = await press(w.h, d.id, 'x', d.hash); expect(r.text).toBe('setup: cancelled'); expect(banned(r.text)).toEqual([]); expect((await w.h.secret.read()).initConfirm).toBeUndefined(); expect(decisions(await read(w.h))).toEqual([])
   })
 })
 

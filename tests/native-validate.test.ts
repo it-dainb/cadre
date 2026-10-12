@@ -58,6 +58,6 @@ describe('validateReport: the envelope entry point for wave 3', () => {
     expect(validateReport({ schemaVersion: 1, role: 'worker', outcome: 'done', summary: 'x'.repeat(1501) })).toBe('summary: at most 1500 chars, got 1501')
     expect(validateReport({ schemaVersion: 1, role: 'worker', outcome: 'done', summary: 'ok' })).toBeNull()
     expect(validateReport({ schemaVersion: 1, role: 'reviewer', verdict: 'maybe', summary: 's', findings: [], coverage: [], contractStatus: [] })).toBe('verdict: expected pass|changes, got "maybe"')
-    expect(validateReport({ schemaVersion: 1, role: 'explorer' })).toBe('answer: required for role explorer (or discovery)'); expect(validateReport({ schemaVersion: 1, role: 'explorer', answer: 'a' })).toBeNull()
+    expect(validateReport({ schemaVersion: 1, role: 'explorer' })).toBe('answer: required for role explorer'); expect(validateReport({ schemaVersion: 1, role: 'explorer', answer: 'a' })).toBeNull()
   })
 })

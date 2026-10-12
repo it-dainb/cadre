@@ -7,8 +7,9 @@ import { wake, warm } from '../core/session'
 import { contextLine, subject } from '../core/render'
 import { defaultTab, openPane } from '../ui/index'
 import { read } from '../ui/model'
-import { run as initRun } from './init'
-import { doctor, setup } from './doctor'
+import { confirm as initConfirm } from './init'
+import { doctor } from './doctor'
+import { recheck, start } from './agentrun'
 import { defaults } from '../config/index'
 
 // text board from the model view + the cost ledger (the human view's cost, since this is a typed command's own output)
@@ -35,9 +36,9 @@ async function route(h: Host, c: Command): Promise<Out> {
     }
     case 'resolve': if (a && a === (await h.board.read()).plan?.id) return resolveEpic(h, a, c.args[1] ?? ''); break
     case 'restore': return restore(h, a)
-    case 'init': case 'setup': {   // a diff / plan awaiting its confirm shows as the decision card (ADR 0008); the typed confirm stays as the fallback
-      const text = await (c.cmd === 'init' ? initRun : setup)(h, c.args)
-      if (c.args[0] !== 'cancel' && (await h.board.read()).decisions?.length) await openPane(h, 'card').catch(() => {})
+    case 'init': case 'setup': {   // Claude does the work (ADR 0010); the checklist and the containment confirm show as decision cards (ADR 0008)
+      const text = c.cmd === 'init' && a === 'confirm' ? [await initConfirm(h, c.args[1]), await recheck(h)].filter(Boolean).join(' · ') : await start(h, c.cmd)
+      if ((await h.board.read()).decisions?.length) await openPane(h, 'card').catch(() => {})
       return { text }
     }
     case 'doctor': return { text: await doctor(h) }

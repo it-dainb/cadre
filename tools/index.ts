@@ -3,17 +3,16 @@
 import type { Hook, Host } from '../types'
 import { resolveDeps, type Deps } from '../core/admission'
 import { raise, report, runCheck } from '../core/close'
-import { discovered } from '../commands/init'
 import { warm } from '../core/session'
 import { RETRIES, refuse, clearRetries, validateReport } from '../core/validate'
 import * as G from '../core/git'
 
 export const TOOLS = ['report', 'inspect', 'run_check'] as const
-const S = { type: 'string' }, ARR = { type: 'array' }, OBJ = { type: 'object' }
+const S = { type: 'string' }, ARR = { type: 'array' }
 const V = { type: 'integer', enum: [1] }
 export const SPECS = [
-  { name: 'report', isDeferred: false, description: 'Finish your step. Worker: {schemaVersion:1,role:"worker",outcome:"done"|"blocked"|"spec_change",summary,reason?,risks?,questions?}. Tester: role "tester", outcome "done", summary, tests[{path,name,scenario}]. Reviewer: role "reviewer", verdict "pass"|"changes", summary, findings[{severity,file,line?,issue,fix?}], coverage[{scenario,test?,ok}], contractStatus[{name,ok}]. Explorer: role "explorer", answer, citations[{path,line}], or discovery. Call it once, then stop.',
-    inputSchema: { type: 'object', additionalProperties: false, required: ['schemaVersion', 'role'], properties: { schemaVersion: V, role: { type: 'string', enum: ['worker', 'tester', 'reviewer', 'explorer'] }, outcome: { type: 'string', enum: ['done', 'blocked', 'spec_change'] }, summary: S, reason: S, risks: ARR, questions: ARR, tests: ARR, followups: ARR, verdict: { type: 'string', enum: ['pass', 'changes'] }, findings: ARR, coverage: ARR, contractStatus: ARR, answer: S, citations: ARR, discovery: OBJ } } },
+  { name: 'report', isDeferred: false, description: 'Finish your step. Worker: {schemaVersion:1,role:"worker",outcome:"done"|"blocked"|"spec_change",summary,reason?,risks?,questions?}. Tester: role "tester", outcome "done", summary, tests[{path,name,scenario}]. Reviewer: role "reviewer", verdict "pass"|"changes", summary, findings[{severity,file,line?,issue,fix?}], coverage[{scenario,test?,ok}], contractStatus[{name,ok}]. Explorer: role "explorer", answer, citations[{path,line}]. Call it once, then stop.',
+    inputSchema: { type: 'object', additionalProperties: false, required: ['schemaVersion', 'role'], properties: { schemaVersion: V, role: { type: 'string', enum: ['worker', 'tester', 'reviewer', 'explorer'] }, outcome: { type: 'string', enum: ['done', 'blocked', 'spec_change'] }, summary: S, reason: S, risks: ARR, questions: ARR, tests: ARR, followups: ARR, verdict: { type: 'string', enum: ['pass', 'changes'] }, findings: ARR, coverage: ARR, contractStatus: ARR, answer: S, citations: ARR } } },
   { name: 'inspect', isDeferred: false, description: 'Read git facts of your task tree. what: status | files | log | diff | show. rev and path are optional; show needs a path. Output: exit, seconds, truncated, capped body.',
     inputSchema: { type: 'object', additionalProperties: false, required: ['what'], properties: { schemaVersion: V, what: { type: 'string', enum: ['status', 'files', 'log', 'diff', 'show'] }, task: S, rev: S, path: S } } },
   { name: 'run_check', isDeferred: false, description: 'Run a named check of your task package on your tree. Output: exit, seconds, truncated, capped body.',
@@ -25,10 +24,6 @@ const bad = (m: string) => `error: ${m}`
 async function onReport(h: Host, d: Deps, agentId: string | undefined, r: any): Promise<string> {
   const key = `report:${agentId ?? 'main'}`
   if (!agentId) return bad('only a spawned agent reports')
-  if (r?.role === 'explorer' && r.discovery && !(await h.bind.read())[agentId]) {
-    if (!(await h.board.read()).init.some(i => i.stage === 4 && i.state === 'pending') || (await h.ui.read()).discoveryAgent !== agentId) return bad('no discovery request is open')   // only while init stage 4 waits, only from the explorer admission spawned for it
-    const err = await discovered(h, r); if (!err) await h.ui.update(({ discoveryAgent: _d, ...u }) => u); return err ? bad(String(err)) : 'discovery recorded. Stop.'
-  }
   const env = validateReport(r); if (env) return bad(await refuse(h, key, env))
   try {
     const text = await report(h, d, agentId, r); await clearRetries(h, key); return text

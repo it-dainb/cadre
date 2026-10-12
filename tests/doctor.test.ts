@@ -1,13 +1,10 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { afterFix, brief, turnStarted, doctor, machine, nudge, setup } from '../commands/doctor'
+import { doctor, machine, nudge, setupItems } from '../commands/doctor'
 import { defaults } from '../config/index'
 import { banned } from './fixtures/wording'
 import { fakeHost } from './support'
 import { contain } from '../policy/containment'
 import type { Host } from '../types'
-import { card as drawCard } from '../ui/card'
-import { txt } from '../ui/model'
-import { NOOP, view } from './fixtures/ui/epic'
 
 type R = { exitCode: number; stdout: string; stderr: string }
 const HOME = '/hm/u', USER = `${HOME}/.claude/settings.json`
@@ -48,7 +45,7 @@ describe('machine checks', () => {
   test('missing tools fail with the exact command for the human', async () => {
     const rs = await rowsOf(mk({ tools: {} }))
     expect(lvl(rs, /git/)).toEqual(['crit', 'git not found', '! sudo sh ~/.cache/cadre/fix/git.sh'])
-    expect(lvl(rs, /bd/)[2]).toBe('! npm install -g @beads/bd@latest')
+    expect(lvl(rs, /bd/)[2]).toBe('npm install -g @beads/bd@latest')
     expect(lvl(rs, /bwrap/)[2]).toBe('! sudo sh ~/.cache/cadre/fix/bwrap.sh')
     expect(lvl(rs, /socat/)[2]).toBe('! sudo sh ~/.cache/cadre/fix/socat.sh')
   })
@@ -63,164 +60,56 @@ describe('machine checks', () => {
   })
   test('another Claude Code build only warns: no fix, never an npm reinstall', async () => {
     expect(lvl(await rowsOf(mk({ cc: '2.1.296' })), /Claude Code/)).toEqual(['warn', 'Claude Code 2.1.296: newer than the tested 2.1.295; usually fine'])
-    expect(lvl(await rowsOf(mk({ cc: '2.1.200' })), /Claude Code/)![1]).toContain('older than the tested'); expect((await machine(mk({ cc: '2.1.296' }), defaults() as any)).acts).toEqual([])
+    expect(lvl(await rowsOf(mk({ cc: '2.1.200' })), /Claude Code/)![1]).toContain('older than the tested');
   })
   test('bwrap userns cause: AppArmor (Ubuntu), clone=0 (Debian), unknown', async () => {
     const ub = await machine(mk({ jail: 'none', files: { '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n' } }), defaults() as any)
-    expect(lvl(ub.rows, /AppArmor/)![2]).toBe('! sudo sh ~/.cache/cadre/fix/bwrap-apparmor.sh'); expect(ub.scripts.find(x => x.path.endsWith('bwrap-apparmor.sh'))!.text).toContain('profile bwrap /usr/bin/bwrap'); expect(ub.human).toEqual(['! sudo sh ~/.cache/cadre/fix/bwrap-apparmor.sh', 'less safe options: ~/.cache/cadre/fix/README']); expect(ub.acts).toEqual([])
+    expect(lvl(ub.rows, /AppArmor/)![2]).toBe('! sudo sh ~/.cache/cadre/fix/bwrap-apparmor.sh'); expect(ub.scripts.find(x => x.path.endsWith('bwrap-apparmor.sh'))!.text).toContain('profile bwrap /usr/bin/bwrap'); expect(ub.scripts.find(x => x.path.endsWith('README'))!.text).toContain('less safe')
     expect(lvl((await machine(mk({ jail: 'none', files: { '/proc/sys/kernel/unprivileged_userns_clone': '0' } }), defaults() as any)).rows, /clone=0/)![2]).toBe('! sudo sh ~/.cache/cadre/fix/userns-clone.sh')
     expect(lvl(await rowsOf(mk({ jail: 'none' })), /user namespace/)![2]).toContain('sandboxing')
   })
-  test('bd missing: an npm action; a stale bd that shadows the new one is a PATH fix, not an action', async () => {
+  test('bd missing: the npm line; a stale bd in a system folder is a sudo script, one in the home folder is moved aside', async () => {
     const m = await machine(mk({ tools: { git: 'git version 2.43.0', bwrap: 'bubblewrap 0.11.0', socat: 'x' } }), defaults() as any)
-    expect(m.acts).toEqual([{ label: 'installing bd', argv: ['npm', 'install', '-g', '@beads/bd@latest'] }])
+    expect(lvl(m.rows, /bd/)).toEqual(['crit', 'bd not found', 'npm install -g @beads/bd@latest'])
     const sh = mk({ shadow: '/usr/local/bin/bd' }); await sh.run(['npm', 'install']); const s2 = await machine(sh, defaults() as any)
-    expect(s2.acts).toEqual([]); expect(lvl(s2.rows, /shadows/)).toEqual(['crit', 'bd 0.43.0 at /usr/local/bin/bd shadows bd 1.3.1 at /hm/u/.npm/bin/bd', '! sudo sh ~/.cache/cadre/fix/rm-bd.sh'])
+    expect(lvl(s2.rows, /shadows/)).toEqual(['crit', 'bd 0.43.0 at /usr/local/bin/bd shadows bd 1.3.1 at /hm/u/.npm/bin/bd', '! sudo sh ~/.cache/cadre/fix/rm-bd.sh'])
     expect(s2.scripts[0].text).toContain('\nrm /usr/local/bin/bd\n')
   })
 })
 
-describe('setup', () => {
-  const sigOf = async (h: Host) => (await h.secret.read()).initConfirm!
-  const NOBD = { git: 'git version 2.43.0', bwrap: 'bubblewrap 0.11.0', socat: 'x' }
-  test('nothing to do: all ok and stamped', async () => {
-    const h = mk({ files: { [USER]: '{"env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"}}' } }); expect(await setup(h, [])).toBe('setup: all ok'); expect(await h.store.get('cadre:setup')).toMatchObject({ bd: '1.3.1' })
+describe('setup checklist (ADR 0010): checks only, Claude fixes', () => {
+  const NOBD = { git: 'git version 2.43.0', bwrap: 'bubblewrap 0.11.0', socat: 'x' }, DIR = `${HOME}/.cache/cadre/fix`, LINE = 'sudo sh ~/.cache/cadre/fix/bwrap-apparmor.sh'
+  const SET = { [USER]: '{"env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"}}' }
+  test('nothing open: every item ok and the stamp is written', async () => {
+    const h = mk({ files: SET }), its = await setupItems(h)
+    expect(its.every(i => i.st === 'ok')).toBe(true); expect(await h.store.get('cadre:setup')).toMatchObject({ bd: '1.3.1' })
   })
-  test('the plan lists the actions, runs nothing, and the command text is one line', async () => {
-    const h = mk({ tools: NOBD }), t = await setup(h, [])
-    expect(t).toBe('setup: 2 actions ready · confirm with the code on the band'); expect(banned(t)).toEqual([]); expect(t.includes('\n')).toBe(false)
-    expect(h.calls.some(a => a[0] === 'npm' && a[1] === 'install')).toBe(false); expect(h.writes).toEqual([]); expect((await sigOf(h)).stage).toBe(90); expect(await h.store.get('cadre:setup')).toBeUndefined()
-    expect((await h.ui.read())['setup.plan']).toMatchObject({ acts: [['installing bd', ''], ['writing user settings', '']] })
-    expect(h.logs).toHaveLength(1); await setup(h, []); expect(h.logs).toHaveLength(1)   // same result again: no new transcript row
+  test('runs nothing that changes the machine: no install, no settings write; the fails name the command Claude runs', async () => {
+    const h = mk({ tools: NOBD }), its = await setupItems(h)
+    expect(h.calls.some(a => a[0] === 'npm' && a[1] === 'install')).toBe(false); expect(h.writes).toEqual([]); expect(await h.store.get('cadre:setup')).toBeUndefined()
+    expect(its.filter(i => i.st === 'fail')).toEqual([{ name: 'bd not found', st: 'fail', why: 'npm install -g @beads/bd@latest' }, { name: 'user settings lack env CLAUDE_CODE_ENABLE_TODO_TOOLS="1"', st: 'fail', why: 'add it under "env" in ~/.claude/settings.json (keep a .bak)' }])
+    expect(banned(its.filter(i => i.st === 'fail').map(i => `${i.name}: ${i.why}`))).toEqual([])
+    expect(h.logs).toHaveLength(1); await setupItems(h); expect(h.logs).toHaveLength(1)   // same result again: no new transcript row
   })
-  test('confirm runs the actions in order, re-checks, stamps, and short toasts', async () => {
-    const h = mk({ tools: NOBD, files: { [USER]: '{"theme":"dark"}\n' } }); await setup(h, []); const t = await setup(h, ['confirm', (await sigOf(h)).code])
-    expect(t).toBe('setup: all ok'); expect(h.calls.filter(a => a[1] === 'install')).toEqual([['npm', 'install', '-g', '@beads/bd@latest']])
-    expect(JSON.parse(h.files[USER])).toEqual({ theme: 'dark', env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } }); expect(h.files[`${USER}.bak`]).toBe('{"theme":"dark"}\n')
-    expect(h.toasts).toEqual(['setup: installing bd', 'setup: writing user settings']); expect(h.toasts.every(x => x.length <= 60)).toBe(true)
-    expect(await h.store.get('cadre:setup')).toMatchObject({ bd: '1.3.1' }); expect((await h.secret.read()).initConfirm).toBeUndefined()
+  test('git identity missing: a fail that says to ask, never a made-up identity', async () => {
+    const its = await setupItems(mk({ files: SET, noIdent: { on: true } }))
+    expect(its.find(i => i.st === 'fail')).toEqual({ name: 'git identity missing: commits need your name and email', st: 'fail', why: 'ask for them, then git config --global user.name and user.email' })
   })
-  test('git identity missing: crit row; the setup card asks Name/Email (prefilled), a bad email is refused on the card (code kept), the act sets it, re-check green', async () => {
-    const id = { on: true }, h = mk({ noIdent: id, files: { [USER]: '{"env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"}}' } })
-    expect(lvl(await rowsOf(h), /git identity/)[0]).toBe('crit')
-    expect(await setup(h, [])).toBe('setup: 1 action ready · confirm with the code on the band')
-    const d = (await h.board.read()).decisions!.find(x => x.id === 'init:90')!, code = (await sigOf(h)).code
-    expect(d.fields).toEqual([{ key: 'name', label: 'Name', value: 'Ann' }, { key: 'email', label: 'Email', value: '' }]); expect(d.options[0].run).toBe('setup confirm {code} {fields}')
-    const v = view(62, { board: { decisions: [d] } }); v.sec = { dcode: {} }; expect(txt(drawCard(v, 100, NOOP)).join('\n')).toContain('Email: ')   // an Input per field
-    expect(await setup(h, ['confirm', code, 'name=Ann', 'email=bad'])).toBe('setup: email needs a form like you@example.com · see the card')
-    expect((await h.board.read()).decisions!.find(x => x.id === 'init:90')!.error).toContain('email'); expect(id.on).toBe(true)
-    expect(await setup(h, ['confirm', code, 'name=Ann', 'email=ann@example.com'])).toBe('setup: all ok')
-    expect(h.calls.filter(a => a[1] === 'config' && a[2] === '--global')).toEqual([['git', 'config', '--global', 'user.name', 'Ann'], ['git', 'config', '--global', 'user.email', 'ann@example.com']])
-    expect(lvl(await rowsOf(h), /git identity/)[0]).toBe('ok')
+  test('warn rows never block; no stamp while a fail is open; the toast asks for setup until a stamp for this build exists', async () => {
+    const h = mk({ files: SET, cc: '2.1.296' }); expect((await setupItems(h)).filter(i => i.st === 'warn')).toHaveLength(1); expect(await h.store.get('cadre:setup')).toMatchObject({ cc: '2.1.296' })
+    const n = mk({ tools: NOBD }); await setupItems(n); expect(await n.store.get('cadre:setup')).toBeUndefined(); await nudge(n); expect(n.toasts).toEqual(['cadre: run /cadre setup'])
   })
-  test('a failed action stops the run, shows its last output lines, and writes nothing after it', async () => {
-    const h = mk({ tools: NOBD, npmFails: true }); await setup(h, []); const t = await setup(h, ['confirm', (await sigOf(h)).code])
-    expect(t).toBe('setup: stopped at "installing bd"; output in the cadre pane'); expect(h.writes).toEqual([]); expect(await h.store.get('cadre:setup')).toBeUndefined()
-    expect((await h.ui.read())['setup.plan']).toMatchObject({ acts: [['installing bd', 'fail'], ['writing user settings', '']], out: ['npm ERR! EACCES', 'npm ERR! permission denied'] })
+  test('sudo fixes: a script (0700, set -eu, header, the exact command), the item names the ONE short line; alternatives only in the README', async () => {
+    const h = mk({ jail: 'none', files: { ...SET, '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n' } }), its = await setupItems(h)
+    const sh = h.files[`${DIR}/bwrap-apparmor.sh`]; expect(sh.startsWith('#!/bin/sh\n# cadre setup: ')).toBe(true); expect(sh).toContain(`# Run it once, yourself: ${LINE}\nset -eu\n`); expect(sh).toContain('tee /etc/apparmor.d/bwrap'); expect(sh).not.toContain('sysctl')
+    expect(h.calls).toContainEqual(['chmod', '700', `${DIR}/bwrap-apparmor.sh`]); expect(h.files[`${DIR}/README`]).toContain('sysctl -w kernel.apparmor_restrict_unprivileged_userns=0')
+    expect(its.find(i => /AppArmor/.test(i.name))).toMatchObject({ st: 'warn', why: LINE })
+    const s = mk({ files: SET, tools: { git: 'git version 2.43.0', bd: 'bd version 1.3.1', bwrap: 'bubblewrap 0.11.0' } }); expect((await setupItems(s)).find(i => /socat/.test(i.name))).toEqual({ name: 'socat not found (Claude Code needs it on Linux)', st: 'fail', why: 'sudo sh ~/.cache/cadre/fix/socat.sh' })
   })
-  test('a wrong code is refused and burned; the right code afterwards also fails until re-planned', async () => {
-    const h = mk({ tools: NOBD }); await setup(h, []); const code = (await sigOf(h)).code
-    expect(await setup(h, ['confirm', 'deadbeef'])).toContain('wrong code'); expect(await setup(h, ['confirm', code])).toContain('wrong code')
-    expect(h.calls.some(a => a[1] === 'install')).toBe(false)
-  })
-  test('a preflight that changed since the plan was shown re-plans and runs nothing', async () => {
-    const h = mk({ files: { [USER]: '{}' } }); await setup(h, []); const code = (await sigOf(h)).code; h.files[USER] = '{"x":1}'
-    expect(await setup(h, ['confirm', code])).toContain('plan changed'); expect(h.files[USER]).toBe('{"x":1}'); expect(h.writes).toEqual([]); expect((await sigOf(h)).code).not.toBe(code)
-  })
-  test('after the install a shadowing bd is reported, not claimed as success, and there is no stamp', async () => {
-    const h = mk({ files: { [USER]: '{"env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"}}' }, shadow: '/usr/local/bin/bd' })
-    expect(await setup(h, [])).toBe('setup: 1 action ready · confirm with the code on the band')   // the old bd 0.43.0 answers; npm has nothing installed yet
-    expect(await setup(h, ['confirm', (await sigOf(h)).code])).toBe('setup: 1 fail, 0 warn — report in the cadre pane')
-    expect(JSON.stringify((await h.ui.read())['doctor.rows'])).toContain('shadows bd 1.3.1'); expect(await h.store.get('cadre:setup')).toBeUndefined()
-  })
-  test('no stamp while a tool is missing; the toast asks for setup until a stamp for this build exists', async () => {
-    const h = mk({ tools: {} }); expect(await setup(h, [])).toContain('actions ready'); expect(await h.store.get('cadre:setup')).toBeUndefined()
-    await nudge(h); expect(h.toasts).toEqual(['cadre: run /cadre setup'])
-    await h.store.set('cadre:setup', { cc: '2.1.295' }); await nudge(h); expect(h.toasts.length).toBe(1)
-    await h.store.set('cadre:setup', { cc: '2.1.200' }); await nudge(h); expect(h.toasts.length).toBe(2)
-  })
-})
-
-describe('setup: human-run fixes are scripts, the card shows one short line (0.5.1)', () => {
-  const OK = { '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n', [USER]: '{"env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"}}' }, DIR = `${HOME}/.cache/cadre/fix`, LINE = 'sudo sh ~/.cache/cadre/fix/bwrap-apparmor.sh'
-  const dormant = async (copied?: string[], o: any = { jail: 'none', files: OK }) => { const h = mk(o); await h.secret.update(x => ({ ...x, active: false })); if (copied) (h as any).ops = new Proxy({ copy: async (t: string) => (copied.push(t), { isCopied: true }) } as any, { get: (t, k) => (k in t ? t[k] : async () => ({ isPlaced: true })) }); return h }
-  const card = async (h: Host) => (await h.board.read()).decisions!.find(d => d.id === 'init:90')!
-  test('scripts: written without a confirm, 0700, set -eu, header, the exact command; alternatives only in the README', async () => {
-    const h = await dormant(); await setup(h, [])
-    const sh = h.files[`${DIR}/bwrap-apparmor.sh`]; expect(sh.startsWith('#!/bin/sh\n# cadre setup: ')).toBe(true); expect(sh).toContain(`# Run it once, yourself: ${LINE}\nset -eu\n`); expect(sh).toContain('tee /etc/apparmor.d/bwrap'); expect(sh).toContain('systemctl reload apparmor'); expect(sh).not.toContain('sysctl')
-    expect(h.calls).toContainEqual(['chmod', '700', `${DIR}/bwrap-apparmor.sh`])
-    expect(h.files[`${DIR}/README`]).toContain('sysctl -w kernel.apparmor_restrict_unprivileged_userns=0'); expect(h.files[`${DIR}/README`]).toContain('/etc/sysctl.d/60-userns.conf')
-    const t = (await card(h)).lines.join('\n'); expect(t).toContain(`  ${LINE}`); expect(t).toContain('less safe options: ~/.cache/cadre/fix/README'); expect(t).not.toContain('sysctl'); expect(t).not.toContain('tee')
-    expect((await h.ui.read())['setup.plan']).toMatchObject({ human: [`! ${LINE}`, 'less safe options: ~/.cache/cadre/fix/README'] })
-  })
-  test('every command line drawn in the card fits the body and holds no box character, at 56 and 116 columns', async () => {
-    const h = await dormant(); await setup(h, []); const d = await card(h)
-    for (const w of [56, 116]) {
-      const v = view(62, { board: { decisions: [d] } }); v.sec = { dcode: {} }
-      const rows = txt(drawCard(v, w, NOOP)).filter(r => /\bsh \S*\.sh|fix\//.test(r)).slice(0, 2)
-      expect(rows.length).toBe(2); for (const r of rows) expect(r).toMatch(/^║ (sudo sh ~\/\S+\.sh|less safe options: ~\/\S+)\s*║$/)
-    }
-  })
-  test('Copy command: copies the first sudo line and says copied; no clipboard, no button', async () => {
-    const got: string[] = [], h = await dormant(got); await setup(h, [])
-    const o = (await card(h)).options; expect(o.map(x => x.label)).toEqual(['Copy command', 'Re-check', 'Cancel']); expect(o[0]).toMatchObject({ key: 'y', run: 'setup copy' })
-    expect(await setup(h, ['copy'])).toBe('copied'); expect(got).toEqual([LINE])
-    const bare = await dormant(); await setup(bare, []); expect((await card(bare)).options.map(x => x.label)).toEqual(['Re-check', 'Cancel']); expect(await setup(bare, ['copy'])).toContain('not copied')
-  })
-  test('a script that cannot be written: no path to a missing file, a pane note, the whole command in ONE log line, [y] copies it', async () => {
-    const got: string[] = [], h = await dormant(got); (h as any).write = async (p: string) => { if (p.endsWith('.sh')) throw new Error('EROFS: read-only file system') }
-    await setup(h, []); const t = (await card(h)).lines.join('\n'); expect(t).toContain("couldn't write the fix script (EROFS: read-only file system); the exact command is in the cadre log"); expect(t).not.toContain('fix/bwrap-apparmor.sh')
-    const l = h.logs.filter(x => x.startsWith('fix command: ')); expect(l).toHaveLength(1); expect(l[0]).toContain("sudo sh -c 'printf "); expect(l[0]).toContain('/etc/apparmor.d/bwrap'); expect(l[0]).toContain('&& systemctl reload apparmor'); expect(l[0]).not.toContain('\n')
-    expect((await card(h)).options.map(x => x.label)).toContain('Copy command'); expect(await setup(h, ['copy'])).toBe('copied'); expect(got).toEqual([l[0].slice('fix command: '.length)])
-  })
-  test('re-check after the human ran it: the row is green and the card is gone', async () => {
-    const o: any = { jail: 'none', files: OK }, h = await dormant(undefined, o); await setup(h, []); expect(await card(h)).toBeDefined()
-    o.jail = 'overlay'; await setup(h, []); expect((await h.board.read()).decisions ?? []).toEqual([])
-  })
-})
-describe('setup: deterministic moves and the hand-off to main', () => {
-  const sigOf = async (h: Host) => (await h.secret.read()).initConfirm!
-  const NOBD = { git: 'git version 2.43.0', bwrap: 'bubblewrap 0.11.0', socat: 'x' }, OK = { files: { [USER]: '{"env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"}}' } }
-  const card = async (h: Host) => (await h.board.read()).decisions!.find(d => d.id === 'init:90')!
-  const fixed = async (h: Host) => { const sent: string[] = []; (h as any).submit = async (t: string) => { sent.push(t) }; return sent }
-  test('a stale bd in a folder the user owns: moved aside (never rm), then re-checked and stamped', async () => {
-    const h = mk({ ...OK, shadow: '/hm/u/.local/bin/bd' }); await h.run(['npm', 'install'])
-    expect(await setup(h, [])).toBe('setup: 1 action ready · confirm with the code on the band')
-    expect(await card(h)).toMatchObject({ lines: ['cadre runs:', '  1. moving the old bd aside'] }); expect((await card(h)).options.map(o => o.label)).toEqual(['Fix all', 'Re-check', 'Cancel'])
-    expect(await setup(h, ['confirm', (await sigOf(h)).code])).toBe('setup: all ok')
-    expect(h.calls.filter(a => a[0] === 'mv')).toEqual([['mv', '/hm/u/.local/bin/bd', '/hm/u/.local/bin/bd.cadre-old']]); expect(h.calls.some(a => a[0] === 'rm')).toBe(false)
-    expect(await h.store.get('cadre:setup')).toMatchObject({ bd: '1.3.1' }); expect((await h.board.read()).decisions ?? []).toEqual([]); expect(h.logs).toEqual(['setup: 1 fail · see the cadre pane', 'setup: 1 fixed · see the cadre pane'])   // one summary line per run
-  })
-  test('a stale bd in a system folder: no action, only the sudo line for the terminal', async () => {
-    const h = mk({ ...OK, shadow: '/usr/local/bin/bd' }); await h.run(['npm', 'install']); await h.secret.update(x => ({ ...x, active: false })); const sent = await fixed(h)
-    expect(await setup(h, [])).toContain('1 fail'); const c = await card(h)
-    expect(c.lines.join('\n')).toContain('Run in a terminal (needs your password'); expect(c.lines.join('\n')).toContain('sudo sh ~/.cache/cadre/fix/rm-bd.sh'); expect(c.lines.join('\n')).not.toContain('sudo rm'); expect(c.options.map(o => o.label)).toEqual(['Re-check', 'Cancel']); expect(sent).toEqual([])
-    expect(h.logs).toEqual(['setup: 1 needs sudo · 1 fail · see the cadre pane'])
-  })
-  test('a failed action in a dormant repo: ONE brief goes to main, the card says Claude is fixing, the turn end re-checks and stamps, no second hand-off', async () => {
-    const o = { tools: NOBD, npmFails: true, files: { [USER]: '{}' } }, h = mk(o); await h.secret.update(x => ({ ...x, active: false })); const sent = await fixed(h)
-    await setup(h, []); expect((await card(h)).options.map(x => x.label)).toEqual(['Fix all', 'Re-check', 'Cancel'])
-    expect(await setup(h, ['confirm', (await sigOf(h)).code])).toBe('setup: Claude is fixing 1 issue; the checks run again when it stops')
-    await new Promise(r => setTimeout(r, 0)); expect(sent).toHaveLength(1); expect(sent[0]).toBe(brief('/hm/u', (await machine(h, defaults() as any)).rows.filter(r => r[0] !== 'ok'), { label: 'installing bd', argv: ['npm', 'install', '-g', '@beads/bd@latest'], out: ['npm ERR! EACCES', 'npm ERR! permission denied'] }))
-    expect(sent[0]).toContain('npm ERR! EACCES'); expect(sent[0]).toContain('no sudo'); expect(sent[0]).toContain('Move things aside instead of deleting'); expect(sent[0]).toContain('stop. The checks run again on their own'); expect(banned(sent[0])).toEqual([])
-    expect((await card(h)).lines).toEqual(['Claude is fixing setup… (1 issue)']); expect(await h.store.get('cadre:setup')).toBeUndefined()
-    o.npmFails = false; await h.run(['npm', 'install'])   // main fixed it
-    await afterFix(h, { turnId: 'early' }); expect(await h.store.get('cadre:setup')).toBeUndefined()   // a turn that was already running when the brief was queued: no re-check
-    await turnStarted(h, { text: 'something typed', turnId: 'other' }); await turnStarted(h, { text: sent[0], turnId: 't1' }); await afterFix(h, { turnId: 'other' }); expect(await h.store.get('cadre:setup')).toBeUndefined()
-    await afterFix(h, { turnId: 't1' })   // the fix turn ended: the skipped scripted actions run, then the re-check
-    expect(h.files[USER]).toContain('CLAUDE_CODE_ENABLE_TODO_TOOLS'); expect(await h.store.get('cadre:setup')).toMatchObject({ bd: '1.3.1' }); expect(sent).toHaveLength(1); expect((await h.board.read()).decisions ?? []).toEqual([])
-    await afterFix(h, { turnId: 't1' }); expect(sent).toHaveLength(1)
-  })
-  test('typed in a command the submit is refused: the brief waits for the next turn end, still only once', async () => {
-    const h = mk({ ...OK, tools: NOBD, npmFails: true }); await h.secret.update(x => ({ ...x, active: false })); let n = 0; const sent: string[] = [];
-    (h as any).submit = async (t: string) => { if (!n++) throw new Error('held'); sent.push(t) }
-    await setup(h, []); await setup(h, ['confirm', (await sigOf(h)).code]); await new Promise(r => setTimeout(r, 0))
-    expect(sent).toEqual([]); await afterFix(h, { turnId: 'x' }); expect(sent).toHaveLength(1); await afterFix(h, { turnId: 'y' }); expect(sent).toHaveLength(1)
-  })
-  test('an active repo: the scripted fixes run, nothing goes to main, the card says to open Claude elsewhere', async () => {
-    const h = mk({ ...OK, tools: NOBD, npmFails: true }), sent = await fixed(h); await setup(h, [])
-    await setup(h, ['confirm', (await sigOf(h)).code]); await new Promise(r => setTimeout(r, 0))
-    expect(sent).toEqual([]); expect((await card(h)).lines.join('\n')).toContain('Open Claude in another folder to let it fix the rest'); expect((await h.secret.read()).setupFix).toBeUndefined()
+  test('a script that cannot be written: no path to a missing file, the whole command in ONE log line', async () => {
+    const h = mk({ jail: 'none', files: { ...SET, '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n' } }); (h as any).write = async (p: string) => { if (p.endsWith('.sh')) throw new Error('EROFS: read-only file system') }
+    const it = (await setupItems(h)).find(i => /AppArmor/.test(i.name))!; expect(it.why).toBe("couldn't write the fix script (EROFS: read-only file system); the exact command is in the cadre log")
+    const l = h.logs.filter(x => x.startsWith('fix command: ')); expect(l).toHaveLength(1); expect(l[0]).toContain("sudo sh -c 'printf "); expect(l[0]).not.toContain('\n')
   })
 })
 
@@ -234,15 +123,15 @@ describe('doctor', () => {
   test('read-only even with a sudo fix: no scripts written; the line shows only once setup wrote the script', async () => {
     const o = { jail: 'none' as const, files: { [USER]: '{}', '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n' } }, h = mk(o), line = 'sudo sh ~/.cache/cadre/fix/bwrap-apparmor.sh'
     await doctor(h); expect(h.writes).toEqual([]); let rows = JSON.stringify((await h.ui.read())['doctor.rows']); expect(rows).toContain('run /cadre setup to prepare the fix'); expect(rows).not.toContain(line)
-    await setup(h, []); await doctor(h); rows = JSON.stringify((await h.ui.read())['doctor.rows']); expect(rows).toContain(line)
+    await setupItems(h); await doctor(h); rows = JSON.stringify((await h.ui.read())['doctor.rows']); expect(rows).toContain(line)
   })
   test('a dormant repo: one warn row for the project, no other project rows', async () => {
     const h = mk({ repo: true }); await h.secret.update(x => ({ ...x, active: false })); await doctor(h)
-    const rows = JSON.stringify((await h.ui.read())['doctor.rows']); expect(rows).toContain('project: cadre off here'); expect(rows).not.toContain('init stages')
+    const rows = JSON.stringify((await h.ui.read())['doctor.rows']); expect(rows).toContain('project: cadre off here'); expect(rows).not.toContain('init incomplete')
   })
-  test('inside a repo: init stages, containment, beads and branch rows each carry their fix', async () => {
+  test('inside a repo: init, containment, beads and branch rows each point at /cadre init', async () => {
     const h = mk({ repo: true }); await doctor(h); const log = ((await h.ui.read())['doctor.rows'] as any[]).map(r => `${r[1]} fix: ${r[2] ?? ''}`).join('\n')
-    for (const f of ['fix: /cadre init', 'fix: /cadre init containment', 'fix: /cadre init store', 'fix: /cadre init repo']) expect(log).toContain(f)
+    expect(log).toContain('init incomplete: '); expect(log).toContain('fix: /cadre init'); expect(log).not.toMatch(/\/cadre init \w/)
     expect(log).toContain('no open flags'); expect(h.writes).toEqual([])
   })
 })

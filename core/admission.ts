@@ -11,7 +11,7 @@ import { savePointer } from './session'
 import { BLOCKING, apply, epicNext } from './machine'
 import { emit } from './events'
 import { flagName } from './render'
-import { DISCOVERY, brief, idsIn, type BriefIn } from './briefs'
+import { brief, idsIn, type BriefIn } from './briefs'
 import { taskBranch, wtPath, wtRootOf } from './branches'
 import * as G from './git'
 import { checkpoint } from './effect'
@@ -47,12 +47,10 @@ export async function admitWith(h: Host, d: Deps, e: any, next: (e: any) => any)
   if (e.workflow) return deny('workflow agents are not available; use a plain Agent call')
   const s = await h.board.read(), ids = idsIn(e.prompt ?? '', s.tasks.map(t => t.id))
   if (ids.length > 1) return deny(`one agent takes one task, but the prompt names ${ids.join(', ')}; spawn one agent per task`)
-  if (!ids.length) {   // marker-less: explorer (or the discovery brief while init stage 4 is pending); forks pass untouched
+  if (!ids.length) {   // marker-less: a read-only explorer; forks pass untouched
     if (e.fork) return next(e)
-    const disc = s.init.some(i => i.stage === 4 && i.state === 'pending'), m = modelOf(d, 'explorer')
-    const r = await next({ ...e, subagentType: 'cadre:explorer', ...(m ? { model: m } : {}), prompt: disc ? `${DISCOVERY}\n\n## Notes\n${String(e.prompt ?? '').slice(0, 500)}` : brief('explorer', { id: '', title: '', type: '', question: e.prompt }) })
-    if (disc && r?.agentId) await h.ui.update(u => ({ ...u, discoveryAgent: r.agentId }))   // sec L2: only this agent's discovery report is accepted
-    return r
+    const m = modelOf(d, 'explorer')
+    return next({ ...e, subagentType: 'cadre:explorer', ...(m ? { model: m } : {}), prompt: brief('explorer', { id: '', title: '', type: '', question: e.prompt }) })
   }
   if (e.fork) return deny('a task agent cannot be a fork; spawn it without fork')
   const t = s.tasks.find(x => x.id === ids[0])!

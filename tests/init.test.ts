@@ -1,348 +1,237 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { DISCOVER, MISSION, after, discovered, repoKeyOf, rootFor, run, wire } from '../commands/init'
+import { confirm, initItems, repoKeyOf, rootFor, wire } from '../commands/init'
+import { recheck, start, turnEnd } from '../commands/agentrun'
+import { press, run as cadreRun } from '../commands/cadre'
+import { guard, policyOf, setPolicy, LIMIT } from '../policy/guards'
+import { wake } from '../core/session'
 import { fakeHost } from './support'
 import { MemoryStore } from '../task-management/adapters/memory/store'
-import { fnv1a64 } from '../core/board'
-import { TABLE, ofEpic } from '../core/events'
-import { afterFix, turnStarted } from '../commands/doctor'
-import { argsOf, press } from '../commands/cadre'
-import { evText } from '../ui/epic'
-import { levelOf } from '../ui/notify'
 import { skeleton } from '../core/changelog'
+import { BUDGET } from './fixtures/budget.generated'
 import type { Host } from '../types'
-import { policyOf } from '../policy/guards'
 import { banned } from './fixtures/wording'
 
 type R = { exitCode: number; stdout?: string; stderr?: string }
-const ROOT = '/repo', HOME = '/hm/u', RK = repoKeyOf(ROOT)
-// In-memory repo + fs behind a scripted process.run; `extra` answers non-git argv (jailed runs, find, ...).
-function mk(o: { repo?: boolean; branches?: string[]; files?: Record<string, string>; extra?: (argv: string[]) => R | undefined; noIdentity?: { on: boolean }; hookFails?: { on: boolean } } = {}) {
-  const files = { ...o.files }, g = { repo: o.repo ?? true, branches: new Set(o.branches ?? ['main', 'dev']) }, calls: string[][] = []
-  const h = fakeHost({ files }) as Host & { logs: string[] }
+const ROOT = '/repo', HOME = '/hm/u', RK = repoKeyOf(ROOT), PLUG = '/plug', CFG = `${ROOT}/.cadre/config.json`
+const PKG = { root: '.', setup: ['npm', 'ci'], checks: { test: ['npm', 'test'] }, tdd: { paths: ['test/**'] } }
+const READY = { [CFG]: JSON.stringify({ branches: { main: 'main', dev: 'dev' }, packages: [PKG] }), [`${ROOT}/.git/info/exclude`]: '.beads/\n.claude/settings.local.json\n', [`${ROOT}/CHANGELOG.md`]: skeleton() }
+// bwrap answers by inner argv: `npm ci` setup, `npm test` passes, anything else is red; find lists the caches setup wrote
+const jailed = (red: string[] = []) => (argv: string[]): R | undefined => {
+  if (argv[0] === 'bwrap' && !argv.includes('--')) return { exitCode: 0, stdout: argv[1] === '--help' ? '--overlay-src --tmp-overlay' : '' }   // jailMode probes
+  if (argv[0] === 'find') return { exitCode: 0, stdout: './.cache\n./.cache/pnpm\n' }
+  if (argv[0] !== 'bwrap') return undefined
+  const inner = argv.slice(argv.indexOf('--', 3) + 1).join(' ')
+  return { exitCode: red.includes(inner) ? 1 : 0 }
+}
+// In-memory repo + fs behind a scripted process.run
+function mk(o: { repo?: boolean; branches?: string[]; files?: Record<string, string>; extra?: (argv: string[]) => R | undefined; mission?: boolean; journal?: boolean } = {}) {
+  const files: Record<string, string> = { ...o.files }, g = { repo: o.repo ?? true, branches: new Set(o.branches ?? ['main', 'dev']) }, calls: string[][] = [], sent: string[] = []
+  const h = fakeHost({ files }) as Host & { logs: string[]; toasts: string[] }
   let n = 0
   Object.assign(h, {
-    rand: () => `n${++n}`.padEnd(16, '0'), cwd: async () => ROOT, home: async () => HOME,
+    rand: () => `n${++n}`.padEnd(16, '0'), cwd: async () => ROOT, home: async () => HOME, root: async () => PLUG, submit: async (t: string) => { sent.push(t) },
     settings: async () => JSON.parse(files[`${ROOT}/.claude/settings.local.json`] ?? '{}'),
     run: async (argv: string[]) => {
       calls.push(argv); const j = argv.join(' '), ok = (stdout = ''): R => ({ exitCode: 0, stdout, stderr: '' }), bad = (): R => ({ exitCode: 128, stdout: '', stderr: 'fatal: nope' })
-      const x = o.extra?.(argv); if (x) return { stdout: '', stderr: '', ...x }
+      const x = (o.extra ?? jailed())(argv); if (x) return { stdout: '', stderr: '', ...x }
       if (argv[0] !== 'git') return ok()
       if (j === 'git rev-parse --git-dir') return g.repo ? ok('.git') : bad()
       if (j === 'git rev-parse --git-path info/exclude') return ok('.git/info/exclude')
-      if (argv[1] === 'rev-parse' && argv[2] === '--verify') return (argv[3] === 'HEAD' ? g.repo && g.branches.size > 0 : g.branches.has(argv[3])) ? ok('sha') : bad()   // HEAD: unborn until the first commit
-      if (argv[1] === 'symbolic-ref') return bad()
-      if (j === 'git branch --show-current') return ok('main')
-      if (argv[1] === 'init') { g.repo = true; return ok() }
-      if (argv[1] === 'var') return o.noIdentity?.on ? { exitCode: 128, stdout: '', stderr: 'fatal: unable to auto-detect email address' } : ok('A <a@b> 1 +0000')
-      if (argv[1] === 'config') { if (argv[2] === '--global' && argv[3] === 'user.email' && o.noIdentity) o.noIdentity.on = false; return argv[2] === '--get' ? (argv[3] === 'user.name' && o.noIdentity ? ok('Ann Lee') : bad()) : ok() }
-      if (argv[1] === 'commit') { if (o.noIdentity?.on || o.hookFails?.on) return { exitCode: 1, stdout: '', stderr: 'pre-commit hook failed' }; g.branches.add('main'); return ok() }
-      if (argv[1] === 'branch' && !g.branches.has(argv[3])) return { exitCode: 128, stdout: '', stderr: `fatal: not a valid object name: '${argv[3]}'` }
-      if (argv[1] === 'branch') { g.branches.add(argv[2]); return ok() }
+      if (argv[1] === 'rev-parse' && argv[2] === '--verify') return (argv[3] === 'HEAD' ? g.repo && g.branches.size > 0 : g.branches.has(argv[3])) ? ok('sha') : bad()
       return ok()
     },
   })
+  const s = new MemoryStore(); wire.store = async () => s; if (o.journal !== false) void s.init({ journal: true } as any)
+  if (o.mission !== false) void h.board.update(b => ({ ...b, mission: 'ship it' }))
   const code = async () => (await h.secret.read()).initConfirm?.code as string
-  return { h, files, g, calls, code }
+  const tick = () => new Promise(r => setTimeout(r, 0))
+  return { h, files, g, calls, code, sent, tick, s }
 }
-const store = () => { const s = new MemoryStore(); wire.store = async () => s; return s }
-// what the human sees: the init card's lines, and the full pending diff (the card shows the first 14 lines)
-const cardOf = async (h: Host) => ((await h.board.read()).decisions ?? []).filter(d => d.id.startsWith('init:')).map(d => [d.title, ...d.lines].join('\n')).join('\n')
-const diffOf = async (h: Host) => (((await h.ui.read())['init.pending'] as { lines: string[] } | undefined)?.lines ?? []).join('\n')
-const seen = async (h: Host) => `${await cardOf(h)}\n${await diffOf(h)}`
+const items = async (h: Host) => Object.fromEntries((await initItems(h)).map(i => [i.name, `${i.st}${i.why ? `: ${i.why}` : ''}`]))
+const card = async (h: Host, id = 'run:init') => ((await h.board.read()).decisions ?? []).find(d => d.id === id)
 
-describe('init: confirm discipline (DESIGN 10.1)', () => {
-  test('propose -> diff -> confirm -> .bak -> save; the code is nonce-salted and never printed', async () => {
-    const { h, files, code } = mk({ files: { [`${ROOT}/CHANGELOG.md`]: undefined as any } }); delete files[`${ROOT}/CHANGELOG.md`]
-    const out = await run(h, ['7'])
-    expect(out).toBe('init: stage 7/8 changelog ready · confirm on the card'); expect(await cardOf(h)).toContain('+ CHANGELOG.md: KAC 1.1.0 skeleton'); expect(files[`${ROOT}/CHANGELOG.md`]).toBeUndefined()
-    const c = await code(), s = await h.secret.read(), text = `init 7 changelog: proposed changes\n${await diffOf(h)}`
-    expect(c).toBe(fnv1a64(s.initNonce + text).slice(0, 8)); expect(await cardOf(h)).not.toContain(c)
-    const done = await run(h, ['confirm', c]); expect(done).toContain('stage 7/8 changelog done')
-    expect(files[`${ROOT}/CHANGELOG.md`]).toBe(skeleton()); expect((await h.secret.read()).initConfirm?.stage).toBe(1)   // burned; the code now armed is the next stage's
+describe('init checks (ADR 0010): read-only, one per phase', () => {
+  test('an empty folder: every phase says what is missing; later phases wait as todo; nothing is written or run', async () => {
+    const { h, files, calls } = mk({ repo: false, branches: [], mission: false, journal: false })
+    expect(await items(h)).toEqual({ repository: 'fail: no git repository yet', 'task store': 'todo: after the steps above', mission: 'fail: no mission yet', 'build and test commands': 'fail: no packages in .cadre/config.json',
+      'commands pass on a clean checkout': 'todo: after the steps above', workflow: 'ok', changelog: 'fail: CHANGELOG.md is missing', 'safety settings': 'todo: after the steps above' })
+    expect(files).toEqual({}); expect(calls.filter(a => a[0] !== 'git' || !/rev-parse/.test(a.join(' ')))).toEqual([])
+    expect(banned(Object.values(await items(h)))).toEqual([])   // what a follow-up may quote
   })
-  test('wrong code refused, burned, nonce redrawn; the old code is dead; a new diff is shown', async () => {
-    const { h, files, code } = mk(); await run(h, ['7'])
-    const c1 = await code(), n1 = (await h.secret.read()).initNonce
-    const out = await run(h, ['confirm', 'deadbeef'])
-    expect(out).toContain('wrong code (burned)'); expect(out).not.toContain('\n'); expect(files[`${ROOT}/CHANGELOG.md`]).toBeUndefined()
-    const c2 = await code(); expect(c2).not.toBe(c1); expect((await h.secret.read()).initNonce).not.toBe(n1)
-    expect(await run(h, ['confirm', c1])).toContain('wrong code'); expect(files[`${ROOT}/CHANGELOG.md`]).toBeUndefined()
-    expect(await run(h, ['confirm', await code()])).toContain('changelog done')   // an accepted attempt also burns
-    expect(await run(h, ['confirm', c2])).toContain('wrong code')   // the next stage's card holds a new code; c2 is dead
+  test('repository: unborn HEAD, a missing dev branch, a missing exclude line, unset main are each named', async () => {
+    expect((await items(mk({ branches: [], files: READY }).h)).repository).toBe('fail: no first commit yet')
+    expect((await items(mk({ branches: ['main'], files: READY }).h)).repository).toBe('fail: branch dev is missing')
+    expect((await items(mk({ files: { ...READY, [`${ROOT}/.git/info/exclude`]: '.beads/\n' } }).h)).repository).toBe('fail: .git/info/exclude lacks .claude/settings.local.json')
+    expect((await items(mk({ files: { ...READY, [CFG]: '{}' } }).h)).repository).toBe('fail: branches.main is not set in .cadre/config.json')
   })
-  test('changed bytes since the diff: nothing written, re-shown with a new code; then .bak holds the changed bytes', async () => {
-    const { h, files, code } = mk({ files: { [`${ROOT}/.cadre/config.json`]: '{"maxParallel":2}' } })
-    await run(h, ['6']); expect(await diffOf(h)).toContain('types')
-    const c1 = await code(); files[`${ROOT}/.cadre/config.json`] = '{"maxParallel":2,"ui":{"glyphs":"ascii"}}'
-    const re = await run(h, ['confirm', c1]); expect(re).toContain('files changed since the diff'); expect(await cardOf(h)).toContain('! last try: files changed'); expect(files[`${ROOT}/.cadre/config.json.bak`]).toBeUndefined()
-    expect(files[`${ROOT}/.cadre/config.json`]).toBe('{"maxParallel":2,"ui":{"glyphs":"ascii"}}')
-    const c2 = await code(); expect(c2).not.toBe(c1)
-    expect(await run(h, ['confirm', c2])).toContain('stage 6/8 workflow done')
-    expect(files[`${ROOT}/.cadre/config.json.bak`]).toBe('{"maxParallel":2,"ui":{"glyphs":"ascii"}}')
-    expect(JSON.parse(files[`${ROOT}/.cadre/config.json`]).ui.glyphs).toBe('ascii')
+  test('mission: a draft waits for the human on its card; a recorded one is read back from the store', async () => {
+    const { h } = mk({ files: READY, mission: false }); expect((await items(h)).mission).toBe('fail: no mission yet')
+    await h.board.update(b => ({ ...b, plan: { id: 'm', slug: 'mission', state: 'draft', epicBranch: '' } })); expect((await items(h)).mission).toBe('wait: approve it on its card')
   })
-  test('no event, view or snapshot ever carries the code', async () => {
-    const { h, code } = mk(); await run(h, ['7']); const c = await code(); await run(h, ['confirm', c])
-    expect(JSON.stringify(await h.events.read())).not.toContain(c); expect(JSON.stringify(await h.board.read())).not.toContain(c)
-    expect(ofEpic(await h.events.read(), '').map(e => `${e.data.stage}${e.data.state}`)).toEqual(['7proposed', '7done', '1proposed'])   // done -> the next incomplete stage is proposed
-    expect((await h.board.read()).init).toEqual([{ stage: 1, state: 'proposed' }, { stage: 7, state: 'done' }])
-  })
-  test('bare /cadre init runs the next incomplete stage; unknown stage and empty confirm are told', async () => {
-    const { h } = mk({ files: { [`${ROOT}/.cadre/config.json`]: '{"branches":{"main":"main"}}' } }); store()
-    expect(await run(h, ['confirm', 'x'])).toContain('nothing pending')
-    expect(await run(h, ['9'])).toContain('unknown stage')
-    expect(await run(h, [])).toBe('init: stage 2/8 store ready · confirm on the card')
+  test('commands are validated in a clean offline copy once per package list; a red check is named for Claude to fix', async () => {
+    const { h, calls } = mk({ files: { ...READY, [CFG]: JSON.stringify({ branches: { main: 'main', dev: 'dev' }, packages: [{ ...PKG, checks: { test: ['npm', 'test'], lint: ['npm', 'run', 'lint'] } }] }) }, extra: jailed(['npm run lint']) })
+    expect((await items(h))['commands pass on a clean checkout']).toBe('fail: .: lint fails on a clean checkout (fix the command or leave it out)')
+    const n = calls.filter(a => a[0] === 'bwrap' && a.includes('--')).length; expect(calls.some(a => a[0] === 'bwrap' && a.includes('--unshare-net'))).toBe(true)
+    await items(h); expect(calls.filter(a => a[0] === 'bwrap' && a.includes('--')).length).toBe(n)   // cached while the list is unchanged
   })
 })
 
-describe('stage 1 repo', () => {
-  test('non-repo: git init + initial commit + dev branch + exclude + config; re-run is idempotent', async () => {
-    const { h, files, calls, code } = mk({ repo: false, branches: [] })
-    await run(h, ['1']); expect(await cardOf(h)).toContain('git init -b main'); expect(await cardOf(h)).toContain('+ .git/info/exclude: .beads/'); expect(await cardOf(h)).not.toContain(ROOT)
-    const done = await run(h, ['confirm', await code()]); expect(done).toContain('stage 1/8 repo done · stage 2/8 store')
-    expect(calls.filter(a => a[0] === 'git' && ['init', 'add', 'commit', 'branch'].includes(a[1])).map(a => a.slice(1, 3).join(' '))).toEqual(['init -b', 'add -A', 'commit --allow-empty', 'branch dev'])
-    expect(files[`${ROOT}/.git/info/exclude`]).toBe('.beads/\n.claude/settings.local.json\n')
-    expect(JSON.parse(files[`${ROOT}/.cadre/config.json`]).branches).toEqual({ main: 'main', dev: 'dev' })
-    const before = { ...files }; calls.length = 0
-    expect(await run(h, ['1'])).toContain('stage 1/8 repo done'); expect(files).toEqual(before)   // nothing to change: applied without a code, no new .bak
-    expect(calls.some(a => a[1] === 'init')).toBe(false)
-    expect((await h.secret.read()).initConfirm?.stage).toBe(2)   // no code for stage 1; the next stage's diff is armed
+describe('safety settings: written by cadre only after the human confirms the diff on its card', () => {
+  test('proposed once the rest passes; nothing written before the confirm; then .bak, settings, the cache allowance, policy, ok', async () => {
+    const { h, files, code } = mk({ files: { ...READY, [`${ROOT}/.claude/settings.local.json`]: '{"permissions":{"allow":["Read"]}}' } })
+    const its = await items(h); expect(Object.values(its).filter(v => v !== 'ok')).toEqual(['wait: confirm them on their card'])
+    const d = (await card(h, 'init:5'))!; expect(d.title).toBe('init · safety settings · confirm'); expect(d.options.map(o => o.run)).toEqual(['init confirm {code}'])
+    expect(d.lines.join('\n')).toContain('sandbox.enabled'); expect(d.lines.join('\n')).toContain(`~/.claude/cadre.json: + repos.${RK}`); expect(d.lines.join('\n')).not.toContain((await h.secret.read()).initConfirm!.code)
+    expect(files[`${ROOT}/.claude/settings.local.json`]).toBe('{"permissions":{"allow":["Read"]}}'); expect(files[`${HOME}/.claude/cadre.json`]).toBeUndefined()
+    await items(h); expect((await h.board.read()).decisions?.filter(x => x.id === 'init:5')).toHaveLength(1)   // a re-check does not re-ask
+    expect(await confirm(h, 'deadbeef')).toContain('wrong code'); expect(files[`${ROOT}/.claude/settings.local.json`]).toBe('{"permissions":{"allow":["Read"]}}')   // burned
+    await items(h); expect(await confirm(h, await code())).toBe('init: safety settings written')
+    const s = JSON.parse(files[`${ROOT}/.claude/settings.local.json`]); expect(s.permissions.allow).toEqual(['Read']); expect(s.sandbox.allowUnsandboxedCommands).toBe(false); expect(s.sandbox.filesystem.allowWrite).toContain(`${HOME}/.cache/pnpm`)
+    expect(files[`${ROOT}/.claude/settings.local.json.bak`]).toBe('{"permissions":{"allow":["Read"]}}'); expect(JSON.parse(files[`${HOME}/.claude/cadre.json`]).repos[RK].jailWritable).toEqual([`${HOME}/.cache/pnpm`])
+    expect((await policyOf(h)).repo).toBe(ROOT); expect(Object.values(await items(h)).every(v => v === 'ok')).toBe(true)
   })
-  test('existing repo without origin/HEAD uses the current branch; detached with no origin asks', async () => {
-    const { h, code } = mk({ branches: ['trunk'], extra: a => a.join(' ') === 'git branch --show-current' ? { exitCode: 0, stdout: 'trunk' } : undefined })
-    await run(h, ['1']); expect(await cardOf(h)).toContain('git branch dev trunk')
-    expect(await run(h, ['confirm', await code()])).toContain('repo done'); expect(JSON.parse(String(await h.readText(`${ROOT}/.cadre/config.json`))).branches.main).toBe('trunk')
-    const d = mk({ extra: a => a.join(' ') === 'git branch --show-current' ? { exitCode: 0, stdout: '' } : undefined })
-    expect(await run(d.h, ['1'])).toContain('run /cadre init 1 <branch>')
-    expect(await run(d.h, ['1', 'main'])).toContain('ready · confirm on the card')
+  test('settings changed since the card: nothing written', async () => {
+    const { h, files, code } = mk({ files: READY }); await items(h); files[`${ROOT}/.claude/settings.local.json`] = '{"x":1}'
+    expect(await confirm(h, await code())).toContain('changed since the card'); expect(files[`${ROOT}/.claude/settings.local.json`]).toBe('{"x":1}')
   })
-})
-
-describe('stage 2 store', () => {
-  test('probe, init with journal consent, round trip (create a draft, read it, drop it)', async () => {
-    const s = store(), { h, code } = mk()
-    await run(h, ['2']); const out = await cardOf(h); expect(out).toContain('bd init --non-interactive --skip-agents --skip-hooks'); expect(out).toContain('journal consent')
-    expect((await s.probe()).journal).toBe(false)
-    expect(await run(h, ['confirm', await code()])).toContain('stage 2/8 store done')
-    expect((await s.probe()).journal).toBe(true)
-    expect(await run(h, ['2'])).toContain('store done')   // complete -> applied directly
-  })
-  test('an unavailable store is refused with the reason', async () => {
-    wire.store = async () => ({ probe: async () => ({ ok: false, journal: false, version: '1.2.0', detail: 'bd 1.2.0 < 1.3.0' }) }) as any
-    const { h } = mk(); expect(await run(h, ['2'])).toContain('bd 1.2.0 < 1.3.0'); expect(await cardOf(h)).toContain('needs bd >= 1.3.0')
-  })
-})
-
-describe('stage 3 mission', () => {
-  test('hands main ONE brief; the card says Claude is on it; a mission draft waits on its own card', async () => {
-    const { h } = mk(); store(); const sent: string[] = []; h.submit = async t => { sent.push(t) }
-    expect(await run(h, ['3'])).toBe('init: stage 3/8 mission: Claude is working on it'); await new Promise(r => setTimeout(r, 0))
-    expect(sent).toEqual([MISSION]); expect((await h.ui.read()).initRequest).toBe('mission'); expect((await h.board.read()).init).toEqual([{ stage: 3, state: 'pending' }])
-    expect(await cardOf(h)).toContain('Claude is working on the mission'); expect(banned(MISSION, DISCOVER)).toEqual([])
-    await run(h, ['3']); await new Promise(r => setTimeout(r, 0)); expect(sent).toHaveLength(1)   // one hand-off per stage run
-    await h.board.update(b => ({ ...b, plan: { id: 'm', slug: 'mission', state: 'draft', epicBranch: '' } }))
-    expect(await run(h, ['3'])).toContain('waits for your approval on its card'); expect(await cardOf(h)).toBe('')
-  })
-})
-
-// bwrap jail answer by mode: setup = no flag, check = --unshare-net, home = --overlay.
-const REPORT = { citations: [{ path: '.github/workflows/ci.yml', line: 9 }], discovery: { packages: [{ root: '.', setup: ['npm', 'ci'], checks: { test: ['npm', 'test'], lint: ['npm', 'run', 'lint'], e2e: ['npm', 'run', 'e2e'] }, fetches: ['e2e'], tdd: { paths: ['test/**'] } }] } }
-const jailed = (o: { setup?: number } = {}) => (argv: string[]): R | undefined => {
-  if (argv[0] === 'bwrap' && !argv.includes('--')) return { exitCode: 0, stdout: argv[1] === '--help' ? '--overlay-src --tmp-overlay' : '' }   // jailMode probes
-  if (argv[0] === 'find') return { exitCode: 0, stdout: './.cache\n./.cache/pnpm\n./.cargo\n./.cargo/target\n./.cargo/registry\n' }
-  if (argv[0] !== 'bwrap') return undefined
-  const inner = argv.slice(argv.indexOf('--', 3) + 1).join(' ')
-  if (inner === 'npm ci') return { exitCode: o.setup ?? 0 }
-  return { exitCode: inner === 'npm test' ? 0 : 1 }
-}
-describe('stage 4 discovery', () => {
-  const ready = () => {
-    const s = store(); const t = mk({ extra: jailed(), files: { [`${ROOT}/.cadre/config.json`]: '{"branches":{"main":"main","dev":"dev"}}' } })
-    return { s, ...t }
-  }
-  test('needs stages 1-2; without a report it queues the explorer request', async () => {
-    const s = store(); const bare = mk({ branches: [] }); expect(await run(bare.h, ['4'])).toContain('run stages 1 and 2 first'); void s
-    const { h, s: st } = ready(); await st.init({ types: {} as any, journal: true })
-    expect(await run(h, ['4'])).toContain('discovery: Claude is working on it'); expect((await h.ui.read()).initRequest).toBe('discovery')
-    expect((await h.board.read()).init).toEqual([{ stage: 4, state: 'pending' }])   // briefs, admission and tools open the explorer's report on this (live: 'no discovery request is open')
-  })
-  test('malformed report refused with an example; sequence: diff 2 (caches, knownRed, fetches warning) -> validate in jail -> save only validated', async () => {
-    const { h, s, files, calls, code } = ready(); await s.init({ types: {} as any, journal: true })
-    expect(await discovered(h, { ...REPORT, discovery: { packages: [{ root: '/abs' }] } })).toContain('.root')
-    expect(await discovered(h, { discovery: { packages: [] }, citations: [] })).toContain('discovery.packages')
-    expect(await discovered(h, { ...REPORT, discovery: { packages: [{ ...REPORT.discovery.packages[0], root: '../x' }] } })).toContain('root')
-    expect(await discovered(h, REPORT)).toBeNull()
-    await run(h, ['4']); const out = await diffOf(h)
-    expect(await cardOf(h)).toContain('~/.cache/pnpm'); expect(out).toContain('~/.cache/pnpm'); expect(out).toContain('~/.cargo/registry'); expect(out).not.toContain('target')
-    expect(out).toContain('! e2e: fetches at test time'); expect(out).toContain('? lint: red at the clean base -> knownRed')
-    const audit = calls.filter(a => a[0] === 'bwrap' && a.includes('--'))
-    expect(audit[0]).toContain('--overlay-src'); expect(audit[0]).toContain(`${HOME}`); expect(audit.slice(1).every(a => a.includes('--unshare-net'))).toBe(true)
-    expect(files[`${ROOT}/.cadre/config.json`]).not.toContain('packages')   // nothing saved before confirm
-    calls.length = 0
-    const done = await run(h, ['confirm', await code()]); expect(done).toContain('stage 4/8 discovery done'); expect(done).not.toContain('\n')
-    const setup = calls.find(a => a[0] === 'bwrap' && a.includes('npm') && a.includes('ci'))!
-    expect(setup).not.toContain('--unshare-net'); expect(setup).toContain(`${HOME}/.cache/pnpm`)   // writable jail with the confirmed binds
-    expect(calls.filter(a => a[0] === 'bwrap' && a.includes('--unshare-net')).map(a => a.slice(-3).join(' '))).toEqual(['-- npm test', 'npm run e2e'])   // knownRed lint not run; e2e runs, fails offline, is dropped
-    const repo = JSON.parse(files[`${ROOT}/.cadre/config.json`]), user = JSON.parse(files[`${HOME}/.claude/cadre.json`]), set = JSON.parse(files[`${ROOT}/.claude/settings.local.json`])
-    expect(repo.packages).toEqual([{ root: '.', setup: ['npm', 'ci'], checks: { test: ['npm', 'test'], lint: ['npm', 'run', 'lint'] }, verify: ['test'], tdd: { paths: ['test/**'] } }])
-    expect(user.repos[RK].packages).toEqual([{ root: '.', knownRed: ['lint'] }]); expect(user.repos[RK].jailWritable).toEqual([`${HOME}/.cache/pnpm`, `${HOME}/.cargo/registry`])
-    expect(set.sandbox.filesystem.allowWrite).toEqual([`${HOME}/.cache/pnpm`, `${HOME}/.cargo/registry`])
-    expect(JSON.stringify(repo)).not.toContain('knownRed'); expect(JSON.stringify(repo)).not.toContain('e2e')
-    expect((await s.list({})).some(t => t.title === 'fix known-red lint')).toBe(true)
-  })
-  test('a failing setup is refused before any diff', async () => {
-    const bad = mk({ extra: jailed({ setup: 1 }), files: { [`${ROOT}/.cadre/config.json`]: '{"branches":{"main":"main","dev":"dev"}}' } }); const s = store(); await s.init({ types: {} as any, journal: true })
-    await discovered(bad.h, REPORT); expect(await run(bad.h, ['4'])).toContain('failed in .')
-    expect((await bad.h.secret.read()).initConfirm).toBeUndefined()
-  })
-})
-
-describe('stage 5 containment', () => {
-  test('settings merge diff -> confirm -> .bak -> contained; policy keys written; optional allowlist hunk', async () => {
-    const { h, files, code } = mk({ files: { [`${ROOT}/.claude/settings.local.json`]: '{"permissions":{"allow":["Read"]}}' } })
-    await run(h, ['5']); const out = await diffOf(h); expect(out).toContain('sandbox.enabled'); expect(out).toContain(`+ sandbox.filesystem.denyWrite[]: "${ROOT}"`); expect(out).toContain('strictAllowlist')
-    expect(await run(h, ['confirm', await code()])).toContain('stage 5/8 containment done')
-    const s = JSON.parse(files[`${ROOT}/.claude/settings.local.json`]); expect(s.permissions.allow).toEqual(['Read']); expect(s.sandbox.allowUnsandboxedCommands).toBe(false)
-    expect(files[`${ROOT}/.claude/settings.local.json.bak`]).toBe('{"permissions":{"allow":["Read"]}}')
-    expect((await policyOf(h)).repo).toBe(ROOT); expect((await h.board.read()).containment.state).toBe('contained')
-    expect(await run(h, ['5'])).toContain('containment done')   // idempotent: no diff
-    await run(h, ['5', 'allowlist']); expect(await diffOf(h)).toContain('strictAllowlist: true'); expect(await cardOf(h)).toContain('~/.claude/settings.json: ')
-  })
-})
-
-describe('stage 5 with a symlinked cache dir (G8)', () => {
-  test('allowWrite and policy wtRoot use the realpath, matching contain()', async () => {
-    const { h, files, code } = mk(); const stat = h.stat
+  test('a symlinked cache dir: allowWrite and policy wtRoot use the realpath, matching contain() (G8)', async () => {
+    const { h, files, code } = mk({ files: READY }); const stat = h.stat
     h.stat = async (p, o) => (p === `${HOME}/.cache` ? { kind: 'dir', realPath: o?.resolve ? '/data/cache' : undefined } : p.startsWith(`${HOME}/.cache/`) ? undefined : stat(p, o))
-    await run(h, ['5']); expect(await run(h, ['confirm', await code()])).toContain('containment done')
-    const real = `/data/cache/cadre/wt/${RK}`
-    expect(JSON.parse(files[`${ROOT}/.claude/settings.local.json`]).sandbox.filesystem.allowWrite).toEqual([real]); expect((await policyOf(h)).wtRoot).toBe(real)
+    await items(h); await confirm(h, await code()); const real = `/data/cache/cadre/wt/${RK}`
+    expect(JSON.parse(files[`${ROOT}/.claude/settings.local.json`]).sandbox.filesystem.allowWrite[0]).toBe(real); expect((await policyOf(h)).wtRoot).toBe(real)
   })
 })
 
-describe('stage 6 workflow profile', () => {
-  test('an invalid pipeline is refused (no code issued); defaults shown in full; valid saves types + roles', async () => {
-    const bad = mk({ files: { [`${ROOT}/.cadre/config.json`]: JSON.stringify({ types: { x: { commit: 'feat', changelog: null, pipeline: ['worker', 'red'], contract: 'none' } } }) } })
-    const out = await run(bad.h, ['6']); expect(out).toContain('refused'); expect(await cardOf(bad.h)).toContain('types.x'); expect((await bad.h.secret.read()).initConfirm).toBeUndefined()
-    const odd = mk({ files: { [`${ROOT}/.cadre/config.json`]: JSON.stringify({ roles: { worker: { tier: 'huge' } } }) } })
-    await run(odd.h, ['6']); expect(await cardOf(odd.h)).toContain('roles.worker.tier')
-    const { h, files, code } = mk(); await run(h, ['6']); const shown = await diffOf(h)
-    expect(shown).toContain('types.feature.pipeline'); expect(shown).toContain('roles.explorer.tier'); expect(shown).toContain('maxParallel')
-    expect(await run(h, ['confirm', await code()])).toContain('stage 6/8 workflow done')
-    const j = JSON.parse(files[`${ROOT}/.cadre/config.json`]); expect(Object.keys(j.types)).toContain('spike'); expect(j.roles.tester.tier).toBe('standard')
-    expect(await run(h, ['6'])).toContain('workflow done')   // idempotent
+describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at main turn end', () => {
+  test('/cadre init from the composer: ONE line, a short brief that points at the guide, the run (lease) starts, the checklist card shows', async () => {
+    const { h, sent, tick } = mk({ repo: false, branches: [], mission: false })
+    const t = (await cadreRun(h, { args: 'init', origin: { kind: 'composer' } }, () => ({}))).text
+    expect(t).toBe('init: Claude is on it · progress on the cadre card'); await tick()
+    expect(sent).toEqual([`Set up cadre in this project. Follow ${PLUG}/guides/init.md step by step.`]); expect(banned(t, sent)).toEqual([])
+    expect((await h.secret.read()).run).toMatchObject({ kind: 'init', turns: 0, follow: 0, guide: `${PLUG}/guides/init.md` })
+    const d = (await card(h))!; expect(d.title).toBe('init · 1/8 done · Claude is on it'); expect(d.lines).toContain('✗ repository: no git repository yet'); expect(d.lines).toContain('· task store: after the steps above')
+    expect(d.options.map(o => o.label)).toEqual(['Cancel'])
+  })
+  test('another origin cannot start it (no lease from a model or a script)', async () => {
+    const { h, sent, tick } = mk({ repo: false })
+    expect((await cadreRun(h, { args: 'init', origin: { kind: 'sdk' } }, () => ({}))).text).toContain('refused'); await tick()
+    expect((await h.secret.read()).run).toBeUndefined(); expect(sent).toEqual([])
+  })
+  test('main turn end: re-check, ONE follow-up naming what still fails, at most 3; then the card shows what is left and Retry', async () => {
+    const { h, sent, tick, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]
+    await start(h, 'init'); await tick(); sent.length = 0
+    await turnEnd(h, { agentId: 'sub1' }); await tick(); expect(sent).toEqual([])   // a subagent's turn is not main's
+    for (let i = 1; i <= 3; i++) { await turnEnd(h, {}); await tick(); expect(sent).toHaveLength(i) }
+    expect(sent[0]).toBe(`Some steps are still open. Each item below must pass:\n1. mission: no mission yet\n2. changelog: CHANGELOG.md is missing\nKeep following ${PLUG}/guides/init.md. When you are done, stop; the checks run again on their own.`)
+    expect(banned(sent)).toEqual([])
+    await turnEnd(h, {}); await tick(); expect(sent).toHaveLength(3)
+    const d = (await card(h))!; expect(d.title).toBe('init · stopped · 3 left'); expect(d.lines[0]).toBe('Claude stopped with steps still open'); expect(d.options.map(o => o.label)).toEqual(['Retry', 'Cancel'])
+    expect((await h.secret.read()).run).toBeUndefined()   // the lease ended
+    expect((await press(h, d.id, 'r', d.hash)).text).toBe('init: Claude is on it · progress on the cadre card'); await tick(); expect(sent).toHaveLength(4); expect((await h.secret.read()).run?.follow).toBe(0)
+  })
+  test('only the human owes something (mission card, safety card): the card says so and nothing is sent to main', async () => {
+    const { h, sent, tick } = mk({ files: READY, mission: false }); await h.board.update(b => ({ ...b, plan: { id: 'm', slug: 'mission', state: 'draft', epicBranch: '' } }))
+    await start(h, 'init'); await tick(); sent.length = 0; await turnEnd(h, {}); await tick()
+    expect(sent).toEqual([]); expect((await card(h))!.title).toBe('init · 6/8 done · needs you'); expect((await card(h, 'init:5'))).toBeDefined()
+  })
+  test('done: the run ends (and with it the lease), the card says all done with Close, a toast; a confirm on the safety card finishes it', async () => {
+    const { h, tick, code } = mk({ files: READY }); await start(h, 'init'); await tick()
+    expect((await cadreRun(h, { args: `init confirm ${await code()}`, origin: { kind: 'press' } }, () => ({}))).text).toContain('refused')   // a press origin from the engine is not ours (ADR 0008): refused, the code burned
+    await recheck(h)   // the next re-check asks again with a new code
+    const d = (await card(h, 'init:5'))!; expect((await press(h, d.id, 'a', d.hash)).text).toBe('init: safety settings written · init: all done')
+    expect((await h.secret.read()).run).toBeUndefined(); const c = (await card(h))!; expect(c.title).toBe('init · all done'); expect(c.options.map(o => o.label)).toEqual(['Close']); expect(h.toasts).toContain('cadre: init done')
+    expect((await press(h, c.id, 'x', c.hash)).text).toBe('init: cancelled'); expect(await card(h)).toBeUndefined()
+  })
+  test('nothing open: /cadre init says all done and starts nothing', async () => {
+    const { h, tick, code, sent } = mk({ files: READY }); await items(h); await confirm(h, await code())
+    expect(await start(h, 'init')).toBe('init: all done'); await tick(); expect(sent).toEqual([]); expect((await h.secret.read()).run).toBeUndefined()
+  })
+  test('limits: 20 main turns or 30 minutes stop the run', async () => {
+    const { h, tick } = mk({ repo: false, mission: false }); await start(h, 'init'); await tick()
+    await h.secret.update(s => ({ ...s, run: { ...s.run!, turns: LIMIT.turns - 1 } })); await turnEnd(h, {})
+    expect((await card(h))!.lines[0]).toBe('the time or turn limit was reached'); expect((await h.secret.read()).run).toBeUndefined()
+    await start(h, 'init'); await h.secret.update(s => ({ ...s, run: { ...s.run!, at: -LIMIT.ms } })); expect(await recheck(h)).toBe('init: stopped · see the card')
+  })
+  // Regression (0.6.1, real machine): init stuck at "init 4/8 discovery · Claude is on it" after the explorer finished and main summarized in chat.
+  // Cause: stage 4 waited on ui.discoveryAgent, set at spawn and cleared only by an accepted report{discovery}; an unbound explorer that stopped without
+  // one (text answer, refused report) is outside close.observe's nudge/auto-report, so init.after returned early forever. Now nothing waits on an agent:
+  // the state is the files, re-checked at every main turn end.
+  test('regression: main answers in chat without writing the commands: the card does not stay "Claude is on it"; it is told what is missing, then stops with Retry', async () => {
+    const { h, sent, tick } = mk({ files: { ...READY, [CFG]: JSON.stringify({ branches: { main: 'main', dev: 'dev' } }) } })
+    await start(h, 'init'); await tick(); sent.length = 0
+    for (let i = 0; i < 4; i++) { await turnEnd(h, {}); await tick() }   // each turn: main "summarized the discovery in chat", nothing written
+    expect(sent).toHaveLength(3); expect(sent[0]).toContain('1. build and test commands: no packages in .cadre/config.json')
+    expect((await card(h))!.title).toBe('init · stopped · 3 left'); expect((await card(h))!.options.map(o => o.label)).toContain('Retry')
+  })
+  test('cancel ends the run and its lease; the card goes', async () => {
+    const { h, tick } = mk({ repo: false }); await start(h, 'init'); await tick()
+    const d = (await card(h))!; expect((await press(h, d.id, 'x', d.hash)).text).toBe('init: cancelled')
+    expect((await h.secret.read()).run).toBeUndefined(); expect(await card(h)).toBeUndefined()
   })
 })
 
-describe('stage 7 changelog and 8 sync', () => {
-  test('invalid file refused with the line; valid file passes without a diff', async () => {
-    expect(await run(mk({ files: { [`${ROOT}/CHANGELOG.md`]: '# Changelog\n\n## [Unreleased]\n\n### Misc\n' } }).h, ['7'])).toContain('line 5')
-    const ok = mk({ files: { [`${ROOT}/CHANGELOG.md`]: skeleton() } }); expect(await run(ok.h, ['7'])).toContain('changelog done'); expect((await ok.h.secret.read()).initConfirm?.stage).toBe(1)
+describe('maintenance lease (ADR 0010): main during a human-started run', () => {
+  const lease = async () => {
+    const { h, tick } = mk({ files: READY }); const EX = ['/', '/repo', '/repo/.cadre', '/repo/src', '/hm', '/hm/u', '/hm/u/.claude', `${HOME}/.claude/plugins/store/cadre/guides`, '/repo/.git', '/repo/.git/info', '/repo/.claude']
+    h.stat = async (p: string, o?: { resolve?: boolean }) => (EX.includes(p) || EX.includes(p.slice(0, p.lastIndexOf('/'))) ? { kind: 'file', realPath: o?.resolve ? p : undefined } : undefined)
+    Object.assign(h, { root: async () => `${HOME}/.claude/plugins/store/cadre` })
+    await setPolicy(h, { repo: ROOT, home: HOME, changelog: 'CHANGELOG.md' })
+    const call = async (tool: string, file_path?: string) => ((await guard(h, { tool, file_path, input: { file_path } }, () => 'ok')) as any)?.deny ?? 'ok'
+    return { h, tick, call }
+  }
+  const ALLOWED = [`${ROOT}/.cadre/config.json`, `${ROOT}/.git/info/exclude`, `${ROOT}/.claude/settings.local.json`, `${ROOT}/CHANGELOG.md`, `${HOME}/.claude/settings.json`, `${HOME}/.claude/cadre.json`]
+  test('no run: main has no shell and none of the setup files', async () => {
+    const { call } = await lease(); expect(await call('Bash')).toContain('not available to main')
+    for (const p of ALLOWED) expect(await call('Write', p)).not.toBe('ok')
   })
-  test('sync: lists adapters, skip is remembered, an adapter calls the wired setup', async () => {
-    const { h } = mk({ files: { [`${HOME}/.claude/cadre.json`]: '{"adapters":{"pm":{"cmd":["pm-adapter"]}}}' } })
-    expect(await run(h, ['8'])).toContain('sync this project'); expect(await cardOf(h)).toContain('configured adapters: pm'); expect(((await h.board.read()).decisions ?? [])[0].options.map(o => o.label)).toEqual(['Skip', 'Re-check', 'Cancel'])
-    wire.syncAdd = async (_h, a) => `sync setup for ${a}`; expect(await run(h, ['8', 'pm'])).toContain('sync setup for pm')
-    expect(await run(h, ['8', 'skip'])).toContain('stage 8/8 sync done'); expect(await run(h, [])).not.toContain('8/8')
+  test('during a run: Bash, Write/Edit on the setup files only, Read of the guide; never source files; activation keeps it', async () => {
+    const { h, tick, call } = await lease(); await start(h, 'init'); await tick()
+    expect(await call('Bash')).toBe('ok')
+    for (const p of ALLOWED) { expect(await call('Write', p)).toBe('ok'); expect(await call('Edit', p)).toBe('ok') }
+    for (const p of [`${ROOT}/src/a.ts`, `${ROOT}/.git/config`, `${HOME}/.claude/settings.local.json`]) expect(await call('Write', p)).not.toBe('ok')
+    expect(await call('Read', `${HOME}/.claude/plugins/store/cadre/guides/init.md`)).toBe('ok')
+    await h.secret.update(s => ({ ...s, active: false })); expect(await wake(h)).toBe(true); expect(await call('Bash')).toBe('ok')   // .cadre/config.json appeared mid-run: still leased
+  })
+  test('expires: after 20 main turns or 30 minutes, and on cancel', async () => {
+    const { h, tick, call } = await lease(); await start(h, 'init'); await tick()
+    await h.secret.update(s => ({ ...s, run: { ...s.run!, turns: LIMIT.turns } })); expect(await call('Bash')).not.toBe('ok')
+    await h.secret.update(s => ({ ...s, run: { ...s.run!, turns: 0, at: -LIMIT.ms } })); expect(await call('Write', ALLOWED[0])).not.toBe('ok')
+    await start(h, 'init'); expect(await call('Bash')).toBe('ok'); await cadreRun(h, { args: 'init cancel', origin: { kind: 'composer' } }, () => ({})); expect(await call('Bash')).not.toBe('ok')
+  })
+})
+
+describe('agent-run setup', () => {
+  test('bd missing: Claude gets the setup guide; once bd answers, the turn end finds everything green, stamps, ends the run', async () => {
+    const tools: Record<string, string> = { git: 'git version 2.43.0', bwrap: 'bubblewrap 0.11.0', socat: 'x', npm: '10.0.0' }
+    const { h, sent, tick } = mk({ files: { [`${HOME}/.claude/settings.json`]: '{"env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"}}' }, extra: argv => {
+      if (argv[0] === 'git' && argv[1] === '--version') return { exitCode: 0, stdout: tools.git }
+      if (argv[0] === 'git' && argv[1] === 'var') return { exitCode: 0, stdout: 'A <a@b> 1 +0000' }
+      if (argv[0] === 'bwrap') return { exitCode: 0, stdout: argv[1] === '--help' ? '--overlay-src' : tools.bwrap }
+      if (argv[0] === 'bd') return tools.bd ? { exitCode: 0, stdout: argv[1] === 'update' ? '--if-revision' : tools.bd } : { exitCode: 127 }
+      if (argv[0] === 'test' || argv[0] === 'chmod' || argv[0] === 'uname') return { exitCode: 0, stdout: argv[0] === 'uname' ? 'Linux' : '' }
+      if (argv[0] in tools) return { exitCode: 0, stdout: tools[argv[0]] }
+      return argv[0] === 'git' ? undefined : { exitCode: 127 }
+    } })
+    expect(await start(h, 'setup')).toBe('setup: Claude is on it · progress on the cadre card'); await tick()
+    expect(sent).toEqual([`Set up cadre on this machine. Follow ${PLUG}/guides/setup.md step by step.`])
+    expect((await card(h, 'run:setup'))!.lines).toContain('✗ bd not found: npm install -g @beads/bd@latest')
+    tools.bd = 'bd version 1.3.1'; await turnEnd(h, {}); await tick()   // Claude installed it with a visible Bash call
+    expect((await card(h, 'run:setup'))!.title).toBe('setup · all done'); expect((await h.secret.read()).run).toBeUndefined(); expect(await h.store.get('cadre:setup')).toMatchObject({ bd: '1.3.1' })
+    expect(sent).toHaveLength(1)
+  })
+})
+
+describe('guides', () => {
+  test('the guides speak task language (commands in backticks are literal), name every phase with a done line, and match the checks', () => {
+    const g = BUDGET.guides as Record<string, string>
+    expect(Object.keys(g)).toEqual(['init', 'setup'])
+    for (const t of Object.values(g)) { expect(banned(t.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, ''))).toEqual([]); expect(t).toContain('AskUserQuestion'); expect(t).not.toContain('sudo apt') }
+    expect(g.init).toContain('bd config set events-journal true'); expect(g.init).toContain('"kind": "mission"'); expect(g.init).toContain(skeleton().trim())
+    expect(g.setup).toContain('npm install -g @beads/bd@latest'); expect(g.setup).toContain('CLAUDE_CODE_ENABLE_TODO_TOOLS')
   })
 })
 
 test('rootFor: an agent cwd (worktree or view) maps back to the repo root recorded at session start; unknown paths stay', () => {
-  const roots = { 'run-568e48': '/work/run' }
-  expect(rootFor(roots, '/hm/cc/.cache/cadre/wt/run-568e48/p-p1.1')).toBe('/work/run')
-  expect(rootFor(roots, '/hm/cc/.cache/cadre/wt/run-568e48.views/p-p1.3')).toBe('/work/run')
-  expect(rootFor(roots, '/work/run')).toBe('/work/run'); expect(rootFor(undefined, '/x/y')).toBe('/x/y'); expect(rootFor(roots, '/other/run-5')).toBe('/other/run-5')
-})
-
-describe('init flow (ADR 0009)', () => {
-  test('regression: a failed first commit leaves an unborn repo; the press says why on the card and a retry finishes the stage', async () => {
-    const hook = { on: true }, { h, files, calls, code } = mk({ repo: false, branches: [], hookFails: hook }); store()
-    await run(h, [])
-    const r1 = await run(h, ['confirm', await code()])   // git init ran, the commit did not: before the fix the re-proposal could never finish (`git branch dev main` on an unborn main)
-    expect(r1).toBe('init: stage 1/8 repo failed: git commit failed: pre-commit hook failed · ready · confirm on the card')
-    expect(files[`${ROOT}/.cadre/config.json`]).toBeUndefined(); expect(await cardOf(h)).toContain('! last try: git commit failed')
-    expect(await cardOf(h)).toContain('+ initial commit on main'); expect(await cardOf(h)).not.toContain('git init')
-    hook.on = false; calls.length = 0
-    expect(await run(h, ['confirm', await code()])).toContain('stage 1/8 repo done · stage 2/8 store ready')
-    expect(calls.filter(a => a[0] === 'git' && ['init', 'add', 'commit', 'branch'].includes(a[1]) && a[2] !== '--show-current').map(a => a[1])).toEqual(['add', 'commit', 'branch'])
-    expect(JSON.parse(files[`${ROOT}/.cadre/config.json`]).branches).toEqual({ main: 'main', dev: 'dev' })
-  })
-  test('resume: no git identity -> the card asks Name/Email (prefilled) -> submit -> git config --global (argv) -> the SAME stage completes -> stage 2 card', async () => {
-    const id = { on: true }, { h, files, calls, code } = mk({ repo: false, branches: [], noIdentity: id }); store()
-    await run(h, [])
-    expect(await run(h, ['confirm', await code()])).toBe('init: stage 1/8 repo: the first commit needs your git name and email · fill it in on the card')
-    expect(calls.some(a => a[1] === 'init' || a[1] === 'commit')).toBe(false)   // asked before anything ran: no half-made repo
-    const d = ((await h.board.read()).decisions ?? [])[0]
-    expect(d.fields).toEqual([{ key: 'name', label: 'Name', value: 'Ann Lee' }, { key: 'email', label: 'Email', value: '' }]); expect(d.fallback).toBe('/cadre init resume 1 name="…" email="…"')
-    expect(d.options.map(o => o.run)).toEqual(['init resume 1 {fields}', 'init cancel'])
-    expect(await run(h, ['resume', '1', 'name=Ann Lee', 'email=nope'])).toContain('email needs a form like')
-    const d2 = ((await h.board.read()).decisions ?? [])[0]; expect(d2.error).toContain('email needs'); expect(d2.fields?.map(f => f.value)).toEqual(['Ann Lee', 'nope'])   // typed values kept
-    expect(id.on).toBe(true)
-    expect(await run(h, ['resume', '1', 'name=Ann Lee', 'email=ann@example.com'])).toBe('init: git identity set · stage 1/8 repo done · stage 2/8 store ready · confirm on the card')
-    expect(calls.filter(a => a[1] === 'config' && a[2] === '--global')).toEqual([['git', 'config', '--global', 'user.name', 'Ann Lee'], ['git', 'config', '--global', 'user.email', 'ann@example.com']])
-    expect(JSON.parse(files[`${ROOT}/.cadre/config.json`]).branches.main).toBe('main'); expect((await h.board.read()).decisions?.map(d => d.title)).toEqual(['init 2/8 store · confirm'])
-    expect(await run(h, ['resume', '1', 'name=x', 'email=x@y'])).toContain('nothing to resume')   // consumed
-  })
-  test('the card press sends the typed fields as k=v argv (spaces kept, no shell); the typed fallback parses name="…"', async () => {
-    const id = { on: true }, { h, calls, code } = mk({ repo: false, branches: [], noIdentity: id }); store()
-    await run(h, []); await run(h, ['confirm', await code()])
-    const d = ((await h.board.read()).decisions ?? [])[0]
-    await h.ui.update(u => ({ ...u, fields: { [d.id]: { email: 'ann@example.com' } } }))   // typed on the card; name keeps its prefill
-    expect((await press(h, d.id, 'a', d.hash)).text).toContain('git identity set · stage 1/8 repo done')
-    expect(calls.filter(a => a[1] === 'config' && a[2] === '--global').map(a => a[4])).toEqual(['Ann Lee', 'ann@example.com'])
-    expect(argsOf('init resume 1 name="Ann Lee" email="a@b.c"')).toEqual(['init', 'resume', '1', 'name=Ann Lee', 'email=a@b.c'])
-    expect(argsOf('init resume 1 name="$(rm -rf ~)" email=a@b')).toEqual(['init', 'resume', '1', 'name=$(rm -rf ~)', 'email=a@b'])
-  })
-  test('auto-advance: confirming a stage proposes the next incomplete one, progress in the card title; all done is said', async () => {
-    const { h, code } = mk({ repo: false, branches: [] }); store()
-    expect(await run(h, [])).toBe('init: stage 1/8 repo ready · confirm on the card')
-    expect((await h.board.read()).decisions?.map(d => d.title)).toEqual(['init 1/8 repo · confirm'])
-    expect(await run(h, ['confirm', await code()])).toBe('init: stage 1/8 repo done · stage 2/8 store ready · confirm on the card')
-    expect((await h.board.read()).decisions?.map(d => d.title)).toEqual(['init 2/8 store · confirm'])   // stage 1's card is gone
-    const sent: string[] = []; h.submit = async t => { sent.push(t) }
-    expect(await run(h, ['confirm', await code()])).toBe('init: stage 2/8 store done · stage 3/8 mission: Claude is working on it')
-    await new Promise(r => setTimeout(r, 0)); expect(sent).toEqual([MISSION])
-    expect((await h.board.read()).decisions?.map(d => d.title)).toEqual(['init 3/8 mission · Claude is on it'])
-  })
-  test('agentic hand-off: marked at turn.start, the end of THAT turn continues init or says Claude stopped; discovery reported later moves on', async () => {
-    const { h } = mk({ extra: jailed(), files: { [`${ROOT}/.cadre/config.json`]: '{"branches":{"main":"main","dev":"dev"}}' } }); const s = store(); await s.init({ types: {} as any, journal: true })
-    const sent: string[] = []; h.submit = async t => { sent.push(t) }
-    await h.board.update(b => ({ ...b, mission: 'm' }))
-    expect(await run(h, [])).toBe('init: stage 4/8 discovery: Claude is working on it'); await new Promise(r => setTimeout(r, 0))
-    expect(sent).toEqual([DISCOVER]); expect((await h.secret.read()).setupFix).toMatchObject({ kind: 'init', n: 4, sent: true })
-    await turnStarted(h, { text: `The cadre plugin sent a message:\n${DISCOVER}`, turnId: 't1' })
-    await afterFix(h, { turnId: 't1' })   // the turn ended with no report: the card says so, no second hand-off
-    expect(await cardOf(h)).toContain('Claude stopped before finishing discovery'); expect(sent).toHaveLength(1); expect((await h.secret.read()).setupFix).toBeUndefined()
-    await afterFix(h, { turnId: 't2' }); expect(await cardOf(h)).toContain('Claude stopped')   // nothing reported yet: nothing moves
-    await discovered(h, REPORT); await afterFix(h, { turnId: 't3' })   // the report came in a later turn: diff 2 follows
-    expect((await h.board.read()).decisions?.map(d => d.title)).toEqual(['init 4/8 discovery · confirm']); expect(await cardOf(h)).toContain('packages[.]')
-    expect(sent).toHaveLength(1)
-  })
-  test('the mission hand-off turn ends with a draft: no init card, the mission card decides', async () => {
-    const { h } = mk({ files: { [`${ROOT}/.cadre/config.json`]: '{"branches":{"main":"main","dev":"dev"}}' } }); await store().init({ types: {} as any, journal: true }); h.submit = async () => {}
-    await run(h, ['3']); await h.board.update(b => ({ ...b, plan: { id: 'm', slug: 'mission', state: 'draft', epicBranch: '' } }))
-    await after(h, true); expect(await cardOf(h)).toBe(''); expect((await h.board.read()).init).toEqual([{ stage: 3, state: 'pending' }])
-  })
-  test('a background explorer: the hand-off turn ends while it runs, the card keeps "working"; a mission drafted in a later turn clears the stopped card', async () => {
-    const { h } = mk({ files: { [`${ROOT}/.cadre/config.json`]: '{"branches":{"main":"main","dev":"dev"}}' } }); await store().init({ types: {} as any, journal: true }); h.submit = async () => {}
-    await h.board.update(b => ({ ...b, mission: 'm' })); await run(h, []); await h.ui.update(u => ({ ...u, discoveryAgent: 'ag1' }))
-    await after(h, true); expect(await cardOf(h)).toContain('Claude is working on discovery')
-    const m = mk({ files: { [`${ROOT}/.cadre/config.json`]: '{"branches":{"main":"main","dev":"dev"}}' } }); await store().init({ types: {} as any, journal: true }); m.h.submit = async () => {}
-    await run(m.h, []); await after(m.h, true); expect(await cardOf(m.h)).toContain('Claude stopped before finishing mission')
-    expect(((await m.h.board.read()).decisions ?? [])[0].options.map(o => o.label)).toEqual(['Retry', 'Cancel'])
-    await m.h.board.update(b => ({ ...b, plan: { id: 'm', slug: 'mission', state: 'draft', epicBranch: '' } })); await after(m.h, false); expect(await cardOf(m.h)).toBe('')
-  })
-  test('every init answer is ONE line of task language; the same proposal twice emits one event', async () => {
-    const { h, code } = mk({ repo: false, branches: [] }); store(); h.submit = async () => {}
-    const outs = [await run(h, []), await run(h, []), await run(h, ['confirm', 'bad']), await run(h, ['confirm', await code()]), await run(h, ['6']), await run(h, ['9']), await run(h, ['8']), await run(h, ['confirm'])]
-    for (const o of outs) expect(o).not.toContain('\n')
-    expect(banned(outs)).toEqual([])
-    expect(ofEpic(await h.events.read(), '').filter(e => e.data.stage === 1).map(e => e.data.state)).toEqual(['proposed', 'done'])   // run twice + a wrong code: still one `proposed`
-  })
-  test('log text: init.stage reads as words, no event kind falls back to raw JSON', async () => {
-    const v = { c: { glyphs: 'ascii' }, b: { tasks: [] } } as any, ev = (type: string, data: Record<string, unknown>) => ({ type, data } as any)
-    expect(evText(ev('init.stage', { stage: 1, state: 'proposed', name: 'repo' }), v)).toBe('init: stage 1 repo proposed')
-    expect([levelOf(ev('init.stage', { stage: 1, state: 'done' })), levelOf(ev('init.stage', { stage: 1, state: 'proposed' }))]).toEqual([1, 2])   // done shows in the log too, without a toast
-    for (const t of Object.keys(TABLE)) expect(evText(ev(t, Object.fromEntries(TABLE[t as keyof typeof TABLE][3].map(k => [k, 'x']))), v)).not.toContain('{')
-  })
+  const roots = { [RK]: ROOT }
+  expect(rootFor(roots, `/c/wt/${RK}/bd-1`)).toBe(ROOT); expect(rootFor(roots, `/c/wt/${RK}.views/bd-1/x`)).toBe(ROOT); expect(rootFor(roots, '/else')).toBe('/else')
 })

@@ -58,7 +58,7 @@ export interface Secret {
   dcode?: Record<string, string>                      // decision id -> the code its run/fallback templates need
   nonce?: string; initNonce?: string; token?: string; adoptTried?: boolean; active?: boolean; root?: string   // root: the main session's cwd, set at session.start
   session?: string                                      // this session's id (core/admission.sessionOf; resume queue key)
-  setupFix?: { n: number; text: string; sent?: boolean; turn?: string; kind?: 'init' }   // /cadre setup handed n issues to main: the brief, sent or waiting for a turn.complete, and the id of the turn it started (commands/doctor)
+  run?: { kind: 'setup' | 'init'; at: number; turns: number; follow: number; guide: string }   // an agent-run setup/init (ADR 0010): started at, main turns since, follow-ups sent, the guide main follows (its folder is readable under the lease)
   ctx?: { key: string; card?: string }                  // main context: last-sent diff key; a queued one-time resume card (core/briefs)
 }
 export interface Binding {
@@ -110,6 +110,7 @@ export interface Host {
   sendTo?(agentId: string, text: string): Promise<{ isDelivered: boolean; reason?: string }>   // $.session.send({to:{agentId}}): core/reuse.drain only (the one sender)
   press?(id: string, key: string, hash: string): Promise<{ text: string }>   // a Button press on decision `id`, option `key`, drawn with `hash`: stale = refused; else the option's command runs as origin {kind:'press'} (commands/cadre.press; ADR 0008)
   submit?(text: string): Promise<unknown>; usage?(): Promise<{ context?: { percent?: number }; cost?: { usd: number } }>   // $.prompt.submit (drive, #1 only) · $.session.usage
+  root?(): Promise<string>                              // $.plugin.root: the plugin's folder (guides/ for agent-run setup/init, ADR 0010)
 }
 // UI side effects (ui/ only). Built per hook by host($); optional so test hosts may omit it.
 export interface UiOps {

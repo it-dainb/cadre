@@ -61,8 +61,15 @@ async function who(h: Host, agentId?: string) {
 
 const strict = async (h: Host) => (await strictOf(h)) !== 'advisory'
 
+// The maintenance lease (ADR 0010): only after a human-started run (commands/agentrun), until it is verified done, cancelled, or 20 main turns / 30 minutes have passed.
+export const LIMIT = { turns: 20, ms: 30 * 60_000, follow: 3 }
+export const leaseOf = async (h: Host) => { const r = (await h.secret.read()).run; return r && r.turns < LIMIT.turns && (await h.now()) - r.at < LIMIT.ms ? r : undefined }
+// The maintenance lease: while a human-started setup/init runs, main may Write/Edit only these, plus Read the guide's folder. Never source files.
+const leased = (real: string, pol: Policy) => (!!pol.repo && (under(real, `${pol.repo}/.cadre`) || ['.claude/settings.local.json', '.git/info/exclude', pol.changelog || 'CHANGELOG.md'].some(f => real === `${pol.repo}/${f}`)))
+  || (!!pol.home && ['settings.json', 'cadre.json'].some(f => real === `${pol.home}/.claude/${f}`))
+
 // Fence verdict for one file-tool call: undefined = allow-by-fence (continue), 'allow' = tester rule 2, else a deny reason.
-async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, input: unknown, pol: Policy): Promise<string | 'allow' | 'tmp' | undefined> {
+async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, input: unknown, pol: Policy, guide?: string): Promise<string | 'allow' | 'tmp' | undefined> {
   const tester = w.role === 'tester' && !w.main
   const fenced = FENCED.includes(tool) || (tool === 'Read' && !!pol.home && typeof (input as any)?.file_path === 'string' && (input as any).file_path.includes('/.claude/plugins/store/'))
   if (!tester && !fenced) return
@@ -72,6 +79,7 @@ async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, 
   const real = p === undefined ? undefined : await placed(h, join(cwd, p))
   if (real === undefined) return 'that path cannot be used; give a plain path inside your working directory'
   if (tester) return under(real, w.b!.worktree) ? 'allow' : 'write only inside your working directory'
+  if (w.main && guide !== undefined && (tool === 'Read' ? under(real, guide.slice(0, guide.lastIndexOf('/'))) : leased(real, pol))) return 'allow'
   const own = w.owner && under(real, w.b!.worktree)
   if (!w.main && !own) return under(real, (await h.env()).TMPDIR || '/tmp') ? 'tmp' : 'write only inside your working directory (or $TMPDIR)'   // positive jail: file tools are not OS-sandboxed (ADR 0006)
   if (!own && (under(real, pol.repo) || under(real, pol.wtRoot))) return 'project files are edited by a task agent only; plan the change with TaskCreate, or spawn the agent of a planned task'
@@ -95,11 +103,11 @@ export const judge = (e: any): string | undefined => {
 export const guard: Hook = async (h, e, next) => {
   const deny = async (): Promise<string | undefined> => {
     const bad = escape(e); if (bad) return bad
-    const w = await who(h, e.agentId), pol = await policyOf(h)
-    const list = w.main ? MAIN_TOOLS : allowlist(w.role, w.role === 'worker' ? pol.mcpAllow : [])
+    const w = await who(h, e.agentId), pol = await policyOf(h), run = w.main ? await leaseOf(h) : undefined   // main during a setup/init run: Bash plus the lease's files
+    const list = w.main ? (run ? [...MAIN_TOOLS, 'Bash'] : MAIN_TOOLS) : allowlist(w.role, w.role === 'worker' ? pol.mcpAllow : [])
     if (!list.includes(e.tool)) return `${e.tool} is not available to ${w.main ? 'main' : `the ${w.role}`}; use another tool`
-    if (SHELL.includes(e.tool) && !(w.role === 'worker' && w.owner && w.task?.step === 'worker')) return 'shell is available only while you implement your task; use run_check or inspect'
-    const f = await fence(h, w, e.tool, e, pol)
+    if (SHELL.includes(e.tool) && !run && !(w.role === 'worker' && w.owner && w.task?.step === 'worker')) return 'shell is available only while you implement your task; use run_check or inspect'
+    const f = await fence(h, w, e.tool, e, pol, run?.guide)
     return f === 'allow' || f === 'tmp' ? undefined : f
   }
   const why = await deny()

@@ -10,7 +10,7 @@ import type { Config } from '../config/index'
 import { canon, fnv1a64, stamp, withConditions } from './board'
 import { emit } from './events'
 import { ask, settle, settleIf } from './decide'
-import { run as initRun, scoped } from '../commands/init'
+import { scoped } from '../commands/init'
 import { apply, epicNext } from './machine'
 import { missingList } from './validate'
 import { cutEpic } from './branches'
@@ -110,6 +110,8 @@ export async function isHuman(h: Host, o: Origin): Promise<string | null> {
 export async function newToken(h: Host): Promise<string> {   // session start and `adapter token`; shown by toast only (UI-26)
   const token = h.rand(8); await h.secret.update(s => ({ ...s, token })); h.toast(`cadre session token: ${token}`); return token
 }
+// agent-run setup/init (commands/agentrun fills these at load; core never imports commands/agentrun: a load cycle)
+export const RUN: { recheck?(h: Host): Promise<string>; cancel?(h: Host, kind: string): Promise<void> } = {}
 const needsHuman = (c: Command): boolean => ['approve', 'reject', 'resolve', 'release', 'restore', 'init', 'setup', 'adapter'].includes(c.cmd) || (c.cmd === 'config' && c.args[0] === 'set') || (c.cmd === 'sync' && c.args[0] === 'add') || (c.cmd === 'drive' && c.args[0] !== 'status')
 
 // ---- init confirm code (DESIGN 10.1): nonce-salted, never a hash of the diff alone; burned on every attempt ----
@@ -158,7 +160,7 @@ async function approve(h: Host, c: Command): Promise<Out> {
     await store.record('mission', epic.title, epic.description); await store.dropDrafts([plan.id])
     await h.board.update(b => ({ ...b, mission: epic.title, plan: null, epic: null, tasks: [], approval: { planId: null, missing: [] }, sheet: [] }) as typeof b)
     await h.secret.update(({ approval: _a, nonce: _n, ...r }) => r); await settleIf(h, 'plan:')
-    const more = (await h.board.read()).init.some(i => i.stage === 3 && i.state !== 'done') ? ` · ${await initRun(h, [])}` : ''   // init stage 3: continue with the next stage
+    const more = await (RUN.recheck?.(h) ?? Promise.resolve('')).then(t => t && ` · ${t}`)   // an init run: re-check now (done, or a follow-up for main)
     return { text: `Mission "${epic.title}" approved and recorded${more || '.'}` }
   }
   const ids = drafts.map(t => t.id), first = !plan.approvedAt
@@ -223,7 +225,7 @@ export async function dispatch(h: Host, c: Command, route: Route): Promise<Out> 
       return refuse(why)
     }
   }
-  if ((c.cmd === 'init' || c.cmd === 'setup') && c.args[0] === 'cancel') { await h.secret.update(({ initConfirm: _c, ...r }) => ({ ...r, initNonce: h.rand(8) })); await settleIf(h, 'init:'); return { text: `${c.cmd}: cancelled; nothing ran` } }   // the card's Cancel: burns the code
+  if ((c.cmd === 'init' || c.cmd === 'setup') && c.args[0] === 'cancel') { await h.secret.update(({ initConfirm: _c, ...r }) => ({ ...r, initNonce: h.rand(8) })); await settleIf(h, 'init:'); await RUN.cancel?.(h, c.cmd); return { text: `${c.cmd}: cancelled` } }   // the card's Cancel: burns the code, ends the run and its lease
   if (c.cmd === 'approve' && c.args[0]?.includes('@')) return approve(h, c)
   if (c.cmd === 'reject') return reject(h, c)
   if (c.cmd === 'adapter' && c.args[0] === 'token') { await newToken(h); return { text: 'New session token drawn; it is shown by toast only.' } }

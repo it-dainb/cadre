@@ -85,12 +85,11 @@ describe('claim (3.4)', () => {
     expect(((await admitWith(h, d, spawn(ids[0], { workflow: { runId: 'r', agentIndex: 0 } }), next)) as any).deny).toContain('workflow')
     expect(seen).toEqual([]); expect((await w.store.get(ids[0])).category).toBe('todo'); expect((await h.board.read()).tasks.map(t => t.state)).toEqual(['todo', 'todo'])
   })
-  test('marker-less: retyped to the explorer; a fork passes untouched; discovery brief while init stage 4 is pending', async () => {
+  test('marker-less: retyped to the explorer; a fork passes untouched', async () => {
     const w = world(), { h, d } = await w.mk('a'), { next, seen } = ok()
     await admitWith(h, d, spawn('where is the parser?'), next)
     expect(seen[0]).toMatchObject({ subagentType: 'cadre:explorer', model: 'haiku' }); expect(seen[0].prompt).toContain('# QUESTION\nwhere is the parser?')
     await admitWith(h, d, spawn('x', { fork: true }), next); expect(seen[1].subagentType).toBe('general-purpose')
-    await h.board.update(s => ({ ...s, init: [{ stage: 4, state: 'pending' }] })); await admitWith(h, d, spawn('go'), next); expect(seen[2].prompt).toContain('# DISCOVERY'); expect((await h.ui.read()).discoveryAgent).toBe('ag1')   // sec L2: bound at spawn
   })
   test('maxParallel, not-ready (blocking dep), flags, and a type that needs the tester step are refused', async () => {
     const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}, { deps: [{ id: '0', type: 'blocks' }] }, { type: 'test' }, {}); await w.board(h, epic, ids)
