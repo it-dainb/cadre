@@ -14,6 +14,7 @@ import { ask, flagDecision, holds, yoloOn } from './decide'
 import { BLOCKING, apply } from './machine'
 import { queueBrief } from './lanes'
 import { modelText } from './say'
+import { specAsk } from './tdd'
 
 export const LEASE = 600_000
 export type Mode = 'auto' | 'yolo'
@@ -66,7 +67,10 @@ export async function stop(h: Host, why: string): Promise<void> {
   await casDrive(h, await storeOf(h), r => (r?.on && !r.stopped ? { ...r, stopped: why } : undefined)).catch(e => h.log(`drive stop not saved: ${e}`))
   await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: why, paused: undefined } })); await driveEvent(h, 'stopped', why)
   const b = await h.board.read()
-  for (const t of b.tasks) for (const f of t.flags) if (!(b.decisions ?? []).some(d => d.id === `flag:${t.id}:${f}`)) { const d = flagDecision(t.id, f, t.title); if (d) await ask(h, d) }
+  for (const t of b.tasks) for (const f of t.flags) if (!(b.decisions ?? []).some(d => d.id === `flag:${t.id}:${f}`)) {
+    if (f === 'spec_change') { await specAsk(h, t.id, (await (await storeOf(h)).get(t.id).catch(() => null))?.meta['cadre.specChange'] ?? ''); continue }   // the card auto shows: the worker's reason on it
+    const d = flagDecision(t.id, f, t.title); if (d) await ask(h, d)
+  }
 }
 
 // the gate in front of the epic: pause (auto: the human answers in the dialog) or stop (yolo, where auto would ask; an agent moving a protected branch in both)

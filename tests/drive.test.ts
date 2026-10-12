@@ -192,7 +192,7 @@ describe('hard stops (both modes), bounds, stop/resume', () => {
     await report(w.h, await resolveDeps(w.h), 'ag1', { role: 'worker', outcome: 'spec_change', reason: 'pages start at 1' })
     await w.h.git.update(g => ({ ...g, flags: { 'git:dev:agent': {} } as any }))   // inside main's turn, before its decision
     expect((await w.call('TaskUpdate', { taskId: w.t, metadata: { decision: 'accept: pages start at 1' } })).result.error).toContain('the run stopped (an agent moved dev)')
-    const b = await w.board(); expect(b.drive.stopped).toBe('an agent moved dev'); expect(b.tasks[0].state).toBe('blocked'); expect(b.decisions!.map(x => x.id)).toContain(`flag:${w.t}:spec_change`)
+    const b = await w.board(); expect(b.drive.stopped).toBe('an agent moved dev'); expect(b.tasks[0].state).toBe('blocked'); expect(b.decisions!.find(x => x.id === `flag:${w.t}:spec_change`)!.lines).toContain('pages start at 1')   // the human decides with the worker's reason
     const k = await go('auto'); await k.h.ui.update(({ goal: _g, ...u }) => u)
     await k.h.board.update(x => ({ ...x, approval: { planId: 'p9', missing: [] } })); await k.h.git.update(g => ({ ...g, flags: { 'git:main:agent': {} } as any })); await k.turn()
     expect((await k.board()).drive.stopped).toBe('an agent moved main')
