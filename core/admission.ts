@@ -70,7 +70,7 @@ export async function admitWith(h: Host, d: Deps, e: any, next: (e: any) => any)
 
 // ---- shared tail: retype, model, cwd, next(), bind. A rejected or thrown spawn runs `undo` (release) and rethrows. ----
 async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTask, role: Role, prompt: string, cwd: string, step: string, wt: string, undo: () => Promise<void>, rt?: Tier, task?: Task) {
-  const risk = rt ?? taskRisk(d.cfg.review.tiers, pathsOf(task), !!task?.labels.some(l => d.cfg.review.deepLabels.includes(l)), [], task?.meta['cadre.risk'])
+  const risk = rt ?? taskRisk(d.cfg.review.tiers, pathsOf(task), !!task?.labels.some(l => d.cfg.review.deepLabels.includes(l)) || task?.meta['cadre.core'] === 'true', [], task?.meta['cadre.risk'])
   const r0 = routeOf(d, step === 'tester' ? 'tester' : role, risk, rounds(task)), env = await h.env()
   const forced = env.CLAUDE_CODE_SUBAGENT_MODEL || env.CLAUDE_CODE_EFFORT_LEVEL ? `${env.CLAUDE_CODE_SUBAGENT_MODEL ?? ''}/${env.CLAUDE_CODE_EFFORT_LEVEL ?? ''}` : undefined
   const run = { role, model: env.CLAUDE_CODE_SUBAGENT_MODEL || r0.model || 'default', effort: env.CLAUDE_CODE_EFFORT_LEVEL || r0.effort || 'default', risk, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }
