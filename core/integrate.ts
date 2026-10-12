@@ -8,7 +8,7 @@ import { BLOCKING, epicNext } from './machine'
 import { cut, insert } from './changelog'
 import { casRef, checkRun, exists, git, jailMode, op, tip, worktreeRemove, writableJail } from './git'
 import { inferVersion, landDev, lastTag, mergeEpic, release, wtPath, wtRootOf } from './branches'
-import { repoKeyOf } from '../commands/init'
+import { clearKnownRed, repoKeyOf } from '../commands/init'
 import { redFix } from './drive'
 
 
@@ -26,7 +26,7 @@ const commitPaths = async (h: Host, wt: string, paths: string[], msg: string, am
 }
 
 // setup + suites.integration per touched package (files = null: every package). Returns the failure text, or null when green.
-async function runSuites(h: Host, cfg: any, wt: string, files: string[] | null, epicId: string): Promise<string | null> {
+async function runSuites(h: Host, cfg: any, wt: string, files: string[] | null, epicId: string, kr: { root: string; n: string }[] = []): Promise<string | null> {
   const pkgs: any[] = cfg.packages ?? [], owner = (f: string) => pkgs.reduce<any>((best, p) => (p.root === '.' || f === p.root || f.startsWith(`${p.root}/`)) && (!best || p.root.length > best.root.length) ? p : best, null)
   const hit = new Set(files?.map(owner)), touched = pkgs.filter(p => !files || hit.has(p))
   const mode = cfg.jail === 'off' ? 'none' as const : await jailMode(h.run)
@@ -37,8 +37,9 @@ async function runSuites(h: Host, cfg: any, wt: string, files: string[] | null, 
       if (p.setup?.length) { const r = await h.run(mode === 'none' ? p.setup : writableJail({ ...j, argv: p.setup }), { cwd: dir, timeoutMs: 600000 }); if (r.exitCode) return `${p.root}: setup failed: ${tail(r)}` }
       const want = Array.isArray(cfg.suites?.integration) ? cfg.suites.integration : Object.keys(p.checks ?? {})
       for (const n of want) {
-        if (!p.checks?.[n] || p.knownRed?.includes(n)) continue
+        if (!p.checks?.[n]) continue
         const r = await checkRun(h.run, mode, { ...j, argv: p.checks[n], writable: cfg.jailWritable }); await emit(h, 'check.ran', { taskId: epicId, name: `${p.root}:${n}`, ok: !r.exitCode, exit: r.exitCode })
+        if (p.knownRed?.includes(n)) { if (!r.exitCode) kr.push({ root: p.root, n }); continue }   // known red runs, never gates; green now = its mark goes after the landing (ADR 0014)
         if (r.exitCode) return `${p.root}:${n} failed (exit ${r.exitCode}): ${tail(r)}`
       }
     }
@@ -88,13 +89,14 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
       if (out !== text) { await h.write(path, out); sha = await commitPaths(h, tmp, [cfg.changelog.path], '', true) }
     }
     const files = (await git(h.run, tmp, ['diff', '--name-only', `${m.devTip}..${sha}`])).split('\n').filter(Boolean)
-    const red = await runSuites(h, cfg, tmp, files, epicId); if (red) return await fail(red, true)
+    const kr: { root: string; n: string }[] = [], red = await runSuites(h, cfg, tmp, files, epicId, kr); if (red) return await fail(red, true)
     const on = await checkedOut(h, root, dev)
     if (!(await landDev(h, { dev, sha, old: m.devTip, tmp, epic: p.epicBranch }))) return await fail(`${dev} moved during integration; call TaskUpdate completed again`, false)
     await refresh(h, root, dev, on, m.devTip)
     const at = await h.now()
     await setPlan(h, 'land', { landed: { dev, sha, at }, flags: (p.flags ?? []).filter(f => f !== 'integration-failed') })
     await emit(h, 'plan.landed', { planId: epicId, sha })
+    await clearKnownRed(h, kr, epicId).catch(e => h.log(`known red not cleared: ${e}`))
     const dr = (await h.board.read()).drive; if (cfg.release.onEpicDone === 'propose' && !(yoloOn(dr) && dr.epicId === epicId)) await propose(h, root, dev)   // a running yolo run of this plan stops at landed on dev (drive's toast); a stopped one, or another epic's mode, gets the proposal
     return null
   } catch (e) { return await fail(`integration error: ${(e as Error).message}`, false) }

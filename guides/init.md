@@ -42,7 +42,7 @@ Write the result into `.cadre/config.json` as `"packages"` (keep `branches`):
 - `setup` is one command as an argument list (no shell string); `[]` when there is none.
 - `checks` maps a name to one command each. Keep only checks that pass offline after `setup`; leave out anything that downloads at test time.
 - `tdd.paths` are the globs of the test files.
-You may run a check once to see that it works. Done when `.cadre/config.json` holds the list. cadre then runs every check on a clean checkout without network; if one fails, you get a message naming it: fix the command or leave the check out.
+If the user's goal comes next and a check fails because of the very problem that goal is about, keep the check as it is: cadre shows it to the user as known red, and the goal's fix must turn it green. Never weaken or delete a test. You may run a check once to see that it works. Done when `.cadre/config.json` holds the list. cadre then runs every check on a clean checkout without network; if one fails, you get a message naming it: fix the command or leave the check out.
 
 ## Phase 5: changelog
 `CHANGELOG.md` must follow Keep a Changelog 1.1.0. If it does not exist, Write exactly:

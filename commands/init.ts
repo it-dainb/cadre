@@ -2,7 +2,8 @@
 // predicate per phase, re-run at every main turn end by commands/agentrun) and the one write the human must confirm: the containment settings (a diff on a card).
 import type { Host } from '../types'
 import { canon, fnv1a64 } from '../core/board'
-import { initConfirm, initPropose, missionOf } from '../core/dispatch'
+import { DRIVE, initConfirm, initPropose, missionOf } from '../core/dispatch'
+import { op } from '../core/git'
 import { settle } from '../core/decide'
 import { load } from '../config'
 import type { Config } from '../config'
@@ -64,13 +65,15 @@ const packages = (c: Ctx): string | null => {
   const r = D.parse(c.cfg.packages); return typeof r === 'string' ? r : null
 }
 // the mod-run validation: every package's setup and checks in a clean offline copy at HEAD, once per package list (cached in $.store)
-async function audit(c: Ctx): Promise<{ why: string | null; caches: string[] }> {
+type Red = { root: string; n: string }
+async function audit(c: Ctx): Promise<{ why: string | null; caches: string[]; red: Red[] }> {
   const pkgs = c.cfg.packages as unknown as (D.Pkg & { knownRed?: string[] })[], sig = fnv1a64(canon(pkgs)), key = `init.audit:${c.rk}`
   let a = (await c.h.store.get(key)) as { sig: string; runs: D.Run[] } | undefined
   if (a?.sig !== sig) { a = { sig, runs: [] }; for (const p of pkgs) a.runs.push(await D.exec(c.h, c.root, c.home, { ...p, setup: p.setup ?? [] }, { audit: true, knownRed: p.knownRed })); await c.h.store.set(key, a) }
+  const goal = !!(await c.h.secret.read()).run?.goal, red: Red[] = []   // a goal run (ADR 0014): a check red before the goal is often the goal's own bug; it becomes known red on the safety card, never skipped or weakened
   const bad = pkgs.flatMap((p, i) => !a!.runs[i].setupOk ? [`${p.root}: setup ${(p.setup ?? []).join(' ')} fails in a clean copy`]
-    : Object.entries(a!.runs[i].results).flatMap(([n, v]) => v === 'red' ? [`${p.root}: ${n} fails on a clean checkout (fix the command or leave it out)`] : v === 'net' ? [`${p.root}: ${n} needs the network at test time (leave it out)`] : []))
-  return { why: bad.length ? bad.join('; ') : null, caches: [...new Set(a.runs.flatMap(r => r.caches))] }
+    : Object.entries(a!.runs[i].results).flatMap(([n, v]) => v === 'red' && goal ? (red.push({ root: p.root, n }), []) : v === 'red' ? [`${p.root}: ${n} fails on a clean checkout (fix the command or leave it out)`] : v === 'net' ? [`${p.root}: ${n} needs the network at test time (leave it out)`] : []))
+  return { why: bad.length ? bad.join('; ') : null, caches: [...new Set(a.runs.flatMap(r => r.caches))], red }
 }
 function workflow(c: Ctx): string | null {
   const errs = regErrors(c.cfg.types as any)
@@ -91,30 +94,61 @@ const realOf = async (c: Ctx) => (await c.h.stat(c.root, { resolve: true }))?.re
 async function contained(c: Ctx): Promise<boolean> {   // $.settings.read() is this session's: it shows the new file only after a restart, so a confirm this session counts
   return (await c.h.board.read()).init.some(i => i.stage === 5 && i.state === 'done') || assess(await c.h.settings().catch(() => ({})), await realOf(c), await wtOf(c)).state === 'contained'
 }
-async function plan5(c: Ctx, caches: string[]) {
+const redLine = (red: Red[]) => `known red before your goal: ${red.map(x => `${x.root}: ${x.n}`).join(', ')} · it must turn green`
+const grant = (pk: any[] = [], red: Red[]) => red.reduce((l, x) => (l.some(p => p.root === x.root) ? l.map(p => (p.root === x.root ? { ...p, knownRed: union(p.knownRed, [x.n]) } : p)) : [...l, { root: x.root, knownRed: [x.n] }]), pk)   // packages[].knownRed is granted only by the user layer (config relockKnownRed)
+async function plan5(c: Ctx, caches: string[], red: Red[] = []) {
   const real = await realOf(c), wt = await wtOf(c), setP = `${c.root}/.claude/settings.local.json`, usrP = `${c.home}/.claude/cadre.json`, abs = caches.map(x => `${c.home}/${x}`), p = SANDBOX(wt, real, abs)
   const cur = await readJ(c.h, setP), cu = await readJ(c.h, usrP)
   const next = { ...cur, env: { ...cur.env, ...p.env }, sandbox: { ...cur.sandbox, ...p.sandbox, filesystem: { ...cur.sandbox?.filesystem, allowWrite: union(cur.sandbox?.filesystem?.allowWrite, p.sandbox.filesystem.allowWrite), denyWrite: union(cur.sandbox?.filesystem?.denyWrite, p.sandbox.filesystem.denyWrite) } } }
-  const user = abs.length ? { ...cu, repos: { ...cu.repos, [c.rk]: { ...cu.repos?.[c.rk], jailWritable: union(cu.repos?.[c.rk]?.jailWritable, abs) } } } : cu
-  const lines = [...jdiff(cur, next).map(l => `.claude/settings.local.json: ${l}`), ...jdiff(cu, user).map(l => `~/.claude/cadre.json: ${l}`)]
-  const writes: [string, string][] = [[setP, JSON.stringify(next, null, 2) + '\n'], ...(abs.length ? [[usrP, JSON.stringify(user, null, 2) + '\n'] as [string, string]] : [])]
+  const mine = { ...cu.repos?.[c.rk], ...(abs.length ? { jailWritable: union(cu.repos?.[c.rk]?.jailWritable, abs) } : {}), ...(red.length ? { packages: grant(cu.repos?.[c.rk]?.packages, red) } : {}) }
+  const user = abs.length || red.length ? { ...cu, repos: { ...cu.repos, [c.rk]: mine } } : cu
+  const lines = [...(red.length ? [redLine(red)] : []), ...jdiff(cur, next).map(l => `.claude/settings.local.json: ${l}`), ...jdiff(cu, user).map(l => `~/.claude/cadre.json: ${l}`)]
+  const writes: [string, string][] = [[setP, JSON.stringify(next, null, 2) + '\n'], ...(user !== cu ? [[usrP, JSON.stringify(user, null, 2) + '\n'] as [string, string]] : [])]
   return { lines, writes, real, wt, sig: fnv1a64(lines.join('\n') + canon(await Promise.all([setP, usrP].map(f => c.h.readText(f))))) }
 }
-async function propose5(c: Ctx, caches: string[]): Promise<void> {
-  const p = await plan5(c, caches); if (((await c.h.ui.read())['init.pending'] as { sig?: string } | undefined)?.sig === p.sig && (await c.h.board.read()).decisions?.some(d => d.id === 'init:5')) return
-  await c.h.ui.update(u => ({ ...u, 'init.pending': { sig: p.sig, caches } }))
+async function propose5(c: Ctx, caches: string[], red: Red[]): Promise<void> {
+  const p = await plan5(c, caches, red); if (((await c.h.ui.read())['init.pending'] as { sig?: string } | undefined)?.sig === p.sig && (await c.h.board.read()).decisions?.some(d => d.id === 'init:5')) return
+  await c.h.ui.update(u => ({ ...u, 'init.pending': { sig: p.sig, caches, red } }))
   await initPropose(c.h, 5, `init 5 containment\n${p.sig}`, { title: 'init · safety settings · confirm', short: 'init safety settings', sub: 'init', lines: ['cadre writes these settings after you confirm:', ...p.lines.slice(0, 14).map(l => `  ${l}`), ...(p.lines.length > 14 ? [`  … ${p.lines.length - 14} more lines`] : [])] })
 }
 // `init confirm` (the card's Confirm): the files are re-read and must match what the card showed
 export async function confirm(h: Host): Promise<string> {
-  const c = await ctxOf(h), pend = (await h.ui.read())['init.pending'] as { sig: string; caches: string[] } | undefined, good = await initConfirm(h, 5)
+  const c = await ctxOf(h), pend = (await h.ui.read())['init.pending'] as { sig: string; caches: string[]; red?: Red[] } | undefined, good = await initConfirm(h, 5)
   if (!good || !pend) return 'init: nothing pending; the card shows the current diff'
-  const p = await plan5(c, pend.caches); if (p.sig !== pend.sig) return 'init: the settings files changed since you saw them; nothing written'
+  const p = await plan5(c, pend.caches, pend.red); if (p.sig !== pend.sig) return 'init: the settings files changed since you saw them; nothing written'
   for (const [path, text] of p.writes) { const old = await h.readText(path); if (old !== null && old !== text) await h.write(`${path}.bak`, old); if (old !== text) await h.write(path, text) }
   await setPolicy(h, { repo: p.real, wtRoot: p.wt, home: c.home }); await contain(h).catch(() => {})
   await h.ui.update(({ 'init.pending': _p, ...u }) => u); await settle(h, 'init:5')
   await h.board.update(b => ({ ...b, init: [...b.init.filter(i => i.stage !== 5), { stage: 5, state: 'done' }] }))
-  return 'init: safety settings written'
+  const sha = await commitSetup(c).catch(() => null)
+  return `init: safety settings written${sha ? ' · setup committed' : ''}`
+}
+
+// The setup files (config, changelog) must be committed: a clone and dev need them (a release refuses without the changelog on dev). cadre commits them after the
+// safety confirm, under git.op (its own ref move is not a flag); the other branch of main/dev follows when it is an ancestor (a fresh repo), else it is left alone.
+async function commitSetup(c: Ctx): Promise<string | null> {
+  const files = ['.cadre/config.json', c.cfg.changelog.path]
+  if (!(await git(c, 'status', '--porcelain', '--', ...files)).stdout.trim()) return null
+  const cur = (await git(c, 'symbolic-ref', '--short', '-q', 'HEAD')).stdout.trim(), { main, dev } = c.cfg.branches, other = cur === main ? dev : cur === dev ? main : ''
+  if (!other) return null
+  return op(c.h, async () => {
+    const old = (await git(c, 'rev-parse', other)).stdout.trim()
+    if ((await git(c, 'add', '--', ...files)).exitCode || (await git(c, 'commit', '--no-verify', '-m', 'chore: set up cadre', '--', ...files)).exitCode) return null
+    const head = (await git(c, 'rev-parse', 'HEAD')).stdout.trim()
+    if (!(await git(c, 'merge-base', '--is-ancestor', old, head)).exitCode) await git(c, 'update-ref', `refs/heads/${other}`, head, old)
+    return head
+  })
+}
+// integration green (core/integrate): a known-red check that passes now loses its mark (the user-layer grant), recorded
+export async function clearKnownRed(h: Host, green: Red[], planId: string): Promise<void> {
+  if (!green.length) return
+  const c = await ctxOf(h), path = `${c.home}/.claude/cadre.json`, old = await h.readText(path), cu = await readJ(h, path), pk = (cu.repos?.[c.rk]?.packages ?? []) as { root: string; knownRed?: string[] }[]
+  const next = pk.map(p => ({ ...p, knownRed: (p.knownRed ?? []).filter(n => !green.some(g => g.root === p.root && g.n === n)) }))
+  if (JSON.stringify(next) === JSON.stringify(pk)) return
+  const text = JSON.stringify({ ...cu, repos: { ...cu.repos, [c.rk]: { ...cu.repos[c.rk], packages: next } } }, null, 2) + '\n'
+  const write = async () => { if (old !== null) await h.write(`${path}.bak`, old); await h.write(path, text) }
+  await (DRIVE.humanWrite ? DRIVE.humanWrite(h, write) : write())   // a narrowed grant is not a change a running drive stops for
+  await (await wire.store(h, c.cfg, c.root)).record('decision', `known red is green now: ${green.map(g => `${g.root}: ${g.n}`).join(', ')}`, `plan ${planId} landed with these checks passing; they gate integration again.`, planId).catch(() => {})
 }
 
 const ctxOf = async (h: Host): Promise<Ctx> => {
@@ -126,9 +160,10 @@ const it = (name: string, why: string | null, blocked = false): Item => (blocked
 export async function initItems(h: Host): Promise<Item[]> {
   const c = await ctxOf(h), r = await repo(c), s = r ? 'needs the repository first' : await store(c), m = await mission(c), p = packages(c)
   const a = !r && !s && !p ? await audit(c) : undefined, w = workflow(c), l = await changelog(c)
-  const out = [it('repository', r), it('task store', s, !!r), m, it('build and test commands', p), it('commands pass on a clean checkout', a?.why ?? null, !a), it('workflow', w), it('changelog', l)]
+  const audited: Item = a && !a.why && a.red.length ? { name: 'commands pass on a clean checkout', st: 'ok', why: redLine(a.red) } : it('commands pass on a clean checkout', a?.why ?? null, !a)
+  const out = [it('repository', r), it('task store', s, !!r), m, it('build and test commands', p), audited, it('workflow', w), it('changelog', l)]
   if (await contained(c)) out.push({ name: 'safety settings', st: 'ok' })
-  else if (out.every(i => i.st === 'ok' || (i === m && i.st === 'wait'))) { await propose5(c, a!.caches); out.push({ name: 'safety settings', st: 'wait', why: 'confirm them on their card' }) }
+  else if (out.every(i => i.st === 'ok' || (i === m && i.st === 'wait'))) { await propose5(c, a!.caches, a!.red); out.push({ name: 'safety settings', st: 'wait', why: 'confirm them on their card' }) }
   else out.push({ name: 'safety settings', st: 'todo', why: 'after the steps above' })
   return out
 }

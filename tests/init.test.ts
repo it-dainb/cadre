@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { confirm, initItems, repoKeyOf, rootFor, wire } from '../commands/init'
+import { clearKnownRed, confirm, initItems, repoKeyOf, rootFor, wire } from '../commands/init'
+import { load } from '../config/index'
 import { pump, recheck, start, turnEnd } from '../commands/agentrun'
 import { decide, run as cadreRun } from '../commands/cadre'
 import { guard, policyOf, setPolicy, settingsOnly, LIMIT } from '../policy/guards'
@@ -321,5 +322,38 @@ describe('onboarding: /cadre <goal> in a repo cadre is not set up in', () => {
     const w = mk({ files: { ...READY, [`${PLUG}/guides/goal.md`]: (BUDGET.guides as Record<string, string>).goal } }); void w.h.store.set('cadre:setup', { at: 0 })
     expect((await goal(w.h, 'fix it')).text).toBe('goal: Claude is on it · the plan comes up for approval'); await w.tick()
     expect((await w.h.board.read()).decisions ?? []).toEqual([]); expect(w.sent[0]).toMatch(/^Goal from the user: fix it\n\n# Work on a goal/); void tick; void sent
+  })
+})
+
+// team decision (ADR 0014): in a goal run a check red on the clean checkout is often the goal's own bug: known red, confirmed knowingly on the safety card, cleared on a green landing
+describe('known red before a goal', () => {
+  const USR = `${HOME}/.claude/cadre.json`
+  test('red at init in a goal run: not a failure; the safety card names it; Confirm grants it in the user layer; the audit then passes it as known red', async () => {
+    const { h, files } = mk({ files: READY, extra: jailed(['npm test']) })
+    await h.secret.update(s => ({ ...s, run: { kind: 'init' as const, at: 0, turns: 0, follow: 0, guide: 'g', goal: { text: 'fix it', mode: 'auto' as const } } }))
+    expect((await items(h))['commands pass on a clean checkout']).toBe('ok: known red before your goal: .: test · it must turn green')
+    const d = (await card(h, 'init:5'))!; expect(d.lines).toContain('  known red before your goal: .: test · it must turn green')
+    expect(await confirm(h)).toBe('init: safety settings written')
+    expect(JSON.parse(files[USR]).repos[RK].packages).toEqual([{ root: '.', knownRed: ['test'] }])
+    expect((await load(h, { home: HOME, root: ROOT, repoKey: RK })).config.packages[0].knownRed).toEqual(['test'])
+    const plain = mk({ files: READY, extra: jailed(['npm test']) }); expect((await items(plain.h))['commands pass on a clean checkout']).toContain('fail: .: test fails on a clean checkout')   // no goal: unchanged
+  })
+  test('green after a landing: the mark goes, recorded; nothing else in the file moves', async () => {
+    const { h, files, s } = mk({ files: { ...READY, [USR]: JSON.stringify({ theme: 'dark', repos: { [RK]: { jailWritable: ['/x'], packages: [{ root: '.', knownRed: ['test', 'lint'] }] } } }) } })
+    await clearKnownRed(h, [{ root: '.', n: 'test' }], 'p1')
+    expect(JSON.parse(files[USR])).toEqual({ theme: 'dark', repos: { [RK]: { jailWritable: ['/x'], packages: [{ root: '.', knownRed: ['lint'] }] } } }); expect(files[`${USR}.bak`]).toContain('"test"')
+    expect((await s.list({})).some(t => t.type === 'decision' && t.title === 'known red is green now: .: test')).toBe(true)
+  })
+  test('the setup commit: cadre commits config + changelog after the confirm and brings dev along when it is behind', async () => {
+    const { h, calls } = mk({ files: READY, extra: argv => {
+      const j = argv.join(' ')
+      if (j.startsWith('git status --porcelain')) return { exitCode: 0, stdout: '?? CHANGELOG.md\n' }
+      if (j === 'git symbolic-ref --short -q HEAD') return { exitCode: 0, stdout: 'main\n' }
+      if (j === 'git rev-parse dev') return { exitCode: 0, stdout: 'old\n' }
+      if (j === 'git rev-parse HEAD') return { exitCode: 0, stdout: 'new\n' }
+      return jailed()(argv)
+    } })
+    await initItems(h); expect(await confirm(h)).toBe('init: safety settings written · setup committed')
+    expect(calls.map(a => a.join(' '))).toEqual(expect.arrayContaining(['git commit --no-verify -m chore: set up cadre -- .cadre/config.json CHANGELOG.md', 'git merge-base --is-ancestor old new', 'git update-ref refs/heads/dev new old']))
   })
 })
