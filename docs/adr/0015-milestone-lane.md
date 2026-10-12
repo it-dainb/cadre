@@ -1,0 +1,35 @@
+# ADR 0015: the milestone lane (wave 1: backend)
+
+Status: accepted (0.10.0, wave 1). User decisions, 2026-10-12 (plan `cadre-0.10.0-milestone`). Extends ADR 0011 (lanes), ADR 0013 (autonomy), ADR 0014 G (core first, trial merge, rework).
+
+## Why
+A goal of several features (or more than ~7 tasks) made one plan too big for one context, one review queue and one approval. Splitting it by hand meant several goals, several approvals, and nothing kept them in order.
+
+## Decision
+**Model.** mission (project) → **milestone** (one `/cadre <goal>`) → epics (each a plan of 1-7 tasks) → tasks. In beads the milestone is the plan's epic record (`cadre.lane = milestone`); its children are `epic` records (parent-child), ordered by `blocks`; each epic's tasks are its children. The board keeps ONE plan (the milestone, `board.epic` = its id, `plan.epicBranch` = the milestone branch) and the tasks of every epic (`SnapTask.epic`); `plan.epics` is the roadmap, derived from beads at every mirror (`core/milestone.roadmap`): `draft · waiting · ready · planning · running · landed · stopped`.
+
+**Lane.** `milestone` joins ask · lite · full. Main picks it (guide: several features, or more than about 7 tasks). Fixed override: a plan draft with more than 7 tasks keeps `full` but its lane line says `8 tasks: a milestone fits` and the dialog's Lane option is `Lane → milestone`. Change lane full ↔ milestone drops the drafts (tasks and epics do not convert) and briefs main to draft the other shape; the plan record and its id stay.
+
+**Roadmap draft.** Every TaskCreate after the milestone's is an epic: subject, goal (description), `metadata.size` (1-7 tasks), `metadata.paths`, optional `metadata.core`; dependencies by `addBlockedBy`. The missing list (`validate.missingList`, same code as tasks) wants goal, size and paths, 2+ epics, a core epic of at most 2 tasks, and refuses two unordered epics on one path: `move it into the core epic or add a dependency`.
+
+**Critic (from OMC ralplan).** When nothing else is missing, the draft still lacks `critic review`: main spawns ONE plain Agent (an explorer: fresh context, read-only) with the whole roadmap, merges what it gets right, and records `metadata.critique` on the milestone. The critique is refused until an explorer answer exists in this session. Only then is the dialog drawn. Not enforced: that the critic saw the final version (merging the critique changes the draft by design).
+
+**One approval, both modes.** The dialog `approve milestone <id>`, first line `auto|yolo · milestone · N epics · <reason>`, one line per epic with `core`, size and `after …`. Approve cuts `milestone/<id>-<slug>` from dev and arms drive. Nothing else in the milestone is approved by the human.
+
+**Just-in-time epic plans.** An epic becomes `ready` when its dependencies landed and a slot is free (`milestone.maxEpics`, default 2, 0 = no cap; running + planning epics count). The next: line says `plan epic <id>: TaskCreate its tasks with metadata.epic "<id>", then TaskUpdate <id> metadata.planned true`. The first task's answer carries the plan rules. `planned: true` checks the epic's drafts with the plan missing list, then approves them automatically (`core/milestone.planEpic`), cuts `epic/<id>-<slug>` from the milestone tip, and records it (`drive.decided` kind `plan` + beads decision `<mode>: plan <id> approved automatically for milestone <m>`). Gates inside an epic follow the mode as before.
+
+**Running.** Tasks of all running epics share one board: admission takes the ready list and the branch of the task's epic and refuses a task whose epic is not running; maxParallel caps tasks across epics; a squash goes into the task's epic branch; siblings are refreshed only within their epic (another epic gets the milestone tip at its own landing).
+
+**Landing.** `TaskUpdate <epic> completed` → `integrate.integrateEpic` with the milestone branch as the target: the plan state `integrating` is the lock (one landing at a time; a second is refused "call TaskUpdate completed again after it"), merge `--no-ff` in a throwaway worktree with the footer `Milestone: <id> <slug>`, the epic's changelog entries amended in, the suites on the MERGED result, CAS on the milestone ref, the epic branch deleted, the epic closed in beads, `plan.landed {planId: epic, on}`. A core epic's files are then locked for every later task (`rebase.coreLanded`). The milestone then takes dev's news (`freshen`: dev merged into the milestone branch in a throwaway, CAS; a conflict is left for the final landing). When the last epic lands, the milestone lands on dev at once (the existing path) and the release is proposed once (auto; yolo: none), cut as `chore(release): vX.Y.Z — milestone <id> <slug>`. Single-epic goals keep epic → dev unchanged.
+
+**Failures and bounds.** Red on the merged result while driving: ONE fix task in that epic (`drive.redFix`, unchanged); the second red, or a merge conflict with the milestone, stops THAT epic (`cadre.stopped` on the epic; decision `flag:<epic>:stopped`, Retry = `resolve <epic> keep`). A stopped epic stops the epics that wait on it; independent epics go on in yolo, auto pauses for the human (`drive.gate`); yolo stops once nothing else can move. The milestone's own red on dev gets no fix task (its children are epics): the flag asks the human. Drive bounds cover the whole milestone: the plan bounds (turns, $, minutes) times the number of epics. Per-epic no progress: a running epic with a free task slot and nothing of it running, in review or blocked stops after `noProgressTurns` drive turns while the rest goes on (the global no-progress bound still holds the whole run).
+
+**Continue.** `/cadre continue` needed no change beyond the board: the rebuilt board holds the tasks of every epic, so every in-flight task of every running epic is picked up; a cold repo adopts a milestone with its lane and branch.
+
+## Seams for wave 2
+- Epic-level conflict path: `integrate.landed` is where running epics would get the new milestone tip (today they merge onto it at their own landing); `integrate.integrateEpic`'s `fail(..., true, false)` for a merge conflict is where a `resolve-conflict` task would be created instead of `stopEpic`; promote-to-core mid-run would add a core epic through `planEpic`'s path.
+- UI: `plan.epics` (roadmap + states + `why`) and `SnapTask.epic` are on the human view for the header, tab 5 and the band; `plan.landed` carries `on` (Activity says `landed on milestone/…`).
+
+## Consequences
+- `metadata` gains `epic`, `size`, `planned`, `critique`; `lane` gains `milestone`. `milestone/` branches are protected like `epic/` ones.
+- Kit: `tests/milestone.test.ts` (lane + override + Change lane, roadmap missing list, critic, the one dialog, approval, JIT auto-approval + record, scheduling within maxEpics, next: line, stop propagation per mode, per-epic no progress, scaled bounds, admission per epic, continue). Real git: `tests/git/milestone.test.mjs` (landing on the milestone branch, footer, freshen, the milestone on dev, release subject, one landing at a time, red → fix task → stop, conflict → stop).
