@@ -16,6 +16,7 @@ import { spec } from '../agents'
 import * as D from '../core/discover'
 import { realRoot, setPolicy } from '../policy/guards'
 import { wtRootOf } from '../core/branches'
+import { EXCLUDE_NEW, legacy } from '../task-management/adapters/beads/layout'
 
 // The beads TaskStore factory (register.ts wires it). The default refuses loudly.
 export const wire: { store(h: Host, cfg: Config, root: string): Promise<TaskStore> } = {
@@ -34,7 +35,7 @@ export const scoped = async (h: Host, name: string) => `cadre:${repoKeyOf(await 
 const git = (c: Ctx, ...a: string[]) => c.h.run(['git', ...a], { cwd: c.root })
 const readJ = async (h: Host, p: string): Promise<J> => { const t = await h.readText(p); try { return t ? JSON.parse(t) : {} } catch { return {} } }
 const union = (a: unknown, b: string[]) => [...new Set([...(Array.isArray(a) ? a : []), ...b])]
-const EXCLUDE = ['.beads/', '.claude/settings.local.json']
+const EXCLUDE = ['.claude/settings.local.json']   // plus the store lines: layout.EXCLUDE_NEW, or .beads/ in a repo that still has it
 
 // ---- the phases, in guide order; each answers null (done) or why not ----
 async function repo(c: Ctx): Promise<string | null> {
@@ -44,7 +45,7 @@ async function repo(c: Ctx): Promise<string | null> {
   if (!main) return 'branches.main is not set in .cadre/config.json'
   for (const b of [main, dev]) if ((await git(c, 'rev-parse', '--verify', b)).exitCode) return `branch ${b} is missing`
   const ex = (await git(c, 'rev-parse', '--git-path', 'info/exclude')).stdout.trim(), have = ((await c.h.readText(ex.startsWith('/') ? ex : `${c.root}/${ex}`)) ?? '').split('\n')
-  const miss = EXCLUDE.filter(w => !have.includes(w)); return miss.length ? `.git/info/exclude lacks ${miss.join(' and ')}` : null
+  const miss = [...(await legacy(c.h, c.root) ? ['.beads/'] : EXCLUDE_NEW), ...EXCLUDE].filter(w => !have.includes(w)); return miss.length ? `.git/info/exclude lacks ${miss.join(' and ')}` : null
 }
 async function store(c: Ctx): Promise<string | null> {
   try { const p = await (await wire.store(c.h, c.cfg, c.root)).probe(); return !p.ok ? `task store not ready: ${p.detail.slice(0, 120)}` : p.journal ? null : 'task store journal is off' }

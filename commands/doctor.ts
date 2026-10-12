@@ -13,9 +13,11 @@ import { apply as mapply, plan as mplan } from '../policy/settings'
 import { call } from '../task-management/protocol'
 import { openPane } from '../ui/index'
 import { progress, type Item } from './init'
+import { BdStore } from '../task-management/adapters/beads/store'
+import { dirOf, moveStore } from '../task-management/adapters/beads/layout'
 
 export type Row = ['ok' | 'warn' | 'crit', string, string?]   // level, line, fix (a command for the human)
-const PIN = '2.1.295', STAMP = 'cadre:setup', USER_CARD = 91, PATCH = { env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } }
+const PIN = '2.1.295', STAMP = 'cadre:setup', USER_CARD = 91, STORE_CARD = 92, PATCH = { env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } }
 const ver = (s: string) => s.match(/\d+(\.\d+)+/)?.[0] ?? ''
 const atLeast = (v: string, min: string) => { const a = v.split('.').map(Number), b = min.split('.').map(Number); for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0); return true }
 
@@ -115,7 +117,17 @@ async function proposeUser(h: Host, lines: string[], sig: string): Promise<void>
   await h.ui.update(u => ({ ...u, 'setup.pending': sig }))
   await initPropose(h, USER_CARD, `setup user settings\n${sig}`, { title: 'setup · user settings · confirm', short: 'setup user settings', sub: 'setup', lines: ['cadre writes this after you confirm (a .bak is kept):', ...lines.map(l => `  ~/.claude/settings.json: ${l}`)] })
 }
+// An older repo keeps its task store in .beads. Moving it is never automatic: doctor shows a card (init:92); its Confirm (`setup confirm`) lands here.
+async function proposeMove(h: Host): Promise<void> {
+  if ((await h.board.read()).decisions?.some(d => d.id === `init:${STORE_CARD}`)) return
+  await initPropose(h, STORE_CARD, 'move task store', { title: 'task store · move to .cadre/store · confirm', short: 'move task store', sub: 'setup', lines: ['the task store is in .beads; cadre moves it to .cadre/store after you confirm.', 'No task may be running. If the store does not answer from its new place, it goes back.', 'By hand afterwards: BEADS_DIR=.cadre/store bd list'] })
+}
+async function moveStoreNow(h: Host): Promise<string> {
+  const root = await h.cwd(), cfg = await cfgOf(h)
+  return `setup: ${await moveStore(h, root, dir => new BdStore({ run: h.run, cwd: root, actor: 'cadre/setup', bin: cfg.store.bin, timeoutMs: cfg.store.timeoutMs, dir }))}`
+}
 export async function confirmUser(h: Host): Promise<string> {
+  if ((await h.board.read()).decisions?.some(d => d.id === `init:${STORE_CARD}`)) { await initConfirm(h, STORE_CARD); return moveStoreNow(h) }
   const was = (await h.ui.read())['setup.pending'], good = await initConfirm(h, USER_CARD), path = `${await h.home()}/.claude/settings.json`
   if (!good || !was) return 'setup: nothing pending; press 1 for the current diff'
   const p = await mplan(h, path, PATCH); if (fnv1a64(p.lines.join('\n') + (p.old ?? '')) !== was) return 'setup: the settings file changed since you saw it; nothing written'
@@ -137,6 +149,9 @@ async function project(h: Host, cfg: Config): Promise<Row[]> {
   rows.push(miss.length ? ['warn', `init incomplete: ${miss.map(s => s.name).join(', ')}`, '/cadre init'] : ['ok', 'init complete'])
   const pol = await policyOf(h), c = assess(await safe(() => h.settings(), {}), pol.repo, pol.wtRoot)
   rows.push(c.state === 'contained' ? ['ok', 'containment contained'] : ['warn', `containment degraded: ${c.why.join('; ')}`, '/cadre init'])
+  const dir = await dirOf(h, root)
+  rows.push(dir ? ['ok', 'task store: .cadre/store (by hand: BEADS_DIR=.cadre/store bd list)'] : ['warn', 'task store: .beads (older layout; by hand: bd list)', 'press 1: move it to .cadre/store in the dialog'])
+  if (!dir) await proposeMove(h)
   let tasks: Awaited<ReturnType<Awaited<ReturnType<typeof storeOf>>['list']>> = []
   try { const s = await storeOf(h), p = await s.probe(); rows.push(!p.ok ? ['crit', `beads: ${p.detail.slice(0, 100)}`, '/cadre init'] : p.journal ? ['ok', `beads ${p.version} reachable, journal on`] : ['warn', 'beads reachable, journal off', '/cadre init']); if (p.ok) tasks = await s.list({}) }
   catch (e) { rows.push(['crit', `beads unreachable: ${(e as Error).message.slice(0, 100)}`, '/cadre init']) }

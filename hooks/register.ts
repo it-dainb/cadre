@@ -27,6 +27,7 @@ import { autoAsk, onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapC
 import { load } from '../config/index'
 import { wire, repoKeyOf, rootFor } from '../commands/init'
 import { BdStore } from '../task-management/adapters/beads/store'
+import { dirOf } from '../task-management/adapters/beads/layout'
 import { MemoryStore } from '../task-management/adapters/memory/store'
 
 const board = atom({ plugin: 'cadre', key: 'board' } as const, emptySnapshot())
@@ -42,7 +43,7 @@ wire.store = async (h, cfg, root) => {
   if (cfg.store.kind === 'memory') { if (!mem) { mem = new MemoryStore(); await mem.init({ types: cfg.types as any, journal: false }) } return mem }
   const actor = String((await h.store.get(`cadre:${repoKeyOf(root)}:actor`)) ?? '') || `cadre/${h.rand(3)}`
   await h.store.set(`cadre:${repoKeyOf(root)}:actor`, actor)
-  return new BdStore({ run: h.run, cwd: root, actor, bin: cfg.store.bin, timeoutMs: cfg.store.timeoutMs })
+  return new BdStore({ run: h.run, cwd: root, actor, bin: cfg.store.bin, timeoutMs: cfg.store.timeoutMs, dir: await dirOf(h, root) })
 }
 
 let options: Host['options'] = {}   // set by register(); module vars reset on reload, which re-runs register

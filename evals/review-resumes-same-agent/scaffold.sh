@@ -1,6 +1,6 @@
 #!/bin/bash
 # Scaffold for the cadre eval (DESIGN §14 "Eval bootstrap"): runs in the empty sandbox cwd (home/cwd) via `plugin eval --scaffold`.
-# Copies evals/fixtures/ts, writes a validated .cadre/config.json, git init + dev, and a pre-initialised .beads/ holding the APPROVED plan p-p1 (kit-only approval: the human step is simulated by status open + the epic branch).
+# Copies evals/fixtures/ts, writes a validated .cadre/config.json, git init + dev, and a pre-initialised .cadre/store/ holding the APPROVED plan p-p1 (kit-only approval: the human step is simulated by status open + the epic branch).
 set -euo pipefail
 FIX="$(cd "$(dirname "$0")/../fixtures/ts" && pwd)"
 cp -a "$FIX"/. .
@@ -20,8 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 MD
 git init -q -b main
 git config user.email eval@example.com; git config user.name eval
-printf '.beads/\n' >> .git/info/exclude
+printf '.cadre/store/\n.cadre/store.gate.lock\n' >> .git/info/exclude
 git add -A && git commit -qm 'chore: initial commit'
+export BEADS_DIR="$PWD/.cadre/store"
 bd init --non-interactive --skip-agents --skip-hooks -p p >/dev/null
 bd config set status.custom draft:frozen,in_review:wip >/dev/null
 bd config set types.custom refactor,docs,test,spike,decision,milestone,gate >/dev/null

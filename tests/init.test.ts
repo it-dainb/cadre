@@ -14,7 +14,7 @@ import { banned } from './fixtures/wording'
 type R = { exitCode: number; stdout?: string; stderr?: string }
 const ROOT = '/repo', HOME = '/hm/u', RK = repoKeyOf(ROOT), PLUG = '/plug', CFG = `${ROOT}/.cadre/config.json`
 const PKG = { root: '.', setup: ['npm', 'ci'], checks: { test: ['npm', 'test'] }, tdd: { paths: ['test/**'] } }
-const READY = { [CFG]: JSON.stringify({ branches: { main: 'main', dev: 'dev' }, packages: [PKG] }), [`${ROOT}/.git/info/exclude`]: '.beads/\n.claude/settings.local.json\n', [`${ROOT}/CHANGELOG.md`]: skeleton() }
+const READY = { [CFG]: JSON.stringify({ branches: { main: 'main', dev: 'dev' }, packages: [PKG] }), [`${ROOT}/.git/info/exclude`]: '.cadre/store/\n.cadre/store.gate.lock\n.claude/settings.local.json\n', [`${ROOT}/CHANGELOG.md`]: skeleton() }
 // bwrap answers by inner argv: `npm ci` setup, `npm test` passes, anything else is red; find lists the caches setup wrote
 const jailed = (red: string[] = []) => (argv: string[]): R | undefined => {
   if (argv[0] === 'bwrap' && !argv.includes('--')) return { exitCode: 0, stdout: argv[1] === '--help' ? '--overlay-src --tmp-overlay' : '' }   // jailMode probes
@@ -60,7 +60,7 @@ describe('init checks (ADR 0010): read-only, one per phase', () => {
   test('repository: unborn HEAD, a missing dev branch, a missing exclude line, unset main are each named', async () => {
     expect((await items(mk({ branches: [], files: READY }).h)).repository).toBe('fail: no first commit yet')
     expect((await items(mk({ branches: ['main'], files: READY }).h)).repository).toBe('fail: branch dev is missing')
-    expect((await items(mk({ files: { ...READY, [`${ROOT}/.git/info/exclude`]: '.beads/\n' } }).h)).repository).toBe('fail: .git/info/exclude lacks .claude/settings.local.json')
+    expect((await items(mk({ files: { ...READY, [`${ROOT}/.git/info/exclude`]: '.cadre/store/\n.cadre/store.gate.lock\n' } }).h)).repository).toBe('fail: .git/info/exclude lacks .claude/settings.local.json')
     expect((await items(mk({ files: { ...READY, [CFG]: '{}' } }).h)).repository).toBe('fail: branches.main is not set in .cadre/config.json')
   })
   test('mission: a draft waits for the human on its card; a recorded one is read back from the store', async () => {

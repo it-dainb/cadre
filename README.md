@@ -6,7 +6,7 @@
 - **Tests first.** A separate tester writes a failing test, then a worker makes it pass.
 - **Isolated and reviewed.** Every task gets its own git worktree and an independent review before it merges.
 - **A live board in your terminal.** See every task, step and agent without leaving Claude Code.
-- **Works offline.** Tasks live in [beads](https://github.com/gastownhall/beads) (`bd`) on your machine.
+- **Works offline.** Tasks live in [beads](https://github.com/gastownhall/beads) (`bd`) on your machine. The store is in `.cadre/store` (not committed); to look at it by hand: `BEADS_DIR=.cadre/store bd list`. Older projects keep `.beads`; `/cadre doctor` offers to move it.
 
 ```text
 [RUN] cadre · p3 auth-login · strict · contained ✓ · ctx 34% · cache 87%
