@@ -100,6 +100,7 @@ function host($): Host {
   h.submit = text => $.prompt.submit({ text: modelText('brief', text) })   // drive, from #1 after next only
   h.usage = () => $.session.usage()
   h.version = async () => String((await $.session.version()).version)
+  h.theme = async () => { const v = String(((await $.config.list().catch(() => [])) as { key: string; value?: unknown }[]).find(r => r.key === 'theme')?.value ?? ''); return /^light/.test(v) ? 'light' : /^dark/.test(v) ? 'dark' : 'unknown' }
   h.root = async () => $.plugin.root
   return h
 }

@@ -14,10 +14,14 @@ export const glyph = (k: GlyphK, ascii: boolean): string => GLYPH[k][ascii ? 1 :
 export const glyphRole = (k: GlyphK): Role => GLYPH[k][2]
 export const RULE = ['─', '-'] as const
 export const rule = (n: number, ascii: boolean): string => RULE[ascii ? 1 : 0].repeat(Math.max(0, n))
+export const edge = (k: 'blocks' | 'cond', ascii: boolean): string => (ascii ? (k === 'blocks' ? '->' : '..>') : k === 'blocks' ? '─→' : '┄→')
+export const cursor = (ascii: boolean): string => (ascii ? '|' : '│')
+const BLOCK: Record<Cell, [string, string]> = { work: ['█', '#'], review: ['▓', '='], offline: ['░', ':'], attention: ['▒', '%'], failure: ['█', 'X'] }
+export const block = (c: Cell, ascii: boolean): string => BLOCK[c][ascii ? 1 : 0]
 export const ELL = '…', SEP = ' · ', ARROWS = '↑↓←→'   // text marks: truncation, fact separator, key-hint arrows
 export const BLOCKS = '█▓▒░'   // Raster cells only (width-1, BMP)
 // every glyph v2 may draw, for the acceptance lint: BRAND §6 + the rule + Raster blocks + the separators of §5 + the cursor
-export const ALLOWED = new Set([...Object.values(GLYPH).flatMap(g => [g[0], g[1]]), RULE[0], RULE[1], ...BLOCKS, ...ARROWS, ELL, '—', '│'])
+export const ALLOWED = new Set([...Object.values(GLYPH).flatMap(g => [g[0], g[1]]), RULE[0], RULE[1], ...BLOCKS, ...ARROWS, ELL, '—', '│', '→', '┄', ...Object.values(BLOCK).flat(), '|', '>', '.'])
 
 // §7: spacing scale, indent, gutters, fixed task-row columns
 export const SPACE = [0, 1, 2, 3, 4, 6, 8] as const
