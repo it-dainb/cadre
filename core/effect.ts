@@ -62,8 +62,8 @@ export async function audit(h: Host, caller: string | null): Promise<void> {
   const g = await h.git.read(), pol = await policyOf(h)
   if (g.busy || !pol.repo || pol.effectCheck === 'off') return
   const binds = await h.bind.read()
-  const owners: Record<string, string> = { [pol.repo]: '' }
-  for (const [id, b] of Object.entries(binds)) if (b.role !== 'tester') owners[b.worktree] = id   // views are not git trees (3.5.3)
+  const owners: Record<string, string[]> = { [pol.repo]: [] }
+  for (const [id, b] of Object.entries(binds)) if (b.role !== 'tester') owners[b.worktree] = [...(owners[b.worktree] ?? []), id]   // views are not git trees (3.5.3); a worker and its reviewer share the worktree (live 0.9.0: a reworking worker's write was blamed on the idle reviewer and quarantined)
   const full = caller === null || pol.effectCheck === 'always' || (await h.board.read()).containment.state !== 'contained' || !binds[caller]
   const scope = full ? Object.keys(owners) : [...new Set([pol.repo, binds[caller!].worktree])]
   const now = await fingerprint(h, scope, pol.repo), base = g.fp
@@ -73,16 +73,16 @@ export async function audit(h: Host, caller: string | null): Promise<void> {
   const loops = g.win?.loops ?? [], agentLoop = loops.some(l => l !== ''), after = { ...now }
   for (const t of scope) {
     if (base[`s:${t}`] === undefined) continue
-    const paths = changed(base[`s:${t}`], now[`s:${t}`], base[`c:${t}`], now[`c:${t}`]), o = owners[t]
+    const paths = changed(base[`s:${t}`], now[`s:${t}`], base[`c:${t}`], now[`c:${t}`]), o = owners[t] ?? []
     if (!paths.length) continue
-    const tid = o ? binds[o].taskId : ''
+    const tid = o.length ? binds[o[0]].taskId : ''
     const locked = pol.locks?.[tid] ?? []
-    if (!o) {   // the main checkout is the human's tree: never stashed (13.7). A human edit only warns; an agent-attributed one blocks merges until `resolve git keep`
+    if (!o.length) {   // the main checkout is the human's tree: never stashed (13.7). A human edit only warns; an agent-attributed one blocks merges until `resolve git keep`
       if (agentLoop) await raise(h, 'git:main-dirty:agent', '', {}, 'main checkout changed while an agent ran')
       else h.toast('cadre: main checkout changed outside cadre')
       continue
     }
-    const bad = loops.includes(o) ? paths.filter(p => locked.some(l => p === l || l.endsWith('/' + p))) : paths   // rule 1
+    const bad = o.some(x => loops.includes(x)) ? paths.filter(p => locked.some(l => p === l || l.endsWith('/' + p))) : paths   // rule 1
     if (!bad.length) continue
     const ts = await h.now(), name = `cadre-q-${tid || 'main'}-${ts}`
     const r = await git(h, t, 'stash', 'push', '-u', '-m', name, '--', ...bad)

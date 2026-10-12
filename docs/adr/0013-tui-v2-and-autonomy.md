@@ -38,6 +38,8 @@ Status: accepted (0.9.0). User decisions, 2026-10-12 (plan `cadre-0.9.0-ui`, Tra
 - After Reject in an auto spec-change dialog main was idle and the worker waited: `resolveSpec` reject now queues the worker's resume and the answer queues `Continue: <result>` for main.
 - After the worker's report the task kept its claimer as `owner`, so main's context said the reviewer was running and `nextAction` never said "spawn the reviewer"; main waited on a reviewer that never existed. `owner` is now whoever works the current step: cleared at the worker's report and when a reviewer stops without a verdict, set when admission spawns the reviewer.
 - The 5 s heartbeat renewed leases of tasks in review; bd refused it and the failure was logged every tick. Only `active` tasks are beaten.
+- Yolo stopped on "blocked <id>" when main's turn ended between the block and its flag (a report in flight). A blocked task without its flag yet now only pauses.
+- A worker that kept editing after reporting a spec change was told "write only inside your working directory" and went looking for another place to write (one run ended in a quarantine). A write while the task waits for a decision now says to stop and wait (`policy/guards`).
 - Flag decisions repeated the task id (`a2 flagged conflict` / `a2 a2`): the body line is the task title only.
 
 ### Consequences

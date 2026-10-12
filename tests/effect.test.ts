@@ -51,6 +51,12 @@ describe('L3 effect (13.1)', () => {
     expect(await flags()).toEqual(['quarantine:bd-a1']); expect(h.toasts.join()).toContain('quarantined')
     expect(w.st['/wt/a']).toHaveLength(1)   // a.ts stays, evil.ts stashed
   })
+  test('rule 1: a worker reworking next to its (idle) reviewer in the same worktree is still the owner', async () => {
+    const { w, h, flags } = await mk()
+    await h.bind.update(b => ({ ...b, r1: { taskId: 'bd-a1', role: 'reviewer', step: 'reviewer', worktree: '/wt/a', sessionId: 's', ctxTokens: 0, startedAt: 0 } as Binding }))
+    await callBy(h, 'w1', 'Write', 'c1', () => { w.st['/wt/a'].push(mod('test/page.test.ts')) })
+    expect(await flags()).toEqual([]); expect(w.calls.some(c => c[3] === 'stash')).toBe(false)
+  })
   test('rule 1: locked path changed by the owner\'s own shell is quarantined', async () => {
     const { w, h, flags } = await mk(); await setPolicy(h, { repo: '/r', wtRoot: '/wt', locks: { 'bd-a1': ['src/t.test.ts'] } })
     await callBy(h, 'w1', 'Bash', 'c1', () => { w.st['/wt/a'].push(mod('src/t.test.ts'), mod('src/ok.ts')) })
