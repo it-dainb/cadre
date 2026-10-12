@@ -35,7 +35,7 @@ v2 fixes the structure first and the styling second.
 
 - **Colours:** theme keys only, so they follow light/dark. The timeline `Raster` takes RGB and uses BRAND §3.3. No `NO_COLOR` signal, so `ui.glyphs: ascii` stands in.
 - **Layout:** Box flexbox with gap, padding and margin in cells. Text has 7 wrap/truncate modes; rows use `truncate-end`.
-- **Widths:** the band's body is the terminal width minus 5. The pane gets `bodyColumns` and `scroll.bodyRows`. Docked at ≥110 columns full-screen, inline otherwise.
+- **Widths:** the band's body is the terminal width minus 5. **Docked, the band is only the transcript column wide (24 cells at a 120-column terminal)**: it tiers by the width it gets (full words → `! title · +N more` → `! 1: answer`); the key and the `+N more` count are never cut, the words go first. `ui-dev --docked` draws it that way. The pane gets `bodyColumns` and `scroll.bodyRows`. Docked at ≥110 columns full-screen, inline otherwise.
 - **Redraw caps:** ≤10/s per site, 30/s for the shown pane. A `Button` draws `k: label` itself; never put the key in the label.
 
 ## 3. The band (above the prompt)
@@ -69,7 +69,7 @@ Widths:
 p3 auth-login · 4/7 done · epic/p3-auth-login                      live
 ```
 
-- **Tab row** (row 1): numbered tabs, drawn by the engine as `1: Board` (a Button prints `k: label` itself). The current tab is bold + `accent`; the others are `inactive`. A tab with something needing you shows `!` after its name.
+- **Tab row** (row 1): numbered tabs, drawn by the engine as `1: Board` (a Button prints `k: label` itself). The current tab is **inverse** (BRAND selection: it reads without colour) and spelled out; the others are `inactive` and use the widest label set that fits (long → 3-letter → 1-letter). A tab with something needing you shows a separate ` !` (attention) after its name; while a decision waits `1: Board` is plain text (the Needs-you `1` owns the key). In replay nothing is owed: the live decision is not drawn in the pane.
   - ≥80 columns: full names.
   - 50–79: `1 Brd 2 Gph 3 Tml 4 Act 8 Doc 9 Set`, with the current tab spelled out.
   - <50: `1 2 3 4 8 9 · Board`.
@@ -199,7 +199,7 @@ A row whose state changed draws in `accent` + bold for 1.5 s. It then shows `· 
 | ≥116 wide | board + inspector side by side; full tab names; ctx % in agent rows | two lines, full |
 | 80–115 | inspector below; full tab names | two lines, right side shortened |
 | 60–79 | inspector below; short tab names; no ctx %; timeline lanes still shown | two lines, short |
-| 40–59 | inspector collapses to its first line; numbers-only tab row; timeline = activity only | `› a2 · 4/7` / `! <title> · 1: answer` |
+| 40–59 | inspector collapses to its first line; short tab labels (the current one spelled out); timeline = activity only | `› a2 · 4/7` / `! <title> · 1: answer` |
 | <40 | header + Needs you + Running only; "widen the pane for more" | attention line only |
 
 `ui.density: compact` removes the blank rows between sections. `relaxed` adds a blank row after each task row.
@@ -219,15 +219,15 @@ A row whose state changed draws in `accent` + bold for 1.5 s. It then shows `· 
 
 | Where | Keys |
 |---|---|
-| band (empty composer) | `1` answer the oldest decision (opens the dialog) |
+| band (empty composer) | `1` answer the oldest decision (opens the dialog) · `0` stop / resume the drive (no confirm; resume undoes stop) |
 | pane, any view | `1 2 3 4 8 9` views (`1` answers instead while a decision is pending) · `k` key sheet · `esc` back to the prompt (engine) |
 | dialog (engine) | `↑↓` choose · `enter` answer · `esc` not now |
-| board | `↑↓` select · `enter` open task detail · `c` collapse done |
-| graph | `↑↓` select · `enter` detail |
-| timeline | `←→` step · `home/end` · `e` live |
-| settings | `↑↓` select · `e` edit / toggle |
+| board | `↑↓` select (the engine's focus ring) · `c` collapse done |
+| graph | `n` next · `p` prev · `o` open |
+| timeline | `h` back · `l` forward · `s` start · `e` live (`h` and `s` also from live: that is how replay is entered) |
+| settings | `e` edit / toggle · `n` next · `p` prev |
 
-Keys are one lowercase letter or one digit (engine rule). No key does anything outside its view.
+Keys are one lowercase letter or one digit (engine rule): arrows, `enter` and `home/end` are not available as hotkeys, so cadre's own moves use letters. `0` (the drive) is on the band only; no digit means two things on one screen. No key does anything outside its view.
 
 ## 9. Accessibility
 

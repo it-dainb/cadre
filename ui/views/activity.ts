@@ -2,7 +2,7 @@
 // The same rows sit under the timeline lanes, up to the cursor (activityRows).
 import type { CadreEvent } from '../../types'
 import { type Line, type View, S } from '../model'
-import { clip, padL, relTime } from '../layout'
+import { clip, padL, plain, relTime } from '../layout'
 import { COL, type GlyphK, INDENT, color, glyph, glyphRole } from '../tokens'
 import { type Renderer, muted, relax, ucfg } from './types'
 
@@ -16,7 +16,8 @@ export function say(e: CadreEvent, v: View): Say | undefined {
       if (d.from === 'review' && to === 'active') return { text: `review asked for changes on ${id}` }
       return to === 'blocked' ? { text: `${id} is blocked and needs an answer`, k: 'attn' } : undefined
     case 'task.skipped': return { text: `${id} skipped`, k: 'skip' }
-    case 'check.ran': return { text: `${id} ${d.phase ?? d.name} check ${d.ok ? 'passed' : 'did not pass'}`, ...(d.ok ? {} : { k: 'fail' as GlyphK }) }
+    case 'check.ran': if (d.ok) return undefined   // a passing check is not a human-level event
+      return { text: `${id} ${d.phase ?? d.name} check ${d.ok ? 'passed' : 'did not pass'}`, ...(d.ok ? {} : { k: 'fail' as GlyphK }) }
     case 'flag.raised': return { text: `${id} needs a decision`, k: 'attn' }
     case 'flag.resolved': return { text: `${id} decision answered` }
     case 'approval.pending': return { text: `plan ${d.planId} is ready for approval`, k: 'attn' }
@@ -41,7 +42,7 @@ export function activityRows(v: View, w: number, cursor = v.t ?? v.now): Line[] 
   return v.ring.filter(e => e.at <= cursor).flatMap(e => {
     const s = say(e, v); if (!s) return []
     const head = `${' '.repeat(INDENT)}${padL(relTime(cursor - e.at), COL.actTime)}  `, g = s.k ? glyph(s.k, c.ascii) : ' '
-    return [[S(head, color('muted')), S(g, s.k ? color(glyphRole(s.k)) : undefined), S(clip(` ${s.text}`, Math.max(1, w - head.length - 1)))]]
+    return [[S(head, color('muted')), S(g, s.k ? color(glyphRole(s.k)) : undefined), S(clip(` ${plain(s.text)}`, Math.max(1, w - head.length - 1)))]]
   }).reverse()
 }
 

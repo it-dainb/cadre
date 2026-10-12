@@ -2,6 +2,7 @@
 import type { CadreEvent, Decision, Host, Secret, Snapshot, SnapTask } from '../types'
 import { humanView } from '../core/board'
 import { ofEpic } from '../core/events'
+import { plain } from './layout'
 
 export type Cfg = { glyphs: 'unicode' | 'ascii'; flash: boolean; notify: 'on' | 'off'; escalateAfterMs: number; maxTurns: number }
 export const CFG: Cfg = { glyphs: 'unicode', flash: true, notify: 'on', escalateAfterMs: 120_000, maxTurns: 100 }
@@ -78,8 +79,10 @@ export const t0 = (v: View) => v.b.plan?.approvedAt ?? v.ring[0]?.at ?? v.now
 // attention = the pending decisions (board.decisions, oldest first; ONE record kind, answered in the dialog, listed by ui/needs) + two states that are not decisions
 export type Item = { key: string; tag: TagK; text: string; short?: string; tab: string; sel?: string; d?: Decision }
 export function attention(v: View): Item[] {
-  const b = v.b, out: Item[] = (b.decisions ?? []).map(d => ({ key: `dec:${d.id}`, tag: d.crit ? 'crit' : d.kind === 'flag' ? 'warn' : 'attn', text: d.title, short: d.short, tab: d.tab ?? 'epic', sel: d.sel, d }))
+  const b = v.b, out: Item[] = (b.decisions ?? []).map(d => ({ key: `dec:${d.id}`, tag: d.crit ? 'crit' : d.kind === 'flag' ? 'warn' : 'attn', text: plain(d.title), short: d.short && plain(d.short), tab: d.tab ?? 'epic', sel: d.sel, d }))
   if (b.containment.state === 'degraded') out.push({ key: 'mode:containment', tag: 'crit', text: 'Containment degraded · run /cadre init', tab: 'epic' })
-  for (const t of b.tasks) if (t.state === 'blocked') out.push({ key: `q:${t.id}`, tag: 'attn', text: `${t.id} blocked: needs an answer`, tab: 'epic', sel: t.id })
+  // a blocked task's question is the human's only when a human is asked: not under yolo (main answers) and not when its own decision already stands
+  const yolo = b.drive.on && (b.drive.mode ?? b.plan?.mode) === 'yolo'
+  for (const t of b.tasks) if (t.state === 'blocked' && !yolo && !(b.decisions ?? []).some(d => d.sel === t.id)) out.push({ key: `q:${t.id}`, tag: 'attn', text: `${t.id} blocked: needs an answer`, tab: 'epic', sel: t.id })
   return out
 }

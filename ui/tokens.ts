@@ -19,6 +19,9 @@ export const cursor = (ascii: boolean): string => (ascii ? '|' : '│')
 const BLOCK: Record<Cell, [string, string]> = { work: ['█', '#'], review: ['▓', '='], offline: ['░', ':'], attention: ['▒', '%'], failure: ['█', 'X'] }
 export const block = (c: Cell, ascii: boolean): string => BLOCK[c][ascii ? 1 : 0]
 export const ELL = '…', SEP = ' · ', ARROWS = '↑↓←→'   // text marks: truncation, fact separator, key-hint arrows
+// ASCII mode (BRAND §6): every width-1 mark that is not ASCII maps to an ASCII mark of the same width, applied once to a finished frame
+const ASC: Record<string, string> = { '·': '-', '…': '~', '↑': '^', '↓': 'v', '←': '<', '→': '>', '✓': '+', '✗': 'x', '─': '-', '│': '|', '┄': '.', '–': '.', '›': '>' }
+export const asciiText = (s: string): string => s.replace(/[·…↑↓←→✓✗─│┄–›]/g, c => ASC[c])
 export const BLOCKS = '█▓▒░'   // Raster cells only (width-1, BMP)
 // every glyph v2 may draw, for the acceptance lint: BRAND §6 + the rule + Raster blocks + the separators of §5 + the cursor
 export const ALLOWED = new Set([...Object.values(GLYPH).flatMap(g => [g[0], g[1]]), RULE[0], RULE[1], ...BLOCKS, ...ARROWS, ELL, '—', '│', '→', '┄', ...Object.values(BLOCK).flat(), '|', '>', '.'])

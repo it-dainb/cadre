@@ -126,5 +126,7 @@ export async function resumeBanner(h: Host, o: { decisions?: number; next?: stri
 // the render hook cannot read env/config, so the tick keeps the resolved strictness (M10) in the ui atom for it
 export async function tickUi(h: Host): Promise<void> {
   const sx = await strictOf(h).catch(() => undefined); if (sx) await h.ui.update(u => (u.sx === sx ? u : { ...u, sx }))
+  const th = await h.theme?.().catch(() => undefined)   // /theme can change after session start: the Raster palette follows it
+  if (th && readCfg(await h.ui.read()).theme !== th) await h.ui.update(u => ({ ...u, cfg: { ...(u.cfg as object | undefined), theme: th } }))
   h.ops?.invalidate()   // elapsed counters and `just now` age on the 30 s tick
 }

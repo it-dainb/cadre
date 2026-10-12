@@ -4,11 +4,12 @@ import { TABLE, ring as rebuildRing } from '../core/events'
 import { humanView } from '../core/board'
 import { band } from '../ui/band'
 import { pane } from '../ui/pane'
-import { type Line, at, read, txt } from '../ui/model'
+import { type Line, at, attention, read, txt } from '../ui/model'
 import { levelOf, onEvent, textOf } from '../ui/notify'
 import { acts, openPane, renderBand, renderCard, renderPane, resumeBanner, tickUi } from '../ui/index'
 import { fakeHost } from './support'
 import { BASE, MIN, NOOP, approval, planDec, ring, view } from './fixtures/ui/epic'
+import { SCENARIOS } from '../scenarios/index'
 
 const segs = (ls: Line[]) => ls.flat()
 const E: any = Object.fromEntries(['Box', 'Text', 'Button', 'Raster'].map(n => [n, (p: any) => ({ type: n, props: p })]))
@@ -88,7 +89,7 @@ describe('notification policy (UI-DESIGN 4)', () => {
     for (const [type, data, lvl, key] of rows) { const e = ev(type, data, { taskId: data.taskId as string | undefined }); expect([type, levelOf(e)]).toEqual([type, lvl]); expect(textOf(e)?.key).toBe(key) }
     expect(textOf(ev('approval.pending', { planId: 'p3', missing: [] }))!.text).toBe('Plan p3 ready for approval · press 1')
     expect(textOf(ev('drive.status', { state: 'finished' }))!.text).toBe('Epic landed on dev ✓')
-    expect(textOf(ev('drive.status', { state: 'stopped', reason: 'turn limit' }))!.text).toBe('cadre: drive stopped · turn limit · 2: resume')
+    expect(textOf(ev('drive.status', { state: 'stopped', reason: 'turn limit' }))!.text).toBe('cadre: drive stopped · turn limit · 0: resume')
     expect(textOf(ev('drive.status', { state: 'stopped', reason: 'a very long reason that does not fit in a toast at all, really' }))!.text.length).toBeLessThanOrEqual(60)
   })
   test('dedupe: one toast per open item; a resolve re-arms it', async () => {
@@ -109,7 +110,7 @@ describe('notification policy (UI-DESIGN 4)', () => {
     await onEvent(a.h, f('a1', 1000)); expect(a.of('notify')).toHaveLength(0); expect(a.timers.map(t => t.ms)).toEqual([120_000]); await a.run(); expect(a.of('notify')).toEqual(['a1 flagged g · press 1'])
     const b = mk(); await onEvent(b.h, f('a1', 1000)); await b.h.ui.update(u => ({ ...u, ack: 5000 })); await b.run(); expect(b.of('notify')).toHaveLength(0)
     const c = mk(); await onEvent(c.h, ev('drive.status', { state: 'paused', reason: 'approve p4' }, { at: 0 })); expect(c.of('notify')).toEqual(['Drive paused: approve p4'])
-    const d = mk(); await onEvent(d.h, ev('drive.status', { state: 'stopped', reason: 'turn limit' }, { at: 5 })); await onEvent(d.h, ev('drive.status', { state: 'stopped', reason: 'turn limit' }, { at: 5 })); expect(d.of('notify')).toEqual(['cadre: drive stopped · turn limit · 2: resume'])   // deduped per stop
+    const d = mk(); await onEvent(d.h, ev('drive.status', { state: 'stopped', reason: 'turn limit' }, { at: 5 })); await onEvent(d.h, ev('drive.status', { state: 'stopped', reason: 'turn limit' }, { at: 5 })); expect(d.of('notify')).toEqual(['cadre: drive stopped · turn limit · 0: resume'])   // deduped per stop
   })
   test('OS notify: ≤3 per 15 min, never while the pane is focused, off with ui.notify off, toast when unsent', async () => {
     const a = mk(); for (let i = 0; i < 5; i++) await onEvent(a.h, ev('flag.raised', { taskId: `t${i}`, flag: 'g' }, { taskId: `t${i}`, at: 1000 + i * 10 })); await a.run(); expect(a.of('notify')).toHaveLength(3)
@@ -119,7 +120,7 @@ describe('notification policy (UI-DESIGN 4)', () => {
   })
   test('status line is attention-only: set with a top item, cleared (undefined) when none', async () => {
     const a = mk(); await seed(a.h, view(82)); await onEvent(a.h, ev('flag.raised', { taskId: 'a6', flag: 'git:dev:agent' }, { taskId: 'a6', at: 0 }))
-    expect(a.of('status').pop()).toMatch(/^git:dev:agent · .* · press 1$/)
+    expect(a.of('status').pop()).toMatch(/^dev moved outside a cadre merge · .* · press 1$/)
     const b = mk(); await seed(b.h, view(62)); await onEvent(b.h, ev('task.phase_changed', { taskId: 'a2', from: 'a', to: 'b' }, { at: 0 })); expect(b.of('status').pop()).toBeUndefined()
   })
 })
@@ -158,6 +159,10 @@ describe('render hooks, handlers, fallbacks', () => {
     const a = mk(); await seed(a.h); a.h.config = async () => ({ strictness: 'advisory' }) as any
     expect((await read(a.h)).sx).toBe('strict'); await tickUi(a.h); expect((await read(a.h)).sx).toBe('advisory')
   })
+  test('the tick re-reads the theme (/theme after session start): the Raster palette follows it', async () => {
+    const a = mk(); await seed(a.h); a.h.theme = async () => 'light'
+    await tickUi(a.h); expect(((await read(a.h)).ui.cfg as { theme?: string }).theme).toBe('light')
+  })
   test('openPane: tab + focus request; where nothing draws the dialog opens instead', async () => {
     const a = mk(); await seed(a.h, approval(62)); await openPane(a.h, 'board')
     expect(a.of('open')).toEqual([{ id: 'cadre', title: 'cadre', focus: true, columns: 120 }]); expect(await read(a.h).then(v => v.ui.tab)).toBe('board'); expect((a.h as any).logs).toHaveLength(0)
@@ -182,3 +187,20 @@ describe('render hooks, handlers, fallbacks', () => {
   })
 })
 
+
+// H2 and M4 (0.9.0 review)
+describe('replay entry and blocked tasks (0.9.0 review)', () => {
+  test('H2: from live the timeline offers h (back) and s (start); pressing h asks for a step back', async () => {
+    const calls: string[] = [], v = { ...SCENARIOS['v2-driving-yolo'], ui: { ...SCENARIOS['v2-driving-yolo'].ui, tab: 'timeline' } }
+    const p = pane(v, 120, 40, { ...NOOP, step: (w: string, d: number) => calls.push(`${w} ${d}`) }), keys = [...p.before, ...p.after].flat().filter(s => s.hk)
+    expect(keys.map(s => s.hk)).toEqual(expect.arrayContaining(['h', 's'])); keys.find(s => s.hk === 'h')!.p!()
+    expect(calls).toEqual(['time -1'])
+  })
+  test('M4: a blocked task is "needs you" only when a human is asked: not under yolo, and once with its own decision', () => {
+    const b = SCENARIOS['v2-board'].b, mk = (x: object) => attention({ ...SCENARIOS['v2-board'], b: { ...b, ...x } }).filter(i => i.key.startsWith('q:'))
+    const blocked = b.tasks.map(t => (t.id === 'a2' ? { ...t, state: 'blocked' as const } : t))
+    expect(mk({ tasks: blocked, decisions: [] })).toHaveLength(1)
+    expect(mk({ tasks: blocked, decisions: [{ id: 'flag:a2:spec_change', kind: 'flag', title: 't', lines: [], hash: 'h', options: [], sel: 'a2' }] })).toHaveLength(0)
+    expect(mk({ tasks: blocked, decisions: [], drive: { ...b.drive, on: true, mode: 'yolo' } })).toHaveLength(0)
+  })
+})

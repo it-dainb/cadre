@@ -2,10 +2,10 @@
 import type { SnapTask } from '../../types'
 import { type Acts, type Line, type Seg, type View, S, at, kindOf, t0 } from '../model'
 import { COL, color, densityOf, flashOn, glyph, readCfg, SEP, ARROWS, glyphRole , cursor} from '../tokens'
-import { clip, elapsed, padL, padR, plural, relTime, row, width } from '../layout'
+import { clip, elapsed, padL, padR, plain, plural, relTime, row, width } from '../layout'
 import { type Renderer, keyLine } from '../views/types'
-import { noPlanBody, runBody } from './states'
-import { ascii, g, glyphOf, lapse, lw, needsOf, running, selId, stepName, steps, why } from './facts'
+import { noPlanBody } from './states'
+import { ascii, g, glyphOf, lapse, lw, needsOf, running, runOf, selId, stepName, steps, why } from './facts'
 
 const sp = (...a: Seg[]): Line => a
 const blank: Line = [S(' ')]
@@ -14,15 +14,17 @@ const NARROW_INSPECTOR = 116, INSPECTOR_W = 44
 
 const checkColor = (m: string) => color(m === glyph('done', false) ? glyphRole('done') : m === glyph('fail', false) ? glyphRole('fail') : m === glyph('attn', false) ? 'attention' : 'muted')
 // ---- Needs you (read-only; `1` opens the dialog, ADR 0012) ----
-export function needsFull(v: View, w: number, a: Acts): Line[] {
+export function needsFull(v: View, w: number, a: Acts, rows = 40): Line[] {
   const ns = needsOf(v); if (!ns.length) return []
   const out: Line[] = [sp(S('NEEDS YOU', color('attention'), { b: true }))]
   ns.forEach((n, i) => {
     const bt = S(n.d ? 'answer' : 'open', undefined, { k: i ? `ans:${n.id ?? n.sel}` : 'att', ...(i ? {} : { hk: '1' }), p: () => (n.d ? a.answer(n.id!) : n.sel ? a.pick(n.sel) : a.go(n.tab)) })
     const head = sp(S('  '), g(v, 'attn'), S(' '), S(clip(n.text, Math.max(8, w - 6 - lw([bt]))), undefined, { b: true }))
     out.push([...head, S(' '.repeat(Math.max(1, w - lw(head) - lw([bt])))), bt])
-    if (n.d?.error) out.push(sp(S(clip(`    ! ${n.d.error}`, w), color('danger'))))
-    for (const l of n.d?.lines ?? []) out.push(sp(S(clip(`    ${l}`, w), n.d!.id.startsWith('run:') ? checkColor(l[0]) : color('muted'))))   // a run checklist: its marks carry the colour
+    const tk = v.b.tasks.find(t => t.id === n.sel)
+    if (n.d?.error) out.push(sp(S(clip(`    ${plain(n.d.error)}`, w), color('danger'))))
+    // at most two detail lines per decision on a short pane (the dialog has the rest); a bare task title gets its id; a `! command` is shown as `$ command` (`!` marks a needs-you row only)
+    for (const l of (n.d?.lines ?? []).slice(0, rows < 24 ? 2 : 6)) out.push(sp(S(clip(`    ${/^\s*! /.test(l) ? l.replace('! ', '$ ') : tk && l === tk.title ? `${tk.id} ${l}` : plain(l)}`, w), color('muted'))))
   })
   return out
 }
@@ -37,6 +39,12 @@ export function needsOne(v: View, w: number, a: Acts): Line[] {
   return [[...l, S(' '.repeat(Math.max(1, w - lw(l) - lw([bt])))), bt]]
 }
 
+// init/setup in flight (TUI-DESIGN §7): the run checklist under the header, as progress; the question inside it (if any) is its own decision
+export function runBody(v: View, w: number): Line[] {
+  const d = runOf(v), out: Line[] = [sp(g(v, 'run'), S(clip(` ${d ? d.title.replace(`${SEP}Claude is on it`, '') : `${v.sec.run?.kind} is running`}`, w - 2), undefined, { b: true }))]
+  for (const l of d?.lines ?? []) out.push(sp(S(clip(`    ${l}`, w), checkColor(l[0]))))
+  return [...out, sp(S(clip(`  ${v.sec.run?.kind} is running${SEP}the checks run again when Claude stops`, w), color('muted')))]
+}
 // ---- sections ----
 function trow(v: View, t: SnapTask, w: number, a: Acts, o: { sel: string; flash: string[]; facts?: string[]; time?: string; mute?: boolean }): Line {
   const k = glyphOf(t, at(v).tasks), fl = o.flash.includes(t.id), just = !fl && flashOn(v.ui) && v.t === null && t.phaseSince > 0 && v.now - t.phaseSince < 30000
@@ -64,11 +72,12 @@ export function sections(v: View, w: number, a: Acts, flash: string[], ctxOn = w
   const crit = (t: SnapTask) => kindOf(t, ts) === 'crit'
   const live = ts.filter(t => kindOf(t, ts) === 'run' || crit(t))
   if (w >= 40 && ag.length) blocks.push([title('Agents'), ...ag.map(t => agentRow(v, t, w, ctxOn))])
-  if (live.length) blocks.push([title('Running'), ...rows(live, t => ({ facts: [crit(t) ? 'FAILED' : stepName(t.step)] }))])
+  if (live.length) blocks.push([title('Running'), ...rows(live, t => ({ facts: crit(t) ? ['FAILED'] : t.owner ? [] : [stepName(t.step)] }))])   // an agent's row above already names the step
   if (w >= 40 && wait.length) blocks.push([title('Waiting'), ...rows(wait, t => ({ facts: [why(t, ts)], mute: kindOf(t, ts) === 'wait' }))])
   if (w >= 40 && fin.length) {
     const open = doneOpen(v, fin.length)
-    blocks.push([title('Done', `  ${fin.length}`), ...(open ? rows(fin.slice().sort((x, y) => doneAt(v, y) - doneAt(v, x)), t => ({ facts: [t.state === 'done' ? (t.kind === 'spike' ? 'reported' : `merged`) : 'skipped'], time: relTime((v.t ?? v.now) - doneAt(v, t)), mute: true })) : [])])
+    const sk = fin.filter(t => t.state !== 'done').length
+    blocks.push([title('Done', `  ${fin.length - sk}${sk ? `${SEP}${sk} skipped` : ''}`), ...(open ? rows(fin.slice().sort((x, y) => doneAt(v, y) - doneAt(v, x)), t => ({ facts: [t.state === 'done' ? (t.kind === 'spike' ? 'reported' : `merged`) : 'skipped'], time: relTime((v.t ?? v.now) - doneAt(v, t)), mute: true })) : [])])
   }
   return blocks.flatMap((x, i) => (i ? [...gap, ...x] : x))
 }

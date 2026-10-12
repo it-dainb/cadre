@@ -48,4 +48,6 @@ export const elapsed = (ms: number): string => {
   const m = Math.floor(Math.max(0, ms) / 60000)
   return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`
 }
+// P7 plain words: private shorthand and code tokens that reach a text from the engine's own wording
+export const plain = (s: string): string => s.replace(/\bgit:(\w+):\w+ moved/g, '$1 branch moved').replace(new RegExp(`\\bgit:\\w+:\\w+(${SEP})?`, 'g'), '').replace(/\bspec_change\b/g, 'spec change').replace(/\bpm\b/g, 'task tracker').replace(/\bagent\(s\)/g, 'agents').replace(/\bflagged spec change\b/g, 'asked for a spec change')
 export const plural = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? '' : 's'}`

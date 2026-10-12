@@ -1,10 +1,10 @@
 // UI v2 · 3 Timeline (TUI-DESIGN 4.4): swimlanes as ONE Raster, only for lanes that had activity, plain lane names, the BRAND palette (tokens.raster) and a `│` cursor.
 // The activity rows up to the cursor sit under the lanes. Below 60 columns the lanes are hidden: activity only.
-// Replay moves the cursor with h/l (the engine allows letters and digits as hotkeys, not arrows); `s` jumps to the start, `e` back to live. Buttons act only in live (acts guard replay).
+// Replay moves the cursor with h/l (the engine allows letters and digits as hotkeys, not arrows); `s` jumps to the start, `e` back to live. From live, `h` / `s` enter replay (the keys exist in both states).
 import type { CadreEvent } from '../../types'
 import { type View, t0 } from '../model'
 import { padR, width } from '../layout'
-import { type Cell, DEFAULT_FG, block, cursor, raster } from '../tokens'
+import { type Cell, DEFAULT_FG, SEP, block, cursor, raster } from '../tokens'
 import { activityRows } from './activity'
 import { type Renderer, joinSections, keyLine, muted, ucfg } from './types'
 
@@ -35,7 +35,7 @@ const mark = (e: CadreEvent): Cell | undefined => (e.type === 'flag.raised' ? 'a
 
 export const timeline: Renderer = (v, w, rows, a) => {
   const c = ucfg(v), cur = v.t ?? v.now, live = v.t === null
-  const keys = keyLine(live ? [] : [['h', 'back', () => a.step('time', -1)], ['l', 'forward', () => a.step('time', 1)], ['s', 'start', () => a.step('time', -1e6)], ['e', 'live', () => a.step('live', 0)]])
+  const keys = keyLine([['h', 'back', () => a.step('time', -1)], ...(live ? [] : [['l', 'forward', () => a.step('time', 1)] as [string, string, () => void]]), ['s', 'start', () => a.step('time', -1e6)], ...(live ? [] : [['e', 'live', () => a.step('live', 0)] as [string, string, () => void]])])
   const spans = spansOf(v, cur), lanes = [...new Set(spans.map(s => s.lane))].sort((x, y) => rank(x) - rank(y))
   const acts = activityRows(v, w, cur)
   if (w < 60 || !lanes.length) return { lines: [...(lanes.length ? [] : [[muted('  no agent has worked yet')]]), ...acts.slice(0, Math.max(1, rows))], keys }
@@ -52,7 +52,7 @@ export const timeline: Renderer = (v, w, rows, a) => {
   const u = new Uint32Array(w * grid.length * 3)
   grid.forEach((r, y) => r.forEach(([ch, fg], x) => { const i = (y * w + x) * 3; u[i] = ch.codePointAt(0)!; u[i + 1] = fg; u[i + 2] = DEFAULT_FG }))
   const b = new Uint8Array(u.buffer), cells = (b as { toBase64?: () => string }).toBase64?.() ?? btoa(Array.from(b, x => String.fromCharCode(x)).join(''))
-  const head = [muted(`  ${mpc} min per column`)]   // live / replay is the frame header's
+  const head = [muted(`  ${mpc} min per column${SEP}${block('work', c.ascii)} work  ${block('review', c.ascii)} review  ${block('offline', c.ascii)} offline`)]   // live / replay is the frame header's
   const room = Math.max(1, rows - grid.length - 2)
   return { raster: { cols: w, rows: grid.length, cells, at: 0 }, lines: joinSections([[head], acts.slice(0, room)], c.density), keys }
 }

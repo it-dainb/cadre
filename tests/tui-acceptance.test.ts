@@ -22,12 +22,14 @@ export const dupes = (lines: string[], bandRows = 0) => {
   })
   return [...seen].filter(([, n]) => n > 1).map(([t]) => t)
 }
-export const wording = (lines: string[]) => lines.join('\n').match(/\b(w1|rev|syn|tst)\b|!<|!>|\b\d+m o\b/g) ?? []
+export const wording = (lines: string[]) => lines.join('\n').match(/\b(w1|rev|syn|tst)\b|!<|!>|\b\d+m o\b|\bgit:\w+:\w+|spec_change|\bpm\b|agent\(s\)/g) ?? []
 export const glyphs = (lines: string[]) => [...new Set([...lines.join('').replace(/\s/g, '')].filter(ch => ch.charCodeAt(0) > 126 && !ALLOWED.has(ch)))]
 
-const frame = (s: any, w: number, tab: string) => {
-  const v = { ...s, ui: { ...s.ui, tab } }, p = pane(v, w, 40, NOOP)
-  const bd = txt(band(v, w, NOOP))
+const DOCK = 24   // the band beside a docked pane is only the transcript column wide
+// mode: the Unicode frame, the ASCII frame (BRAND §6), the docked band (the band at 24 cells, the pane at w)
+const frame = (s: any, w: number, tab: string, mode: 'unicode' | 'ascii' | 'docked' = 'unicode') => {
+  const v = { ...s, ui: { ...s.ui, tab, ...(mode === 'ascii' ? { cfg: { ...s.ui.cfg, ascii: true } } : {}) } }, p = pane(v, w, s.rows ?? 40, NOOP)
+  const bd = txt(band(v, mode === 'docked' ? Math.min(w, DOCK) : w, NOOP))
   return { bandRows: bd.length, lines: [...bd, ...txt([...p.before, ...p.after]), ...(p.tl?.rows ?? [])].map(l => l.trimEnd()) }
 }
 
@@ -46,9 +48,11 @@ describe('acceptance lints (known frames)', () => {
 
 describe('frames: every scenario x tab x width', () => {
   for (const [name, s] of Object.entries(SCENARIOS)) test(name, () => {
-    for (const w of WIDTHS) for (const tab of TABS) {
-      const { lines: f, bandRows } = frame(s, w, tab), at = `${name} ${tab} ${w}`
+    for (const w of WIDTHS) for (const tab of TABS) for (const mode of ['unicode', 'ascii', 'docked'] as const) {
+      const { lines: f, bandRows } = frame(s, w, tab, mode), at = `${name} ${tab} ${w} ${mode}`
       expect([at, overflow(f, w)]).toEqual([at, []])
+      if (mode === 'ascii') expect([at, [...new Set([...f.join('').matchAll(/[^\x00-\x7e]/g)].map(m => m[0]))]]).toEqual([at, []])   // ASCII mode draws ASCII only
+      if (mode === 'docked') continue
       expect([at, dupes(f, bandRows)]).toEqual([at, []])
       expect([at, wording(f)]).toEqual([at, []])
       expect([at, glyphs(f)]).toEqual([at, []])

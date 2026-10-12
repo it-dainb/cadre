@@ -27,7 +27,7 @@ export function textOf(e: CadreEvent): { text: string; key: string } | undefined
     case 'task.transitioned': return st === 'blocked' ? { text: `${id} blocked: needs an answer`, key: `q:${id}:${d.hash ?? ''}` } : undefined
     case 'flag.raised': return { text: `${id} flagged ${d.flag} · press 1`, key: `flag:${id}:${d.flag}` }
     case 'sync.state_changed': return st === 'ok' ? { text: `${d.target} reconnected${d.conflicts ? ` · ${d.conflicts} conflict` : ''}`, key: `off:${d.target}` } : { text: `${d.target} ${st} · retrying`, key: `off:${d.target}` }
-    case 'drive.status': if (st === 'stopped') return { text: clip(`cadre: drive stopped${d.reason ? ` · ${d.reason}` : ''} · 2: resume`, 60), key: `drive:stopped:${e.at}` }   // one toast per stop
+    case 'drive.status': if (st === 'stopped') return { text: clip(`cadre: drive stopped${d.reason ? ` · ${d.reason}` : ''} · 0: resume`, 60), key: `drive:stopped:${e.at}` }   // one toast per stop
       return st === 'paused' || st === 'finished' ? { text: st === 'paused' ? `Drive paused${d.reason ? `: ${d.reason}` : ''}` : 'Epic landed on dev ✓', key: `drive:${st}` } : undefined
     case 'cost.updated': return d.threshold ? { text: `Drive at ${d.threshold}% of token budget`, key: `cost:${d.threshold}` } : undefined
     case 'init.stage': return st === 'proposed' ? { text: 'Init diff ready · /cadre open init', key: `init:${d.stage}` } : undefined

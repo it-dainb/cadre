@@ -29,7 +29,11 @@ export const why = (t: SnapTask, all: SnapTask[]) => {
 
 // the decisions the human owes (+ a blocked task's question), oldest first; containment/sync are problems, not needs
 export type Need = { id?: string; text: string; short: string; d?: Decision; sel?: string; tab: string }
-export const needsOf = (v: View): Need[] => attention(v).filter(i => i.d || i.key.startsWith('q:')).map(i => ({ id: i.d?.id, text: i.text, short: i.short ?? i.text, d: i.d, sel: i.sel, tab: i.tab }))
+export const isRun = (d?: Decision) => !!d?.id.startsWith('run:')
+export const needsOf = (v: View): Need[] => attention(v).filter(i => (i.d && !isRun(i.d)) || i.key.startsWith('q:')).map(i => ({ id: i.d?.id, text: i.text, short: i.short ?? i.text, d: i.d, sel: i.sel, tab: i.tab }))
+// an init/setup run in flight is progress, not a question: the band and the Board draw it as the "now" line
+export const runOf = (v: View): Decision | undefined => (v.b.decisions ?? []).find(isRun)
+export const stopK = (reason?: string): GlyphK => (/fail|outside|moved|changed|degraded/i.test(reason ?? '') ? 'fail' : 'wait')   // danger colour is for failures; a limit is a plain stop
 export const problem = (v: View): string | undefined => {
   if (v.b.containment.state === 'degraded') return `containment degraded${SEP}/cadre doctor`
   const s = v.b.sync.find(x => x.state === 'offline' && v.now - x.at > 60000)
