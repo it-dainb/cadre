@@ -14,11 +14,13 @@ export interface SnapTask {
   deps: { id: string; type: SnapDepType }[]
   condition?: { on: string; state: 'pending' | 'met' | 'not-met' }
   flags: string[]; card?: string; ctx?: number   // ctx: the owner's context fill %
+  lane?: string                                     // 'lite' | 'lite+tdd' (ADR 0011): the pipeline variant (registry.pipeOf)
 }
 export interface Plan {
   id: string; slug: string; state: PlanState; epicBranch: string; approvedAt?: number
   landed?: { dev: string; sha: string; at: number }; released?: { version: string; at: number }
   flags?: string[]   // plan-level flags (integration-failed)
+  lane?: 'ask' | 'lite' | 'full'; laneReason?: string; laneOverride?: string   // ADR 0011: the effective lane, main's (or the human's) reason, why the override moved it (core/lanes)
 }
 // A decision the human owes (ADR 0008): ONE record drawn by ONE renderer (ui/card). Approved only by a press on its Button or the ask dialog, both bound to `hash` (ADR 0012); no typed code.
 // Option keys are hotkeys (one lowercase letter; n and p are the queue's). `run` = a dispatcher command (`<sub> <args>`) run as origin press; `fill` = text loaded into the composer instead.

@@ -1,32 +1,40 @@
 # Commands, loop, config
 
-Everything beyond the four commands you normally type (`/cadre setup`, `init`, `doctor`, `open`). Most of these are also **buttons on the cadre card**; the typed form is the fallback where no pane draws (VS Code, `-p`). See [ADR 0008](adr/0008-click-decisions.md).
+You type five forms ([ADR 0011](adr/0011-lanes.md)):
+
+| Typed | Effect |
+|---|---|
+| `/cadre` | open the pane: the card when a decision waits, else the epic |
+| `/cadre <goal>` | Claude picks a lane (ask · lite · full) with a reason and drafts it; the card shows the lane and **[l]** changes it |
+| `/cadre setup` · `/cadre init` · `/cadre doctor` | machine setup · project setup · read-only diagnosis |
+
+An old subcommand word (`approve`, `status`, `open`, …) answers `that's a button now: press 1 on the band or run /cadre` and runs nothing, so a typo never starts a plan. The table below is the command set behind the **buttons on the cadre card** and the pane's tabs; it is not typed.
 
 ## Commands
 | `/cadre …` | Who | Effect |
 |---|---|---|
-| `approve <id>` · `approve <id>@<code8>` | human | open the sheet · approve (code burned on use) |
+| `approve <id>` | press | approve the plan (or gate) whose card was pressed; refused if the card changed |
 | `reject <planId> <why>` | human | drop drafts |
 | `resolve <id> keep\|accept\|reject\|cancel` · `resolve git keep\|restore` | human | clear flags / quarantined git effects |
 | `release [x.y.z]` | human | cut a release |
 | `setup [cancel]` | human | one-time machine setup, done by Claude, checked by cadre |
 | `doctor` | anyone | read-only diagnosis, report in the cadre pane |
-| `init [cancel \| confirm <code>]` | human | project setup, done by Claude, checked by cadre; `confirm` = the safety settings card |
+| `init [cancel \| confirm]` | human | project setup, done by Claude, checked by cadre; `confirm` = the safety settings card |
 | `sync add <adapter>` · `sync [now]` | human · anyone | external tracker setup · wake sync |
-| `adapter token` | human | new adapter session token (toast only) |
 | `config [show]` | anyone | print the settings that differ from the defaults. Changing one: press `9` in the pane (Settings tab) |
 | `drive on\|off\|status` | `on`/`off`: human | autonomy: cadre's own bounded goal |
 | `status` | anyone | text board and cost line |
 | `open [epic\|plan\|task <id>\|sync\|cost\|release\|init]` | anyone | open the `cadre` pane tab |
 
-**Decisions by click (0.4.0).** Every human action above also appears as a *decision card* in the cadre pane (`1` on the band opens it; it opens itself when there is room): a framed box with the question, a short description and buttons (Approve/Reject/Change, Confirm/Cancel, Accept/Reject, Keep/Restore, Release). A button press is human evidence and runs the same command bound to the code it was drawn with; a stale card is refused and redrawn. Where nothing draws (VS Code, `-p`) the typed commands above are unchanged. See [ADR 0008](docs/adr/0008-click-decisions.md).
+**Decisions by click (0.4.0).** Every human action above also appears as a *decision card* in the cadre pane (`1` on the band opens it; it opens itself when there is room): a framed box with the question, a short description and buttons (Approve/Reject/Change, Confirm/Cancel, Accept/Reject, Keep/Restore, Release). A button press (or, where no pane draws, the same decision as an ask dialog) is the only human evidence; it is bound to the card's content hash, so a stale card is refused and redrawn. `-p` cannot approve. See [ADR 0008](adr/0008-click-decisions.md) and [ADR 0012](adr/0012-decisions-by-press-or-dialog.md).
 
 
 Native tools main uses: `TaskCreate/Update/List/Get`, `Agent`. Agents use three MCP tools: `report`, `inspect`, `run_check`.
 
 ## The loop in detail
+0. **Lane.** `/cadre <goal>` hands Claude the goal and a short guide. It picks **ask** (one explorer answers; no plan), **lite** (one `TaskCreate` with `{"kind":"plan","lane":"lite","reason","type","changelog"}` drafts the plan and its one task; completeness is title, description and the changelog decision; pipeline worker → green → reviewer → merge, or tester → red first for a bug with `"repro": true`) or **full** (below). cadre overrides to full when a task is breaking, labeled or scoped `security`, declares a new or changed public contract symbol, or the plan has 3+ tasks (lite also has exactly one task). Same guards for every lane: main never edits, work happens in worktrees, review is bound to a commit, merges are squashed.
 1. **Plan.** Main drafts a plan with `TaskCreate` (`metadata.kind:"plan"`, then tasks). Each task has a `type`, `package`, Given/When/Then `scenarios`, a `changelog` entry or `{none, reason}`, and an interface `contract`. Drafts live in beads and never run.
-2. **Approve.** You run `/cadre approve <planId>`; the Plan tab shows the sheet. Approval needs a human origin (composer; SDK only if `approval.allowSdk`) and burns its code on every attempt. The mod cuts `epic/<id>-<slug>` from `dev`.
+2. **Approve.** The plan card appears (the Plan tab shows the full sheet); press **Approve**. Only the press (or the ask dialog) approves, bound to what the card showed. The mod cuts `epic/<id>-<slug>` from `dev`.
 3. **Execute.** Main spawns `Agent` for a task. The mod claims it, makes a worktree, and runs the pipeline: `cadre:tester` (sees only the spec view) → red check must fail → `cadre:worker` → green check must pass → `cadre:reviewer` (verdict bound to a commit). Rework resumes the same agent; cap `review.maxRework`.
 4. **Close.** Main sets the task `completed`; the mod squashes into the epic branch. When all tasks are done, completing the epic merges `--no-ff` into `dev`.
 5. **Release.** `/cadre release [x.y.z]` cuts the changelog and merges `dev` into `main`. cadre never pushes.
@@ -50,14 +58,13 @@ Claude follows the init guide; the checklist has these items:
 Sync with an external tracker is separate and optional: `/cadre sync add <adapter>`.
 
 ## Config
-Layers, low → high: built-in defaults → plugin `userConfig` → `~/.claude/cadre.json` (with per-repo sections) → repo `.cadre/config.json` (main checkout) → env (`CADRE_STRICTNESS`, `CADRE_STORE`, `CADRE_ALLOW_SDK_APPROVAL`, `CADRE_DISABLE`) → the Settings tab. **S** keys: a repo file may only tighten them. **U**: user-level only. **O**: ordinary.
+Layers, low → high: built-in defaults → plugin `userConfig` → `~/.claude/cadre.json` (with per-repo sections) → repo `.cadre/config.json` (main checkout) → env (`CADRE_STRICTNESS`, `CADRE_STORE`, `CADRE_DISABLE`) → the Settings tab. **S** keys: a repo file may only tighten them. **U**: user-level only. **O**: ordinary.
 
 **Settings tab** (pane, hotkey `9`): groups Workflow, Agents & models, Drive, Cost, Sync, UI, Security; one row per key with its value, its source (`[default]` `[user]` `[repo]` `[env]`) and, for S keys, "tighten-only from repo", for U keys "user-level only". `n`/`p` move, `e` acts on the selected row (a bool toggles, an enum cycles, a number, text or list opens a card with a field; a bad value is refused on the card). Only a human press writes, and cadre writes the file, never Claude: `~/.claude/cadre.json` ("save for me", the default; a key already set in this repo's section stays there), or for O keys also the committed `.cadre/config.json` ("save to repo"). Every write keeps a `.bak` and is read back. S and U keys never go to the repo file; `strictness` cannot change while tasks run.
 
 | Key | Class | Default |
 |---|---|---|
 | `strictness` | S | `strict` (`advisory` turns denials into warnings) |
-| `approval.allowSdk` | S | `false` |
 | `mcpAllow` | S | `[]` |
 | `jail`, `jailWritable` | S | `auto`, `[]` |
 | `effectCheck` | S | `auto` |

@@ -3,9 +3,8 @@ import { compact, drain, queueResume, step, submit } from '../core/reuse'
 import { UI } from '../core/board'
 import { checkpoint } from '../core/effect'
 import { casDrive, drive, goal } from '../core/drive'
-import { prune, rehydrate } from '../core/session'
+import { prune, rehydrate, warm } from '../core/session'
 import { tick } from '../core/admission'
-import { run } from '../commands/cadre'
 import { wrap } from '../core/effect'
 import { ROUTES } from '../core/dispatch'
 import '../core/close'   // registers ROUTES.resolve
@@ -178,7 +177,7 @@ describe('compaction (8.3, S49) and rehydrate (8.2, 13.4)', () => {
     const { h, store, epic, a } = await mk()
     const f = fakeHost() as any; Object.assign(f, { taskStore: h.taskStore, config: h.config, usage: h.usage, submit: h.submit })   // no pointer in f.store
     const f2 = fakeHost() as any; Object.assign(f2, { taskStore: h.taskStore, config: h.config, usage: h.usage, submit: h.submit })
-    expect((await run(f2, { command: 'cadre', args: 'status', origin: { kind: 'composer' } }, async () => 'NEXT') as any).text).toContain(`plan ${epic} approved`)   // /cadre status as the first line of a session
+    await warm(f2); expect((await f2.board.read()).plan).toMatchObject({ id: epic, state: 'approved' })   // the first hook of a new session reads the rehydrated board
     expect(await rehydrate(f)).toBe(true)
     const s = await f.board.read()
     expect(s.epic).toBe(epic); expect(s.plan).toMatchObject({ id: epic, slug: 'auth', state: 'approved', epicBranch: `epic/${epic}-auth` }); expect(s.tasks.map((t: any) => t.id)).toContain(a)

@@ -8,6 +8,7 @@ import { initItems, type Item } from './init'
 import { setupItems } from './doctor'
 import { LIMIT } from '../policy/guards'
 import { RUN } from '../core/dispatch'
+import { sendBrief } from '../core/lanes'
 import { diff as jdiff } from '../policy/settings'
 
 type Kind = 'setup' | 'init'
@@ -23,6 +24,7 @@ const send = (h: Host, brief: string) => h.secret.update(s => (s.run ? { ...s, r
 export async function pump(h: Host): Promise<void> {
   let text: string | undefined; await h.secret.update(s => { text = s.run?.brief; return text ? { ...s, run: { ...s.run!, brief: undefined } } : s })
   if (text) await h.submit?.(text).catch((e: Error) => h.log(`cadre: could not hand the step to Claude: ${e.message.slice(0, 120)}`))
+  await sendBrief(h)   // a `/cadre <goal>` brief (core/lanes)
 }
 
 async function draw(h: Host, k: Kind, its: Item[], state: 'on' | 'stopped' | 'done', note?: string): Promise<void> {

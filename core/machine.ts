@@ -9,7 +9,7 @@ import { strictOf } from '../config/index'
 export const STEP_CAT: Record<string, Category> = { tester: 'active', red: 'active', worker: 'active', green: 'active', explorer: 'active', report: 'active', reviewer: 'review', merge: 'review' }
 // flags that stop a claim, an integration and a release until the human resolves them
 export const BLOCKING = /^(git:|external$|drift$|conflict$|lost-|integration-failed$)/
-export type Pipe = (type: string) => readonly string[]
+export type Pipe = (type: string, lane?: string) => readonly string[]
 
 export type MKind = 'approve' | 'amend' | 'claim' | 'advance' | 'verdict' | 'close' | 'block' | 'unblock' | 'rewind' | 'release' | 'cancel' | 'skip'
 export interface MEvent { kind: MKind; id: string; at: number; actor?: Actor; owner?: string; verdict?: 'pass' | 'changes'; on?: string; cites?: number }   // rewind: `on` = the step to return to (spec_change accept)
@@ -29,7 +29,7 @@ export function transition(s: Snapshot, m: MEvent, pipe: Pipe): Result {
   if (!t) return { ok: false, error: `unknown task ${m.id}` }
   const bad = (why: string): Result => ({ ok: false, error: `${m.id}: ${m.kind} is illegal from ${t.state}${t.step ? `·${t.step}` : ''}${why ? ` (${why})` : ''}` })
   if (!FROM[m.kind].includes(t.state)) return bad('')
-  const p = pipe(t.type), i = p.indexOf(t.step)
+  const p = pipe(t.type, t.lane), i = p.indexOf(t.step)
   let state: Category = t.state, step = t.step, owner = t.owner
   switch (m.kind) {
     case 'approve': state = 'todo'; break

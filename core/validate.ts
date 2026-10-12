@@ -5,7 +5,7 @@ import type { Task } from '../task-management/store'
 import { kindOf } from '../task-management/registry'
 import type { TypeRegistry } from '../task-management/registry'
 
-export const FIELDS = ['kind', 'amend', 'type', 'scope', 'breaking', 'package', 'scenarios', 'changelog', 'interface'] as const
+export const FIELDS = ['kind', 'amend', 'type', 'scope', 'breaking', 'package', 'scenarios', 'changelog', 'interface', 'lane', 'reason', 'repro'] as const
 export const CATEGORIES = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security']
 const SCENARIO = /^S\d+: Given .+ When .+ Then .+$/
 const STATUS = ['new', 'changed', 'unchanged']
@@ -19,6 +19,10 @@ export function validateFields(m: Record<string, unknown>, reg: TypeRegistry): s
   const f = (k: string) => (m[k] === null ? undefined : m[k])
   if (f('kind') !== undefined && f('kind') !== 'plan' && f('kind') !== 'mission') return bad('metadata.kind', '"plan" or "mission"', m.kind)
   if (f('amend') !== undefined && typeof m.amend !== 'boolean') return bad('metadata.amend', 'true', m.amend)
+  if (f('lane') !== undefined && !['ask', 'lite', 'full'].includes(m.lane as string)) return bad('metadata.lane', '"ask", "lite" or "full"', m.lane)
+  if ((f('lane') !== undefined || f('reason') !== undefined) && m.kind !== 'plan') return 'metadata.lane, metadata.reason: set them on the plan\'s TaskCreate, with "kind":"plan"'
+  if (f('reason') !== undefined && !str(m.reason)) return bad('metadata.reason', 'one line, e.g. "one small fix in src/a.ts"', m.reason)
+  if (f('repro') !== undefined && typeof m.repro !== 'boolean') return bad('metadata.repro', 'true or false', m.repro)
   if (f('type') !== undefined && !(str(m.type) && m.type in reg)) return bad('metadata.type', `one of ${Object.keys(reg).join('|')}`, m.type)
   if (f('scope') !== undefined && !str(m.scope)) return bad('metadata.scope', '"auth"', m.scope)
   if (f('breaking') !== undefined && typeof m.breaking !== 'boolean') return bad('metadata.breaking', 'true or false', m.breaking)
@@ -54,6 +58,7 @@ export function validateFields(m: Record<string, unknown>, reg: TypeRegistry): s
 export function missingOf(t: Task, reg: TypeRegistry): string[] {
   const spec = reg[t.type]; if (!spec || kindOf(spec) === 'spike') return []
   const out: string[] = []
+  if (t.meta['cadre.lane']?.startsWith('lite')) return [...(t.description.trim() ? [] : ['description']), ...(t.meta['cadre.changelog'] ? [] : ['changelog'])]   // lite (ADR 0011): title, description, changelog decision
   if (!t.acceptance?.trim()) out.push('scenarios')
   if (!t.meta['cadre.changelog']) out.push('changelog')
   if (spec.contract === 'required' && !t.design) out.push('interface')

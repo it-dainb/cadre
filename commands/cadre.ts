@@ -1,10 +1,9 @@
 // /cadre <sub> (DESIGN 5.3): parse text into a dispatcher command (core/dispatch is the only entry). Queue/state-by-CAS only: never submits or spawns (P4, G6).
 import type { Hook, Host } from '../types'
 import type { Command, Out } from '../core/dispatch'
-import { ROUTES, answer, cfgOf, dispatch, resolveEpic, restore } from '../core/dispatch'
-import { modelView } from '../core/board'
-import { wake, warm } from '../core/session'
-import { contextLine, subject } from '../core/render'
+import { ROUTES, answer, cfgOf, dispatch, isHuman, registryOf, resolveEpic, restore, storeOf } from '../core/dispatch'
+import { changeLane, goal } from '../core/lanes'
+import { wake } from '../core/session'
 import { defaultTab, openPane } from '../ui/index'
 import { read } from '../ui/model'
 import { confirm as initConfirm } from './init'
@@ -12,20 +11,10 @@ import { confirmUser, doctor } from './doctor'
 import { recheck, resnap, settingsAnswer, start } from './agentrun'
 import { defaults } from '../config/index'
 
-// text board from the model view + the cost ledger (the human view's cost, since this is a typed command's own output)
-async function status(h: Host): Promise<Out> {
-  await warm(h)   // a first-line /cadre status in a new session reads the rehydrated board
-  const s = await h.board.read(), v = modelView(s)
-  const rows = v.tasks.map(t => `${t.id} ${subject(t)}${t.owner ? ` (${t.owner})` : ''}`)
-  const c = s.cost
-  return { text: [contextLine(v) || 'no plan', ...rows, `cost: ${c.tokens} tokens${c.usd !== undefined ? ` $${c.usd.toFixed(2)}` : ''}${c.cachePct !== undefined ? ` cache ${c.cachePct}%` : ''} · containment ${s.containment.state}${s.drive.on ? ` · drive on ${s.drive.turns} turns` : ''}`].join('\n') }
-}
-
-async function route(h: Host, c: Command): Promise<Out> {
+export async function route(h: Host, c: Command): Promise<Out> {   // every dispatcher command (presses; tests)
   const [a] = c.args
   if (!['setup', 'doctor', 'init', 'open'].includes(c.cmd) && !(await wake(h))) return { text: 'cadre is off in this repo · run /cadre init' }   // per-repo opt-in (ADR 0007)
   switch (c.cmd) {
-    case 'status': return status(h)
     case 'open': await openPane(h, a ?? defaultTab(await read(h))); return { text: `Opened the cadre pane (${a ?? 'epic'}).` }
     case 'resolve': if (a && a === (await h.board.read()).plan?.id) return resolveEpic(h, a, c.args[1] ?? ''); break
     case 'restore': return restore(h, a)
@@ -37,6 +26,8 @@ async function route(h: Host, c: Command): Promise<Out> {
       return { text }
     }
     case 'doctor': return { text: await doctor(h) }
+    case 'goal': return { text: c.origin.kind === 'composer' ? await goal(h, a ?? '') : `refused: origin ${c.origin.kind} cannot start a goal; type it in the prompt` }   // the human's own words only
+    case 'lane': { const why = isHuman(c.origin); return { text: why ? `refused: ${why}` : await changeLane(h, await storeOf(h), await registryOf(h), a ?? '') } }
     case 'config': if (!a || a === 'show') return { text: configText(await cfgOf(h), c.args[1]) }
   }
   const r = ROUTES[c.cmd]
@@ -52,10 +43,23 @@ export const configText = (cfg: unknown, prefix?: string): string => {
 }
 // words; `k="a b"` is one argv element `k=a b` (card fields typed by hand, ADR 0009). argv only: nothing reaches a shell
 export const argsOf = (t: string): string[] => (t.match(/\w+="[^"]*"|\S+/g) ?? []).map(a => a.replace(/^(\w+)="([^"]*)"$/, '$1=$2'))
+// The typed surface (ADR 0011): `/cadre` (the pane) · `/cadre setup|init|doctor` · `/cadre <goal>`. An old subcommand word gets a one-line hint, so a typo never starts a plan;
+// the other dispatcher commands are reached only by a press (the card's buttons, the pane's tabs).
+export const OLD = ['approve', 'reject', 'resolve', 'restore', 'release', 'drive', 'config', 'sync', 'adapter', 'status', 'open', 'confirm', 'cancel', 'resume', 'lane', 'goal', 'setup', 'init', 'doctor']
+export const HINT = "that's a button now: press 1 on the band or run /cadre"
+export function parse(text: string): { cmd: string; args: string[] } | { hint: string } {
+  const t = text.trim(), [w = '', ...rest] = argsOf(t)
+  if (!t) return { cmd: 'pane', args: [] }
+  if (['setup', 'init', 'doctor'].includes(w) && !rest.length) return { cmd: w, args: [] }
+  return OLD.includes(w) ? { hint: HINT } : { cmd: 'goal', args: [t] }
+}
 export const run: Hook = async (h, e) => {
-  const [cmd = 'status', ...args] = argsOf(String(e.args ?? ''))
+  const p = parse(String(e.args ?? '')); if ('hint' in p) return { text: p.hint }
   const kind = e.origin?.kind === 'press' ? 'unclassified' : e.origin?.kind ?? 'unclassified'   // 'press' is ours alone
-  try { return await dispatch(h, { schemaVersion: 1, cmd, args, origin: { kind, name: e.origin?.name } }, route) } catch (x) { return { text: `cadre: ${(x as Error).message}` } }
+  try {
+    if (p.cmd === 'pane') { await openPane(h, defaultTab(await read(h))); return { text: 'Opened the cadre pane.' } }   // the card when a decision waits, else the epic
+    return await dispatch(h, { schemaVersion: 1, ...p, origin: { kind, name: e.origin?.name } }, route)
+  } catch (x) { return { text: `cadre: ${(x as Error).message}` } }
 }
 // a Button press / ask-dialog answer on decision `id`, option `key`, drawn with `hash` (ADR 0008, 0012): core/dispatch.answer
 export const press = (h: Host, id: string, key: string, hash: string, origin: 'press' | 'dialog' = 'press'): Promise<Out> => answer(h, id, key, hash, origin, route)

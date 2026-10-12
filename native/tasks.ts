@@ -8,7 +8,8 @@ import type { TypeRegistry } from '../task-management/registry'
 import { canon, modelView } from '../core/board'
 import { apply } from '../core/machine'
 import { pipeOf } from '../task-management/registry'
-import { cfgOf, mirror, registryOf, storeOf, touched } from '../core/dispatch'
+import { cfgOf, mirror, registryOf, storeOf } from '../core/dispatch'
+import { retouch } from '../core/lanes'
 import { epicBranch, slug } from '../core/branches'
 import { capped, clearRetries, missingLine, refuse, validateFields } from '../core/validate'
 import { subject, taskText } from '../core/render'
@@ -16,11 +17,11 @@ import { subject, taskText } from '../core/render'
 // Plan rules (DESIGN 3.1): ≤1.5 KB, byte-stable for one registry. Carried once per plan, in the first answer's `context`.
 export const planRules = (reg: TypeRegistry): string => [
   'Plan rules (v1)',
-  '- Start a plan with TaskCreate metadata {"kind":"plan"}; every later TaskCreate is a task of that plan. Order tasks with TaskUpdate addBlockedBy.',
+  '- Start a plan with TaskCreate metadata {"kind":"plan","lane":"full","reason":"…"}; every later TaskCreate is a task of that plan. Order tasks with TaskUpdate addBlockedBy.',
   '- Task metadata: type, scope?, breaking?, package, scenarios ["S1: Given <state> When <action> Then <outcome>"], changelog {"category":"Added","entry":"…"} or {"none":true,"reason":"…"}, interface {"symbols":[{"name","kind","params":[…],"returns","status":"new|changed|unchanged"}]} or {"none":true,"reason":"…"}.',
   `- Types and pipelines: ${Object.entries(reg).map(([t, s]) => `${t} ${s.pipeline.join('>')}`).join('; ')}.`,
   '- A draft may be incomplete: the "missing:" line says what approval still needs.',
-  '- Only the human approves (/cadre approve). Approved tasks are frozen: set metadata.amend:true to edit one. Never set owner, in_progress or cadre*.',
+  '- Only the human approves, on the card. Approved tasks are frozen: set metadata.amend:true to edit one. Never set owner, in_progress or cadre*.',
 ].join('\n')
 
 const NATIVE = { draft: 'pending', todo: 'pending', active: 'in_progress', review: 'in_progress', blocked: 'in_progress', done: 'completed', cancelled: 'completed' } as const
@@ -43,6 +44,7 @@ function fieldsOf(m: Record<string, any>): { patch: Parameters<TaskStore['update
   if (has('scope')) { meta['cadre.scope'] = m.scope ?? ''; names.push('metadata.scope') }
   if (has('breaking')) { meta['cadre.breaking'] = String(m.breaking ?? false); names.push('metadata.breaking') }
   if (has('changelog')) { meta['cadre.changelog'] = m.changelog === null ? '' : canon(m.changelog); names.push('metadata.changelog') }
+  if (has('repro')) { meta['cadre.repro'] = m.repro ? 'true' : ''; names.push('metadata.repro') }
   return { patch, meta, names }
 }
 const fail = (e: unknown): string => (e instanceof StoreError ? `${e.code}: ${e.message}` : String((e as Error)?.message ?? e))
@@ -59,15 +61,18 @@ async function create(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
     if (s.plan && !['done-on-dev', 'released'].includes(s.plan.state)) return { deny: `plan ${s.plan.id} is still ${s.plan.state}: ask the human to approve or reject it first` }
     const prefix = (await cfgOf(h)).branches.epicPrefix, id = await store.createEpic(e.subject, e.description), mission = m.kind === 'mission', name = mission ? 'mission' : slug(e.subject)
     if (mission) await store.setMeta(id, { 'cadre.kind': 'mission' }, 'main')
+    else if (m.lane) await store.setMeta(id, { 'cadre.lane': m.lane, ...(m.reason ? { 'cadre.laneReason': m.reason } : {}) }, 'main')   // lanes (ADR 0011): core/lanes.relane reads them
     await h.board.update(b => ({ ...b, epic: id, tasks: [], plan: { id, slug: name, state: 'draft', epicBranch: mission ? '' : epicBranch(prefix, id, e.subject) }, approval: { planId: id, missing: [] } }))
-    const missing = await touched(h, store, reg)
-    return withCtx({ task: { id, subject: e.subject } }, mission ? '' : planRules(reg), missingLine(missing))
+    const lite = !mission && m.lane === 'lite', f = fieldsOf(m)   // a lite plan is one call: the plan and its one task
+    if (lite) await store.createDraft({ title: e.subject, description: e.description, acceptance: f.patch.acceptance, design: f.patch.design, type: m.type ?? 'feature', parent: id, meta: f.meta })
+    const missing = await retouch(h, store, reg)
+    return withCtx({ task: { id, subject: e.subject } }, mission || lite ? '' : planRules(reg), missingLine(missing))
   }
   if (!s.epic || !s.plan) return { deny: 'no plan yet: first TaskCreate with metadata {"kind":"plan"}' }
   if (s.plan.slug === 'mission') return { deny: 'a mission draft takes no tasks; once it is approved, start a plan' }
   const f = fieldsOf(m)
   const t = await store.createDraft({ title: e.subject, description: e.description, acceptance: f.patch.acceptance, design: f.patch.design, type: m.type ?? 'feature', parent: s.epic, meta: f.meta })
-  return withCtx({ task: { id: t.id, subject: e.subject } }, missingLine(await touched(h, store, reg)))
+  return withCtx({ task: { id: t.id, subject: e.subject } }, missingLine(await retouch(h, store, reg)))
 }
 
 async function update(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
@@ -85,10 +90,10 @@ async function update(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
   const life = e.status === 'completed' || e.status === 'pending' || e.status === 'deleted' ? e.status : m.decision !== undefined ? 'decision' : null
   if (life) {   // lifecycle
     if (draft && life === 'deleted' && !isEpic) {
-      await store.dropDrafts([id]); await touched(h, store, reg)
+      await store.dropDrafts([id]); await retouch(h, store, reg)
       return out(true, ['status'], undefined, [missingLine((await h.board.read()).approval.missing)])
     }
-    if (draft) return out(false, [], `${life} does not apply to a draft: the human approves it with /cadre approve`)
+    if (draft) return out(false, [], `${life} does not apply to a draft: the human approves it on the card`)
     const why = await LIFECYCLE[life]!(h, id, e)
     const card = !why && life === 'completed' ? (await h.board.read()).tasks.find(x => x.id === id)?.card : undefined   // the close card: main sees that the squash landed
     return out(!why, why ? [] : [life === 'decision' ? 'metadata.decision' : 'status'], why ?? undefined, card ? [card] : undefined)
@@ -113,9 +118,9 @@ async function update(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
     if (Object.keys(f.meta).length) await store.setMeta(id, f.meta, 'main')
     for (const d of blockedBy ?? []) await store.link(id, { id: d, type: 'blocks' })
     for (const b of blocks ?? []) { if ((await store.get(b)).category !== 'draft') throw new StoreError('Invalid', `${b} is approved; amend it before adding a blocker`); await store.link(b, { id, type: 'blocks' }) }
-  } catch (x) { await touched(h, store, reg); return no(fail(x)) }
+  } catch (x) { await retouch(h, store, reg); return no(fail(x)) }
   await clearRetries(h, id)
-  const missing = await touched(h, store, reg)
+  const missing = await retouch(h, store, reg)
   const names = [...(e.subject !== undefined ? ['subject'] : []), ...(e.description !== undefined ? ['description'] : []), ...f.names, ...(blockedBy?.length ? ['blockedBy'] : []), ...(blocks?.length ? ['blocks'] : []), ...(amend === true ? ['metadata.amend'] : [])]
   return out(true, names, undefined, [missingLine(missing)])
 }

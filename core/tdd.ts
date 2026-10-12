@@ -124,7 +124,7 @@ export async function lockedViolations(run: G.Run, wt: string, spec: string, loc
 // ---- tester report (3.4 tester -> red✓): audit, copy-in, red, lock, advance. A refused gate leaves the task at the tester step (caller counts the retry). ----
 export async function testerDone(h: Host, d: Deps, task: Task, wt: string, view: string, tests: { path: string; name: string }[], agentId?: string): Promise<Gate> {
   const pkg = pkgOf(d, task); if (!pkg?.tdd) return { ok: false, why: 'its package has no tdd config', card: 'red ✗ no tdd config' }
-  const pipe = pipeOf(d.reg), steps = pipe(task.type), hasRed = steps.includes('red'), au = await auditView(h, d, task, view, agentId)
+  const pipe = pipeOf(d.reg), steps = pipe(task.type, task.meta['cadre.lane']), hasRed = steps.includes('red'), au = await auditView(h, d, task, view, agentId)
   const pre = await G.tip(h.run, wt, 'HEAD'), undo = () => G.op(h, async () => { await G.git(h.run, wt, ['reset', '--hard', '-q', pre]); await G.git(h.run, wt, ['clean', '-fdq']) }).catch(() => {})   // a refused gate must not leave the copy-in behind (a retry would see "identical")
   let spec: string
   try { spec = await copyIn(h, d, task, wt, view, pkg) } catch (e) { await undo(); return { ok: false, why: String((e as Error).message), card: `red ✗ ${(e as Error).message}` } }
@@ -157,7 +157,7 @@ export async function resolveSpec(h: Host, id: string, how: string): Promise<{ t
   if (!t || t.state !== 'blocked' || task?.meta['cadre.blocked'] !== 'spec_change') return { text: `${id} is not waiting on a spec change` }
   if (how !== 'accept' && how !== 'reject') return { text: `/cadre resolve ${id} accept|reject` }
   const pipe = pipeOf(d.reg), acc = how === 'accept'
-  if (acc && !pipe(t.type).includes('tester')) return { text: `${id}: type ${t.type} has no tester step; reject instead` }
+  if (acc && !pipe(t.type, t.lane).includes('tester')) return { text: `${id}: type ${t.type} has no tester step; reject instead` }
   const r = await apply(h, acc ? { kind: 'rewind', id, at: await h.now(), actor: 'human', on: 'tester' } : { kind: 'unblock', id, at: await h.now(), actor: 'human' }, pipe)
   if (!r.ok) return { text: r.error }
   const note = acc ? `spec change accepted: ${task!.meta['cadre.specChange'] ?? ''}` : 'spec change rejected: the locked tests stay; conform to them'

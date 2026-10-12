@@ -85,11 +85,11 @@ async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any, aut
   const C = (await G.op(h, () => G.commitAll(h.run, wt, `wip(${t.id}): ${sum || 'work'}`))) ?? (await G.tip(h.run, wt, 'HEAD'))
   if (C === base) throw new Error('nothing changed since the task base; make the change, then report')
   let green: { ok: boolean; check: string; secs: number } | undefined
-  if (pipe(d)(t.type).includes('green')) {
+  if (pipe(d)(t.type, t.lane).includes('green')) {
     const g = await tddGreen(h, d, task, wt); if (!g.ok) throw new Error(`green gate failed: ${g.why}\nFix it and report again`)
     green = { ok: true, check: 'verify', secs: Math.round(Number(/\((\d+(?:\.\d+)?)s\)/.exec(g.card)?.[1] ?? 0)) }
   }
-  const st = await numstat(h, wt, `${base}..${C}`), p = pipe(d)(t.type), at = await h.now()
+  const st = await numstat(h, wt, `${base}..${C}`), p = pipe(d)(t.type, t.lane), at = await h.now()
   for (let i = p.indexOf('worker'); p[i] !== 'reviewer'; i++) { const m = await apply(h, { kind: 'advance', id: t.id, at, actor: 'mod' }, pipe(d)); if (!m.ok) throw new Error(m.error) }
   await d.store.setMeta(t.id, { 'cadre.sourceCommit': C, 'cadre.step': 'reviewer', 'cadre.report': JSON.stringify({ summary: r.summary, risks: r.risks, questions: r.questions }).slice(0, 1500), 'cadre.checks': green ? 'verify' : '', 'cadre.nudge': '' }, d.actor)
   await d.store.move(t.id, 'review', d.actor)

@@ -41,5 +41,5 @@ export const validate = (reg: TypeRegistry): string[] =>
 
 export const kindOf = (s: TypeSpec): Kind => s.kind ?? (s.pipeline.includes('explorer') ? 'spike' : s.commit === 'docs' ? 'docs' : 'code')
 export const merges = (s: TypeSpec): boolean => s.pipeline.includes('merge')
-// Pipeline lookup for the machine; unknown type -> []
-export const pipeOf = (reg: TypeRegistry) => (type: string): readonly string[] => reg[type]?.pipeline ?? []
+// Pipeline lookup for the machine; unknown type -> []. Lane 'lite' (ADR 0011): no tester/red where a worker writes the change ('lite+tdd' keeps them)
+export const pipeOf = (reg: TypeRegistry) => (type: string, lane?: string): readonly string[] => { const p = reg[type]?.pipeline ?? []; return lane === 'lite' && p.includes('worker') ? p.filter(s => s !== 'tester' && s !== 'red') : p }

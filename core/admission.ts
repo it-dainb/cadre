@@ -41,7 +41,7 @@ const modelOf = (d: Deps, role: Role, t?: Task) => {
   const tier = role === 'reviewer' && t?.labels.some(l => d.cfg.review.deepLabels.includes(l)) ? 'deep' : d.cfg.roles[role]?.tier
   return tier ? (d.cfg.models as Record<string, string>)[tier] ?? tier : undefined
 }
-const stepsOf = (d: Deps) => (type: string) => { const p = pipeOf(d.reg)(type); return d.view ? p : p.filter(s => s !== 'tester' && s !== 'red') }   // no view builder: tester/red skipped
+const stepsOf = (d: Deps) => (type: string, lane?: string) => { const p = pipeOf(d.reg)(type, lane); return d.view ? p : p.filter(s => s !== 'tester' && s !== 'red') }   // no view builder: tester/red skipped
 
 export async function admitWith(h: Host, d: Deps, e: any, next: (e: any) => any): Promise<any> {
   if (e.isTeammate) return deny('agent teams are not available; use a plain Agent call')
@@ -114,7 +114,7 @@ async function lostEpic(h: Host, s: Snapshot, t: SnapTask) {   // epic branch mi
 
 // ---- todo -> active: the claim ----
 async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapshot, t: SnapTask) {
-  const spec = d.reg[t.type], pipe = stepsOf(d), first = pipe(t.type)[0]
+  const spec = d.reg[t.type], pipe = stepsOf(d), first = pipe(t.type, t.lane)[0]
   if (!s.epic || !s.plan) return deny('no approved plan yet; ask the human to approve it')
   if (first !== 'worker' && first !== 'explorer' && first !== 'tester') return deny(`${t.id}: type ${t.type} starts at "${first}", which is not available; pick another task`)
   const flag = t.flags.find(f => BLOCKING.test(f)); if (flag) return deny(`${t.id} has flag ${flagName(flag)}; ask the human to resolve it (/cadre resolve)`)
@@ -156,7 +156,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
   const task = await d.store.get(t.id), role = ROLE[t.step], now = await h.now(), bind = await h.bind.read(), mine = agentsOf(bind, t.id)
   if (!role || (role === 'tester' && !d.view)) return deny(`${t.id}: step ${t.step || '?'} runs without an agent; wait and call TaskList`)
   if (mine.some(a => a.startsWith('~'))) return deny(`${t.id} is already being spawned; wait`)
-  if (role === 'worker' && stepsOf(d)(t.type).includes('red') && !task.meta['cadre.specCommit']) return deny(`${t.id}: its spec tests are not recorded yet; the tester step must finish first`)
+  if (role === 'worker' && stepsOf(d)(t.type, t.lane).includes('red') && !task.meta['cadre.specCommit']) return deny(`${t.id}: its spec tests are not recorded yet; the tester step must finish first`)
   const live = leaseLive(task, now)
   if (live && !mine.length) return deny(`${t.id} is being worked on from another session; leave it`)
   if (live && mine.some(a => bind[a].role === role && !bind[a].retired)) return deny(`${t.id} is running; wait for its result (TaskList)`)   // retired (core/reuse: context or TTL over) = rebind fresh
@@ -181,7 +181,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
     let handoff = ''
     if (!spike) {
       const cp = (await checkpoint(h, d.store, d.actor, t.id, wt)) ?? (await G.tip(h.run, wt, 'HEAD')),   // locked-dirty refuses the commit (8.4)
-         hb = (d.reg[t.type].pipeline.includes('red') && task.meta['cadre.specCommit']) || task.meta['cadre.base'] || cp
+         hb = (pipeOf(d.reg)(t.type, t.lane).includes('red') && task.meta['cadre.specCommit']) || task.meta['cadre.base'] || cp
       await d.store.setMeta(t.id, { 'cadre.checkpoint': cp }, d.actor)
       handoff = [`checkpoint ${cp}`, await G.diffStat(h.run, wt, `${hb}..${cp}`), await G.diffPatch(h.run, wt, `${hb}..${cp}`), task.meta['cadre.report'] ?? ''].filter(Boolean).join('\n')
     }

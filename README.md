@@ -30,9 +30,13 @@ Then, inside Claude Code:
 
 1. `/cadre setup`: once per machine. Claude checks your tools and fixes what it can, in the open; you confirm the settings card.
 2. `/cadre init`: once per repo. Claude sets up the task store, your build and test commands, and a changelog; you approve the mission and the safety settings on their cards.
-3. **Start work.** Ask Claude for what you want. It drafts a plan as tasks and the plan appears as a card in the cadre pane. Read it, then press **Approve**.
+3. **Start work:** `/cadre <goal in plain words>`, e.g. `/cadre fix the off-by-one in src/page.ts`. Claude picks a lane and says why:
+   - **ask**: a question or investigation. An explorer answers it; nothing changes.
+   - **lite**: one small, clear change. One task, drafted for you; press **Approve** once and it runs worker → review → merge (a bug a test can reproduce gets the failing test first).
+   - **full**: a feature, several tasks, or a public API change. The full plan with scenarios and contracts.
+   The lane shows on the approval card; press **l** to change it. Breaking, security, public contract changes and plans of 3+ tasks are always full.
 
-Today you describe the goal in chat and Claude drafts the plan. A single `/cadre <goal>` command with lighter lanes for small jobs is coming next. It is not in this release.
+`/cadre` alone opens the pane. Those five forms (`/cadre`, `/cadre <goal>`, `setup`, `init`, `doctor`) are all you type; every other action is a button on the card.
 
 ## How it works
 
