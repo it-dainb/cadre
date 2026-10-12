@@ -66,9 +66,9 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
   if (!got) return 'integration is already running'
   const [root, cfg, store] = [await h.cwd(), await cfgOf(h), await storeOf(h)]
   const dev = cfg.branches.dev, tmp = wtPath(await wtRootOf(h, cfg), repoKeyOf(root), `int-${epicId}`)
-  const fail = async (why: string, flag: boolean) => {
+  const fail = async (why: string, flag: boolean, fix = flag) => {   // fix: red checks get a fix task; a merge conflict with dev is the human's ("make the checks pass" does not fit it)
     await worktreeRemove(h.run, root, tmp).catch(() => {})
-    if (flag && (await redFix(h, epicId, why).catch(e => (h.log(`fix task: ${e}`), false)))) flag = false   // driving: the first red gets one fix task, no flag (ADR 0013)
+    if (fix && (await redFix(h, epicId, why).catch(e => (h.log(`fix task: ${e}`), false)))) flag = false   // driving: the first red gets one fix task, no flag (ADR 0013)
     await setPlan(h, 'fail', flag ? { flags: [...(p.flags ?? []).filter(f => f !== 'integration-failed'), 'integration-failed'] } : {})
     if (flag) await emit(h, 'flag.raised', { taskId: epicId, flag: 'integration-failed' })
     await store.comment(epicId, `integration ${flag ? 'failed' : 'refused'}: ${why}`, 'cadre').catch(() => {})
@@ -76,7 +76,7 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
   }
   try {
     const m = await mergeEpic(h, { dev, epic: p.epicBranch, tmp, msg: `merge ${p.epicBranch} (${epicId})` }).catch(e => e as Error)
-    if (m instanceof Error) return await fail(`merge of ${p.epicBranch} into ${dev} failed: ${m.message}`, true)
+    if (m instanceof Error) return await fail(`merge of ${p.epicBranch} into ${dev} failed: ${m.message}`, true, false)
     let sha = m.sha
     const path = `${tmp}/${cfg.changelog.path}`, text = await h.readText(path)
     if (text !== null) {   // each closed child's entry, amended into the merge

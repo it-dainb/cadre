@@ -111,6 +111,13 @@ test('yolo: the plan lands on dev and no release is proposed; auto proposes it (
     assert.deepEqual(((await x.h.board.read()).decisions ?? []).map(d => d.kind), ['release'])
   }
 })
+test('a merge conflict with dev while driving: no fix task, the flag asks the human', async () => {
+  const { d, h, epic } = await driven('auto')
+  sh(d, 'checkout', '-q', 'dev'); commit(d, 'c.txt', 'other\n', 'feat: other'); sh(d, 'checkout', '-q', 'main')
+  assert.match(await integrateEpic(h, epic), /merge of epic\/p3-auth into dev failed/)
+  const b = await h.board.read(); assert.deepEqual(b.plan.flags, ['integration-failed']); assert.equal(b.tasks.filter(t => t.type === 'bug').length, 0)
+  assert.deepEqual((b.decisions ?? []).map(x => x.id), [`flag:${epic}:integration-failed`])
+})
 test('integration red while driving: ONE fix task (approved, recorded), no flag; the 2nd red stops yolo, asks in auto', async () => {
   for (const mode of ['yolo', 'auto']) {
     const { h, store, epic } = await driven(mode, ['false'])
