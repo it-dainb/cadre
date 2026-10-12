@@ -14,7 +14,7 @@ const cell = v => ({ read: async () => v, update: async fn => (v = fn(v)) })
 const BD = '\n# Beads / Dolt files (added by bd init)\n.dolt/\n*.db\n.beads-credential-key\n.beads/proxieddb/\n*.gate.lock*\n'   // real bd 1.3.1 output (fresh repo)
 const put = (d, p, t) => { mkdirSync(join(d, p, '..'), { recursive: true }); writeFileSync(join(d, p), t) }
 
-const hostOf = (d, gi) => ({ run, cwd: async () => d, write: async (p, t) => writeFileSync(p, t), readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } }, git: cell({ busy: false, epoch: 0 }), secret: cell({ run: { kind: 'init', gi } }) })
+const hostOf = (d, gi) => ({ run, store: (m => ({ get: async k => m[k], set: async (k, v) => { m[k] = v } }))({}), cwd: async () => d, write: async (p, t) => writeFileSync(p, t), readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } }, git: cell({ busy: false, epoch: 0 }), secret: cell({ run: { kind: 'init', gi } }) })
 const CFG = { branches: { main: 'main', dev: 'dev' }, changelog: { path: 'CHANGELOG.md' } }
 const repo = (tracked) => {
   const d = mkdtempSync(join(tmpdir(), 'cadre-init-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
@@ -41,4 +41,11 @@ test("the user's .gitignore comes back byte-exact: their own lines, and a tracke
   }
   const d = repo({}), h = hostOf(d, undefined); put(d, '.gitignore', 'mine\n'); await I.restoreIgnore(h)   // no snapshot (cadre did not start the store): never touched
   assert.equal(readFileSync(join(d, '.gitignore'), 'utf8'), 'mine\n')
+})
+test('edited during the run (more than bd\'s block): left alone, flagged for review in Doctor', async () => {
+  const d = repo({ '.gitignore': 'node_modules/\n' }), h = hostOf(d, { had: true, text: 'node_modules/\n' }), now = `node_modules/\ndist/\n${BD}`
+  put(d, '.gitignore', now); await I.restoreIgnore(h)
+  assert.equal(readFileSync(join(d, '.gitignore'), 'utf8'), now); assert.equal(await h.store.get(await I.scoped(h, 'gitignore.review')), true)
+  const n = repo({}), g = hostOf(n, { had: false, text: '' }); put(n, '.gitignore', `build/\n${BD}`); await I.restoreIgnore(g)   // no file before, but not bd alone
+  assert.equal(readFileSync(join(n, '.gitignore'), 'utf8'), `build/\n${BD}`)
 })

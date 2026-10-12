@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { confirmUser, doctor, machine, nudge, setupItems } from '../commands/doctor'
 import { defaults } from '../config/index'
+import { BD_BLOCK, scoped } from '../commands/init'
 import { settle } from '../core/decide'
 import { banned } from './fixtures/wording'
 import { fakeHost } from './support'
@@ -146,6 +147,11 @@ describe('doctor', () => {
     const h = mk({ repo: true }); await doctor(h); const log = ((await h.ui.read())['doctor.rows'] as any[]).map(r => `${r[1]} fix: ${r[2] ?? ''}`).join('\n')
     expect(log).toContain('init incomplete: '); expect(log).toContain('fix: /cadre init'); expect(log).not.toMatch(/\/cadre init \w/)
     expect(log).toContain('no open flags'); expect(h.writes).toEqual([])
+    expect(log).not.toContain('.gitignore')
+  })
+  test('bd lines left in .gitignore because it changed during setup: one review note while the block is there', async () => {
+    const h = mk({ repo: true, files: { '/repo/.gitignore': `mine\n\n${BD_BLOCK}` } }); await h.store.set(await scoped(h, 'gitignore.review'), true); await doctor(h)
+    const rows = (await h.ui.read())['doctor.rows'] as any[]; expect(rows).toContainEqual(['warn', 'bd added ignore lines to .gitignore; review them', 'keep or remove the "# Beads / Dolt files" block'])
   })
 })
 

@@ -12,7 +12,7 @@ import { policyOf } from '../policy/guards'
 import { apply as mapply, plan as mplan } from '../policy/settings'
 import { call } from '../task-management/protocol'
 import { openPane } from '../ui/index'
-import { progress, type Item } from './init'
+import { BD_BLOCK, progress, scoped, type Item } from './init'
 import { prefsItem, prefsRow } from './prefs'
 import { BdStore } from '../task-management/adapters/beads/store'
 import { dirOf, moveStore } from '../task-management/adapters/beads/layout'
@@ -148,6 +148,7 @@ async function project(h: Host, cfg: Config): Promise<Row[]> {
   if (!(await gitOk(h.run, root, ['rev-parse', '--git-dir']))) return [['crit', 'not inside a git repo', '/cadre init']]
   const miss = (await progress(h)).filter(s => !s.done)
   rows.push(miss.length ? ['warn', `init incomplete: ${miss.map(s => s.name).join(', ')}`, '/cadre init'] : ['ok', 'init complete'])
+  if ((await h.store.get(await scoped(h, 'gitignore.review'))) && (await h.readText(`${root}/.gitignore`))?.includes(BD_BLOCK.split('\n')[0])) rows.push(['warn', 'bd added ignore lines to .gitignore; review them', 'keep or remove the "# Beads / Dolt files" block'])   // left alone: the file changed during setup (commands/init.restoreIgnore)
   const pol = await policyOf(h), c = assess(await safe(() => h.settings(), {}), pol.repo, pol.wtRoot)
   rows.push(c.state === 'contained' ? ['ok', 'containment contained'] : ['warn', `containment degraded: ${c.why.join('; ')}`, '/cadre init'])
   const dir = await dirOf(h, root)

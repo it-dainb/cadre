@@ -143,10 +143,12 @@ export async function commitSetup(c: Pick<Ctx, 'h' | 'root' | 'cfg'>): Promise<s
 }
 // bd init adds its own block to the root .gitignore (creating it if absent; no option turns that off while the store is inside the repo, and .git/info/exclude
 // already hides the store). commands/agentrun snapshots the file when an init run starts with no task store yet; this puts it back byte-exact (gone if it was absent).
+export const BD_BLOCK = '# Beads / Dolt files (added by bd init)\n.dolt/\n*.db\n.beads-credential-key\n.beads/proxieddb/\n*.gate.lock*\n'   // bd 1.3.1, verbatim
 export async function restoreIgnore(h: Host): Promise<void> {
   const gi = (await h.secret.read()).run?.gi; if (!gi) return
-  const path = `${await h.cwd()}/.gitignore`, now = await h.readText(path)
-  if (gi.had && now !== gi.text) await h.write(path, gi.text); else if (!gi.had && now !== null) await h.run(['rm', '-f', path])
+  const path = `${await h.cwd()}/.gitignore`, now = await h.readText(path), was = gi.had ? gi.text : ''
+  const onlyBd = now !== null && now.startsWith(was) && now.slice(was.length).replace(/^\n+/, '') === BD_BLOCK   // exactly what bd appends; anything else is the user's edit: never lost
+  if (now !== null && now !== was) { if (!onlyBd) await h.store.set(await scoped(h, 'gitignore.review'), true); else if (gi.had) await h.write(path, gi.text); else await h.run(['rm', '-f', path]) }
   await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, gi: undefined } } : s))
 }
 // integration green (core/integrate): a known-red check that passes now loses its mark (the user-layer grant), recorded
