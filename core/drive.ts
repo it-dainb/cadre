@@ -147,7 +147,7 @@ export async function drive(h: Host, cfg: any, usd: number | undefined) {
     o.go = !o.bound && !!text; o.turns = r.turns + (o.go ? 1 : 0)
     return { ...r, cost: o.cost, last: usd ?? last, sess: me, turns: o.turns, lastSeq: seq, idle: o.go ? idle : r.idle, lease: { session: me, until: now + LEASE } }
   })
-  await h.board.update(x => ({ ...x, drive: { ...x.drive, turns: o.turns, costUsd: o.cost, heldBy: undefined } }))
+  await h.board.update(x => ({ ...x, drive: { ...x.drive, turns: o.turns, costUsd: o.cost, costUnknown: usd === undefined || undefined, heldBy: undefined } }))   // no usage from the engine: the cost bound cannot fire; say so (turns and wall clock still hold)
   if (o.bound) return stop(h, o.bound)
   if (dc.maxCostUsd && o.cost >= 0.8 * dc.maxCostUsd && d.costUsd < 0.8 * dc.maxCostUsd) await emit(h, 'cost.updated', { tokens: (await h.board.read()).cost.tokens, threshold: 80 })
   if (o.go) await h.submit!(modelText('brief', text))   // plain text, never a slash command; P4: legal only here (#1 after next)
@@ -205,7 +205,7 @@ export async function redFix(h: Host, epicId: string, why: string): Promise<bool
 // `drive stop|resume|status` (dialog or press only, core/dispatch; the band's key 2)
 ROUTES.drive = async (h, c) => {
   const d = (await h.board.read()).drive, sub = c.args[0] ?? 'status'
-  if (sub === 'status') return { text: d.on ? `drive ${d.mode ?? 'auto'} · ${d.turns} turns · $${d.costUsd}${d.stopped ? ` · stopped: ${d.stopped}` : d.paused ? ` · paused: ${d.paused}` : ''}${d.heldBy ? ` · held by ${d.heldBy}` : ''}` : 'drive off' }
+  if (sub === 'status') return { text: d.on ? `drive ${d.mode ?? 'auto'} · ${d.turns} turns · ${d.costUnknown ? 'cost unknown' : `$${d.costUsd}`}${d.stopped ? ` · stopped: ${d.stopped}` : d.paused ? ` · paused: ${d.paused}` : ''}${d.heldBy ? ` · held by ${d.heldBy}` : ''}` : 'drive off' }
   if (sub === 'stop') { if (!d.on || d.stopped) return { text: 'drive is not running' }; await stop(h, 'stopped by you'); return { text: 'Drive stopped.' } }
   if (sub === 'resume') return { text: await resume(h) }
   return { text: 'usage: drive stop|resume|status' }

@@ -225,6 +225,11 @@ describe('hard stops (both modes), bounds, stop/resume', () => {
     const c = defaults(); c.drive.maxTurns = 1; (w.h as any).config = async () => c; await w.h.ui.update(({ goal: _g, ...u }) => u)
     await kick(w.h, true); expect((await w.board()).drive.stopped).toBe('max turns 1'); expect((await w.h.ui.read()).goal).toBeUndefined()
   })
+  test('no usage from the engine: the cost is unknown, and drive status says so', async () => {
+    const w = await go('auto'); Object.assign(w.h, { usage: async () => undefined }); await w.h.ui.update(({ goal: _g, ...u }) => u); await w.turn()
+    expect((await w.board()).drive.costUnknown).toBe(true)
+    expect((await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['status'], origin: { kind: 'composer' } }, route)).text).toBe('drive auto · 1 turns · cost unknown')
+  })
   test('bounds hold: max turns stops the run; a resume is a fresh budget', async () => {
     const w = await go('auto'); const c = defaults(); c.drive.maxTurns = 2; (w.h as any).config = async () => c
     await w.h.ui.update(({ goal: _g, ...u }) => u)

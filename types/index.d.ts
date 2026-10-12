@@ -39,7 +39,7 @@ export interface Snapshot {
   plan: Plan | null; tasks: SnapTask[]
   approval: { planId: string | null; missing: string[] }
   drive: { on: boolean; level: 'epic'; epicId: string | null; turns: number; costUsd: number; startedAt: number | null; paused?: string; heldBy?: string
-    mode?: 'auto' | 'yolo'; stopped?: string; maxTurns?: number; maxUsd?: number; maxMinutes?: number }   // core/drive: paused = waiting on a gate (lifts by itself); stopped = needs `drive resume`
+    mode?: 'auto' | 'yolo'; stopped?: string; maxTurns?: number; maxUsd?: number; maxMinutes?: number; costUnknown?: boolean }   // core/drive: paused = waiting on a gate (lifts by itself); stopped = needs `drive resume`
   sync: { target: string; state: 'ok' | 'offline' | 'conflict' | 'auth'; pending: number; at: number }[]
   cost: { tokens: number; usd?: number; cachePct?: number }
   containment: { state: 'contained' | 'degraded' | 'unknown'; unsandboxed: number }
