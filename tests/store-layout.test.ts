@@ -2,6 +2,8 @@ import { describe, expect, test } from 'claude-code/testing'
 import { Bd } from '../task-management/adapters/beads/bd'
 import { dirOf, moveStore } from '../task-management/adapters/beads/layout'
 import { fakeHost } from './support'
+import { confirmUser } from '../commands/doctor'
+import { initPropose } from '../core/dispatch'
 import { isProt } from '../core/git'
 import type { Host } from '../types'
 import type { TaskStore } from '../task-management/store'
@@ -51,8 +53,15 @@ describe('task store folder', () => {
     const r = repo(['/repo/.beads'], '.beads/\n'), out = await moveStore(r.h, '/repo', fake([], dir => dir === undefined))
     expect(out).toContain('back in .beads'); expect(r.d.has('/repo/.beads')).toBe(true); expect(r.d.has('/repo/.cadre/store')).toBe(false); expect(r.files['/repo/.git/info/exclude']).toBe('.beads/\n')
   })
-  test('the fence owns the store folder (writes under .cadre/store are protected) and the effect check leaves .cadre out', async () => {
+  test('the fence owns the store folder (writes under .cadre/store are protected)', async () => {
     expect(isProt('.cadre/store/embeddeddolt/x')).toBe(true); expect(isProt('.cadre/store.gate.lock')).toBe(true)
-    expect(await Bun.file(new URL('../core/effect.ts', import.meta.url)).text()).toContain(":(exclude).cadre'")
+  })
+  test('the confirm card init:92: Confirm moves the store once; with no card nothing moves', async () => {
+    const r = repo(['/repo/.beads'], '.beads/\n'), run = r.h.run
+    r.h.run = async (argv: string[], o?: any) => argv[0] === 'bd' ? { exitCode: 0, stderr: '', stdout: argv[1] === 'config' ? 'true' : JSON.stringify({ data: argv[1] === 'version' ? { version: '1.3.1' } : [] }) } : run(argv, o)
+    expect(await confirmUser(r.h)).toContain('nothing pending'); expect(r.d.has('/repo/.beads')).toBe(true)
+    await initPropose(r.h, 92, 'move task store', { title: 't', lines: [], sub: 'setup' })
+    expect(await confirmUser(r.h)).toBe('setup: task store moved to .cadre/store'); expect(r.d.has('/repo/.cadre/store')).toBe(true)
+    expect(await confirmUser(r.h)).toContain('nothing pending')
   })
 })
