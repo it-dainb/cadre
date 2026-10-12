@@ -1,6 +1,8 @@
 // Band above the prompt (UI-DESIGN 6.1): status line + mini-DAG strip, the `! NEEDS YOU` row (ui/needs), key `1` = answer in the dialog. Idle with no plan: nothing drawn (a pending init decision still draws).
 import { type Acts, type Line, type TagK, type View, L, S, T, attention, col, cols, gl, kindOf, REDO, tg } from './model'
 import { needLine } from './needs'
+import { band2 } from './v2/band'
+import { readCfg } from './tokens'
 
 // one glyph (+ id) per task in depth order, `│` between depths; over-long strips fold the done end into `+n✓`
 export function strip(v: View, ids: boolean, room: number): string {
@@ -35,6 +37,7 @@ function row2(v: View, w: number): Line {
 }
 
 export function band(v: View, w: number, a: Acts): Line[] {
+  if (readCfg(v.ui).v2) return band2(v, w, a)   // v2 (ui.v2): ui/v2/band.ts; v1 goes at T4.2
   const p = v.b.plan, items = p ? attention(v) : attention(v).filter(i => i.d?.kind === 'init')
   if (!p && !items.length) return []   // no plan: only a pending init decision draws (init runs before any plan), without the plan status rows
   const top = items[0], wide = w >= 100, res = v.ui.res as { w: string; n: string; at: number } | undefined

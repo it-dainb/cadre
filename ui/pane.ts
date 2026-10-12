@@ -5,8 +5,10 @@ import { sheet } from './sheet'
 import { decisions, needLine, needs } from './needs'
 import { settings } from './settings'
 import { type Tl, timeline } from './timeline'
+import { pane2 } from './v2/frame'
+import { readCfg } from './tokens'
 
-export type P = { before: Line[]; tl?: Tl; after: Line[] }
+export type P = { before: Line[]; tl?: Tl; raster?: { cols: number; rows: number; cells: string; at: number }; after: Line[] }
 const KEYS: Record<string, [string, number]> = { n: ['node', 1], p: ['node', -1], h: ['time', -1], l: ['time', 1], b: ['attn', -1], f: ['attn', 1], e: ['live', 0], t: ['tl', 0], g: ['go', 0] }
 // the engine draws `key: label` for a plain Button (UI-14): wide / narrow labels
 const FOOT: [string, string, string][] = [['n', 'next', 'node'], ['p', 'prev', 'prev'], ['h', 'back', 'back'], ['l', 'fwd', 'fwd'], ['b', 'prev !', '!<'], ['f', 'next !', '!>'], ['e', 'live', 'live'], ['t', 'timeline', 'hide'], ['g', 'go to id', 'id']]
@@ -17,6 +19,7 @@ export function sel(v: View): string {
   return (v.ui.sel as string | undefined) ?? [...ts].filter(t => t.state === 'active' || t.state === 'review').sort((a, b) => b.phaseSince - a.phaseSince)[0]?.id ?? ts[0]?.id ?? ''
 }
 export function pane(v: View, w: number, rows: number, a: Acts, canRaster = true): P {
+  if (readCfg(v.ui).v2) return pane2(v, w, rows, a, canRaster)   // v2 (ui.v2): ui/v2/frame.ts; v1 goes at T4.2
   const b = at(v), items = attention(v), tab = (v.ui.tab as string | undefined) ?? 'epic', c = v.c, p = b.plan, ts = b.tasks, wide = w >= 116, owed = decisions(v).length > 0
   const n = (k: ReturnType<typeof kindOf>) => ts.filter(t => kindOf(t, ts) === k).length
   const mode: Line = v.t === null ? [S(`[LIVE] ${ago(v.now - t0(v))}`, 'suggestion')] : [S(`[REPLAY t-${ago(v.now - v.t).slice(0, -1)}m]`, 'warning', { b: true, i: true }), S(wide ? '' : ` at ${ago(v.t - t0(v))} · e: live`)]

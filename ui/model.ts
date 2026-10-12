@@ -9,7 +9,7 @@ export const CFG: Cfg = { glyphs: 'unicode', flash: true, notify: 'on', escalate
 export type Seg = { t: string; c?: string; b?: boolean; i?: boolean; d?: boolean; k?: string; hk?: string; p?: () => void; inp?: (v: string) => void; chg?: (v: string) => void; il?: string; iv?: string; af?: true }   // inp: an Input (submit), chg: on change, il/iv: its label/value
 export type Line = Seg[]
 export type View = { b: Snapshot; ring: CadreEvent[]; sec: Secret; ui: Record<string, any>; c: Cfg; now: number; sx: string; t: number | null }
-export type Acts = { go(tab: string): void; pick(id: string): void; answer(id: string): void; step(what: string, d: number): void; run?(cmd: string): void }   // handlers; the render never writes state. answer = open the decision's dialog
+export type Acts = { go(tab: string): void; pick(id: string): void; answer(id: string): void; step(what: string, d: number): void; run?(cmd: string): void; drive?(what: 'stop' | 'resume'): void }   // handlers; the render never writes state. answer = open the decision's dialog
 
 export async function read(h: Host): Promise<View> {
   const [s, r, sec, ui, now] = await Promise.all([h.board.read(), h.events.read(), h.secret.read(), h.ui.read(), h.now()])

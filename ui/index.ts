@@ -8,6 +8,8 @@ import { blit, cells, timeline } from './timeline'
 import { ack, levelOf, onEvent as notifyEvent } from './notify'
 import { decisions } from './needs'
 import { queueBrief } from '../core/lanes'
+import { ROUTES, dispatch } from '../core/dispatch'
+import { readCfg } from './tokens'
 import { strictOf } from '../config/index'
 import { configPress, refreshSettings } from '../config/route'
 import { type Acts, S, at, cols, cut, draw, gl, kindOf, read, t0, tg, txt, col, REDO } from './model'
@@ -32,7 +34,10 @@ export async function openPane(h: Host, tab: string, o: { focus?: boolean; quiet
   if (!o.quiet) await ack(h)
 }
 const NOOP: Acts = { go() {}, pick() {}, answer() {}, step() {} }
-export async function onEvent(h: Host, e: Parameters<typeof notifyEvent>[1]): Promise<void> { await notifyEvent(h, e); await autoAsk(h) }
+export async function onEvent(h: Host, e: Parameters<typeof notifyEvent>[1]): Promise<void> {
+  await notifyEvent(h, e); await autoAsk(h)
+  const c = readCfg(await h.ui.read()); if (c.v2 && c.flash) h.ops?.after(1600, () => h.ops?.invalidate())   // the 1.5 s row flash ends by a redraw (BRAND §9)
+}
 
 // A decision pops its dialog by itself at most ONCE, when it first appears, and only over an empty composer with no dialog of ours up (a `quiet` one never does).
 // After that only `1` (band or pane) opens it: a dismissal (Esc) never comes back on its own.
@@ -81,12 +86,13 @@ export function acts(h: Host): Acts {
     go: tab => { const pre = h.ops!.open({ ...OPEN, focus: true }); later(h, () => openPane(h, tab, { pre })) },
     pick: id => { const pre = h.ops!.open({ ...OPEN, focus: true }); later(h, async () => { await h.ui.update(u => ({ ...u, sel: id, go: false })); await openPane(h, 'epic', { pre }) }) },
     run: cmd => later(h, async () => { const r = await configPress(h, cmd); h.toast(`cadre: ${r.text.split('\n')[0].slice(0, 53)}`); h.ops?.invalidate(); await autoAsk(h) }),   // a Settings toggle (a press, not a decision); edit asks its decision
+    drive: what => later(h, async () => { const r = await dispatch(h, { schemaVersion: 1, cmd: 'drive', args: [what], origin: { kind: 'press' } }, ROUTES.drive); h.toast(`cadre: ${r.text.split('\n')[0].slice(0, 53)}`); h.ops?.invalidate() }),   // band `2`: drive stop | resume, as the human's press
     answer: id => later(h, async () => { await ack(h); await answerDialog(h, id) }),   // `1`: the decision's dialog, again
     step: (what, d) => later(h, async () => {
       const v = await read(h), ids = cols(at(v).tasks).flat().map(t => t.id), cur = v.t ?? v.now
       const unit = 60000 * timeline(v, lastW || 116).mpc, evs = v.ring.filter(e => levelOf(e) >= 2).map(e => e.at)
       const go = (t: number | null) => ({ t: t === null || t > v.now - unit / 2 ? null : Math.max(t0(v), t) })
-      const p: Record<string, unknown> = what === 'sheet' ? { si: Math.max(0, Math.min(sheetOf(v).length - 1, Number(v.ui.si ?? 0) + d)) }
+      const p: Record<string, unknown> = what === 'done' ? { dn: !v.ui.dn } : what === 'keys' ? { ks: v.ui.ks !== true } : what === 'sheet' ? { si: Math.max(0, Math.min(sheetOf(v).length - 1, Number(v.ui.si ?? 0) + d)) }
         : what === 'node' ? { sel: ids[(ids.indexOf(sel(v)) + d + ids.length) % ids.length] }
         : what === 'time' ? go(cur + d * unit) : what === 'attn' ? go(d > 0 ? evs.find(x => x > cur) ?? null : [...evs].reverse().find(x => x < cur) ?? null)
         : what === 'go' ? { go: !v.ui.go } : what === 'live' ? { t: null, sel: undefined } : { tl: v.ui.tl === false }
@@ -106,6 +112,7 @@ export async function renderPane(h: Host, e: any) {
   const v = await read(h), w = e.props.bodyColumns, E = h.ops!.els(e)
   lastW = w
   const p = pane(v, w, e.props.scroll.bodyRows, acts(h), e.surface === 'terminal')
+  if (p.raster) return E.Box({ flexDirection: 'column', children: [draw(E, p.before), E.Raster({ key: 'tl', columns: p.raster.cols, rows: p.raster.rows, cells: p.raster.cells }), draw(E, p.after)] })
   return E.Box({ flexDirection: 'column', children: [draw(E, p.before), ...(p.tl ? [E.Raster({ key: 'tl', columns: p.tl.cols, rows: p.tl.rows.length, cells: cells(p.tl, v.c) })] : []), ...(p.after.length ? [draw(E, p.after)] : [])] })
 }
 // result-card row: core records tool_use_id -> task (mapCard); the task's `card` text is drawn (line 1 = summary, line 2 = next). While running or unmapped: the engine's row.
@@ -121,11 +128,12 @@ export async function resumeBanner(h: Host, o: { decisions?: number; next?: stri
   const v = await read(h), ts = v.b.tasks, c = v.c, n = ts.filter(t => kindOf(t, ts) === 'run').length, q = v.b.resumesQueued
   h.log(`${c.glyphs === 'ascii' ? '*' : '●'} cadre: ${tg('ok')} resumed · mission "${v.b.mission}" · epic ${v.b.plan?.id} · ${n} running (re-adopted)${o.stale ? ` · ${tg('idle')} ${o.stale} stale → rebind` : ''}${q ? ` · ${REDO(c)} ${q}` : ''}`)
   const on = v.b.drive.on, dw = on ? `${tg('run')} drive ${gl(c, 'run')} continuing` : `${tg('wait')} drive off`   // the rehydrated board's drive (it survives /clear, DESIGN 9)
-  const w = `↺ cadre resumed from beads · ${o.decisions ?? 0} decisions${o.next ? ` · next: ${o.next}` : ''} · ${dw}${on ? '' : ' until /cadre drive on'}`
+  const w = `↺ cadre resumed from beads · ${o.decisions ?? 0} decisions${o.next ? ` · next: ${o.next}` : ''} · ${dw}${on ? '' : ' · band 2: resume'}`
   await h.ui.update(u => ({ ...u, res: { w, n: `↺ resumed ${v.b.plan?.id} · ${gl(c, 'run')}${n} · ${dw}`, at: v.now } }))
 }
 // the render hook cannot read env/config, so the tick keeps the resolved strictness (M10) in the ui atom for it
 export async function tickUi(h: Host): Promise<void> {
   const sx = await strictOf(h).catch(() => undefined); if (sx) await h.ui.update(u => (u.sx === sx ? u : { ...u, sx }))
+  h.ops?.invalidate()   // elapsed counters and `just now` age on the 30 s tick
   if (lastW) await blit(h, await read(h), lastW).catch(() => {})   // live cursor advance (30 s clock)
 }
