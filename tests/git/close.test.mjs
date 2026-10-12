@@ -90,6 +90,7 @@ test('changes -> the same worker agentId is resumed (queued), rework counted, ca
     assert.ok((await h.board.read()).resumesQueued >= 1)   // queued for ag1 (the drain is w3-reuse's)
     edit(wt, 'b.txt', `b${n}\n`); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: `r${n}` })
     t = (await h.board.read()).tasks[0]; assert.deepEqual([t.state, t.step], ['review', 'reviewer'])
+    assert.ok(t.owner); assert.doesNotMatch(nextAction(await h.board.read()), /reviewer/)   // the bound reviewer is resumed: never "spawn the reviewer" (refused: it already has one)
   }
   assert.ok((await h.board.read()).tasks[0].flags.includes('rework:4/3'))
   const r = await ROUTES.resolve(h, { schemaVersion: 1, cmd: 'resolve', args: [id, 'reject'], origin: { kind: 'composer' } }); assert.match(r.text, /reject done/)

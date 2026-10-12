@@ -94,13 +94,13 @@ async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any, aut
   }
   const st = await numstat(h, wt, `${base}..${C}`), p = pipe(d)(t.type, t.lane), at = await h.now()
   for (let i = p.indexOf('worker'); p[i] !== 'reviewer'; i++) { const m = await apply(h, { kind: 'advance', id: t.id, at, actor: 'mod' }, pipe(d)); if (!m.ok) throw new Error(m.error) }
-  await patch(h, t.id, x => ({ ...x, owner: undefined }))   // no one reviews it yet: the next step is "spawn the reviewer", not "running" (live 0.9.0: main waited on a reviewer that never existed)
   await d.store.setMeta(t.id, { 'cadre.sourceCommit': C, 'cadre.step': 'reviewer', 'cadre.report': JSON.stringify({ summary: r.summary, risks: r.risks, questions: r.questions }).slice(0, 1500), 'cadre.checks': green ? 'verify' : '', 'cadre.nudge': '' }, d.actor)
   await d.store.move(t.id, 'review', d.actor)
   await record(h, d, t.id, 'report', 'worker', { commit: C, ...st, green: green ? `${green.ok ? 'pass' : 'fail'} (${green.secs}s)` : 'n/a', auto }, { outcome: 'done', summary: r.summary, risks: r.risks })
   if (auto) await raise(h, t.id, 'auto-reported')
   await followups(d, t.id, r.followups)
   const bind = await h.bind.read(), rv = ownerOf(bind, t.id, 'reviewer'), last = rv && bind[rv].lastReviewedCommit
+  if (!rv) await patch(h, t.id, x => ({ ...x, owner: undefined }))   // no reviewer yet: the next step is "spawn the reviewer", not "running" (live: main waited on a reviewer that never existed); a bound one is resumed below
   if (rv) await queueResume(h, { agentId: rv, taskId: t.id, text: `Re-review ${t.id}: the worker reworked. Review ${last ? `${sha7(last)}..` : ''}${sha7(C)} (sourceCommit ${C}) and report your verdict.` })
   const flags = ((await h.board.read()).tasks.find(x => x.id === t.id)?.flags) ?? []
   await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'worker', to: 'review', green, ...st, commit: C, flags, next: rv ? 'reviewer resumed' : `spawn TASK-${t.id} (reviewer)` }) }))
