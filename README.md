@@ -28,8 +28,8 @@ claude plugin install cadre@cadre
 
 Then, inside Claude Code:
 
-1. `/cadre setup`: once per machine. Claude checks your tools and fixes what it can, in the open.
-2. `/cadre init`: once per repo. Claude sets up the task store, your build and test commands, and a changelog.
+1. `/cadre setup`: once per machine. Claude checks your tools and fixes what it can, in the open; you confirm the settings card.
+2. `/cadre init`: once per repo. Claude sets up the task store, your build and test commands, and a changelog; you approve the mission and the safety settings on their cards.
 3. **Start work.** Ask Claude for what you want. It drafts a plan as tasks and the plan appears as a card in the cadre pane. Read it, then press **Approve**.
 
 Today you describe the goal in chat and Claude drafts the plan. A single `/cadre <goal>` command with lighter lanes for small jobs is coming next. It is not in this release.
