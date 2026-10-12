@@ -3,7 +3,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { SCENARIOS } from '../scenarios/index'
 import { band } from '../ui/band'
 import { pane } from '../ui/pane'
-import { txt } from '../ui/model'
+import { S, draw, txt } from '../ui/model'
 import { NOOP } from './fixtures/ui/epic'
 
 const calls: string[] = []
@@ -152,4 +152,9 @@ describe('milestone', () => {
     const v = { ...SC['v2-milestone-parallel'], ui: { ...SC['v2-milestone-parallel'].ui, ks: true } }
     expect(txt(pane(v, 80, 40, A).before).join('\n')).toContain('1 2 3 4 5 8 9')
   })
+})
+
+test('draw: an empty row (a section gap) is one blank cell, so it keeps its height in the engine', () => {
+  const E = { Box: (p: any) => p.children, Text: (p: any) => p.children, Button: (p: any) => p.children, Input: () => 'input' }
+  expect(draw(E, [[], [S('')], [S('x')]])).toEqual([[' '], [' '], ['x']])
 })

@@ -29,7 +29,7 @@ export const txt = (ls: Line[]) => ls.map(l => l.map(s => (s.hk ? `${s.hk}: ` : 
 const pr = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined))
 // Line[] -> element tree. Only place that builds elements: E = $.ui.resolve(e); constructors take `children` among the props.
 export const draw = (E: any, ls: Line[]) =>
-  E.Box({ flexDirection: 'column', children: ls.map(l => E.Box({ flexDirection: 'row', children: (l.length ? l : [S(' ')]).map(s => {
+  E.Box({ flexDirection: 'column', children: ls.map(l => E.Box({ flexDirection: 'row', children: (l.some(s => s.t || s.k) ? l : [S(' ')]).map(s => {   // an empty row is one blank cell: an empty Text draws 0 rows high (section gaps vanished live)
     if (s.inp) return E.Input(pr({ key: s.k, label: s.il, value: s.iv, placeholder: s.il ? undefined : 'task id', autoFocus: s.il ? s.af : true, onSubmit: s.inp, onInput: s.chg }))
     const x = E.Text(pr({ color: s.c, dimColor: s.d || undefined, bold: s.b || undefined, inverse: s.i || undefined, wrap: 'truncate-end', children: s.t }))
     return s.k ? E.Button(pr({ key: s.k, plain: true, hotkey: s.hk, onPress: s.p, children: [x] })) : x
