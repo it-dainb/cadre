@@ -6,8 +6,8 @@ The user typed a goal. Choose its lane first, then do only that lane's step. You
 Read only what you need (Read, Grep, Glob) to judge the size. Pick one lane and give a one-line reason.
 - **ask**: a question, an investigation or a spike. Nothing in the project changes.
 - **lite**: one small, clear change that fits in one task (a bug fix, a rename, a small docs or code edit).
-- **full**: a feature, several tasks, a public API change, or anything risky.
-- **milestone**: several features, or more than about 7 tasks: a roadmap of epics, each a plan of its own.
+- **full**: one feature (in one or more tasks), a public API change, or anything risky.
+- **milestone**: two or more separate features (each could ship alone), or more than about 7 tasks: a roadmap of epics, each a plan of its own.
 When in doubt between lite and full, pick full. The user sees the lane and the reason in the approval dialog and can change it there.
 Done when you have the lane and the reason.
 
