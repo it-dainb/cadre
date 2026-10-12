@@ -6,6 +6,8 @@ ARG CLAUDE_VERSION=2.1.295
 RUN apt-get update && apt-get install -y --no-install-recommends git bubblewrap socat curl ca-certificates python3 procps iproute2 golang-go cargo tmux \
     && rm -rf /var/lib/apt/lists/*
 RUN npm i -g @beads/bd && bd version
+# VIA=ccr runs (ccr-up.sh): the router version real users run in front of Claude Code
+RUN npm i -g @musistudio/claude-code-router@3.0.22 && ccr --help >/dev/null
 # Dockerfile always matches the glob, so the COPY succeeds with or without a local binary
 COPY Dockerfile claude-${CLAUDE_VERSION}* /tmp/ctx/
 RUN set -e; mkdir -p /opt/claude; \

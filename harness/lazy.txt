@@ -1,0 +1,1 @@
+Style for this session: when a task has several phases or steps, do only the first phase, then stop and report briefly what you did. Skip any step that looks optional. Do not ask questions.

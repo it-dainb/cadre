@@ -24,3 +24,8 @@ Why a text says what it says (an ADR, a live finding, a version) goes in a **cod
 
 ### Before a push
 Run `node --experimental-transform-types scripts/model-text-diff.mjs [range]` and read every text it lists. A `!` line is rejected by the lint.
+
+## Releases
+- A release needs the quick tier green: `harness/matrix.sh quick` against the release commit (it prints the cost and time first). Paste its table into the release ADR.
+- The live tester is not the builder: whoever built a feature does not judge its live run. The oracle (`harness/oracle.mjs`) judges each cell from the logs; a person reads the table, not the panes.
+- A user report that the matrix did not catch becomes a fixture, a scenario step or an invariant in `harness/` first (see `harness/README.md`), then the fix.
