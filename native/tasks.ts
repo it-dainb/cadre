@@ -10,10 +10,11 @@ import { canon, modelView } from '../core/board'
 import { apply } from '../core/machine'
 import { pipeOf } from '../task-management/registry'
 import { cfgOf, mirror, registryOf, storeOf } from '../core/dispatch'
-import { retouch } from '../core/lanes'
+import { retouch, roadmapRules } from '../core/lanes'
+import { MS, epicOf, isMs, planEpic } from '../core/milestone'
 import { epicBranch, slug } from '../core/branches'
 import { capped, clearRetries, missingLine, refuse, validateFields } from '../core/validate'
-import { subject, taskText } from '../core/render'
+import { nextAction, subject, taskText } from '../core/render'
 
 // Plan rules (DESIGN 3.1): ≤1.5 KB, byte-stable for one registry. Carried once per plan, in the first answer's `context`.
 export const planRules = (reg: TypeRegistry): string => [
@@ -51,6 +52,8 @@ function fieldsOf(m: Record<string, any>): { patch: Parameters<TaskStore['update
   if (has('repro')) { meta['cadre.repro'] = m.repro ? 'true' : ''; names.push('metadata.repro') }
   if (has('paths')) { meta['cadre.paths'] = m.paths === null ? '' : JSON.stringify(m.paths); names.push('metadata.paths') }
   if (has('core')) { meta['cadre.core'] = m.core ? 'true' : ''; names.push('metadata.core') }
+  if (has('size')) { meta['cadre.size'] = m.size === null ? '' : String(m.size); names.push('metadata.size') }
+  if (has('critique')) { meta['cadre.critique'] = m.critique ?? ''; names.push('metadata.critique') }
   return { patch, meta, names }
 }
 const fail = (e: unknown): string => (e instanceof StoreError ? `${e.code}: ${e.message}` : String((e as Error)?.message ?? e))
@@ -66,20 +69,22 @@ async function create(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
   if (m.kind === 'mission' && (await h.secret.read()).run?.goal) return { deny: modelText('deny', 'not now: the user\'s goal comes next, and its plan carries the mission (metadata.mission). Go on with the next setup step.') }   // ADR 0014: one dialog for mission + plan
   if (m.kind) {
     if (s.plan && !['done-on-dev', 'released'].includes(s.plan.state)) return { deny: modelText('deny', `plan ${s.plan.id} is still ${s.plan.state}: ask the human to approve or reject it first`) }
-    const prefix = (await cfgOf(h)).branches.epicPrefix, id = await store.createEpic(e.subject, e.description), mission = m.kind === 'mission', name = mission ? 'mission' : slug(e.subject)
+    const prefix = m.lane === 'milestone' ? MS : (await cfgOf(h)).branches.epicPrefix, id = await store.createEpic(e.subject, e.description), mission = m.kind === 'mission', name = mission ? 'mission' : slug(e.subject)
     if (mission) await store.setMeta(id, { 'cadre.kind': 'mission' }, 'main')
     else if (m.lane || m.mission || m.notes) await store.setMeta(id, { ...(m.lane ? { 'cadre.lane': m.lane } : {}), ...(m.reason ? { 'cadre.laneReason': m.reason } : {}), ...(m.mission ? { 'cadre.mission': m.mission.trim() } : {}), ...(m.notes ? { 'cadre.notes': m.notes.trim() } : {}) }, 'main')   // lanes (ADR 0011): core/lanes.relane reads them; a mission drafted with the plan (ADR 0014): core/dispatch shows and records it
     await h.board.update(b => ({ ...b, epic: id, tasks: [], plan: { id, slug: name, state: 'draft', epicBranch: mission ? '' : epicBranch(prefix, id, e.subject) }, approval: { planId: id, missing: [] } }))
     const lite = !mission && m.lane === 'lite', f = fieldsOf(m)   // a lite plan is one call: the plan and its one task
     if (lite) await store.createDraft({ title: e.subject, description: e.description, acceptance: f.patch.acceptance, design: f.patch.design, type: m.type ?? 'feature', parent: id, meta: f.meta })
     const missing = await retouch(h, store, reg)
-    return withCtx({ task: { id, subject: e.subject } }, mission || lite ? '' : planRules(reg), missingLine(missing))
+    return withCtx({ task: { id, subject: e.subject } }, mission || lite ? '' : m.lane === 'milestone' ? roadmapRules(id) : planRules(reg), missingLine(missing))
   }
   if (!s.epic || !s.plan) return { deny: modelText('deny', 'no plan yet: first TaskCreate with metadata {"kind":"plan"}') }
   if (s.plan.slug === 'mission') return { deny: modelText('deny', 'a mission draft takes no tasks; once it is approved, start a plan') }
-  const f = fieldsOf(m)
-  const t = await store.createDraft({ title: e.subject, description: e.description, acceptance: f.patch.acceptance, design: f.patch.design, type: m.type ?? 'feature', parent: s.epic, meta: f.meta })
-  return withCtx({ task: { id: t.id, subject: e.subject } }, missingLine(await retouch(h, store, reg)))
+  const f = fieldsOf(m), ms = isMs(s.plan), road = ms && s.plan.state === 'draft', ep = epicOf(s, m.epic)   // a milestone: a roadmap draft takes epics; an approved one takes the tasks of the epic it names (ADR 0015)
+  if (ms && !road && !['ready', 'planning'].includes(ep?.state ?? '')) return { deny: modelText('deny', `name the epic these tasks plan in metadata.epic; ready to plan: ${(s.plan.epics ?? []).filter(x => x.state === 'ready' || x.state === 'planning').map(x => x.id).join(', ') || 'none (wait for the next: line)'}`) }
+  if (!ms && m.epic !== undefined) return { deny: modelText('deny', 'metadata.epic: only in a milestone; omit it') }
+  const t = await store.createDraft({ title: e.subject, description: e.description, acceptance: f.patch.acceptance, design: f.patch.design, type: road ? 'epic' : m.type ?? 'feature', parent: ep?.id ?? s.epic, meta: f.meta })
+  return withCtx({ task: { id: t.id, subject: e.subject } }, ep?.state === 'ready' ? planRules(reg) : '', missingLine(await retouch(h, store, reg)))
 }
 
 async function update(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
@@ -93,7 +98,10 @@ async function update(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
   if (e.status === 'in_progress') return out(false, [], 'in_progress is set when the task\'s agent is spawned')
   if (typeof m !== 'object' || !m || Array.isArray(m)) return out(false, [], 'metadata: expected an object')
   if (Object.keys(m).some(k => k.startsWith('cadre'))) return out(false, [], 'metadata.cadre*: reserved; omit it')
-  const s = await h.board.read(), isEpic = id === s.epic, draft = t.category === 'draft' && !(isEpic && s.plan && s.plan.state !== 'draft')   // approval leaves the epic bead itself draft: its board state is the truth
+  const s = await h.board.read()
+  if (m.planned !== undefined) { const why = m.planned === true ? await planEpic(h, store, reg, id) : 'metadata.planned: true, on an epic whose tasks are all drafted'; return why ? no(why) : out(true, ['metadata.planned'], undefined, [`${id} is approved; next: ${nextAction(modelView(await h.board.read()))}`]) }   // the epic's plan: approved automatically (core/milestone)
+  if (m.critique !== undefined && !Object.values(((await h.ui.read()).asks ?? {}) as Record<string, { answer?: string }>).some(a => a.answer !== undefined)) return no('metadata.critique: spawn the critic Agent first and use its answer')
+  const isEpic = id === s.epic, draft = t.category === 'draft' && !(isEpic && s.plan && s.plan.state !== 'draft')   // approval leaves the epic bead itself draft: its board state is the truth
   const life = e.status === 'completed' || e.status === 'pending' || e.status === 'deleted' ? e.status : m.decision !== undefined ? 'decision' : null
   if (life) {   // lifecycle
     if (draft && life === 'deleted' && !isEpic) {

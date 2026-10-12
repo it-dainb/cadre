@@ -15,13 +15,17 @@ export interface SnapTask {
   condition?: { on: string; state: 'pending' | 'met' | 'not-met' }
   flags: string[]; card?: string; ctx?: number   // ctx: the owner's context fill %
   lane?: string                                     // 'lite' | 'lite+tdd' (ADR 0011): the pipeline variant (registry.pipeOf)
+  epic?: string                                     // milestone lane (ADR 0015): the epic this task belongs to
 }
+// one epic of a milestone's roadmap (ADR 0015, core/milestone.roadmap): derived from beads at every mirror
+export interface MEpic { id: string; title: string; branch: string; state: 'draft' | 'waiting' | 'ready' | 'planning' | 'running' | 'landed' | 'stopped'; deps: string[]; size?: number; core?: boolean; why?: string }
 export interface Plan {
   id: string; slug: string; state: PlanState; epicBranch: string; approvedAt?: number
   landed?: { dev: string; sha: string; at: number }; released?: { version: string; at: number }
   flags?: string[]   // plan-level flags (integration-failed)
   mode?: 'auto' | 'yolo'   // ADR 0013: how drive runs it after approval (core/lanes.relane)
-  lane?: 'ask' | 'lite' | 'full'; laneReason?: string; laneOverride?: string   // ADR 0011: the effective lane, main's (or the human's) reason, why the override moved it (core/lanes)
+  lane?: 'ask' | 'lite' | 'full' | 'milestone'; laneReason?: string; laneOverride?: string   // ADR 0011: the effective lane, main's (or the human's) reason, why the override moved it (core/lanes)
+  epics?: MEpic[]   // milestone lane (ADR 0015): the roadmap; epicBranch is then the milestone branch
 }
 // A decision the human owes (ADR 0008, 0012): ONE record, answered ONLY in the native ask dialog (ui/index.answerDialog), bound to `hash`; the pane lists it read-only (ui/needs).
 // `run` = a dispatcher command (`<sub> <args>`) run as origin dialog; an option without `run` closes the dialog and decides nothing ("Not now").

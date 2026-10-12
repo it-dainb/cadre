@@ -22,6 +22,7 @@ import { decided, hardStop, stop } from './drive'
 import { queueBrief } from './lanes'
 import { yoloOn } from './decide'
 import { ROUNDS, capAsk, coreLanded, refresh, rework, trial } from './rebase'
+import { branchOf, epicOf, goOn } from './milestone'
 
 
 export const NUDGE: Record<string, string> = { worker: 'You stopped without calling report. Call it now: {"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"} (or outcome "blocked" with reason).', tester: 'You stopped without calling report. Call it now with role "tester", outcome "done", summary and tests.', reviewer: 'You stopped without calling report. Call it now with role "reviewer", verdict, summary, findings, coverage and contractStatus.', explorer: ASK_NUDGE }
@@ -234,14 +235,14 @@ async function cleanup(h: Host, d: Deps, id: string, task: Task, keep?: string) 
   await h.run(['rm', '-rf', `${d.wtRoot}/${d.key}.views/${id}`])
 }
 // the close of the plan's last open task nudges main once (the card's next line) to complete the plan, so it lands and a new goal is accepted
-export const lastNext = async (h: Host, plan: string | undefined, or: string) => { const b = await h.board.read(); return plan && b.plan?.id === plan && b.plan.state === 'approved' && b.tasks.every(x => x.state === 'done' || x.state === 'cancelled') ? `every task is done: complete the plan (TaskUpdate ${plan} completed)` : or }
+export const lastNext = async (h: Host, plan: string | undefined, or: string, epic?: string) => { const b = await h.board.read(); return plan && b.plan?.id === plan && b.plan.state === 'approved' && b.tasks.every(x => (epic && x.epic !== epic) || x.state === 'done' || x.state === 'cancelled') ? `every task ${epic ? `of epic ${epic} ` : ''}is done: complete ${epic ? 'it' : 'the plan'} (TaskUpdate ${epic ?? plan} completed)` : or }
 export async function closeTask(h: Host, d: Deps, id: string): Promise<string | null> {
   const t = (await h.board.read()).tasks.find(x => x.id === id)
   if (!t) return `no task ${id}`
   if (!(t.state === 'review' && t.step === 'merge')) return `${id} is ${t.state}${t.step ? `·${t.step}` : ''}: only a review-passed task (review✓) can be completed`
   await sweep(h).catch(() => {})
   const gf = Object.keys((await h.git.read()).flags ?? {}).find(f => f.startsWith('git:')); if (gf) return `merges are refused while git flag ${gf} is open; ask the human to keep or restore it (they answer it in the cadre dialog)`
-  const task = await d.store.get(id), C = task.meta['cadre.sourceCommit'], wt = task.meta['cadre.worktree'], base = task.meta['cadre.base'], spec = d.reg[t.type], plan = (await h.board.read()).plan
+  const task = await d.store.get(id), C = task.meta['cadre.sourceCommit'], wt = task.meta['cadre.worktree'], base = task.meta['cadre.base'], spec = d.reg[t.type], plan = (await h.board.read()).plan, br = branchOf({ plan }, t)   // a milestone task squashes into its epic's branch (ADR 0015)
   if (!plan || !C || !wt) return `${id} has no reviewed commit`
   if (task.meta['cadre.review'] !== `pass@${C}`) return `${id} has no pass@${sha7(C)} review`
   if ((await G.tip(h.run, wt, 'HEAD')) !== C) return `${id}: the worktree moved past the reviewed commit ${sha7(C)}`
@@ -258,25 +259,25 @@ export async function closeTask(h: Host, d: Deps, id: string): Promise<string | 
     await blockTask(h, d, t, `still ${why === 'red' ? 'red' : 'conflicting'} after ${ROUNDS} reworks`, why === 'red' ? 'merge-red' : 'conflict', {}); if (why === 'conflict') await capAsk(h, d, t, task, tip, files)
     return `${id} still ${why === 'red' ? 'fails its checks' : 'conflicts'} on the plan after ${ROUNDS} reworks; it waits for the user. Go on with the other tasks.`
   }
-  { const tip = await G.tip(h.run, d.root, plan.epicBranch), c = tip === base ? null : await trial(h, d.root, tip, C); if (c?.length) return moved('conflict', tip, c) }   // a trial merge first (git >= 2.38): no squash attempt to undo
+  { const tip = await G.tip(h.run, d.root, br), c = tip === base ? null : await trial(h, d.root, tip, C); if (c?.length) return moved('conflict', tip, c) }   // a trial merge first (git >= 2.38): no squash attempt to undo
   for (let i = 0; i < 2 && !sha; i++) {
     const r = await G.op(h, async () => {
-      const epicTip = await G.tip(h.run, d.root, plan.epicBranch)
+      const epicTip = await G.tip(h.run, d.root, br)
       let s: string
       try { s = await G.squash(h.run, wt, epicTip, C, msg) } catch (x) { return { fail: `conflict: ${(x as Error).message}`, flag: 'conflict', tip: epicTip } }
       if (epicTip !== base) {   // the package's own verify checks (as the green gate runs them); a missing check is a failure, not a pass
         const pkg = pkgOf(d, task)
         for (const n of pkg ? verifyOf(pkg) : ['verify']) { const c = await runCheck(h, d, task, wt, n); if (!c.found || !c.ok) return { fail: `verify (${n}) failed on the squash commit:\n${c.text.slice(0, 1200)}`, flag: 'merge-red', tip: epicTip } }
       }
-      return (await G.casRef(h.run, d.root, `refs/heads/${plan.epicBranch}`, s, epicTip)) ? { s } : { retry: true }
+      return (await G.casRef(h.run, d.root, `refs/heads/${br}`, s, epicTip)) ? { s } : { retry: true }
     }) as { s?: string; fail?: string; flag?: string; tip?: string; retry?: boolean }
     if (r.s) sha = r.s; else if (r.fail) { await back(); return moved(r.flag === 'merge-red' ? 'red' : 'conflict', r.tip!, [], r.flag === 'merge-red' ? r.fail : '') } else fail = 'the epic moved twice while squashing'
   }
   if (!sha) { await back(); await blockTask(h, d, t, fail, 'conflict', {}); return fail }
   const at = await h.now(), m = await apply(h, { kind: 'close', id, at, actor: 'main' }, pipe(d)); if (!m.ok) return m.error
-  await d.store.close(id, { outcome: 'done', note: `squashed ${sha7(sha)} into ${plan.epicBranch}`, session: d.session })
-  await record(h, d, id, 'close', 'mod', { squash: sha, epic: plan.epicBranch, reviewed: C })
-  const next = await lastNext(h, plan.id, 'wait')
+  await d.store.close(id, { outcome: 'done', note: `squashed ${sha7(sha)} into ${br}`, session: d.session })
+  await record(h, d, id, 'close', 'mod', { squash: sha, epic: br, reviewed: C })
+  const next = await lastNext(h, plan.id, 'wait', t.epic)
   await patch(h, id, x => ({ ...x, card: card({ id, title: t.title, role: 'main', to: 'done', commit: sha, flags: [], next }) }))
   await cleanup(h, d, id, task)
   if (task.meta['cadre.core'] === 'true') await coreLanded(h, d, files).catch(e => h.log(`core lock: ${e}`))   // its files are locked for the other tasks of the plan
@@ -328,9 +329,10 @@ async function unblock(h: Host, d: Deps, id: string, text: string, flag: string)
   return null
 }
 const wrapL = (f: (h: Host, d: Deps, id: string, e: any) => Promise<string | null>) => async (h: Host, id: string, e: any) => f(h, await resolveDeps(h), id, e)
-LIFECYCLE.completed = wrapL(async (h, d, id, e) => (id === (await h.board.read()).epic ? integrateEpic(h, id) : closeTask(h, d, id)))
+const isEpic = async (h: Host, id: string) => { const s = await h.board.read(); return id === s.epic || !!epicOf(s, id) }   // the plan, or an epic of a milestone (ADR 0015)
+LIFECYCLE.completed = wrapL(async (h, d, id, e) => ((await isEpic(h, id)) ? integrateEpic(h, id) : closeTask(h, d, id)))
 LIFECYCLE.pending = wrapL((h, d, id) => releaseTask(h, d, id))
-LIFECYCLE.deleted = wrapL(async (h, d, id, e) => (id === (await h.board.read()).epic ? 'the epic cannot be deleted; reject the plan instead' : cancelTask(h, d, id, String(e.metadata?.reason ?? 'deleted by main'))))
+LIFECYCLE.deleted = wrapL(async (h, d, id, e) => ((await isEpic(h, id)) ? 'the epic cannot be deleted; reject the plan instead' : cancelTask(h, d, id, String(e.metadata?.reason ?? 'deleted by main'))))
 LIFECYCLE.decision = wrapL((h, d, id, e) => (typeof e.metadata?.decision === 'string' && e.metadata.decision.trim() ? decide(h, d, id, e.metadata.decision) : Promise.resolve('metadata.decision: expected the human\'s answer as a string')))
 
 // accept on a sync flag: conflict -> re-apply the remote values kept in the task's meta; drift -> adopt the remote status through the machine (refused when illegal)
@@ -361,13 +363,14 @@ ROUTES.resolve = async (h, c) => {
     const r = await resolveGit(h, flag, b); return { text: r.ok ? `${flag}: ${b} done` : `refused: ${r.error}` }
   }
   const s0 = await h.board.read(), d = await resolveDeps(h)
+  if (epicOf(s0, a) && b === 'keep') { await goOn(h, a); await emit(h, 'flag.resolved', { taskId: a, flag: 'stopped' }, { taskId: a }); return { text: `${a}: the epic goes on; call TaskUpdate ${a} completed again if its tasks are done` } }   // a stopped epic's Retry
   if (s0.plan && (a === s0.plan.id || a === s0.epic) && b === 'keep') {   // plan-level flags (integration-failed): a retry is TaskUpdate completed again
     await h.board.update(x => (x.plan ? { ...x, plan: { ...x.plan, flags: [] } } : x)); await emit(h, 'flag.resolved', { taskId: a, flag: (s0.plan.flags ?? []).join(',') || 'plan' }, { taskId: a })
     return { text: `${a}: plan flags cleared; call TaskUpdate completed on the epic again` }
   }
   const t = s0.tasks.find(x => x.id === a)
   if (t && b === 'rebase' && t.state === 'blocked') {   // the cap dialog's Retry (core/rebase.capAsk): one more round by the same worker
-    const task = await d.store.get(a), tip = await G.tip(h.run, d.root, s0.plan?.epicBranch ?? '')
+    const task = await d.store.get(a), tip = await G.tip(h.run, d.root, branchOf(s0, t))
     await d.store.setMeta(a, { 'cadre.rebase': String(ROUNDS - 1), 'cadre.blocked': '' }, d.actor); await clear(h, a, 'conflict'); await clear(h, a, 'merge-red')
     return { text: (await rework(h, d, (await h.board.read()).tasks.find(x => x.id === a)!, { ...task, meta: { ...task.meta, 'cadre.rebase': String(ROUNDS - 1) } }, tip, 'conflict')) ?? `${a}: not reworked` }
   }

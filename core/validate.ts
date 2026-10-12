@@ -6,7 +6,7 @@ import { kindOf } from '../task-management/registry'
 import type { TypeRegistry } from '../task-management/registry'
 import { matches } from './specview'
 
-export const FIELDS = ['kind', 'amend', 'type', 'scope', 'breaking', 'package', 'scenarios', 'changelog', 'interface', 'lane', 'reason', 'repro', 'mission', 'paths', 'core', 'notes'] as const
+export const FIELDS = ['kind', 'amend', 'type', 'scope', 'breaking', 'package', 'scenarios', 'changelog', 'interface', 'lane', 'reason', 'repro', 'mission', 'paths', 'core', 'notes', 'epic', 'size', 'planned', 'critique'] as const
 export const CATEGORIES = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security']
 const SCENARIO = /^S\d+: Given .+ When .+ Then .+$/
 const STATUS = ['new', 'changed', 'unchanged']
@@ -20,13 +20,16 @@ export function validateFields(m: Record<string, unknown>, reg: TypeRegistry): s
   const f = (k: string) => (m[k] === null ? undefined : m[k])
   if (f('kind') !== undefined && f('kind') !== 'plan' && f('kind') !== 'mission') return bad('metadata.kind', '"plan" or "mission"', m.kind)
   if (f('amend') !== undefined && typeof m.amend !== 'boolean') return bad('metadata.amend', 'true', m.amend)
-  if (f('lane') !== undefined && !['ask', 'lite', 'full'].includes(m.lane as string)) return bad('metadata.lane', '"ask", "lite" or "full"', m.lane)
+  if (f('lane') !== undefined && !['ask', 'lite', 'full', 'milestone'].includes(m.lane as string)) return bad('metadata.lane', '"ask", "lite", "full" or "milestone"', m.lane)
   if ((f('lane') !== undefined || f('reason') !== undefined) && m.kind !== 'plan') return 'metadata.lane, metadata.reason: set them on the plan\'s TaskCreate, with "kind":"plan"'
   if (f('reason') !== undefined && !str(m.reason)) return bad('metadata.reason', 'one line, e.g. "one small fix in src/a.ts"', m.reason)
   if (f('mission') !== undefined && (m.kind !== 'plan' || typeof m.mission !== 'string' || !m.mission.trim() || m.mission.length > 1000)) return bad('metadata.mission', 'on the plan\'s TaskCreate, one string "Goal: …\\nConstraints: …\\nNon-goals: …"', m.mission)   // ADR 0014: approved with the plan
   if (f('paths') !== undefined && (m.kind !== undefined || !Array.isArray(m.paths) || !m.paths.length || m.paths.length > 20 || m.paths.some((p: unknown) => !str(p) || (p as string).length > 200))) return bad('metadata.paths', 'on a task, the files or folders it will change, e.g. ["src/auth/login.ts", "test/auth/**"]', m.paths)
   if (f('core') !== undefined && (m.kind !== undefined || typeof m.core !== 'boolean')) return bad('metadata.core', 'true on the one task with the code other tasks share', m.core)
   if (f('notes') !== undefined && (m.kind !== 'plan' || !str(m.notes) || (m.notes as string).length > 1500)) return bad('metadata.notes', 'on the plan\'s TaskCreate, what an explorer found that several tasks need (at most 1500 characters)', m.notes)
+  if (f('epic') !== undefined && (m.kind !== undefined || !str(m.epic))) return bad('metadata.epic', 'on a task, the id of the epic it belongs to, e.g. "m-2"', m.epic)   // milestone lane (ADR 0015)
+  if (f('size') !== undefined && (m.kind !== undefined || !Number.isInteger(m.size) || (m.size as number) < 1 || (m.size as number) > 7)) return bad('metadata.size', 'on an epic, how many tasks it needs, 1 to 7', m.size)
+  if (f('critique') !== undefined && (m.kind !== undefined || !str(m.critique) || (m.critique as string).length > 1500)) return bad('metadata.critique', 'on the milestone, what the critic found and what you changed (at most 1500 characters)', m.critique)
   if (f('repro') !== undefined && typeof m.repro !== 'boolean') return bad('metadata.repro', 'true or false', m.repro)
   if (f('type') !== undefined && !(str(m.type) && m.type in reg)) return bad('metadata.type', `one of ${Object.keys(reg).join('|')}`, m.type)
   if (f('scope') !== undefined && !str(m.scope)) return bad('metadata.scope', '"auth"', m.scope)
@@ -61,6 +64,7 @@ export function validateFields(m: Record<string, unknown>, reg: TypeRegistry): s
 
 // What a draft still lacks, from its stored form (acceptance = scenarios, design = contract, meta changelog/package). Spikes need nothing.
 export function missingOf(t: Task, reg: TypeRegistry): string[] {
+  if (t.type === 'epic') return [...(t.description.trim() ? [] : ['goal']), ...(t.meta['cadre.size'] ? [] : ['size']), ...(t.meta['cadre.core'] === 'true' && Number(t.meta['cadre.size']) > 2 ? ['a core epic has at most 2 tasks'] : [])]   // a roadmap epic (ADR 0015)
   const spec = reg[t.type]; if (!spec || kindOf(spec) === 'spike') return []
   const out: string[] = []
   if (t.meta['cadre.lane']?.startsWith('lite')) return [...(t.description.trim() ? [] : ['description']), ...(t.meta['cadre.changelog'] ? [] : ['changelog'])]   // lite (ADR 0011): title, description, changelog decision
@@ -74,14 +78,14 @@ export function missingOf(t: Task, reg: TypeRegistry): string[] {
 // that would change the same path must be ordered by a blocks dependency (or the shared code moves into one core task): parallel edits of one file conflict (ADR 0014 G)
 export function missingList(drafts: Task[], reg: TypeRegistry): string[] {
   if (!drafts.length) return ['tasks']
-  const code = drafts.filter(t => reg[t.type] && kindOf(reg[t.type]) !== 'spike'), many = code.length >= 2
+  const ep = drafts[0].type === 'epic', code = drafts.filter(t => t.type === 'epic' || (reg[t.type] && kindOf(reg[t.type]) !== 'spike')), many = code.length >= 2
   const out = drafts.flatMap(t => { const m = [...missingOf(t, reg), ...(many && code.includes(t) && !pathsOf(t).length ? ['paths'] : [])]; return m.length ? [`${t.id}: ${m.join(', ')}`] : [] })
   const after = (a: Task, b: Task, seen = new Set<string>()): boolean => a.deps.some(d => ['blocks', 'waits-for'].includes(d.type) && !seen.has(d.id) && (seen.add(d.id), d.id === b.id || (drafts.some(x => x.id === d.id) && after(drafts.find(x => x.id === d.id)!, b, seen))))
   for (let i = 0; i < code.length; i++) for (const b of code.slice(i + 1)) {
     const a = code[i], p = pathsOf(a).find(x => pathsOf(b).some(y => overlap(x, y)))
-    if (p && !after(a, b) && !after(b, a)) out.push(`${a.id}+${b.id} both change ${p}: move it into one core task or add a blocks dependency`)
+    if (p && !after(a, b) && !after(b, a)) out.push(`${a.id}+${b.id} both change ${p}: ${ep ? 'move it into the core epic or add a dependency' : 'move it into one core task or add a blocks dependency'}`)
   }
-  return out
+  return ep && drafts.length < 2 ? [...out, 'epics: a milestone has 2 or more (else change the lane to one plan)'] : out
 }
 // declared paths (metadata.paths -> cadre.paths) and their overlap: equal, a folder of the other, or a glob that matches it
 export const pathsOf = (t?: Pick<Task, 'meta'>): string[] => { try { return JSON.parse(t?.meta['cadre.paths'] || '[]') } catch { return [] } }

@@ -65,7 +65,7 @@ export function contextLine(s: Omit<Snapshot, 'seq' | 'cost'>): string {
   if (!s.plan) return ''
   const ts = s.tasks as SnapTask[]
   const ready = ts.filter(t => isReady(t, ts)), running = ts.filter(t => t.owner && (t.state === 'active' || (t.state === 'review' && t.step === 'reviewer')))
-  const parts = [`plan ${s.plan.id} ${s.plan.state}`, s.plan.epicBranch, ready.length && `ready: ${ready.map(t => t.id).join(' ')}`, running.length && `running: ${running.map(t => `${t.id}(${LETTER[t.step] ?? '?'})`).join(' ')}`,
+  const parts = [`${s.plan.lane === 'milestone' ? 'milestone' : 'plan'} ${s.plan.id} ${s.plan.state}`, s.plan.epicBranch, s.plan.epics?.length && `epics: ${s.plan.epics.map(e => `${e.id} ${e.state}`).join(' ')}`, ready.length && `ready: ${ready.map(t => t.id).join(' ')}`, running.length && `running: ${running.map(t => `${t.id}(${LETTER[t.step] ?? '?'})`).join(' ')}`,
     ...ts.filter(t => !running.includes(t) && ['review', 'blocked'].includes(t.state)).map(t => `${t.id} ${tag(t)}`),
     ...s.sync.filter(x => x.state !== 'ok').map(x => `sync: ${x.target} ${x.state} (${x.pending})`)]
   if (s.approval.missing.length) parts.push(`missing: ${s.approval.missing.join('; ')}`)
@@ -78,6 +78,14 @@ export function nextAction(s: Omit<Snapshot, 'seq' | 'cost'>): string {
   const y = s.drive?.on && !s.drive.stopped && s.drive.mode === 'yolo'   // yolo: main answers blocked tasks itself (core/drive)
   a.push(...ts.filter(t => t.state === 'blocked').map(t => (y ? `decide ${t.id} yourself (TaskUpdate ${t.id} metadata.decision)` : t.flags.includes('spec_change') ? `wait: the user decides the spec change of ${t.id} in its own dialog` : `${t.id} waits for the user (go on with the rest)`)))   // live: main asked the spec change a second time
   a.push(...ts.filter(t => t.state === 'review' && t.step === 'reviewer' && !t.owner).map(t => `spawn TASK-${t.id} (reviewer)`))
-  const r = ts.find(t => isReady(t, ts)); if (r) a.push(`spawn TASK-${r.id}`)   // one per turn; the ready list on the line says the rest
-  return a.length ? a.join('; ') : ts.length && ts.every(closed) ? `complete the epic: TaskUpdate ${s.plan?.id} completed` : 'wait'
+  const es = s.plan?.epics ?? [], live = (t: SnapTask) => !t.epic || es.find(e => e.id === t.epic)?.state === 'running'   // milestone (ADR 0015): a stopped epic's tasks wait
+  const r = ts.find(t => isReady(t, ts) && live(t)); if (r) a.push(`spawn TASK-${r.id}`)   // one per turn; the ready list on the line says the rest
+  for (const e of es) {
+    if (e.state === 'ready') a.push(`plan epic ${e.id}: TaskCreate its tasks with metadata.epic "${e.id}", then TaskUpdate ${e.id} metadata.planned true`)
+    if (e.state === 'planning') a.push(`finish planning epic ${e.id} (see missing), then TaskUpdate ${e.id} metadata.planned true`)
+    if (e.state === 'running' && ts.every(t => t.epic !== e.id || closed(t))) a.push(`complete epic ${e.id}: TaskUpdate ${e.id} completed`)
+  }
+  if (a.length) return a.join('; ')
+  if (es.length) return es.every(e => e.state === 'landed') ? `complete the milestone: TaskUpdate ${s.plan?.id} completed` : 'wait'
+  return ts.length && ts.every(closed) ? `complete the epic: TaskUpdate ${s.plan?.id} completed` : 'wait'
 }

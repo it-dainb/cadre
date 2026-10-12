@@ -11,7 +11,7 @@ export const epicBranch = (prefix: string, id: string, title: string) => `${pref
 // the configured worktree root, else ${XDG_CACHE_HOME:-$HOME/.cache}/cadre/wt (the one default; config/defaults documents it)
 export const wtRootOf = async (h: Host, cfg: { worktrees: { root: string } }): Promise<string> => cfg.worktrees.root || `${(await h.env()).XDG_CACHE_HOME || `${await h.home()}/.cache`}/cadre/wt`
 export const wtPath = (root: string, key: string, id: string) => `${root}/${key}/${id}`
-export const protectedRef = (b: string, o: { main: string; dev: string; epicPrefix: string }) => b === o.main || b === o.dev || b.startsWith(o.epicPrefix)
+export const protectedRef = (b: string, o: { main: string; dev: string; epicPrefix: string }) => b === o.main || b === o.dev || b.startsWith(o.epicPrefix) || b.startsWith('milestone/')
 
 // First approval: cut epic/<id>-<slug> from dev. Idempotent: an existing branch keeps its tip. Returns the epic tip.
 export async function cutEpic(h: Host, planId: string, dev = 'dev'): Promise<string> {

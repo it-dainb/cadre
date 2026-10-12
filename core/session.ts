@@ -70,10 +70,10 @@ async function adopt(h: Host, b0: Snapshot) {
   await h.secret.update(x => ({ ...x, adoptTried: true }))
   const store = await storeOf(h), all = await store.list({}).catch(() => undefined), prefix = (await cfgOf(h)).branches.epicPrefix
   if (!all) return undefined   // no store yet (before init stage 2): nothing to adopt, and not an error to show
-  const e = all.filter(t => t.type === 'epic' && !t.meta['cadre.kind'] && t.category !== 'done' && t.category !== 'cancelled' && all.some(c => c.parent === t.id && c.category !== 'draft')).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))[0]
+  const e = all.filter(t => t.type === 'epic' && !t.parent && !t.meta['cadre.kind'] && t.category !== 'done' && t.category !== 'cancelled' && all.some(c => c.parent === t.id && c.category !== 'draft')).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))[0]
   const mission = b0.mission ?? (await missionOf(store))
   if (!e && mission) await h.board.update(b => ({ ...b, mission }))
-  return e && { mission, epic: e.id, plan: { id: e.id, slug: slug(e.title), state: 'approved', epicBranch: await epicName(h, prefix, e), approvedAt: await h.now() }, drive: b0.drive, bind: {}, session: undefined }
+  return e && { mission, epic: e.id, plan: { id: e.id, slug: slug(e.title), state: 'approved', epicBranch: await epicName(h, e.meta['cadre.lane'] === 'milestone' ? 'milestone/' : prefix, e), approvedAt: await h.now(), ...(e.meta['cadre.lane'] === 'milestone' ? { lane: 'milestone' as const } : {}) }, drive: b0.drive, bind: {}, session: undefined }
 }
 // an epic cut before 0.9.1 keeps its longer name
 async function epicName(h: Host, prefix: string, e: { id: string; title: string }) {

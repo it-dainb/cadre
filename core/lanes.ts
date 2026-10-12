@@ -6,19 +6,22 @@ import type { Task, TaskStore } from '../task-management/store'
 import { defaults, kindOf, type TypeRegistry } from '../task-management/registry'
 import { cfgOf, draftsOf, missionOf, storeOf, touched } from './dispatch'
 import { plural, settleIf } from './decide'
+import { MS } from './milestone'
+import { epicBranch } from './branches'
 
-export type Lane = 'ask' | 'lite' | 'full'
+export type Lane = 'ask' | 'lite' | 'full' | 'milestone'
 export const LANES: readonly Lane[] = ['ask', 'lite', 'full']
 const isPublic = (t: Task) => { try { const c = JSON.parse(t.design || 'null'); return !!c && !c.none && (c.symbols ?? []).some((s: any) => s.status === 'new' || s.status === 'changed') } catch { return false } }
 
 // the lane a draft plan gets: main's (or the human's) pick, overridden to full by risk or size; an ask plan holding a code change becomes lite (one task) or full
 export function laneOf(asked: Lane, drafts: Task[], reg: TypeRegistry): { lane: Lane; why?: string } {
-  const why = drafts.some(t => t.meta['cadre.breaking'] === 'true') ? 'a task is breaking'
+  if (asked === 'milestone') return { lane: 'milestone' }   // a roadmap of epics (ADR 0015): never overridden down
+  const big = drafts.length > 7, why = big ? `${drafts.length} tasks: a milestone fits` : drafts.some(t => t.meta['cadre.breaking'] === 'true') ? 'a task is breaking'
     : drafts.some(t => t.labels?.includes('security') || t.meta['cadre.scope'] === 'security') ? 'a task touches security'
     : drafts.some(isPublic) ? 'a public contract is new or changed'
     : drafts.length >= 3 ? `${drafts.length} tasks`
     : asked === 'lite' && drafts.length > 1 ? 'lite is one task' : ''
-  if (why) return asked === 'full' ? { lane: 'full' } : { lane: 'full', why }
+  if (why) return asked === 'full' && !big ? { lane: 'full' } : { lane: 'full', why }
   const code = drafts.some(t => { const s = reg[t.type]; return !s || kindOf(s) !== 'spike' })
   if (asked === 'ask' && code) return drafts.length === 1 ? { lane: 'lite', why: 'it changes code' } : { lane: 'full', why: 'it changes code' }
   return { lane: asked }
@@ -43,14 +46,23 @@ export async function relane(h: Host, store: TaskStore, reg: TypeRegistry): Prom
 }
 export async function retouch(h: Host, store: TaskStore, reg: TypeRegistry): Promise<string[]> { await relane(h, store, reg); return touched(h, store, reg) }
 
+// the roadmap rules (main's planning API for the milestone lane), in the plan's first answer and in a lane change brief
+export const roadmapRules = (id = '<plan id>'): string => [
+  'Roadmap rules',
+  '- Every later TaskCreate is one epic of this milestone: subject = its name, description = its goal in one line, metadata {"size": <its tasks, 1-7>, "paths": ["files or folders it changes"]}. Order epics with TaskUpdate addBlockedBy.',
+  '- An epic is a plan of 1-7 tasks that works on its own. Code that 2+ epics need goes into ONE thin core epic first (metadata.core:true, size 1-2) that blocks them. Two epics on one path need a dependency. Epics with no dependency path between them run at the same time.',
+  `- When "missing:" says critic review: spawn ONE Agent (no task id) with the whole roadmap in its prompt (each epic: id, name, goal, size, paths, dependencies) and ask it for gaps, overlaps, a wrong order, epics too big or too small, and a missing core epic. Fix what it gets right, then TaskUpdate ${id} with metadata.critique "<what it found and what you changed>".`,
+  '- The user approves the roadmap only. Each epic\'s tasks are planned when the next: line names the epic.',
+].join('\n')
 // the decision's first line (core/dispatch.redraw): "auto · lite · 1 task · fix · <reason>" (the mode drive runs it in, ADR 0013); an override names itself
 export function laneLine(plan: Plan | null, drafts: Task[], reg: TypeRegistry = defaults()): string | null {
   if (!plan?.lane) return null
-  const n = plural(drafts.length, 'task'), ty = drafts.length === 1 ? reg[drafts[0].type]?.commit ?? drafts[0].type : ''
+  const n = plural(drafts.length, plan.lane === 'milestone' ? 'epic' : 'task'), ty = drafts.length === 1 ? reg[drafts[0].type]?.commit ?? drafts[0].type : ''
   return [plan.mode ?? 'auto', plan.lane, n, ty, plan.laneOverride ? `${plan.laneOverride} → ${plan.lane}` : '', plan.laneReason ?? ''].filter(Boolean).join(' · ').slice(0, 160)
 }
 // the Lane → <next> option: ask → lite → full → ask, skipping a lane the plan cannot take; null when there is nothing to change
 export function nextLane(plan: Plan, drafts: Task[], reg: TypeRegistry): Lane {
+  if (plan.lane === 'milestone') return 'full'; if (drafts.length > 7) return 'milestone'   // more than 7 tasks: offer the milestone lane; a roadmap goes back to one plan
   const from = LANES.indexOf(plan.lane ?? 'full')
   for (let i = 1; i < 3; i++) { const l = LANES[(from + i) % 3]; if (l === 'ask' || laneOf(l, drafts, reg).lane === l) return l }
   return 'ask'
@@ -70,9 +82,13 @@ export async function changeLane(h: Host, store: TaskStore, reg: TypeRegistry, p
     await queueBrief(h, `The user moved "${epic.title}" to the ask lane: it needs an answer, not a change. Spawn one Agent with this question as its prompt and stop:\n${epic.title}\n${epic.description}`.trim())
     return `${p.id}: moved to the ask lane · Claude asks an explorer`
   }
+  const ms = to === 'milestone' || p.lane === 'milestone'
+  if (ms) { await store.dropDrafts(drafts.map(t => t.id)); const pre = to === 'milestone' ? MS : (await cfgOf(h)).branches.epicPrefix; await h.board.update(b => (b.plan ? { ...b, tasks: [], plan: { ...b.plan, epics: undefined, epicBranch: epicBranch(pre, p.id, epic.title) } } : b)) }   // tasks and epics do not convert: main drafts the other shape
   await store.setMeta(p.id, { 'cadre.lane': to, 'cadre.laneReason': 'changed by you' }, 'human')
   await retouch(h, store, reg)
-  if (to === 'full') await queueBrief(h, `The user moved plan ${p.id} to the full lane. Give each task what the plan rules ask (scenarios, interface, changelog, package) and split it into tasks if needed; the "missing:" line says what is left. Then tell the user to approve it in the dialog (key 1 opens it).`)
+  if (to === 'milestone') await queueBrief(h, `The user moved plan ${p.id} to the milestone lane: its tasks were dropped. Draft it as a roadmap of epics instead.\n${roadmapRules(p.id)}`)
+  else if (ms) await queueBrief(h, `The user moved plan ${p.id} from the milestone lane to one plan: its epics were dropped. Draft its tasks now (TaskCreate per task, as the plan rules say), then tell the user to approve it in the dialog (key 1 opens it).`)
+  else if (to === 'full') await queueBrief(h, `The user moved plan ${p.id} to the full lane. Give each task what the plan rules ask (scenarios, interface, changelog, package) and split it into tasks if needed; the "missing:" line says what is left. Then tell the user to approve it in the dialog (key 1 opens it).`)
   return `${p.id}: lane ${to}`
 }
 

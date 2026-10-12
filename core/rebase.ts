@@ -68,7 +68,8 @@ export async function capAsk(h: Host, d: Deps, t: SnapTask, task: Task, tip: str
 // after a squash into the plan branch: merge the new tip into every running worker's branch (a throwaway worktree, then the branch ref and the live tree move);
 // a sibling that would conflict is told now and reworked at its own merge
 export async function refresh(h: Host, d: Deps, tip: string, from: string): Promise<void> {
-  for (const x of (await h.board.read()).tasks.filter(x => x.id !== from && x.state === 'active' && x.step === 'worker')) {
+  const all = (await h.board.read()).tasks, ep = all.find(x => x.id === from)?.epic   // a milestone: only the same epic's workers (another epic's branch gets the milestone tip at its own landing)
+  for (const x of all.filter(x => x.id !== from && x.epic === ep && x.state === 'active' && x.step === 'worker')) {
     const task = await d.store.get(x.id).catch(() => null), wt = task?.meta['cadre.worktree'], br = task?.meta['cadre.branch']
     if (!task || !wt || !br || !(await h.stat(wt))) continue
     const head = await G.tip(h.run, d.root, br), c = await trial(h, d.root, head, tip), w = await worker(h, x.id)

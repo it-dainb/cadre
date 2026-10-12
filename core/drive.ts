@@ -15,10 +15,11 @@ import { BLOCKING, apply } from './machine'
 import { queueBrief } from './lanes'
 import { modelText } from './say'
 import { specAsk } from './tdd'
+import { stopEpic } from './milestone'
 
 export const LEASE = 600_000
 export type Mode = 'auto' | 'yolo'
-interface DriveRec { on: boolean; level: 'epic'; epicId: string; mode?: Mode; stopped?: string; turns: number; cost: number; last: number; sess: string; startedAt: number; lastSeq: number; idle: number; set?: string; cont?: string; lease: { session: string; until: number } }
+interface DriveRec { on: boolean; level: 'epic'; epicId: string; mode?: Mode; stopped?: string; ei?: Record<string, [number, number]>; turns: number; cost: number; last: number; sess: string; startedAt: number; lastSeq: number; idle: number; set?: string; cont?: string; lease: { session: string; until: number } }
 // CAS on the control issue: fn sees the current record and returns the next one (undefined = no write); a revision race retries (sync writes the same issue)
 export async function casDrive(h: Host, store: TaskStore, fn: (r: DriveRec | undefined) => DriveRec | undefined): Promise<DriveRec | undefined> {
   const ctl = await controlOf(h, store)
@@ -58,11 +59,13 @@ export async function hardStop(h: Host, rec?: DriveRec): Promise<string | null> 
   if (rec.set && rec.set !== (await settingsHash(h))) return 'a settings file changed during the run'
   return rec.cont === 'contained' && (await h.board.read()).containment.state !== 'contained' ? 'containment broke during the run' : null
 }
+// a milestone's bounds cover all of it: the plan bounds times its epics (ADR 0015)
+const scaled = (dc: any, s: Snapshot) => { const k = s.plan?.epics?.length || 1; return k > 1 ? { ...dc, maxTurns: dc.maxTurns * k, maxCostUsd: dc.maxCostUsd * k, maxWallMinutes: dc.maxWallMinutes * k } : dc }
 const boundOf = (r: DriveRec, dc: any, cost: number, idle: number, now: number): string | null =>
   r.turns >= dc.maxTurns ? `max turns ${dc.maxTurns}` : cost >= dc.maxCostUsd ? `cost $${cost} ≥ $${dc.maxCostUsd}` : now - r.startedAt > dc.maxWallMinutes * 60_000 ? `max ${dc.maxWallMinutes} min` : idle >= dc.noProgressTurns ? `no progress in ${idle} turns` : null
 
 // a decision drive (or main under yolo) took without the human: a beads decision record linked to the plan + `drive.decided` for Activity and Doctor
-export async function decided(h: Host, kind: 'spec' | 'question' | 'rework' | 'integration' | 'flag' | 'rebase', text: string, taskId?: string): Promise<void> {
+export async function decided(h: Host, kind: 'spec' | 'question' | 'rework' | 'integration' | 'flag' | 'rebase' | 'plan', text: string, taskId?: string): Promise<void> {
   const s = await h.board.read(), store = await storeOf(h)
   await store.record('decision', `${s.drive.mode ?? 'auto'}: ${text.slice(0, 80)}`, text, s.plan?.id).catch(e => h.log(`decision record failed: ${e}`))
   await emit(h, 'drive.decided', { kind, text: text.slice(0, 300), ...(taskId ? { taskId } : {}) }, { taskId, actor: kind === 'spec' || kind === 'question' ? 'main' : 'mod' })
@@ -102,6 +105,8 @@ async function gate(h: Host, s: Snapshot, mode: Mode): Promise<Gate> {
   }
   const f = s.tasks.filter(t => !(goes && t.state === 'blocked')).flatMap(t => t.flags).find(x => BLOCKING.test(x) || x.startsWith('rework:')); if (f) return hold(`resolve ${f}`)
   if (s.plan?.flags?.length) return hold(`resolve ${s.plan.flags[0]}`)
+  const es = s.plan?.epics ?? [], st = es.find(e => e.state === 'stopped')   // a stopped epic (ADR 0015): auto waits for the human; yolo goes on with the independent epics while any can move
+  if (st && (!y || !es.some(e => ['waiting', 'ready', 'planning', 'running'].includes(e.state)))) return hold(`epic ${st.id} stopped: ${st.why ?? ''}`.trim())
   if ((await h.ui.read()).loop) return { pause: 'two loop owners: /goal active' }
   return null
 }
@@ -128,7 +133,7 @@ export async function drive(h: Host, cfg: any, usd: number | undefined) {
     await casDrive(h, store, r => r && { ...r, on: false, lease: { session: '', until: 0 } })
     return void h.toast(`epic ${s.plan.id} landed on dev; drive finished${took}${mode === 'yolo' ? ' · the release is yours' : ''}`)   // the /clear hint is the drain's (7)
   }
-  const store = await storeOf(h), me = await sessionOf(h), now = await h.now(), dc = cfg.drive
+  const store = await storeOf(h), me = await sessionOf(h), now = await h.now(), dc = scaled(cfg.drive, s)
   const rec = await casDrive(h, store, () => undefined)
   if (!rec?.on || rec.epicId !== s.epic) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, on: false } })))
   if (held(rec, me, now)) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, heldBy: rec.lease.session } })))
@@ -141,7 +146,10 @@ export async function drive(h: Host, cfg: any, usd: number | undefined) {
   if ((await h.ui.read()).goal) return   // a queued brief goes out first (commands/agentrun.pump)
   const nx = nextAction(modelView(s)), text = [nx !== 'wait' ? `Continue: ${nx}` : '', ...(mode === 'yolo' ? await yoloAsks(store, s) : [])].filter(Boolean).join('\n')
   const evs = (await h.events.read()).epics[s.epic] ?? [], seq = evs.filter(x => x.type === 'task.transitioned').reduce((m, x) => Math.max(m, x.seq), 0)
-  const o = { bound: null as string | null, go: false, cost: d.costUsd, turns: d.turns }   // what the CAS attempt that stood decided
+  const o = { bound: null as string | null, go: false, cost: d.costUsd, turns: d.turns, idle: [] as string[] }   // what the CAS attempt that stood decided
+  const tx = (id: string) => evs.filter(x => x.type === 'task.transitioned' && s.tasks.find(t => t.id === x.taskId)?.epic === id).reduce((m, x) => Math.max(m, x.seq), 0)
+  const free = !cfg.maxParallel || s.tasks.filter(t => t.state === 'active').length < cfg.maxParallel
+  const quiet = (s.plan.epics ?? []).filter(e => free && e.state === 'running' && !s.tasks.some(t => t.epic === e.id && ['active', 'review', 'blocked'].includes(t.state))).map(e => [e.id, tx(e.id)] as const)   // per-epic no progress: a slot is free, yet nothing of it moves, runs or waits on the user
   await casDrive(h, store, r => {
     if (!r?.on || r.epicId !== s.epic || held(r, me, now) || r.stopped) return undefined
     const idle = seq > r.lastSeq || !r.turns ? 0 : r.idle + 1
@@ -149,10 +157,13 @@ export async function drive(h: Host, cfg: any, usd: number | undefined) {
     o.cost = +((r.cost ?? 0) + delta).toFixed(2)
     o.bound = boundOf(r, dc, o.cost, idle, now)
     o.go = !o.bound && !!text; o.turns = r.turns + (o.go ? 1 : 0)
-    return { ...r, cost: o.cost, last: usd ?? last, sess: me, turns: o.turns, lastSeq: seq, idle: o.go ? idle : r.idle, lease: { session: me, until: now + LEASE } }
+    const ei = Object.fromEntries(quiet.map(([id, q]) => { const [ls, n] = r.ei?.[id] ?? [0, 0]; return [id, q > ls ? [q, 0] : [ls, n + (o.go ? 1 : 0)]] })) as Record<string, [number, number]>
+    o.idle = Object.keys(ei).filter(id => ei[id][1] >= dc.noProgressTurns)
+    return { ...r, ei, cost: o.cost, last: usd ?? last, sess: me, turns: o.turns, lastSeq: seq, idle: o.go ? idle : r.idle, lease: { session: me, until: now + LEASE } }
   })
   await h.board.update(x => ({ ...x, drive: { ...x.drive, turns: o.turns, costUsd: o.cost, costUnknown: usd === undefined || undefined, heldBy: undefined } }))   // no usage from the engine: the cost bound cannot fire; say so (turns and wall clock still hold)
   if (o.bound) return stop(h, o.bound)
+  for (const id of o.idle) await stopEpic(h, id, `no progress in ${dc.noProgressTurns} turns`)
   if (dc.maxCostUsd && o.cost >= 0.8 * dc.maxCostUsd && d.costUsd < 0.8 * dc.maxCostUsd) await emit(h, 'cost.updated', { tokens: (await h.board.read()).cost.tokens, threshold: 80 })
   if (o.go) await h.submit!(modelText('brief', text))   // plain text, never a slash command; P4: legal only here (#1 after next)
 }
@@ -162,7 +173,7 @@ export async function arm(h: Host, mode: Mode): Promise<string> {
   const s = await h.board.read(); if (!s.epic || !s.plan || s.plan.state === 'draft' || s.plan.slug === 'mission') return 'drive needs an approved plan'
   if (s.plan.landed || s.plan.state === 'done-on-dev' || s.plan.state === 'released') return 'the plan already landed on dev; nothing to drive'
   const why = mode === 'yolo' && s.containment.state !== 'contained' ? ` · yolo needs contained agents (containment ${s.containment.state}: /cadre doctor)` : ''; if (why) mode = 'auto'   // yolo never runs uncontained: no human would see what an unsandboxed worker does
-  const store = await storeOf(h), me = await sessionOf(h), now = await h.now(), dc = (await cfgOf(h)).drive, usd = (await h.usage?.().catch(() => undefined))?.cost?.usd ?? 0
+  const store = await storeOf(h), me = await sessionOf(h), now = await h.now(), dc = scaled((await cfgOf(h)).drive, s), usd = (await h.usage?.().catch(() => undefined))?.cost?.usd ?? 0
   const fresh: DriveRec = { on: true, level: 'epic', epicId: s.epic, mode, turns: 0, cost: 0, last: usd, sess: me, startedAt: now, lastSeq: 0, idle: 0, set: await settingsHash(h), cont: s.containment.state, lease: { session: me, until: now + LEASE } }
   const r = await casDrive(h, store, x => (x?.on && (x.epicId === s.epic || held(x, me, now)) ? undefined : fresh))
   if (r !== fresh) return held(r, me, now) ? `drive is held by ${r!.lease.session}` : 'drive already runs this plan'   // an amendment's approval keeps the run as it is
@@ -174,7 +185,7 @@ export async function kick(h: Host, force = false): Promise<void> {
   const s = await h.board.read(), d = s.drive
   if (!d.on || d.stopped || (!d.paused && !force) || !s.plan || s.plan.state !== 'approved') return
   const store = await storeOf(h), rec = await casDrive(h, store, () => undefined)
-  const why = (await hardStop(h, rec)) ?? (rec ? boundOf(rec, (await cfgOf(h)).drive, rec.cost ?? 0, rec.idle, await h.now()) : null); if (why) return stop(h, why)
+  const why = (await hardStop(h, rec)) ?? (rec ? boundOf(rec, scaled((await cfgOf(h)).drive, s), rec.cost ?? 0, rec.idle, await h.now()) : null); if (why) return stop(h, why)
   const g = await gate(h, s, d.mode ?? 'auto'); if (g?.stop) return stop(h, g.stop); if (g?.pause) return pause(h, g.pause)   // the gate still stands: say so (a resume that stalls quietly reads as running)
   if (d.paused) { await h.board.update(x => ({ ...x, drive: { ...x.drive, paused: undefined } })); await driveEvent(h, 'running') }
   const nx = nextAction(modelView(s)); if (nx === 'wait' || (await h.ui.read()).goal) return
@@ -192,7 +203,7 @@ export async function resume(h: Host): Promise<string> {
   await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: undefined, paused: undefined, turns: 0, costUsd: 0, startedAt: now } }))   // a resume is a fresh budget: the human chose to go on
   await driveEvent(h, 'resumed'); await kick(h, true); return 'drive resumed'
 }
-DRIVE.arm = arm; DRIVE.kick = h => kick(h); DRIVE.humanWrite = humanWrite
+DRIVE.arm = arm; DRIVE.kick = h => kick(h); DRIVE.humanWrite = humanWrite; DRIVE.decided = decided
 
 // integration red (core/integrate, both modes while driving): the first failure gets ONE fix task, approved by drive (recorded); the second one stops yolo and asks in auto
 export async function redFix(h: Host, epicId: string, why: string): Promise<boolean> {

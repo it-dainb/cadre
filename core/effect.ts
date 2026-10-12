@@ -55,7 +55,7 @@ async function raise(h: Host, flag: string, taskId: string, info: { ref?: string
   h.toast(`cadre: ${text}`)
 }
 
-const isProtected = (branch: string, protect: string[] = ['main', 'dev'], epicPrefix = 'epic/') => protect.includes(branch) || branch.startsWith(epicPrefix)
+const isProtected = (branch: string, protect: string[] = ['main', 'dev'], epicPrefix = 'epic/') => protect.includes(branch) || branch.startsWith(epicPrefix) || branch.startsWith('milestone/')
 
 // One audit: scope = main + caller's worktree (sandbox on) or everything (sweep / degraded / effectCheck always).
 export async function audit(h: Host, caller: string | null): Promise<void> {

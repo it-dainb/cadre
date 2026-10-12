@@ -1,6 +1,6 @@
 // Command dispatcher (DESIGN 2.5, 3.1): the only entry for `/cadre` commands. Origin rules (gates: the ask dialog only, ADR 0012),
 // approve/reject bound to the decision's content hash, init confirm. Also the draft<->board mirror shared with native/tasks.ts.
-import type { Host, SnapTask } from '../types'
+import type { Host, Plan, SnapTask } from '../types'
 import type { Task, TaskStore } from '../task-management/store'
 import { StoreError } from '../task-management/store'
 import { defaults as typeDefaults, kindOf, merges, pipeOf } from '../task-management/registry'
@@ -15,6 +15,7 @@ import { apply, epicNext } from './machine'
 import { missingList } from './validate'
 import { cutEpic } from './branches'
 import { laneLine, laneOption, queueBrief } from './lanes'
+import { isMs, roadmap } from './milestone'
 import * as G from './git'
 
 export type Origin = { kind: string; name?: string }   // dialog (a decision's answer) | press (a Settings toggle, not a decision) · composer (typed start commands only) | sdk | bridge | plugin | adapter
@@ -47,9 +48,10 @@ export const snapOf = (t: Task, reg: TypeRegistry): SnapTask => {
 }
 // store children of the current epic -> board tasks. Existing board tasks keep their machine state (step, owner, flags, card); title/type/deps follow the store.
 export async function mirror(h: Host, store: TaskStore, reg: TypeRegistry): Promise<void> {
-  const epic = (await h.board.read()).epic; if (!epic) return
-  const all = (await store.list({ parent: epic })).filter(t => t.type !== 'gate')
-  await h.board.update(s => withConditions({ ...s, tasks: all.map(t => { const o = s.tasks.find(x => x.id === t.id); return o ? { ...o, ...snapOf(t, reg), state: o.state, step: o.step, phaseSince: o.phaseSince, owner: o.owner, flags: o.flags, card: o.card } : snapOf(t, reg) }) }))
+  const b0 = await h.board.read(), epic = b0.epic; if (!epic) return
+  const cfg = isMs(b0.plan) ? await cfgOf(h) : null, r = cfg && (await roadmap(store, epic, cfg.milestone.maxEpics, cfg.branches.epicPrefix))   // a milestone: the tasks of its epics, and the roadmap (ADR 0015)
+  const all = r ? r.tasks : (await store.list({ parent: epic })).filter(t => t.type !== 'gate'), sn = (t: Task) => ({ ...snapOf(t, reg), ...(r ? { epic: t.parent } : {}) })
+  await h.board.update(s => withConditions({ ...s, ...(r && s.plan ? { plan: { ...s.plan, epics: r.epics } } : {}), tasks: all.map(t => { const o = s.tasks.find(x => x.id === t.id); return o ? { ...o, ...sn(t), state: o.state, step: o.step, phaseSince: o.phaseSince, owner: o.owner, flags: o.flags, card: o.card } : sn(t) }) }))
 }
 
 // ---- approval: bound to the decision's content hash ----
@@ -64,17 +66,26 @@ const withMission = async (store: TaskStore, s: { plan: { id: string; slug: stri
 const goalOf = (mission: string) => (mission.split('\n')[0] ?? '').replace(/^goal:\s*/i, '')
 
 // re-ask over the current drafts (every draft change AND every refused approve); board.approval gets the missing list. Returns it.
+// what approval still needs; a roadmap complete otherwise needs its critic's review (ADR 0015)
+const planMissing = async (store: TaskStore, s: { plan: Plan | null }, drafts: Task[], reg: TypeRegistry): Promise<string[]> => {
+  const m = !s.plan || s.plan.slug === 'mission' ? [] : missingList(drafts, reg)
+  return !m.length && isMs(s.plan) && !(await store.get(s.plan!.id)).meta['cadre.critique'] ? ['critic review (the roadmap rules say how)'] : m
+}
 export async function redraw(h: Host, store: TaskStore, reg: TypeRegistry): Promise<string[]> {
-  const s = await h.board.read(), drafts = await draftsOf(store, s.epic)
-  const missing = s.plan?.slug === 'mission' ? [] : missingList(drafts, reg)
+  const s = await h.board.read()
+  if (isMs(s.plan) && s.plan!.state !== 'draft') {   // an approved milestone: its epics' plans are approved automatically (core/milestone.planEpic), never in a dialog
+    const missing = (await Promise.all((s.plan!.epics ?? []).filter(e => e.state === 'planning').map(async e => missingList(await draftsOf(store, e.id), reg).map(x => `${e.id} plan: ${x}`)))).flat()
+    await h.board.update(b => ({ ...b, approval: { planId: null, missing } })); return missing
+  }
+  const drafts = await draftsOf(store, s.epic), missing = await planMissing(store, s, drafts, reg)
   const planId = s.plan?.id ?? null
   await h.board.update(b => ({ ...b, approval: { planId, missing } }))
   if (!planId || missing.length) await settleIf(h, 'plan:')   // nothing to approve yet
   else {
     const sc = (t: Task) => (t.acceptance ?? '').split('\n').filter(Boolean).length, m = await missionOf_(store, s), ll = laneLine(s.plan, drafts, reg), lo = laneOption(s.plan, drafts, reg)   // a mission card shows the mission itself
     const mis = await withMission(store, s), all = drafts.reduce((n, t) => n + sc(t), 0), k = (drafts.length > 5 ? 4 : 5) - (mis ? 1 : 0)   // body <= 6 lines, each fact once (BRAND P2): the count on the lane line, scenarios per task, none when 0
-    await ask(h, { id: `plan:${planId}`, kind: 'plan', title: m ? `approve the mission · ${m.title}` : mis ? `approve the mission and plan ${planId}` : `approve plan ${planId}`, short: m ? 'approve the mission' : mis ? `approve mission + ${planId}` : `approve ${planId}`, tab: m ? 'epic' : 'plan', hash: planHash(drafts, m, (ll ?? '') + mis), change: `Change ${planId}: `,
-      lines: m ? (m.description || m.title).split('\n').filter(Boolean).slice(0, 6) : [...(mis ? [`mission: ${goalOf(mis)}`] : []), ll ?? [plural(drafts.length, 'task'), ...(all ? [plural(all, 'scenario')] : [])].join(' · '), ...drafts.slice(0, k).map(t => `  ${t.id} ${t.type} ${t.title}${sc(t) ? ` · ${plural(sc(t), 'scenario')}` : ''}`), ...(drafts.length > k ? [`  +${drafts.length - k} more on the Board`] : [])],
+    await ask(h, { id: `plan:${planId}`, kind: 'plan', title: m ? `approve the mission · ${m.title}` : mis ? `approve the mission and plan ${planId}` : `approve ${isMs(s.plan) ? 'milestone' : 'plan'} ${planId}`, short: m ? 'approve the mission' : mis ? `approve mission + ${planId}` : `approve ${planId}`, tab: m ? 'epic' : 'plan', hash: planHash(drafts, m, (ll ?? '') + mis), change: `Change ${planId}: `,
+      lines: m ? (m.description || m.title).split('\n').filter(Boolean).slice(0, 6) : [...(mis ? [`mission: ${goalOf(mis)}`] : []), ll ?? [plural(drafts.length, 'task'), ...(all ? [plural(all, 'scenario')] : [])].join(' · '), ...drafts.slice(0, k).map(t => t.type === 'epic' ? `  ${t.id}${t.meta['cadre.core'] === 'true' ? ' core' : ''} ${t.title} · ${plural(Number(t.meta['cadre.size']) || 0, 'task')}${t.deps.length ? ` · after ${t.deps.map(d => d.id).join(' ')}` : ''}` : `  ${t.id} ${t.type} ${t.title}${sc(t) ? ` · ${plural(sc(t), 'scenario')}` : ''}`), ...(drafts.length > k ? [`  +${drafts.length - k} more on the Board`] : [])],
       options: [{ key: 'a', label: 'Approve', verb: 'approve', run: `approve ${planId}` }, { key: 'x', label: 'Reject', verb: 'reject', run: `reject ${planId} rejected in the dialog` }, ...(lo ? [lo] : [])] })
   }
   return missing
@@ -82,7 +93,7 @@ export async function redraw(h: Host, store: TaskStore, reg: TypeRegistry): Prom
 // the approval sheet data ui/ draws (UI-DESIGN 5.3), on the human view as `board.sheet`; `before` = the prior accepted contract of a changed symbol (closed tasks' design), else absent
 const sig = (s: any) => `${s.name}(${(s.params ?? []).join(', ')}) -> ${s.returns}`
 async function sheetOf(store: TaskStore, drafts: Task[], reg: TypeRegistry) {
-  const rows = drafts.map(t => ({ t, d: t.design ? JSON.parse(t.design) : null })), prior = new Map<string, string>()
+  const rows = drafts.filter(t => t.type !== 'epic').map(t => ({ t, d: t.design ? JSON.parse(t.design) : null })), prior = new Map<string, string>()
   if (rows.some(r => r.d?.symbols?.some((x: any) => x.status === 'changed'))) for (const c of await store.list({})) if (c.category === 'done' && c.design) for (const x of JSON.parse(c.design).symbols ?? []) prior.set(x.name, sig(x))
   return rows.map(({ t, d }) => {
     const cl = t.meta['cadre.changelog'] ? JSON.parse(t.meta['cadre.changelog']) : null
@@ -107,7 +118,7 @@ export const isHuman = (o: Origin): string | null => (o.kind === 'press' || o.ki
 // agent-run setup/init (commands/agentrun fills these at load; core never imports commands/agentrun: a load cycle)
 export const RUN: { recheck?(h: Host): Promise<string>; cancel?(h: Host, kind: string): Promise<void> } = {}
 // drive (core/drive fills these at load; a static import would be a load cycle): arm at approval, hand main the next step after a dialog answer
-export const DRIVE: { arm?(h: Host, mode: 'auto' | 'yolo'): Promise<string>; kick?(h: Host): Promise<void>; humanWrite?<T>(h: Host, fn: () => Promise<T>): Promise<T> } = {}
+export const DRIVE: { arm?(h: Host, mode: 'auto' | 'yolo'): Promise<string>; kick?(h: Host): Promise<void>; humanWrite?<T>(h: Host, fn: () => Promise<T>): Promise<T>; decided?(h: Host, kind: 'plan', text: string): Promise<void> } = {}
 // gates = everything that decides or changes state for the human; only `init`/`setup` with no subcommand (start the run) may also be typed
 const gated = (c: Command): boolean => ['approve', 'reject', 'resolve', 'release', 'restore'].includes(c.cmd) || (['init', 'setup'].includes(c.cmd) && !!c.args[0]) || (c.cmd === 'config' && c.args[0] === 'set') || (c.cmd === 'sync' && c.args[0] === 'add') || (c.cmd === 'drive' && c.args[0] !== 'status')
 
@@ -143,7 +154,7 @@ async function approve(h: Host, c: Command): Promise<Out> {
   const planId = c.args[0] ?? '', store = await storeOf(h), reg = await registryOf(h)
   const gate = (await h.board.read()).plan?.id === planId ? null : await gateOf(store, planId); if (gate) return approveGate(h, store, reg, gate)
   const s = await h.board.read(), drafts = await draftsOf(store, s.epic)
-  const mission = s.plan?.slug === 'mission', missing = !s.plan || s.plan.id !== planId || mission ? [] : missingList(drafts, reg)   // incomplete is reported before a changed card (an incomplete plan has no card)
+  const mission = s.plan?.slug === 'mission', missing = !s.plan || s.plan.id !== planId ? [] : await planMissing(store, s, drafts, reg)   // incomplete is reported before a changed card (an incomplete plan has no card)
   const mis = await withMission(store, s), why = !s.plan || s.plan.id !== planId ? `no draft plan ${planId}` : !missing.length && (s.decisions ?? []).find(d => d.id === `plan:${planId}`)?.hash !== planHash(drafts, await missionOf_(store, s), (laneLine(s.plan, drafts, reg) ?? '') + mis) ? 'it changed; review again' : ''
   if (why || missing.length) { await redraw(h, store, reg); return refuse(why || `incomplete, missing: ${missing.join('; ')}`) }   // a refusal redraws the card
   const plan = s.plan!, epic = await store.get(plan.id), at = await h.now()
@@ -166,9 +177,10 @@ async function approve(h: Host, c: Command): Promise<Out> {
   await settleIf(h, 'plan:')
   let note = ''
   if (first) try { await cutEpic(h, plan.id, (await cfgOf(h)).branches.dev); note = `; epic branch ${plan.epicBranch} cut` } catch (e) { note = `; epic branch cut failed: ${(e as Error).message}` }
-  await queueBrief(h, `Plan ${plan.id} is approved: spawn its ready tasks one by one (each by its id), follow the cards until every task is done, then complete the plan (TaskUpdate ${plan.id} completed).`)   // drive's first push; drive continues at each turn end (ADR 0013)
+  await queueBrief(h, isMs(plan) ? `Milestone ${plan.id} is approved. Plan each epic when the next: line names it (TaskCreate its tasks with metadata.epic, then TaskUpdate the epic with metadata.planned true), spawn ready tasks one by one, follow the cards, and complete each epic when its tasks are done.`
+    : `Plan ${plan.id} is approved: spawn its ready tasks one by one (each by its id), follow the cards until every task is done, then complete the plan (TaskUpdate ${plan.id} completed).`)   // drive's first push; drive continues at each turn end (ADR 0013)
   const dr = first ? await DRIVE.arm?.(h, plan.mode ?? 'auto').catch((e: Error) => `drive not armed: ${e.message}`) : undefined
-  return { text: `Plan ${plan.id} approved: ${plural(ids.length, 'task')} ready${note}${dr ? ` · ${dr}` : ''}.` }
+  return { text: `${isMs(plan) ? 'Milestone' : 'Plan'} ${plan.id} approved: ${plural(ids.length, isMs(plan) ? 'epic' : 'task')} ready${note}${dr ? ` · ${dr}` : ''}.` }
 }
 async function reject(h: Host, c: Command): Promise<Out> {
   const [planId, ...why] = c.args, store = await storeOf(h), reg = await registryOf(h), s = await h.board.read()

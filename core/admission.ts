@@ -23,6 +23,7 @@ import { buildView, pkgOf } from './specview'
 import { realRoot } from '../policy/guards'
 import { lockCore, watch } from './rebase'
 import { pathsOf } from './validate'
+import { branchOf, epicOf } from './milestone'
 
 export interface Deps {
   store: TaskStore; cfg: Config; reg: TypeRegistry; root: string; home: string; wtRoot: string; key: string; actor: string; session: string
@@ -130,11 +131,12 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
   if (first !== 'worker' && first !== 'explorer' && first !== 'tester') return deny(`${t.id}: type ${t.type} starts at "${first}", which is not available; pick another task`)
   const flag = t.flags.find(f => BLOCKING.test(f)); if (flag) return deny(`${t.id} has flag ${flagName(flag)}; ask the human to resolve it (they answer it in the cadre dialog)`)
   if (t.condition?.state === 'not-met') return deny(`${t.id} never runs: its condition (${t.condition.on} failed) is not met`)
-  if (!(await d.store.ready(s.epic)).includes(t.id)) return deny(`${t.id} is not ready (waiting on a dependency or gate); spawn a task that TaskList shows ready`)
+  const ep = epicOf(s, t.epic); if (ep && ep.state !== 'running') return deny(`${t.id}: its epic ${ep.id} is ${ep.state}${ep.why ? ` (${ep.why})` : ''}; go on with the other epics`)   // milestone (ADR 0015)
+  if (!(await d.store.ready(t.epic ?? s.epic)).includes(t.id)) return deny(`${t.id} is not ready (waiting on a dependency or gate); spawn a task that TaskList shows ready`)
   const running = s.tasks.filter(x => x.state === 'active').length
   if (d.cfg.maxParallel > 0 && running >= d.cfg.maxParallel) return deny(`${running} agents already running (limit ${d.cfg.maxParallel}); wait for one to finish`)
   const spike = kindOf(spec) === 'spike'
-  if (!spike && !(await G.exists(h.run, d.root, s.plan.epicBranch))) return lostEpic(h, s, t)
+  if (!spike && !(await G.exists(h.run, d.root, branchOf(s, t)))) return lostEpic(h, s, t)
   const res = await apply(h, { kind: 'claim', id: t.id, at: await h.now(), actor: 'mod', owner: d.actor }, pipe)   // the CAS reserve: one winner (S2)
   if (!res.ok) return deny(res.error)
   const step = res.board.tasks.find(x => x.id === t.id)!.step, role = ROLE[step], wt = wtPath(d.wtRoot, d.key, t.id)
@@ -149,7 +151,7 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
     branch = task.meta['cadre.branch'] || branch   // a rebind keeps the branch it started on
     let cwd = d.root, meta: Record<string, string> = { 'cadre.step': step }
     if (!spike) {
-      const base = await G.tip(h.run, d.root, s.plan.epicBranch)
+      const base = await G.tip(h.run, d.root, branchOf(s, t))
       if (!(await ensureWt(h, d, wt, branch))) { await G.op(h, () => G.worktreeAdd(h.run, d.root, wt, branch, base)); created = true; await setup(h, d, task, wt) }
       cwd = viewed(d, role) ? await d.view!(h, d, task, wt) : wt
       meta = { ...meta, 'cadre.base': task.meta['cadre.base'] ?? base, 'cadre.branch': branch, 'cadre.worktree': wt }
