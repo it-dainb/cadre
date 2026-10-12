@@ -80,7 +80,7 @@ describe('notification policy (UI-DESIGN 4)', () => {
     ['task.transitioned', { taskId: 'a6', from: 'active', to: 'blocked', hash: 'h' }, 3, 'q:a6:h'], ['task.transitioned', { taskId: 'a1', from: 'review', to: 'done' }, 1, undefined],
     ['task.phase_changed', { taskId: 'a1', from: 'tester', to: 'red' }, 0, undefined], ['task.transitioned', { taskId: 'a2', from: 'review', to: 'active' }, 1, undefined], ['task.transitioned', { taskId: 'a2', from: 'active', to: 'review' }, 0, undefined], ['sync.state_changed', { target: 'pm', state: 'ok', conflicts: 1, at: 1 }, 2, 'off:pm'], ['check.ran', { taskId: 'a1', name: 'test', ok: false }, 1, undefined], ['check.ran', { taskId: 'a1', name: 'test', ok: true }, 1, undefined],
     ['sync.state_changed', { target: 'pm', state: 'offline', at: 1 }, 2, 'off:pm'], ['sync.state_changed', { target: 'pm', state: 'ok', at: 1 }, 1, 'off:pm'],
-    ['drive.status', { state: 'paused', reason: 'approve p4' }, 3, 'drive:paused'], ['drive.status', { state: 'finished' }, 3, 'drive:finished'], ['drive.status', { state: 'armed' }, 0, undefined],
+    ['drive.status', { state: 'paused', reason: 'approve p4' }, 3, 'drive:paused'], ['drive.status', { state: 'finished' }, 3, 'drive:finished'], ['drive.status', { state: 'armed' }, 0, undefined], ['drive.status', { state: 'stopped', reason: 'turn limit' }, 3, 'drive:stopped:0'],
     ['cost.updated', { tokens: 1 }, 0, undefined], ['cost.updated', { tokens: 1, threshold: 80 }, 2, 'cost:80'], ['init.stage', { stage: 4, state: 'proposed' }, 2, 'init:4'],
     ['agent.unbound', { agentId: 'g', reason: 'stale' }, 1, undefined], ['agent.unbound', { agentId: 'g', reason: 'answer' }, 0, undefined], ['agent.bound', { agentId: 'g', taskId: 'a1', role: 'worker' }, 0, undefined],
   ]
@@ -88,6 +88,8 @@ describe('notification policy (UI-DESIGN 4)', () => {
     for (const [type, data, lvl, key] of rows) { const e = ev(type, data, { taskId: data.taskId as string | undefined }); expect([type, levelOf(e)]).toEqual([type, lvl]); expect(textOf(e)?.key).toBe(key) }
     expect(textOf(ev('approval.pending', { planId: 'p3', missing: [] }))!.text).toBe('Plan p3 ready for approval · press 1')
     expect(textOf(ev('drive.status', { state: 'finished' }))!.text).toBe('Epic landed on dev ✓')
+    expect(textOf(ev('drive.status', { state: 'stopped', reason: 'turn limit' }))!.text).toBe('cadre: drive stopped · turn limit · 2: resume')
+    expect(textOf(ev('drive.status', { state: 'stopped', reason: 'a very long reason that does not fit in a toast at all, really' }))!.text.length).toBeLessThanOrEqual(60)
   })
   test('dedupe: one toast per open item; a resolve re-arms it', async () => {
     const { h, of } = mk(), f = (at: number) => ev('flag.raised', { taskId: 'a7', flag: 'drift:pm:status' }, { taskId: 'a7', at })
@@ -107,6 +109,7 @@ describe('notification policy (UI-DESIGN 4)', () => {
     await onEvent(a.h, f('a1', 1000)); expect(a.of('notify')).toHaveLength(0); expect(a.timers.map(t => t.ms)).toEqual([120_000]); await a.run(); expect(a.of('notify')).toEqual(['a1 flagged g · press 1'])
     const b = mk(); await onEvent(b.h, f('a1', 1000)); await b.h.ui.update(u => ({ ...u, ack: 5000 })); await b.run(); expect(b.of('notify')).toHaveLength(0)
     const c = mk(); await onEvent(c.h, ev('drive.status', { state: 'paused', reason: 'approve p4' }, { at: 0 })); expect(c.of('notify')).toEqual(['Drive paused: approve p4'])
+    const d = mk(); await onEvent(d.h, ev('drive.status', { state: 'stopped', reason: 'turn limit' }, { at: 5 })); await onEvent(d.h, ev('drive.status', { state: 'stopped', reason: 'turn limit' }, { at: 5 })); expect(d.of('notify')).toEqual(['cadre: drive stopped · turn limit · 2: resume'])   // deduped per stop
   })
   test('OS notify: ≤3 per 15 min, never while the pane is focused, off with ui.notify off, toast when unsent', async () => {
     const a = mk(); for (let i = 0; i < 5; i++) await onEvent(a.h, ev('flag.raised', { taskId: `t${i}`, flag: 'g' }, { taskId: `t${i}`, at: 1000 + i * 10 })); await a.run(); expect(a.of('notify')).toHaveLength(3)
