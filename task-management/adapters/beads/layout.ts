@@ -26,6 +26,7 @@ export async function moveStore(h: Host, root: string, open: (dir?: string) => T
   if ((await run('mkdir', '-p', `${root}/.cadre`)).exitCode || (await run('mv', from, to)).exitCode) return 'not moved: could not move .beads'
   const p = await open(to).probe().catch(() => ({ ok: false }))
   if (!p.ok) { await back(); return 'not moved: the store did not answer from its new place; it is back in .beads' }
+  await run('rm', '-f', `${root}/.beads.gate.lock`)   // the old store's lock file stays behind; bd makes .cadre/store.gate.lock
   const { path, have } = await excludeFile(h, root), add = EXCLUDE_NEW.filter(l => !have.includes(l))
   if (add.length) await h.write(path, `${have.join('\n').replace(/\n*$/, '\n')}${add.join('\n')}\n`)
   return 'task store moved to .cadre/store'
