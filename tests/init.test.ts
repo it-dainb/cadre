@@ -354,6 +354,6 @@ describe('known red before a goal', () => {
       return jailed()(argv)
     } })
     await initItems(h); expect(await confirm(h)).toBe('init: safety settings written · setup committed')
-    expect(calls.map(a => a.join(' '))).toEqual(expect.arrayContaining(['git commit --no-verify -m chore: set up cadre -- .cadre/config.json CHANGELOG.md', 'git merge-base --is-ancestor old new', 'git update-ref refs/heads/dev new old']))
+    expect(calls.map(a => a.join(' '))).toEqual(expect.arrayContaining(['git commit --no-verify -m chore: set up cadre -- CHANGELOG.md', 'git merge-base --is-ancestor old new', 'git update-ref refs/heads/dev new old']))
   })
 })

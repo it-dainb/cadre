@@ -17,7 +17,7 @@ import { spec } from '../agents'
 import * as D from '../core/discover'
 import { realRoot, setPolicy } from '../policy/guards'
 import { wtRootOf } from '../core/branches'
-import { EXCLUDE_NEW, legacy } from '../task-management/adapters/beads/layout'
+import { EXCLUDE_NEW, excludeFile, legacy } from '../task-management/adapters/beads/layout'
 
 // The beads TaskStore factory (register.ts wires it). The default refuses loudly.
 export const wire: { store(h: Host, cfg: Config, root: string): Promise<TaskStore> } = {
@@ -126,16 +126,18 @@ export async function confirm(h: Host): Promise<string> {
 
 // The setup files (config, changelog) must be committed: a clone and dev need them (a release refuses without the changelog on dev). cadre commits them after the
 // safety confirm, under git.op (its own ref move is not a flag); the other branch of main/dev follows when it is an ancestor (a fresh repo), else it is left alone.
-async function commitSetup(c: Ctx): Promise<string | null> {
-  const files = ['.cadre/config.json', c.cfg.changelog.path]
-  if (!(await git(c, 'status', '--porcelain', '--', ...files)).stdout.trim()) return null
-  const cur = (await git(c, 'symbolic-ref', '--short', '-q', 'HEAD')).stdout.trim(), { main, dev } = c.cfg.branches, other = cur === main ? dev : cur === dev ? main : ''
+export async function commitSetup(c: Pick<Ctx, 'h' | 'root' | 'cfg'>): Promise<string | null> {
+  const ex = await excludeFile(c.h, c.root); if (!ex.have.includes('.cadre/tmp/')) await c.h.write(ex.path, `${ex.have.join('\n').replace(/\n*$/, '\n')}.cadre/tmp/\n`.replace(/^\n/, ''))   // cadre's logs and scratch (core/close): never a change to commit
+  const files = (await git(c as Ctx, 'status', '--porcelain', '--', '.cadre/config.json', c.cfg.changelog.path, '.gitignore')).stdout.split('\n').filter(Boolean).map(l => l.slice(3))   // bd writes the root .gitignore
+  if (!files.length) return null
+  const cur = (await git(c as Ctx, 'symbolic-ref', '--short', '-q', 'HEAD')).stdout.trim(), { main, dev } = c.cfg.branches, other = cur === main ? dev : cur === dev ? main : ''
   if (!other) return null
+  const g = (...a: string[]) => git(c as Ctx, ...a)
   return op(c.h, async () => {
-    const old = (await git(c, 'rev-parse', other)).stdout.trim()
-    if ((await git(c, 'add', '--', ...files)).exitCode || (await git(c, 'commit', '--no-verify', '-m', 'chore: set up cadre', '--', ...files)).exitCode) return null
-    const head = (await git(c, 'rev-parse', 'HEAD')).stdout.trim()
-    if (!(await git(c, 'merge-base', '--is-ancestor', old, head)).exitCode) await git(c, 'update-ref', `refs/heads/${other}`, head, old)
+    const old = (await g('rev-parse', other)).stdout.trim()
+    if ((await g('add', '--', ...files)).exitCode || (await g('commit', '--no-verify', '-m', 'chore: set up cadre', '--', ...files)).exitCode) return null
+    const head = (await g('rev-parse', 'HEAD')).stdout.trim()
+    if (!(await g('merge-base', '--is-ancestor', old, head)).exitCode) await g('update-ref', `refs/heads/${other}`, head, old)
     return head
   })
 }
