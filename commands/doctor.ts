@@ -2,20 +2,20 @@
 // this file holds the machine CHECKS both share. The command text is ONE line; the report goes to the human surface only (pane tab "doctor" + ui.log).
 import type { Host } from '../types'
 import type { Config } from '../config'
-import { leaseLive } from '../core/board'
-import { cfgOf, storeOf } from '../core/dispatch'
+import { fnv1a64, leaseLive } from '../core/board'
+import { cfgOf, initConfirm, initPropose, storeOf } from '../core/dispatch'
 import { exists, identity, jailMode, ok as gitOk } from '../core/git'
 import { wtRootOf } from '../core/branches'
 import { qk } from '../core/session'
 import { assess } from '../policy/containment'
 import { policyOf } from '../policy/guards'
-import { plan as mplan } from '../policy/settings'
+import { apply as mapply, plan as mplan } from '../policy/settings'
 import { call } from '../task-management/protocol'
 import { openPane } from '../ui/index'
 import { progress, type Item } from './init'
 
 export type Row = ['ok' | 'warn' | 'crit', string, string?]   // level, line, fix (a command for the human)
-const PIN = '2.1.295', STAMP = 'cadre:setup', PATCH = { env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } }
+const PIN = '2.1.295', STAMP = 'cadre:setup', USER_CARD = 91, PATCH = { env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } }
 const ver = (s: string) => s.match(/\d+(\.\d+)+/)?.[0] ?? ''
 const atLeast = (v: string, min: string) => { const a = v.split('.').map(Number), b = min.split('.').map(Number); for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0); return true }
 
@@ -101,12 +101,26 @@ export async function setupItems(h: Host): Promise<Item[]> {
     for (const r of m.rows) if (r[2] === `! ${x.run}`) r[2] = `couldn't write the fix script (${bad.get(x.path)}); the exact command is in the cadre log`
     h.log(`fix command: ${x.full}`)
   }
-  const p = await mplan(h, path, PATCH).catch((e: Error) => e)
-  m.rows.push(p instanceof Error ? ['crit', `user settings unreadable: ${p.message}`] : p.lines.length ? ['crit', 'user settings lack env CLAUDE_CODE_ENABLE_TODO_TOOLS="1"', 'add it under "env" in ~/.claude/settings.json (keep a .bak)'] : ['ok', 'user settings: env CLAUDE_CODE_ENABLE_TODO_TOOLS is set'])
+  const p = await mplan(h, path, PATCH).catch((e: Error) => e), need = !(p instanceof Error) && p.lines.length > 0
+  m.rows.push(p instanceof Error ? ['crit', `user settings unreadable: ${p.message}`] : need ? ['crit', 'user settings lack env CLAUDE_CODE_ENABLE_TODO_TOOLS="1"', 'confirm the user settings card'] : ['ok', 'user settings: env CLAUDE_CODE_ENABLE_TODO_TOOLS is set'])
   await report(h, 'setup', m.rows, false)   // the run card holds the checklist; the pane's doctor tab has the rows
   if (!m.rows.some(r => r[0] === 'crit')) await h.store.set(STAMP, { cc: m.facts.cc, bd: m.facts.bd, bwrap: m.facts.bwrap ?? '', jail: m.facts.jail, at: await h.now() })
+  if (need) await proposeUser(h, p.lines, fnv1a64(p.lines.join('\n') + (p.old ?? '')))
   const home = await h.home()
-  return m.rows.map(([l, t, f]) => ({ name: t.replaceAll(`${home}/`, '~/'), st: l === 'crit' ? 'fail' : l === 'warn' ? 'warn' : 'ok', why: l === 'ok' ? undefined : f?.replace(/^! /, '').replaceAll(`${home}/`, '~/') }))
+  return m.rows.map(([l, t, f]) => ({ name: t.replaceAll(`${home}/`, '~/'), st: need && /^user settings lack/.test(t) ? 'wait' : l === 'crit' ? 'fail' : l === 'warn' ? 'warn' : 'ok', why: l === 'ok' ? undefined : f?.replace(/^! /, '').replaceAll(`${home}/`, '~/') }))
+}
+// The user settings are never edited by a model (ADR 0010): cadre shows the merge on a card (init:91) and writes it after Confirm (.bak, re-read), like init's safety settings.
+async function proposeUser(h: Host, lines: string[], sig: string): Promise<void> {
+  if ((await h.ui.read())['setup.pending'] === sig && (await h.board.read()).decisions?.some(d => d.id === `init:${USER_CARD}`)) return
+  await h.ui.update(u => ({ ...u, 'setup.pending': sig }))
+  await initPropose(h, USER_CARD, `setup user settings\n${sig}`, { title: 'setup · user settings · confirm', short: 'setup user settings', sub: 'setup', lines: ['cadre writes this after you confirm (a .bak is kept):', ...lines.map(l => `  ~/.claude/settings.json: ${l}`)] })
+}
+export async function confirmUser(h: Host, code: string | undefined): Promise<string> {
+  const was = (await h.ui.read())['setup.pending'], good = await initConfirm(h, USER_CARD, code ?? ''), path = `${await h.home()}/.claude/settings.json`
+  if (!good || !was) return 'setup: wrong code or nothing pending (burned); the card shows a new one'
+  const p = await mplan(h, path, PATCH); if (fnv1a64(p.lines.join('\n') + (p.old ?? '')) !== was) return 'setup: the settings file changed since the card; nothing written'
+  await mapply({ readText: h.readText, writeText: h.write }, path, PATCH); await h.ui.update(({ 'setup.pending': _p, ...u }) => u)
+  return 'setup: user settings written'
 }
 // session.start: no stamp, or the Claude Code build changed since: one toast
 export async function nudge(h: Host): Promise<void> {

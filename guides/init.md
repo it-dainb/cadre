@@ -1,7 +1,7 @@
 # Set up cadre in this project
 
 You prepare the current project for cadre. Work through the phases in order. Run every command with Bash in the project folder so the user sees it. Edit files with Read, Edit and Write.
-Rules: change only the files this guide names (`.cadre/`, `.git/info/exclude`, `.claude/settings.local.json`, `CHANGELOG.md`). Never edit source files. Never make up a name or an email. Never commit anything except the first commit of a new repository.
+Rules: change only the files this guide names (`.cadre/`, `.git/info/exclude`, `CHANGELOG.md`). Never edit source files or a Claude Code settings file; cadre applies settings after the user confirms a card. Never make up a name or an email. Never commit anything except the first commit of a new repository.
 
 ## Phase 1: repository
 1. `git rev-parse --git-dir`. No repository: `git init -b main`.

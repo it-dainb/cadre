@@ -64,9 +64,11 @@ const strict = async (h: Host) => (await strictOf(h)) !== 'advisory'
 // The maintenance lease (ADR 0010): only after a human-started run (commands/agentrun), until it is verified done, cancelled, or 20 main turns / 30 minutes have passed.
 export const LIMIT = { turns: 20, ms: 30 * 60_000, follow: 3 }
 export const leaseOf = async (h: Host) => { const r = (await h.secret.read()).run; return r && r.turns < LIMIT.turns && (await h.now()) - r.at < LIMIT.ms ? r : undefined }
-// The maintenance lease: while a human-started setup/init runs, main may Write/Edit only these, plus Read the guide's folder. Never source files.
-const leased = (real: string, pol: Policy) => (!!pol.repo && (under(real, `${pol.repo}/.cadre`) || ['.claude/settings.local.json', '.git/info/exclude', pol.changelog || 'CHANGELOG.md'].some(f => real === `${pol.repo}/${f}`)))
-  || (!!pol.home && ['settings.json', 'cadre.json'].some(f => real === `${pol.home}/.claude/${f}`))
+// The maintenance lease: while a human-started setup/init runs, main may Write/Edit only these, plus Read the guide's folder. Never source files, never a settings file
+// (permissions, hooks, sandbox) and never ~/.claude/cadre.json (it holds security keys): cadre writes those after the human confirms a card.
+const leased = (real: string, pol: Policy) => !!pol.repo && (under(real, `${pol.repo}/.cadre`) || ['.git/info/exclude', pol.changelog || 'CHANGELOG.md'].some(f => real === `${pol.repo}/${f}`))
+// Claude Code settings files: no agent edits them, lease or not, cadre on or off during a run
+const SETTINGS = /(^|\/)\.claude\/settings[^/]*\.json$/, SETTINGS_DENY = 'these settings are applied for you after you confirm the card'
 
 // Fence verdict for one file-tool call: undefined = allow-by-fence (continue), 'allow' = tester rule 2, else a deny reason.
 async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, input: unknown, pol: Policy, guide?: string): Promise<string | 'allow' | 'tmp' | undefined> {
@@ -77,6 +79,7 @@ async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, 
   const cwd = w.b?.worktree ?? pol.repo ?? '/'
   const p = inputPath(tool, input, cwd)
   const real = p === undefined ? undefined : await placed(h, join(cwd, p))
+  if (FENCED.includes(tool) && (SETTINGS.test(p ?? '') || SETTINGS.test(real ?? ''))) return SETTINGS_DENY
   if (real === undefined) return 'that path cannot be used; give a plain path inside your working directory'
   if (tester) return under(real, w.b!.worktree) ? 'allow' : 'write only inside your working directory'
   if (w.main && guide !== undefined && (tool === 'Read' ? under(real, guide.slice(0, guide.lastIndexOf('/'))) : leased(real, pol))) return 'allow'
@@ -89,6 +92,9 @@ async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, 
 
 // Pure L1 facts that need no state: the sandbox flag.
 const escape = (e: any) => (e?.dangerouslyDisableSandbox === true || e?.input?.dangerouslyDisableSandbox === true ? 'running unrestricted is not allowed; run the command normally' : undefined)
+
+// A repo where cadre is off, while a setup run is active: only the settings rule applies (the rest of the guards are for active repos)
+export const settingsOnly: Hook = async (h, e, next) => (FENCED.includes(e.tool) && SETTINGS.test(inputPath(e.tool, e.input ?? e, '/') ?? '') ? { deny: SETTINGS_DENY } : next(e))
 
 // Event-only judgement for the re-entry .catch (G2): a deny reason, or undefined to let the call through. Must not use $.
 export const judge = (e: any): string | undefined => {

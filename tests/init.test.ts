@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { confirm, initItems, repoKeyOf, rootFor, wire } from '../commands/init'
 import { pump, recheck, start, turnEnd } from '../commands/agentrun'
 import { press, run as cadreRun } from '../commands/cadre'
-import { guard, policyOf, setPolicy, LIMIT } from '../policy/guards'
+import { guard, policyOf, setPolicy, settingsOnly, LIMIT } from '../policy/guards'
 import { wake } from '../core/session'
 import { fakeHost } from './support'
 import { MemoryStore } from '../task-management/adapters/memory/store'
@@ -181,16 +181,18 @@ describe('maintenance lease (ADR 0010): main during a human-started run', () => 
     const call = async (tool: string, file_path?: string) => ((await guard(h, { tool, file_path, input: { file_path } }, () => 'ok')) as any)?.deny ?? 'ok'
     return { h, tick, call }
   }
-  const ALLOWED = [`${ROOT}/.cadre/config.json`, `${ROOT}/.git/info/exclude`, `${ROOT}/.claude/settings.local.json`, `${ROOT}/CHANGELOG.md`, `${HOME}/.claude/settings.json`, `${HOME}/.claude/cadre.json`]
-  test('no run: main has no shell and none of the setup files', async () => {
+  const ALLOWED = [`${ROOT}/.cadre/config.json`, `${ROOT}/.git/info/exclude`, `${ROOT}/CHANGELOG.md`], SETTINGS = [`${ROOT}/.claude/settings.local.json`, `${ROOT}/.claude/settings.json`, `${HOME}/.claude/settings.json`, `${HOME}/.claude/settings.local.json`]
+  test('no run: main has no shell and none of the setup files; settings files are refused with the card wording', async () => {
     const { call } = await lease(); expect(await call('Bash')).toContain('not available to main')
+    for (const p of SETTINGS) expect(await call('Edit', p)).toBe('these settings are applied for you after you confirm the card')
     for (const p of ALLOWED) expect(await call('Write', p)).not.toBe('ok')
   })
   test('during a run: Bash, Write/Edit on the setup files only, Read of the guide; never source files; activation keeps it', async () => {
     const { h, tick, call } = await lease(); await start(h, 'init'); await tick()
     expect(await call('Bash')).toBe('ok')
     for (const p of ALLOWED) { expect(await call('Write', p)).toBe('ok'); expect(await call('Edit', p)).toBe('ok') }
-    for (const p of [`${ROOT}/src/a.ts`, `${ROOT}/.git/config`, `${HOME}/.claude/settings.local.json`]) expect(await call('Write', p)).not.toBe('ok')
+    for (const p of [`${ROOT}/src/a.ts`, `${ROOT}/.git/config`, `${HOME}/.claude/cadre.json`]) expect(await call('Write', p)).not.toBe('ok')
+    for (const p of SETTINGS) for (const t of ['Write', 'Edit']) expect(await call(t, p)).toBe('these settings are applied for you after you confirm the card')   // never, lease or not
     expect(await call('Read', `${HOME}/.claude/plugins/store/cadre/guides/init.md`)).toBe('ok')
     await h.secret.update(s => ({ ...s, active: false })); expect(await wake(h)).toBe(true); expect(await call('Bash')).toBe('ok')   // .cadre/config.json appeared mid-run: still leased
   })
@@ -199,6 +201,36 @@ describe('maintenance lease (ADR 0010): main during a human-started run', () => 
     await h.secret.update(s => ({ ...s, run: { ...s.run!, turns: LIMIT.turns } })); expect(await call('Bash')).not.toBe('ok')
     await h.secret.update(s => ({ ...s, run: { ...s.run!, turns: 0, at: -LIMIT.ms } })); expect(await call('Write', ALLOWED[0])).not.toBe('ok')
     await start(h, 'init'); expect(await call('Bash')).toBe('ok'); await cadreRun(h, { args: 'init cancel', origin: { kind: 'composer' } }, () => ({})); expect(await call('Bash')).not.toBe('ok')
+  })
+})
+
+describe('settings watch (ADR 0010): a settings file changed outside cadre during a run', () => {
+  const SET = `${ROOT}/.claude/settings.local.json`, USR = `${HOME}/.claude/settings.json`
+  test('a change by a command stops the run with a CRIT card (diff) and Restore puts the bytes back (the changed file kept aside)', async () => {
+    const { h, files, sent, tick } = mk({ repo: false, mission: false, files: { [USR]: '{"env":{}}' } }); await start(h, 'init'); await tick(); sent.length = 0
+    files[USR] = '{"env":{},"permissions":{"allow":["Bash(*)"]}}'   // e.g. echo > ~/.claude/settings.json from Bash
+    await turnEnd(h, {}); await tick()
+    expect((await h.secret.read()).run).toBeUndefined(); expect(sent).toEqual([]); expect(await card(h)).toBeUndefined()
+    const d = (await card(h, 'run:settings'))!; expect(d.crit).toBe(true); expect(d.title).toBe('settings-changed · init stopped'); expect(d.lines.join('\n')).toContain('~/.claude/settings.json:'); expect(d.lines.join('\n')).toContain('permissions.allow')
+    expect(d.options.map(o => o.label)).toEqual(['Restore', 'Keep']); expect(h.logs.some(l => l.startsWith('cadre: settings-changed'))).toBe(true)
+    expect((await press(h, d.id, 'r', d.hash)).text).toBe('init: settings restored · run /cadre init to go on')
+    expect(files[USR]).toBe('{"env":{}}'); expect(files[`${USR}.cadre-changed`]).toContain('Bash(*)'); expect(await card(h, 'run:settings')).toBeUndefined()
+  })
+  test('Keep accepts the change; a file created during the run counts too', async () => {
+    const { h, files, tick } = mk({ repo: false, mission: false }); await start(h, 'init'); await tick()
+    files[SET] = '{"sandbox":{"enabled":false}}'; await turnEnd(h, {})
+    const d = (await card(h, 'run:settings'))!; expect(d.lines.join('\n')).toContain('.claude/settings.local.json:')
+    expect((await press(h, d.id, 'k', d.hash)).text).toBe('init: settings kept · run /cadre init to go on'); expect(files[SET]).toBe('{"sandbox":{"enabled":false}}')
+  })
+  test("cadre's own confirmed write (the safety settings card) is not a change from outside", async () => {
+    const { h, tick, code } = mk({ files: { ...READY, [`${ROOT}/.claude/settings.local.json`]: '{}' } }); await start(h, 'init'); await tick()
+    expect((await cadreRun(h, { args: `init confirm ${await code()}`, origin: { kind: 'composer' } }, () => ({}))).text).toBe('init: safety settings written · init: all done')
+    expect(await card(h, 'run:settings')).toBeUndefined()
+  })
+  test('a repo where cadre is off: during a run only the settings rule applies', async () => {
+    const { h } = mk({ repo: false }); const pass = () => 'ok'
+    expect(await settingsOnly(h, { tool: 'Write', file_path: `${HOME}/.claude/settings.json` }, pass)).toEqual({ deny: 'these settings are applied for you after you confirm the card' })
+    expect(await settingsOnly(h, { tool: 'Write', file_path: `${ROOT}/a.ts` }, pass)).toBe('ok'); expect(await settingsOnly(h, { tool: 'Bash' }, pass)).toBe('ok')
   })
 })
 
@@ -229,7 +261,7 @@ describe('guides', () => {
     expect(Object.keys(g)).toEqual(['init', 'setup'])
     for (const t of Object.values(g)) { expect(banned(t.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, ''))).toEqual([]); expect(t).toContain('AskUserQuestion'); expect(t).not.toContain('sudo apt') }
     expect(g.init).toContain('bd config set events-journal true'); expect(g.init).toContain('"kind": "mission"'); expect(g.init).toContain(skeleton().trim())
-    expect(g.setup).toContain('npm install -g @beads/bd@latest'); expect(g.setup).toContain('CLAUDE_CODE_ENABLE_TODO_TOOLS')
+    expect(g.setup).toContain('npm install -g @beads/bd@latest'); expect(g.setup).toContain('confirm the user settings card'); for (const t of Object.values(g)) expect(t).toContain('Never edit a Claude Code settings file'.slice(0, 10))
   })
 })
 

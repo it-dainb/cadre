@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { doctor, machine, nudge, setupItems } from '../commands/doctor'
+import { confirmUser, doctor, machine, nudge, setupItems } from '../commands/doctor'
 import { defaults } from '../config/index'
 import { banned } from './fixtures/wording'
 import { fakeHost } from './support'
@@ -87,9 +87,20 @@ describe('setup checklist (ADR 0010): checks only, Claude fixes', () => {
   test('runs nothing that changes the machine: no install, no settings write; the fails name the command Claude runs', async () => {
     const h = mk({ tools: NOBD }), its = await setupItems(h)
     expect(h.calls.some(a => a[0] === 'npm' && a[1] === 'install')).toBe(false); expect(h.writes).toEqual([]); expect(await h.store.get('cadre:setup')).toBeUndefined()
-    expect(its.filter(i => i.st === 'fail')).toEqual([{ name: 'bd not found', st: 'fail', why: 'npm install -g @beads/bd@latest' }, { name: 'user settings lack env CLAUDE_CODE_ENABLE_TODO_TOOLS="1"', st: 'fail', why: 'add it under "env" in ~/.claude/settings.json (keep a .bak)' }])
+    expect(its.filter(i => i.st === 'fail')).toEqual([{ name: 'bd not found', st: 'fail', why: 'npm install -g @beads/bd@latest' }])
+    expect(its.find(i => i.st === 'wait')).toEqual({ name: 'user settings lack env CLAUDE_CODE_ENABLE_TODO_TOOLS="1"', st: 'wait', why: 'confirm the user settings card' })   // never Claude's to edit
     expect(banned(its.filter(i => i.st === 'fail').map(i => `${i.name}: ${i.why}`))).toEqual([])
     expect(h.logs).toHaveLength(1); await setupItems(h); expect(h.logs).toHaveLength(1)   // same result again: no new transcript row
+  })
+  test('user settings: cadre shows the merge on a card and writes it only after Confirm (.bak, re-read); a wrong code is burned; changed bytes are refused', async () => {
+    const h = mk({ files: { [USER]: '{"theme":"dark"}\n' } }); await setupItems(h)
+    const d = (await h.board.read()).decisions!.find(x => x.id === 'init:91')!; expect(d.title).toBe('setup · user settings · confirm'); expect(d.lines.join('\n')).toContain('env.CLAUDE_CODE_ENABLE_TODO_TOOLS')
+    expect(h.files[USER]).toBe('{"theme":"dark"}\n'); expect(await confirmUser(h, 'nope')).toContain('wrong code')
+    await setupItems(h); const code = (await h.secret.read()).initConfirm!.code; h.files[USER] = '{"theme":"light"}\n'
+    expect(await confirmUser(h, code)).toContain('changed since the card'); expect(h.files[USER]).toBe('{"theme":"light"}\n')
+    await setupItems(h); expect(await confirmUser(h, (await h.secret.read()).initConfirm!.code)).toBe('setup: user settings written')
+    expect(JSON.parse(h.files[USER])).toEqual({ theme: 'light', env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } }); expect(h.files[`${USER}.bak`]).toBe('{"theme":"light"}\n')
+    expect((await setupItems(h)).every(i => i.st === 'ok')).toBe(true)
   })
   test('git identity missing: a fail that says to ask, never a made-up identity', async () => {
     const its = await setupItems(mk({ files: SET, noIdent: { on: true } }))

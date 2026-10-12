@@ -1,13 +1,14 @@
 // Agent-run setup and init (ADR 0010). `/cadre setup|init` hands MAIN one short brief that points at a guide; Claude does the work with visible tool calls under a
 // scoped maintenance lease (policy/guards). cadre only CHECKS: at every main turn end while a run is active it re-runs the checks, redraws the checklist card and,
 // when something Claude owns still fails, sends ONE follow-up naming it (at most 3 per run; then the card shows what is left and [r] Retry).
-import type { Host } from '../types'
+import type { Host, Secret } from '../types'
 import { fnv1a64 } from '../core/board'
 import { ask, settle } from '../core/decide'
 import { initItems, type Item } from './init'
 import { setupItems } from './doctor'
 import { LIMIT } from '../policy/guards'
 import { RUN } from '../core/dispatch'
+import { diff as jdiff } from '../policy/settings'
 
 type Kind = 'setup' | 'init'
 const G: Record<Item['st'], string> = { ok: '✓', fail: '✗', wait: '…', todo: '·', warn: '!' }
@@ -41,7 +42,7 @@ export async function start(h: Host, k: Kind): Promise<string> {
   const its = await items(h, k)
   if (finished(its)) { await end(h); await settle(h, `run:${k}`); return `${k}: all done` }
   const guide = `${(await h.root?.()) ?? '.'}/guides/${k}.md`
-  const at = await h.now(); await h.secret.update(s => ({ ...s, run: { kind: k, at, turns: 0, follow: 0, guide } }))
+  const at = await h.now(); await h.secret.update(s => ({ ...s, run: { kind: k, at, turns: 0, follow: 0, guide, snap: {} } })); await resnap(h)
   await draw(h, k, its, 'on')
   await send(h, `${WHAT[k]}. Follow ${guide} step by step.`)
   return `${k}: Claude is on it · progress on the cadre card`
@@ -49,6 +50,7 @@ export async function start(h: Host, k: Kind): Promise<string> {
 // re-check now (a main turn ended, or the human answered a gate on its card): done ends the run; a failure Claude owns gets a follow-up; the limits stop it
 export async function recheck(h: Host, turn = false): Promise<string> {
   const r = (await h.secret.read()).run; if (!r) return ''
+  if (await moved(h, r)) return `${r.kind}: stopped · a settings file changed · see the card`
   const k = r.kind, its = await items(h, k), fails = its.filter(i => i.st === 'fail'), turns = r.turns + (turn ? 1 : 0)
   if (finished(its)) { await end(h); await draw(h, k, its, 'done'); h.toast(`cadre: ${k} done`); return `${k}: all done` }
   const out = turns >= LIMIT.turns || (await h.now()) - r.at >= LIMIT.ms
@@ -63,4 +65,32 @@ export async function recheck(h: Host, turn = false): Promise<string> {
 export async function turnEnd(h: Host, e: { agentId?: string }): Promise<void> { if (!e.agentId && (await h.secret.read()).run) await recheck(h, true) }
 // `/cadre setup|init cancel` (core/dispatch): the lease ends and the card goes
 export async function cancel(h: Host, k: string): Promise<void> { if ((await h.secret.read()).run?.kind === k) await end(h); await settle(h, `run:${k}`) }
+
+// ---- settings watch (ADR 0010): Bash under the lease could still write a settings file. Their bytes are kept when the run starts and after each of cadre's
+// own confirmed writes (resnap); any other change stops the run with a CRIT card: [r] Restore the kept bytes (the changed file is kept as .cadre-changed) or [k] Keep.
+const watched = async (h: Host) => [`${await h.home()}/.claude/settings.json`, `${await h.cwd()}/.claude/settings.local.json`]
+export async function resnap(h: Host): Promise<void> {
+  const snap: Record<string, string | null> = {}; for (const p of await watched(h)) snap[p] = await h.readText(p)
+  await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, snap } } : s))
+}
+const parse = (t: string | null) => { try { return t ? JSON.parse(t) : {} } catch { return { '(not valid JSON)': true } } }
+async function moved(h: Host, r: NonNullable<Secret['run']>): Promise<boolean> {
+  const changed: [string, string | null, string | null][] = []
+  for (const [p, was] of Object.entries(r.snap ?? {})) { const now = await h.readText(p); if (now !== was) changed.push([p, was, now]) }
+  if (!changed.length) return false
+  const home = await h.home(), cwd = await h.cwd(), rel = (p: string) => p.replace(`${home}/`, '~/').replace(`${cwd}/`, '')
+  await end(h); await h.secret.update(s => ({ ...s, hold: { kind: r.kind, files: Object.fromEntries(changed.map(([p, was]) => [p, was])) } }))
+  const lines = ['A settings file changed outside cadre during the run. The run stopped.', ...changed.flatMap(([p, was, now]) => [`${rel(p)}:`, ...jdiff(parse(was), parse(now)).slice(0, 10).map(l => `  ${l}`)]), 'Restore puts back the bytes from before (the changed file is kept as .cadre-changed).']
+  await settle(h, `run:${r.kind}`); h.log(`cadre: settings-changed: ${changed.map(c => rel(c[0])).join(', ')}`)
+  await ask(h, { id: 'run:settings', kind: 'flag', title: `settings-changed · ${r.kind} stopped`, short: 'settings changed', lines, hash: fnv1a64(lines.join('\n')), tab: 'epic', crit: true, fallback: `/cadre ${r.kind} restore`,
+    options: [{ key: 'r', label: 'Restore', verb: 'restore', run: `${r.kind} restore` }, { key: 'k', label: 'Keep', verb: 'keep', run: `${r.kind} keep` }] })
+  return true
+}
+// `/cadre setup|init restore|keep` (human only: core/dispatch)
+export async function settingsAnswer(h: Host, how: 'restore' | 'keep'): Promise<string> {
+  const hold = (await h.secret.read()).hold; if (!hold) return 'nothing to restore'
+  if (how === 'restore') for (const [p, was] of Object.entries(hold.files)) { const now = await h.readText(p); if (now !== null) await h.write(`${p}.cadre-changed`, now); await h.write(p, was ?? '{}\n') }
+  await h.secret.update(({ hold: _h, ...s }) => s); await settle(h, 'run:settings')
+  return `${hold.kind}: settings ${how === 'restore' ? 'restored' : 'kept'} · run /cadre ${hold.kind} to go on`
+}
 RUN.recheck = h => recheck(h); RUN.cancel = cancel

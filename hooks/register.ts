@@ -13,7 +13,7 @@ import { observe } from '../core/close'
 import '../core/integrate'   // registers ROUTES.release
 import { admit, tick as heartbeat } from '../core/admission'
 import { contain } from '../policy/containment'
-import { check, guard, send, judge, judgeSpawn, configSet } from '../policy/guards'
+import { check, guard, send, judge, judgeSpawn, configSet, settingsOnly } from '../policy/guards'
 import { answer, describe } from '../native/tasks'
 import { wrap } from '../core/effect'
 import { handle, SPECS } from '../tools/index'
@@ -114,6 +114,14 @@ function passOn($, e, next) { return next(e) }
 function denyCmd($, e, next) { return next.called ? next(e) : { text: FAIL } }
 function denySend($, e, next) { return next.error?.kind === 're-entry' ? next(e) : next.called ? next(e) : { isDelivered: false, reason: FAIL } }
 
+// Dev only (docs/dev/ui-dev.md): seed the atoms from a scenario dump (`scripts/ui-dev.mjs --dump`) so the pane shows it in real Claude Code. Inert unless CADRE_DEV is 1.
+async function seed($) {
+  const path = (await $.env.get('CADRE_DEV')) === '1' ? await $.env.get('CADRE_DEV_SCENARIO') : undefined; if (!path) return
+  const s = JSON.parse(String(await $.fs.read(String(path)))) as { b: any; ring: any[]; sec?: object; ui?: object }
+  await update($, board, () => s.b); await update($, events, () => ({ seq: s.ring.length, epics: { [s.b.epic ?? '']: s.ring } }))
+  await update($, secret, x => ({ ...s.sec, root: (x as any).root })); await update($, ui, () => s.ui ?? {})
+}
+
 export const register: Register = (on, opts) => {
   options = { strictness: opts?.strictness as string | undefined }
   subscribe(onEvent)   // ui/notify: toasts, notify, status line from the event stream
@@ -123,6 +131,7 @@ export const register: Register = (on, opts) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'cadre', description: 'cadre: plan, approve, status, resolve, release, drive, init, setup, doctor', argumentHint: '<sub> [args]', immediate: true })
     const root = await $.session.cwd(); await update($, secret, x => ({ ...x, root })); await $.store.set('cadre:roots', { ...(((await $.store.get('cadre:roots')) ?? {}) as object), [repoKeyOf(root)]: root })   // the repo root for every hook: in a subagent hook $.session.cwd() is the agent's own view/worktree
+    await seed($).catch(x => $.ui.log(`cadre: dev scenario not seeded: ${x}`))   // dev only: CADRE_DEV=1 + CADRE_DEV_SCENARIO (harness/tui.sh --scenario)
     await $.env.set('CLAUDE_CODE_ENABLE_TODO_TOOLS', '1')
     await $.env.set('ENABLE_TOOL_SEARCH', 'false')   // S13: isDeferred:false alone does not stop deferral
     await wake(host($)).catch(e => $.ui.log(`cadre: session start: ${e}`))   // active repos only: $.store 'policy' + cadre.ui.cfg + containment band (agents ship as agents/*.md files, A28)
@@ -142,7 +151,7 @@ export const register: Register = (on, opts) => {
   // 4. tool.check allow
   on('tool.check', async ($, e, next) => { if (!(await wake(host($)))) return next(e); await warm(host($)); return check(host($), e, next) }).catch(denyCheck)
   // 5. guards (L1, fence, Task* answers, MCP pre-checks): guards judge first, then main's Task* answers
-  on('tool.call', { tool: /./ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); await warm(host($)); return guard(host($), e, e2 => answer(host($), e2, next)) }).catch(denyCall)
+  on('tool.call', { tool: /./ }, async ($, e, next) => { const h = host($); if (!(await wake(h))) return (await h.secret.read()).run ? settingsOnly(h, e, next) : next(e); await warm(h); return guard(h, e, e2 => answer(host($), e2, next)) }).catch(denyCall)
   // 6. wrap (L3 per-call fingerprint, delta drain, result card, tester log); then our own MCP tools answer innermost
   on('tool.call', { tool: /^/ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return wrap(host($), e, next) }).catch(denyCall)
   on('tool.call', { tool: /^mcp__cadre__/ }, ($, e, next) => handle(host($), e, next)).catch(denyCall)
