@@ -58,11 +58,11 @@ const SC = SCENARIOS
 const bandTxt = (s: string, w: number) => txt(band(SC[s], w, A)).join('\n')
 describe('docked band (must 1)', () => {
   test('at 24 and 30 cells every scenario fits; the key and the "+N more" count are never cut', () => {
-    for (const [n, s] of Object.entries(SC)) for (const w of [24, 30, 40]) {
+    for (const [n, s] of Object.entries(SC)) for (const w of [20, 24, 30, 40]) {
       const l = txt(band(s, w, A)); expect([n, w, l.filter(x => [...x].length > w)]).toEqual([n, w, []])
     }
     const two = { ...SC['flags'], ui: {} }, l = txt(band(two, 24, A)).join('\n')
-    expect(l).toMatch(/\+\d+ more|\d+ waiting/); expect(l).toContain('1: answer')
+    expect(l).toMatch(/\+\d+ more/); expect(l).toContain('1: answer')
     expect(bandTxt('v2-board', 24)).toContain('1: answer')
   })
   test('drive cell at 24 cells keeps its key (0)', () => { expect(bandTxt('v2-driving-yolo', 24)).toMatch(/0: stop$/) })

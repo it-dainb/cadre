@@ -19,8 +19,14 @@ const later = (h: Host, fn: () => Promise<unknown>) => h.ops?.after(1, () => fn(
 // Open the pane on a tab (called by /cadre open|approve and by presses). Where nothing draws, the content goes to $.ui.log instead (C3).
 const OPEN = { id: 'cadre', title: 'cadre', columns: 120 }
 // The open call is the first thing a command or press does: only there does the engine count it as asked (any width); inside after() it is "unasked" (>= 144 columns, live capture ADR 0008)
+// /theme can change after session start: the Raster palette follows it (read on every pane open / tab press and on the tick)
+async function syncTheme(h: Host): Promise<void> {
+  const th = await h.theme?.().catch(() => undefined)
+  if (th && readCfg(await h.ui.read()).theme !== th) await h.ui.update(u => ({ ...u, cfg: { ...(u.cfg as object | undefined), theme: th } }))
+}
 export async function openPane(h: Host, tab: string, o: { focus?: boolean; quiet?: boolean; pre?: ReturnType<NonNullable<Host['ops']>['open']> } = {}): Promise<void> {
   if (tab === 'settings') await refreshSettings(h)
+  await syncTheme(h)
   const opened = o.pre ?? h.ops!.open({ ...OPEN, ...(o.focus === false ? {} : { focus: true as const }) })   // `focus: false` is refused by the engine: leave it out
   const v = await read(h)
   await h.ui.update(u => ({ ...u, tab }))
@@ -126,7 +132,6 @@ export async function resumeBanner(h: Host, o: { decisions?: number; next?: stri
 // the render hook cannot read env/config, so the tick keeps the resolved strictness (M10) in the ui atom for it
 export async function tickUi(h: Host): Promise<void> {
   const sx = await strictOf(h).catch(() => undefined); if (sx) await h.ui.update(u => (u.sx === sx ? u : { ...u, sx }))
-  const th = await h.theme?.().catch(() => undefined)   // /theme can change after session start: the Raster palette follows it
-  if (th && readCfg(await h.ui.read()).theme !== th) await h.ui.update(u => ({ ...u, cfg: { ...(u.cfg as object | undefined), theme: th } }))
+  await syncTheme(h)
   h.ops?.invalidate()   // elapsed counters and `just now` age on the 30 s tick
 }

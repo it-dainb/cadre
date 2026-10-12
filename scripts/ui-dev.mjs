@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path'
 const ME = fileURLToPath(import.meta.url), ROOT = join(dirname(ME), '..')
 const WIDTHS = [40, 60, 80, 120, 160], TABS = { 1: 'epic', 7: 'plan', 8: 'doctor', 9: 'settings' }
 const ALLTABS = [...new Set([...Object.values(TABS), 'graph', 'timeline', 'activity'])]   // v2 tabs join as they land; a tab a version does not know draws its default view
-const V1 = process.argv.includes('--v1'), DOCKED = 24   // --docked: the band is only the transcript column wide beside a docked pane (24 cells at a 120-column terminal, ADR 0008)
+const V1 = process.argv.includes('--v1'), DOCKED = 20   // --docked: the band is only the transcript column wide beside a docked pane (24 cells at a 120-column terminal, ADR 0008; live: about 20 usable beside the host's collapse handle)
 const FLAGS = ['--experimental-transform-types', '--no-warnings']
 
 // ---------- child: render one frame, print JSON ----------

@@ -41,7 +41,7 @@ function lines(v: View, w: number, a: Acts): Line[] {
     const wordy = !tight && room(width(label.t) + width(SEP)) >= 14
     const r = room(wordy ? width(label.t) + width(SEP) : 1), text = wide ? n.text : n.short
     const title = r >= 8 ? clip(text, r) : ''
-    l2 = lr(w, [...tag, ...(wordy ? [label, S(`${SEP}${title}${more}`)] : [S(title ? ` ${title}${more}` : needs.length > 1 ? ` ${needs.length} waiting` : '')])], [key])
+    l2 = lr(w, [...tag, ...(wordy ? [label, S(`${SEP}${title}${more}`)] : [S(title ? ` ${title}${more}` : needs.length > 1 ? ` +${needs.length - 1} more` : '')])], [key])
   } else if (dr && dkey) {
     const t = w < 30 ? dr.mode : tight ? dr.text.replace(new RegExp(`${SEP}turn \\d+/\\d+`), '') : w < 100 ? dr.text.replace('turn ', '') : dr.text
     l2 = lr(w, dr.kind === 'run' ? [muted(t)] : [g(v, dr.kind === 'stopped' ? stopK(dr.reason) : 'wait'), muted(` ${w < 30 ? dr.kind : t}`)], [dkey])

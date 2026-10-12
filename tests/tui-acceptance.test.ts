@@ -25,8 +25,8 @@ export const dupes = (lines: string[], bandRows = 0) => {
 export const wording = (lines: string[]) => lines.join('\n').match(/\b(w1|rev|syn|tst)\b|!<|!>|\b\d+m o\b|\bgit:\w+:\w+|spec_change|\bpm\b|agent\(s\)/g) ?? []
 export const glyphs = (lines: string[]) => [...new Set([...lines.join('').replace(/\s/g, '')].filter(ch => ch.charCodeAt(0) > 126 && !ALLOWED.has(ch)))]
 
-const DOCK = 24   // the band beside a docked pane is only the transcript column wide
-// mode: the Unicode frame, the ASCII frame (BRAND §6), the docked band (the band at 24 cells, the pane at w)
+const DOCK = 20   // the band beside a docked pane is only the transcript column wide
+// mode: the Unicode frame, the ASCII frame (BRAND §6), the docked band (the band at 20 cells, the pane at w)
 const frame = (s: any, w: number, tab: string, mode: 'unicode' | 'ascii' | 'docked' = 'unicode') => {
   const v = { ...s, ui: { ...s.ui, tab, ...(mode === 'ascii' ? { cfg: { ...s.ui.cfg, ascii: true } } : {}) } }, p = pane(v, w, s.rows ?? 40, NOOP)
   const bd = txt(band(v, mode === 'docked' ? Math.min(w, DOCK) : w, NOOP))

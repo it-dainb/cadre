@@ -162,6 +162,7 @@ describe('render hooks, handlers, fallbacks', () => {
   test('the tick re-reads the theme (/theme after session start): the Raster palette follows it', async () => {
     const a = mk(); await seed(a.h); a.h.theme = async () => 'light'
     await tickUi(a.h); expect(((await read(a.h)).ui.cfg as { theme?: string }).theme).toBe('light')
+    a.h.theme = async () => 'dark'; await openPane(a.h, 'board'); expect(((await read(a.h)).ui.cfg as { theme?: string }).theme).toBe('dark')   // a pane open re-reads it too (the tick only runs while a plan is active)
   })
   test('openPane: tab + focus request; where nothing draws the dialog opens instead', async () => {
     const a = mk(); await seed(a.h, approval(62)); await openPane(a.h, 'board')
