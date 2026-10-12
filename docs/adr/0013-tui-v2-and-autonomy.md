@@ -49,3 +49,19 @@ Status: accepted (0.9.0). User decisions, 2026-10-12 (plan `cadre-0.9.0-ui`, Tra
 - Fixed on the way: `/goal` was noted in `ui.goal`, the slot of the queued brief: a queued brief paused drive as "two loop owners" and a seen `/goal` could be submitted as `true`. It is `ui.loop` now. `tdd.resolveSpec` now moves beads out of `blocked` as `unblock` does, or the worker's next report could not move the task.
 - Accepted risk (user): under yolo main may weaken an approved spec. Every decision is recorded, and the reviewer still checks the contract.
 - Kit: `tests/drive.test.ts` (parser, mode on the plan, arming only at approval, never answering a dialog, auto's critical list, yolo's spec change and question end to end, rework past the cap, hard stops in both modes, bounds, stop/resume, finish); `tests/git/integrate.test.mjs` (yolo proposes no release; one fix task, then auto asks and yolo stops); `tests/reuse.test.ts` drive tests moved to `arm`.
+
+## TUI v2
+
+### Why
+v1 was hard to follow (research: local notes; summary in `docs/design/TUI-DESIGN.md` §0): the same counts three times on one screen, every state shown three ways (`[RUN]▶` + colour), six regions open at once, four border styles, private shorthand (`58m o rev`), footers listing keys that did nothing, and no line between "needs you" and "happening now".
+
+### Decision
+- **Brand and layout** are specified in `docs/design/BRAND.md` (tokens: Claude-native theme keys, safe single-width glyphs + ASCII, spacing, frameless, still + live counters + a quiet row flash) and `docs/design/TUI-DESIGN.md` (band ≤ 2 lines; pane tabs `1 Board 2 Graph 3 Timeline 4 Activity 8 Doctor 9 Settings`; Board = Needs you › Agents › Running › Waiting › Done + inspector).
+- **One token source.** `ui/tokens.ts` holds every colour role, glyph and column width; `scripts/budget.mjs` rejects literals in files marked `// UI v2`.
+- **Acceptance is automated.** `tests/tui-acceptance.test.ts` + `scripts/ui-dev.mjs --all` render every scenario × tab × 40/60/80/120/160 in Unicode, ASCII, docked and light, and fail on overflow, a repeated fact, private shorthand or a glyph outside the BRAND set.
+- **v1 deleted** in the same release; `ui/` cap 1,500 while both coexisted, **900** after (now ≈ 860).
+- **Engine-imposed deviations from TUI-DESIGN:** hotkeys are one digit or one lowercase letter, so the key sheet is `k`, replay is `h l s e`, lists move with `n p`; the engine draws `k: label` itself; the band's drive key is `0` (`2` is the Graph tab); the current tab is `inverse` (not colour alone).
+
+### Accepted limits
+- Light-theme contrast of the host's own `warning`/`claude` colours is about 2.4–2.8:1 (measured through tmux's 256 colours, a lower bound); cadre cannot change theme colours, so attention is also bold and every state has a glyph.
+- The docked band is ~20 cells; it drops the title before the key or the "+N more" count.
