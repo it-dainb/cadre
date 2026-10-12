@@ -10,6 +10,8 @@ import { flagDecision, ask } from '../core/decide'
 import { BUDGET } from './fixtures/budget.generated'
 import { world } from './fixtures/native/world'
 import { fakeHost } from './support'
+import { nextAction } from '../core/render'
+import { modelView } from '../core/board'
 import { defaults } from '../config/index'
 
 const LITE = { kind: 'plan', lane: 'lite', reason: 'one small fix in src/a.ts', type: 'bug', changelog: { category: 'Fixed', entry: 'off-by-one in paging' } }
@@ -122,6 +124,7 @@ describe('T6.3 gate policy', () => {
     const w = await go('auto'); await bindWorker(w)
     await report(w.h, await resolveDeps(w.h), 'ag1', { role: 'worker', outcome: 'spec_change', reason: 'pages start at 1' })
     expect((await w.board()).decisions!.map(d => d.id)).toEqual([`flag:${w.t}:spec_change`])
+    expect(nextAction(modelView(await w.board()))).toBe(`wait: the user decides the spec change of ${w.t} in its own dialog`)   // never a second question from main
     expect((await w.call('TaskUpdate', { taskId: w.t, metadata: { decision: 'reject: no' } })).result.error).toContain('the human accepts or rejects it')
     await w.h.ui.update(({ goal: _g, ...u }) => u)
     const d = (await w.board()).decisions![0]; await decide(w.h, d.id, 'x', d.hash)   // the human rejects in the dialog: the worker is resumed and main, idle, is told
