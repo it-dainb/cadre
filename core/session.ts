@@ -59,6 +59,8 @@ export async function held(h: Host, s?: string): Promise<'here' | 'other' | 'gon
   return a && (await h.now()) - a.at < ALIVE ? 'other' : 'gone'
 }
 // the session that spawned a task's current agent (admission.launch) or last renewed its claim (admission.beat); a bare number is a record from before owners were kept
+// a task an agent may still be working on. Not the claim lease: bd drops it when a task moves to review (a reviewer at work has none), live
+export const inFlight = (t: { category?: string }) => ['active', 'review', 'blocked'].includes(t.category ?? '')
 export async function ownerOf(h: Host, taskId: string): Promise<string | undefined> { const v = (await h.store.get(await scoped(h, `hb:${taskId}`))) as { s?: string } | number | undefined; return typeof v === 'object' ? v?.s : undefined }
 
 // cold board, no pointer (a fresh checkout, an eval scaffold): adopt the newest unfinished non-mission epic that has an approved (non-draft) child. Tried once per session.
@@ -103,10 +105,10 @@ async function hydrate(h: Host): Promise<boolean> {
   await safe(h, 'ring rebuild', async () => { if (await ring(h, store, p.epic)) await resetDelivery(h) })
   const rec = same ? await casDrive(h, store, r => (r?.on && r.epicId === p.epic && r.lease.session === p.session ? { ...r, lease: { session: me, until: now + LEASE } } : undefined)) : undefined   // our own lease moves to the new session id
   if (rec?.on && rec.epicId === p.epic) await h.board.update(s => ({ ...s, drive: { ...s.drive, on: true, turns: rec.turns, mode: rec.mode, stopped: rec.stopped } }))   // drive survives /clear: it continues at the next turn.complete (9)
-  let gone = 0   // this process's agents survive a /clear: kept while their task is in flight (not by the claim's lease: a task in review has none, live)
+  let gone = 0   // this process's agents survive a /clear: kept while their task is in flight
   for (const [a, b] of Object.entries((p.bind ?? {}) as Record<string, Binding>)) {
     if (a.startsWith('~')) continue
-    if (same && ['active', 'review', 'blocked'].includes((await store.get(b.taskId).catch(() => ({}) as any)).category)) await h.bind.update(t => ({ ...t, [a]: { ...b, sessionId: me } })); else gone++
+    if (same && inFlight(await store.get(b.taskId).catch(() => ({})))) await h.bind.update(t => ({ ...t, [a]: { ...b, sessionId: me } })); else gone++
   }
   const q = ((await h.store.get(await qk(h))) as Entry[] | undefined) ?? [], ids = new Set(Object.keys(await h.bind.read()))
   await h.store.set(await qk(h), q.map(x => (ids.has(x.agentId) ? { ...x, sessionId: me } : x)))
@@ -171,10 +173,11 @@ export async function start(h: Host): Promise<void> {
   await h.ui.update(u => ({ ...u, cfg: { ...(u.cfg as object | undefined), glyphs: cfg.ui.glyphs, flash: cfg.ui.flash, density: cfg.ui.density, ascii, theme, maxTurns: cfg.drive.maxTurns } }))   // the render hooks cannot read env: resolve it here
   await safe(h, 'prune', () => prune(h))
 }
-// 13.5 $.store hygiene (ST-15): stale-lease resume entries, bindings of closed or expired tasks in the pointer, quarantine entries older than 30 days
+// 13.5 $.store hygiene (ST-15): resume entries and pointer bindings of tasks no longer in flight, quarantine entries older than 30 days. Runs again after a /clear (wake): a
+// lease test here dropped the binding of a reviewer still at work (its task in review has no lease), live
 export async function prune(h: Host): Promise<void> {
   const store = await storeOf(h), now = await h.now(), live: Record<string, boolean> = {}
-  const ok = async (id: string) => (live[id] ??= await store.get(id).then(t => leaseLive(t, now) && t.category !== 'done' && t.category !== 'cancelled', () => false))
+  const ok = async (id: string) => (live[id] ??= await store.get(id).then(inFlight, () => false))
   const q = ((await h.store.get(await qk(h))) as Entry[] | undefined) ?? [], keep: Entry[] = []
   for (const x of q) if (await ok(x.taskId)) keep.push(x)
   if (keep.length !== q.length) await h.store.set(await qk(h), keep)

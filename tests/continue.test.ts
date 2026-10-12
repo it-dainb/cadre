@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { NOTHING, continueRun, proc, rehydrate, savePointer, stampAlive } from '../core/session'
+import { NOTHING, continueRun, proc, prune, rehydrate, savePointer, stampAlive } from '../core/session'
+import { drain, queueResume } from '../core/reuse'
 import { admit } from '../core/admission'
 import { arm, casDrive } from '../core/drive'
 import { ROUTES } from '../core/dispatch'
@@ -87,6 +88,15 @@ describe('continue after exit', () => {
     await rehydrate(h2); expect(await second).toEqual(['r1', 'w1'])
     expect((await h2.board.read()).drive).toMatchObject({ on: true, mode: 'yolo' }); expect(Object.keys(await h2.bind.read()).sort()).toEqual(['r1', 'w1'])
     expect((await h2.ui.read()).cont).toBeUndefined()
+  })
+
+  test('a reviewer at work keeps its binding with no claim lease (a task in review has none): the prune after a /clear and its resumes', async () => {
+    const m = await running('auto'), sent: string[] = []; m.clock.now += 6 * 60_000
+    m.h1.sendTo = async (id: string) => { sent.push(id); return { isDelivered: true } }
+    await prune(m.h1)
+    expect(Object.keys(((m.kv.get(`${K}:board`)) as any).bind).sort()).toEqual(['r1', 'w1'])
+    await queueResume(m.h1, { agentId: 'r1', taskId: m.b, text: 'review the fix' }); await drain(m.h1, { reason: 'answer' }, async () => ({}))
+    expect(sent).toEqual(['r1'])
   })
 
   test('continue: immediate takeover from a gone session (claim still live), drive re-armed in its mode, respawns queued for main', async () => {

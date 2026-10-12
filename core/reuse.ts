@@ -6,13 +6,13 @@ import type { Binding, Hook, Host } from '../types'
 import type { TaskStore } from '../task-management/store'
 import { scoped } from '../commands/init'
 import { cfgOf, storeOf } from './dispatch'
-import { UI, leaseLive, modelView, safe, sessionOf, viewHash } from './board'
+import { UI, modelView, safe, sessionOf, viewHash } from './board'
 import { nextAction } from './render'
 import { subscribe } from './events'
 import { brief, drainDelta } from './briefs'
 import { resolveDeps } from './admission'
 import { checkpoint } from './effect'
-import { type Entry, cardOf, qk, savePointer, warm } from './session'
+import { type Entry, cardOf, inFlight, qk, savePointer, warm } from './session'
 import { drive, goalSeen } from './drive'
 
 const counted = (h: Host, q: Entry[], me: string) => h.board.update(s => ({ ...s, resumesQueued: q.filter(x => x.sessionId === me).length }))
@@ -42,7 +42,7 @@ async function sendMine(h: Host, store: TaskStore | undefined, cfg: any) {
   for (const r of mine) {
     const b = bind[r.agentId]
     const ask = r.taskId.startsWith('ask-') && (await askOf(h, r.agentId))   // a marker-less explorer's nudge (core/asks): no task, no lease
-    if (!ask && store && !leaseLive(await store.get(r.taskId), now)) continue   // stale lease: that agent is gone; the rebind handoff replaces it (8.4)
+    if (!ask && store && !inFlight(await store.get(r.taskId))) continue   // the task closed or went back to todo: nothing to resume (entries of another session are never this session's to send)
     if (!ask && (!b || b.retired)) continue
     if (ask) { const res = await h.sendTo!(r.agentId, modelText('nudge', r.text)); if (!res.isDelivered) h.log(`${ask.id} could not be resumed: ${res.reason ?? 'not delivered'}`); continue }
     if (stale(b, now, cfg)) { await retire(h, r.agentId, b, `context ${ctxPct(b)}%`); continue }
