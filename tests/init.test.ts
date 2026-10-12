@@ -357,3 +357,10 @@ describe('known red before a goal', () => {
     expect(calls.map(a => a.join(' '))).toEqual(expect.arrayContaining(['git commit --no-verify -m chore: set up cadre -- CHANGELOG.md', 'git merge-base --is-ancestor old new', 'git update-ref refs/heads/dev new old']))
   })
 })
+
+test('the run that starts the task store keeps the .gitignore bytes (bd adds to it); a run with the store ready keeps none', async () => {
+  const a = mk({ files: { ...READY, [`${ROOT}/.gitignore`]: 'node_modules/\n' }, journal: false }); await start(a.h, 'init')
+  expect((await a.h.secret.read()).run?.gi).toEqual({ had: true, text: 'node_modules/\n' })
+  const b = mk({ files: READY, journal: false }); await start(b.h, 'init'); expect((await b.h.secret.read()).run?.gi).toEqual({ had: false, text: '' })
+  const c = mk({ files: READY }); await c.h.board.update(x => ({ ...x, plan: { id: 'm', slug: 'mission', state: 'draft', epicBranch: '' } })); await start(c.h, 'init'); expect((await c.h.secret.read()).run).toBeDefined(); expect((await c.h.secret.read()).run?.gi).toBeUndefined()
+})

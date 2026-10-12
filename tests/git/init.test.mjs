@@ -14,26 +14,31 @@ const cell = v => ({ read: async () => v, update: async fn => (v = fn(v)) })
 const BD = '\n# Beads / Dolt files (added by bd init)\n.dolt/\n*.db\n.beads-credential-key\n.beads/proxieddb/\n*.gate.lock*\n'   // real bd 1.3.1 output (fresh repo)
 const put = (d, p, t) => { mkdirSync(join(d, p, '..'), { recursive: true }); writeFileSync(join(d, p), t) }
 
-test('a fresh init (the files the guide and bd leave) is clean after the setup commit; dev follows main; .cadre/tmp is excluded', async () => {
+const hostOf = (d, gi) => ({ run, cwd: async () => d, write: async (p, t) => writeFileSync(p, t), readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } }, git: cell({ busy: false, epoch: 0 }), secret: cell({ run: { kind: 'init', gi } }) })
+const CFG = { branches: { main: 'main', dev: 'dev' }, changelog: { path: 'CHANGELOG.md' } }
+const repo = (tracked) => {
   const d = mkdtempSync(join(tmpdir(), 'cadre-init-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
-  put(d, 'src/a.mjs', 'export const a = 1\n'); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'chore: initial commit'); sh(d, 'branch', 'dev', 'main')
+  put(d, 'src/a.mjs', 'export const a = 1\n'); for (const [p, t] of Object.entries(tracked)) put(d, p, t); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'chore: initial commit'); sh(d, 'branch', 'dev', 'main')
   put(d, '.git/info/exclude', '.cadre/store/\n.cadre/store.gate.lock\n.claude/settings.local.json\n')   // phase 1, step 6
-  put(d, '.cadre/config.json', '{"branches":{"main":"main","dev":"dev"}}\n'); put(d, 'CHANGELOG.md', '# Changelog\n'); put(d, '.gitignore', BD)
+  put(d, '.cadre/config.json', '{"branches":{"main":"main","dev":"dev"}}\n'); put(d, 'CHANGELOG.md', '# Changelog\n')
   put(d, '.cadre/store/db', 'x'); put(d, '.cadre/store.gate.lock', ''); put(d, '.claude/settings.local.json', '{}\n'); put(d, '.cadre/tmp/logs/a1-test.log', 'ok\n')
-  const h = { run, write: async (p, t) => writeFileSync(p, t), readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } }, git: cell({ busy: false, epoch: 0 }) }
-  const sha = await I.commitSetup({ h, root: d, cfg: { branches: { main: 'main', dev: 'dev' }, changelog: { path: 'CHANGELOG.md' } } })
-  assert.equal(sh(d, 'status', '--porcelain'), ''); assert.equal(sh(d, 'rev-parse', 'HEAD'), sha); assert.equal(sh(d, 'rev-parse', 'dev'), sha)
-  assert.deepEqual(sh(d, 'show', '--name-only', '--format=%s', 'HEAD').split('\n').filter(Boolean), ['chore: set up cadre', '.cadre/config.json', 'CHANGELOG.md']); assert.equal(existsSync(join(d, '.gitignore')), false)   // bd's .gitignore was all bd: gone, never committed
+  return d
+}
+
+test('a fresh init (no .gitignore before; bd made one) is clean after the confirm: .gitignore gone, setup committed, dev follows main, .cadre/tmp excluded', async () => {
+  const d = repo({}), h = hostOf(d, { had: false, text: '' }); put(d, '.gitignore', BD)   // bd init during the run
+  await I.restoreIgnore(h); const sha = await I.commitSetup({ h, root: d, cfg: CFG })
+  assert.equal(existsSync(join(d, '.gitignore')), false); assert.equal(sh(d, 'status', '--porcelain'), ''); assert.equal(sh(d, 'rev-parse', 'HEAD'), sha); assert.equal(sh(d, 'rev-parse', 'dev'), sha)
+  assert.deepEqual(sh(d, 'show', '--name-only', '--format=%s', 'HEAD').split('\n').filter(Boolean), ['chore: set up cadre', '.cadre/config.json', 'CHANGELOG.md'])
   assert.match(readFileSync(join(d, '.git/info/exclude'), 'utf8'), /^\.cadre\/tmp\/$/m)
-  assert.equal(await I.commitSetup({ h, root: d, cfg: { branches: { main: 'main', dev: 'dev' }, changelog: { path: 'CHANGELOG.md' } } }), null)   // nothing left: no second commit
+  assert.equal(await I.commitSetup({ h, root: d, cfg: CFG }), null)   // nothing left: no second commit
 })
-test("the user's own .gitignore keeps its lines (tracked or not); only bd's block goes", async () => {
-  for (const tracked of [true, false]) {
-    const d = mkdtempSync(join(tmpdir(), 'cadre-gi-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
-    put(d, 'a.txt', '1\n'); if (tracked) put(d, '.gitignore', 'node_modules/\n'); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'init'); sh(d, 'branch', 'dev')
-    put(d, '.gitignore', `node_modules/\n${BD}`); put(d, '.cadre/config.json', '{}\n'); put(d, 'CHANGELOG.md', '# Changelog\n')
-    const h = { run, write: async (p, t) => writeFileSync(p, t), readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } }, git: cell({ busy: false, epoch: 0 }) }
-    await I.commitSetup({ h, root: d, cfg: { branches: { main: 'main', dev: 'dev' }, changelog: { path: 'CHANGELOG.md' } } })
-    assert.equal(readFileSync(join(d, '.gitignore'), 'utf8'), 'node_modules/\n'); assert.equal(sh(d, 'status', '--porcelain'), tracked ? '' : '?? .gitignore')   // an untracked user file is theirs to commit
+test("the user's .gitignore comes back byte-exact: their own lines, and a tracked one that already held the bd block", async () => {
+  for (const before of ['node_modules/\n', `node_modules/\n${BD}`, 'no newline at end']) {
+    const d = repo({ '.gitignore': before }), h = hostOf(d, { had: true, text: before }); put(d, '.gitignore', `${before}${BD}`)   // bd appended again
+    await I.restoreIgnore(h); await I.commitSetup({ h, root: d, cfg: CFG })
+    assert.equal(readFileSync(join(d, '.gitignore'), 'utf8'), before); assert.equal(sh(d, 'status', '--porcelain'), '')
   }
+  const d = repo({}), h = hostOf(d, undefined); put(d, '.gitignore', 'mine\n'); await I.restoreIgnore(h)   // no snapshot (cadre did not start the store): never touched
+  assert.equal(readFileSync(join(d, '.gitignore'), 'utf8'), 'mine\n')
 })
