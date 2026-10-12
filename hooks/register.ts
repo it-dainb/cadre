@@ -117,9 +117,10 @@ function denySend($, e, next) { return next.error?.kind === 're-entry' ? next(e)
 // Dev only (docs/dev/ui-dev.md): seed the atoms from a scenario dump (`scripts/ui-dev.mjs --dump`) so the pane shows it in real Claude Code. Inert unless CADRE_DEV is 1.
 async function seed($) {
   const path = (await $.env.get('CADRE_DEV')) === '1' ? await $.env.get('CADRE_DEV_SCENARIO') : undefined; if (!path) return
-  const s = JSON.parse(String(await $.fs.read(String(path)))) as { b: any; ring: any[]; sec?: object; ui?: object }
+  const text = String(await $.fs.read(String(path))), d = (await $.clock.now()) - (JSON.parse(text).now ?? 0)   // scenario times are relative to its own `now`: move them to this clock
+  const s = JSON.parse(text, (k, v) => (['at', 'approvedAt', 'phaseSince', 'startedAt'].includes(k) && typeof v === 'number' && v > 0 ? v + d : v)) as { b: any; ring: any[]; sec?: object; ui?: object; c?: object }
   await update($, board, () => s.b); await update($, events, () => ({ seq: s.ring.length, epics: { [s.b.epic ?? '']: s.ring } }))
-  await update($, secret, x => ({ ...s.sec, root: (x as any).root })); await update($, ui, () => s.ui ?? {})
+  await update($, secret, x => ({ ...s.sec, root: (x as any).root })); await update($, ui, () => ({ ...s.ui, cfg: { ...(s.ui as any)?.cfg, ...s.c } }))
 }
 
 export const register: Register = (on, opts) => {

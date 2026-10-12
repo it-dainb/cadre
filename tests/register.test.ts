@@ -49,7 +49,7 @@ test('dev scenario seeding: inert without CADRE_DEV; with it, session.start seed
   on('command.register', () => ({ value: undefined })); on('env.set', () => ({ value: undefined })); on('env.get', ($, e) => ({ value: env[e.name] }))
   on('fs.read', ($, e) => { reads.push(e.path); if (e.path === '/s.json') return { value: JSON.stringify(dump) }; throw new Error('ENOENT') })
   on('state.set', ($, e) => { state[e.key] = e.value; return { value: { isSet: true } } })
-  env.CADRE_DEV_SCENARIO = '/s.json'; await $.session.start(START)
+  mock.clock(on); env.CADRE_DEV_SCENARIO = '/s.json'; await $.session.start(START)
   expect(reads).not.toContain('/s.json')   // CADRE_DEV unset: nothing read, nothing seeded
   env.CADRE_DEV = '1'; await $.session.start(START)
   expect(reads).toContain('/s.json')
