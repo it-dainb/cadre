@@ -46,13 +46,13 @@ export const raster = (c: Cell, t: Theme): number => (t === 'unknown' ? DEFAULT_
 export { asciiOf } from '../config/index'   // ASCII is automatic for TERM=dumb / non-UTF-8 locale (BRAND §6); core/session.start resolves it
 
 export type Density = 'compact' | 'normal' | 'relaxed'
-export type UiCfg = { ascii: boolean; flash: boolean; density: Density; theme: Theme; v2: boolean }
-export const UI_DEFAULT: UiCfg = { ascii: false, flash: true, density: 'normal', theme: 'unknown', v2: false }
-// readers for the `cadre.ui.cfg` mirror (ui.flash / ui.density / ui.v2 arrive as written by core/session.start)
+export type UiCfg = { ascii: boolean; flash: boolean; density: Density; theme: Theme }
+export const UI_DEFAULT: UiCfg = { ascii: false, flash: true, density: 'normal', theme: 'unknown' }
+// readers for the `cadre.ui.cfg` mirror (ui.flash / ui.density arrive as written by core/session.start)
 export const readCfg = (u: Record<string, any> | undefined): UiCfg => {
   const c = (u?.cfg ?? {}) as Record<string, any>
   return {
-    ascii: c.ascii ?? c.glyphs === 'ascii', flash: c.flash !== false, theme: c.theme ?? 'unknown', v2: c.v2 === true,
+    ascii: c.ascii ?? c.glyphs === 'ascii', flash: c.flash !== false, theme: c.theme ?? 'unknown',
     density: c.density === 'compact' || c.density === 'relaxed' ? c.density : 'normal',
   }
 }

@@ -13,8 +13,8 @@ describe('tokens', () => {
     expect([raster('work', 'dark'), raster('work', 'light'), raster('work', 'unknown')]).toEqual([0xd77757, 0xb4532e, 0x01000000])
   })
   test('cfg readers default sanely', () => {
-    expect(readCfg({})).toEqual({ ascii: false, flash: true, density: 'normal', theme: 'unknown', v2: false })
-    expect(readCfg({ cfg: { flash: false, density: 'compact', v2: true, glyphs: 'ascii' } })).toMatchObject({ flash: false, density: 'compact', v2: true, ascii: true })
+    expect(readCfg({})).toEqual({ ascii: false, flash: true, density: 'normal', theme: 'unknown' })
+    expect(readCfg({ cfg: { flash: false, density: 'compact', glyphs: 'ascii' } })).toMatchObject({ flash: false, density: 'compact', ascii: true })
   })
   test('the glyph set is all width 1', () => { for (const g of ALLOWED) expect(width(g)).toBe(1); expect(strange('a ✓ ⏸ ⚠')).toEqual(['⏸', '⚠']) })
 })

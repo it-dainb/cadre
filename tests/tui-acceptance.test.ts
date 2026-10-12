@@ -1,5 +1,4 @@
-// TUI v2 acceptance (TUI-DESIGN §12) as specs. The frame checks run against the v2 renderers, so they are live once `ui.v2` defaults on;
-// until then the lint functions themselves are pinned on known-good and known-bad frames, so the suite stays green on v1.
+// TUI acceptance (TUI-DESIGN §12): every scenario × tab × width has no overflow, no duplicate facts, no private shorthand and no glyph outside the BRAND set.
 import { describe, expect, test } from 'claude-code/testing'
 import { SCENARIOS } from '../scenarios/index'
 import { band } from '../ui/band'
@@ -7,11 +6,9 @@ import { pane } from '../ui/pane'
 import { txt } from '../ui/model'
 import { ALLOWED } from '../ui/tokens'
 import { width } from '../ui/layout'
-import { defaults } from '../config/defaults'
 import { NOOP } from './fixtures/ui/epic'
 
-const WIDTHS = [40, 60, 80, 120, 160], TABS = ['epic', 'graph', 'timeline', 'activity', 'doctor', 'settings']
-const LIVE = true
+const WIDTHS = [40, 60, 80, 120, 160], TABS = ['board', 'graph', 'timeline', 'activity', 'doctor', 'settings']
 
 export const overflow = (lines: string[], w: number) => lines.filter(l => width(l) > w)
 // a progress count (4/7) or a ctx % shows at most once per frame; an elapsed time (23m, 1h05) at most once in the pane (the band's now-line names the same
@@ -29,7 +26,7 @@ export const wording = (lines: string[]) => lines.join('\n').match(/\b(w1|rev|sy
 export const glyphs = (lines: string[]) => [...new Set([...lines.join('').replace(/\s/g, '')].filter(ch => ch.charCodeAt(0) > 126 && !ALLOWED.has(ch)))]
 
 const frame = (s: any, w: number, tab: string) => {
-  const v = { ...s, ui: { ...s.ui, tab, cfg: { ...s.ui?.cfg, v2: true } } }, p = pane(v, w, 40, NOOP)
+  const v = { ...s, ui: { ...s.ui, tab } }, p = pane(v, w, 40, NOOP)
   const bd = txt(band(v, w, NOOP))
   return { bandRows: bd.length, lines: [...bd, ...txt([...p.before, ...p.after]), ...(p.tl?.rows ?? [])].map(l => l.trimEnd()) }
 }
@@ -47,9 +44,8 @@ describe('acceptance lints (known frames)', () => {
   })
 })
 
-describe(`v2 frames: every scenario x tab x width${LIVE ? '' : ' (runs when ui.v2 is on)'}`, () => {
+describe('frames: every scenario x tab x width', () => {
   for (const [name, s] of Object.entries(SCENARIOS)) test(name, () => {
-    if (!LIVE) return
     for (const w of WIDTHS) for (const tab of TABS) {
       const { lines: f, bandRows } = frame(s, w, tab), at = `${name} ${tab} ${w}`
       expect([at, overflow(f, w)]).toEqual([at, []])

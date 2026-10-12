@@ -2,20 +2,18 @@
 // The UI reads the human view, the ring and the secret only; render is pure; writes happen in handlers (and a press's own work runs in after(1), UI-14).
 import type { Decision, Host } from '../types'
 import { band as bandOf } from './band'
-import { pane, sel } from './pane'
-import { sheet, sheetOf, sheetSig } from './sheet'
-import { blit, cells, timeline } from './timeline'
-import { ack, levelOf, onEvent as notifyEvent } from './notify'
-import { decisions } from './needs'
+import { pane } from './pane'
+import { selId } from './v2/facts'
+import { ack, onEvent as notifyEvent } from './notify'
 import { queueBrief } from '../core/lanes'
 import { ROUTES, dispatch } from '../core/dispatch'
-import { readCfg } from './tokens'
+import { color, glyph, glyphRole, readCfg } from './tokens'
 import { strictOf } from '../config/index'
 import { configPress, refreshSettings } from '../config/route'
-import { type Acts, S, at, cols, cut, draw, gl, kindOf, read, t0, tg, txt, col, REDO } from './model'
+import { type Acts, S, at, cols, cut, decisions, draw, kindOf, read, t0 } from './model'
 
 export { ack, syncStatus } from './notify'
-let lastW = 0   // width of the last pane draw: a cache for cursor-only blits (a resize is a redraw), not state
+let lastW = 0   // width of the last pane draw: sizes a timeline step (a resize is a redraw), not state
 const later = (h: Host, fn: () => Promise<unknown>) => h.ops?.after(1, () => fn().catch(e => h.toast(`cadre: ${e}`)))
 
 // Open the pane on a tab (called by /cadre open|approve and by presses). Where nothing draws, the content goes to $.ui.log instead (C3).
@@ -25,18 +23,17 @@ export async function openPane(h: Host, tab: string, o: { focus?: boolean; quiet
   if (tab === 'settings') await refreshSettings(h)
   const opened = o.pre ?? h.ops!.open({ ...OPEN, ...(o.focus === false ? {} : { focus: true as const }) })   // `focus: false` is refused by the engine: leave it out
   const v = await read(h)
-  await h.ui.update(u => ({ ...u, tab, ...(tab === 'plan' ? { seen: { hash: (v.b.decisions ?? []).find(d => d.id === `plan:${v.b.plan?.id}`)?.hash ?? '', sig: sheetSig(v) } } : {}) }))
+  await h.ui.update(u => ({ ...u, tab }))
   const r = await opened
   if (!r.isPlaced) {
-    if (!o.quiet) { h.toast(`cadre: pane not shown${r.reason ? ` · ${r.reason.slice(0, 30)}` : ''}`); if (tab === 'plan') h.log(txt(sheet(v, 100, NOOP)).join('\n')) }
+    if (!o.quiet) { h.toast(`cadre: pane not shown${r.reason ? ` · ${r.reason.slice(0, 30)}` : ''}`) }
     if (decisions(v).length) later(h, () => answerDialog(h))   // no pane (VS Code panel, Remote Control) and no band key: the dialog of the oldest decision
   }
   if (!o.quiet) await ack(h)
 }
-const NOOP: Acts = { go() {}, pick() {}, answer() {}, step() {} }
 export async function onEvent(h: Host, e: Parameters<typeof notifyEvent>[1]): Promise<void> {
   await notifyEvent(h, e); await autoAsk(h)
-  const c = readCfg(await h.ui.read()); if (c.v2 && c.flash) h.ops?.after(1600, () => h.ops?.invalidate())   // the 1.5 s row flash ends by a redraw (BRAND §9)
+  if (readCfg(await h.ui.read()).flash) h.ops?.after(1600, () => h.ops?.invalidate())   // the 1.5 s row flash ends by a redraw (BRAND §9)
 }
 
 // A decision pops its dialog by itself at most ONCE, when it first appears, and only over an empty composer with no dialog of ours up (a `quiet` one never does).
@@ -89,13 +86,12 @@ export function acts(h: Host): Acts {
     drive: what => later(h, async () => { const r = await dispatch(h, { schemaVersion: 1, cmd: 'drive', args: [what], origin: { kind: 'press' } }, ROUTES.drive); h.toast(`cadre: ${r.text.split('\n')[0].slice(0, 53)}`); h.ops?.invalidate() }),   // band `2`: drive stop | resume, as the human's press
     answer: id => later(h, async () => { await ack(h); await answerDialog(h, id) }),   // `1`: the decision's dialog, again
     step: (what, d) => later(h, async () => {
-      const v = await read(h), ids = cols(at(v).tasks).flat().map(t => t.id), cur = v.t ?? v.now
-      const unit = 60000 * timeline(v, lastW || 116).mpc, evs = v.ring.filter(e => levelOf(e) >= 2).map(e => e.at)
-      const go = (t: number | null) => ({ t: t === null || t > v.now - unit / 2 ? null : Math.max(t0(v), t) })
-      const p: Record<string, unknown> = what === 'done' ? { dn: !v.ui.dn } : what === 'keys' ? { ks: v.ui.ks !== true } : what === 'sheet' ? { si: Math.max(0, Math.min(sheetOf(v).length - 1, Number(v.ui.si ?? 0) + d)) }
-        : what === 'node' ? { sel: ids[(ids.indexOf(sel(v)) + d + ids.length) % ids.length] }
-        : what === 'time' ? go(cur + d * unit) : what === 'attn' ? go(d > 0 ? evs.find(x => x > cur) ?? null : [...evs].reverse().find(x => x < cur) ?? null)
-        : what === 'go' ? { go: !v.ui.go } : what === 'live' ? { t: null, sel: undefined } : { tl: v.ui.tl === false }
+      const v = await read(h), ts = at(v).tasks, ids = cols(ts).flat().map(t => t.id), cur = v.t ?? v.now
+      const unit = 60000 * Math.max(1, Math.ceil(((v.now - t0(v)) / 60000 + 1) / Math.max(10, (lastW || 116) - 14)))   // about one timeline column
+      const go = (t: number) => ({ t: t > v.now - unit / 2 ? null : Math.max(t0(v), t) })
+      const p: Record<string, unknown> = what === 'done' ? { dn: !v.ui.dn } : what === 'keys' ? { ks: v.ui.ks !== true }
+        : what === 'node' ? { sel: ids[(ids.indexOf(selId(v, ts)) + d + ids.length) % ids.length] }
+        : what === 'time' ? go(cur + d * unit) : { t: null, sel: undefined }
       await h.ui.update(u => ({ ...u, ...p })); await ack(h)
     }),
   }
@@ -112,28 +108,23 @@ export async function renderPane(h: Host, e: any) {
   const v = await read(h), w = e.props.bodyColumns, E = h.ops!.els(e)
   lastW = w
   const p = pane(v, w, e.props.scroll.bodyRows, acts(h), e.surface === 'terminal')
-  if (p.raster) return E.Box({ flexDirection: 'column', children: [draw(E, p.before), E.Raster({ key: 'tl', columns: p.raster.cols, rows: p.raster.rows, cells: p.raster.cells }), draw(E, p.after)] })
-  return E.Box({ flexDirection: 'column', children: [draw(E, p.before), ...(p.tl ? [E.Raster({ key: 'tl', columns: p.tl.cols, rows: p.tl.rows.length, cells: cells(p.tl, v.c) })] : []), ...(p.after.length ? [draw(E, p.after)] : [])] })
+  return E.Box({ flexDirection: 'column', children: [draw(E, p.before), ...(p.raster ? [E.Raster({ key: 'tl', columns: p.raster.cols, rows: p.raster.rows, cells: p.raster.cells })] : []), ...(p.after.length ? [draw(E, p.after)] : [])] })
 }
 // result-card row: core records tool_use_id -> task (mapCard); the task's `card` text is drawn (line 1 = summary, line 2 = next). While running or unmapped: the engine's row.
 export const mapCard = (h: Host, toolUseId: string, taskId: string) => h.ui.update(u => ({ ...u, cards: { ...(u.cards as object | undefined), [toolUseId]: taskId } }))
 export async function renderCard(h: Host, e: any, next: (e: any) => any) {
   const v = await read(h), id = (v.ui.cards as Record<string, string> | undefined)?.[e.props.tool_use_id], t = id ? v.b.tasks.find(x => x.id === id) : undefined
   if (e.props.isRunning || !t?.card) return next(e)
-  const [row, nx] = t.card.split('\n'), k = /✗|refus|fail/i.test(row) ? 'crit' : 'ok'
-  return draw(h.ops!.els(e), [[S(v.c.glyphs === 'ascii' ? '* ' : '⏺ '), S(tg(k), col(k)), S(` ${row}`)], ...(nx ? [[S(`  ${nx}`)]] : [])])
+  const [row, nx] = t.card.split('\n'), k = /✗|refus|fail/i.test(row) ? 'fail' : 'done', ac = readCfg(v.ui).ascii
+  return draw(h.ops!.els(e), [[S(`${ac ? '*' : '⏺'} `), S(glyph(k, ac), color(glyphRole(k))), S(` ${row}`)], ...(nx ? [[S(`  ${nx}`)]] : [])])
 }
-// transcript log line + band cell after /clear rehydrate (6.7); the band cell clears on the first ack
+// transcript line after /clear rehydrate (6.7); the band says the rest (drive: `2: resume`)
 export async function resumeBanner(h: Host, o: { decisions?: number; next?: string; stale?: number } = {}): Promise<void> {
-  const v = await read(h), ts = v.b.tasks, c = v.c, n = ts.filter(t => kindOf(t, ts) === 'run').length, q = v.b.resumesQueued
-  h.log(`${c.glyphs === 'ascii' ? '*' : '●'} cadre: ${tg('ok')} resumed · mission "${v.b.mission}" · epic ${v.b.plan?.id} · ${n} running (re-adopted)${o.stale ? ` · ${tg('idle')} ${o.stale} stale → rebind` : ''}${q ? ` · ${REDO(c)} ${q}` : ''}`)
-  const on = v.b.drive.on, dw = on ? `${tg('run')} drive ${gl(c, 'run')} continuing` : `${tg('wait')} drive off`   // the rehydrated board's drive (it survives /clear, DESIGN 9)
-  const w = `↺ cadre resumed from beads · ${o.decisions ?? 0} decisions${o.next ? ` · next: ${o.next}` : ''} · ${dw}${on ? '' : ' · band 2: resume'}`
-  await h.ui.update(u => ({ ...u, res: { w, n: `↺ resumed ${v.b.plan?.id} · ${gl(c, 'run')}${n} · ${dw}`, at: v.now } }))
+  const v = await read(h), ts = v.b.tasks, n = ts.filter(t => kindOf(t, ts) === 'run').length, q = v.b.resumesQueued, ac = readCfg(v.ui).ascii
+  h.log(`${glyph('done', ac)} resumed · mission "${v.b.mission}" · epic ${v.b.plan?.id} · ${n} running (re-adopted)${o.stale ? ` · ${o.stale} stale → rebind` : ''}${q ? ` · ${q} queued` : ''}${o.next ? ` · next: ${o.next}` : ''}`)
 }
 // the render hook cannot read env/config, so the tick keeps the resolved strictness (M10) in the ui atom for it
 export async function tickUi(h: Host): Promise<void> {
   const sx = await strictOf(h).catch(() => undefined); if (sx) await h.ui.update(u => (u.sx === sx ? u : { ...u, sx }))
   h.ops?.invalidate()   // elapsed counters and `just now` age on the 30 s tick
-  if (lastW) await blit(h, await read(h), lastW).catch(() => {})   // live cursor advance (30 s clock)
 }

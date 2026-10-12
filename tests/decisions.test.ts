@@ -3,9 +3,8 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { Decision, Host, UiOps } from '../types'
 import { band } from '../ui/band'
-import { decisions, needs } from '../ui/needs'
 import { pane } from '../ui/pane'
-import { read, txt, wid } from '../ui/model'
+import { decisions, read, txt, wid } from '../ui/model'
 import { NOT_NOW, acts, answerDialog, autoAsk, onEvent } from '../ui/index'
 import { decide, run } from '../commands/cadre'
 import { ROUTES, dispatch, initPropose } from '../core/dispatch'
@@ -164,14 +163,14 @@ describe('the pane and the band: read-only Needs you, `1: answer`', () => {
     const got: string[] = [], a = { ...NOOP, answer: (id: string) => { got.push(id) } }, ds = [flag('conflict'), DEPLOY]
     const ls = pane(v(ds), 116, 40, a).before, t = txt(ls).join('\n')
     expect(t).toContain('NEEDS YOU'); expect(t).toContain('  ! a2 flagged conflict'); expect(t).toContain('    3 services restart')
-    const keys = ls.flat().filter(s => s.hk).map(s => s.hk); expect(keys).toEqual(['7', '8', '9', '1'])   // the Epic tab gives `1` to the answer while one waits
+    expect(ls.flat().filter(s => s.hk === '1')).toHaveLength(1)   // the Board tab gives `1` to the answer while one waits
     ls.flat().filter(s => s.k === 'att' || s.k?.startsWith('ans:')).forEach(s => s.p!()); expect(got).toEqual(['flag:a2:conflict', 'deploy:7'])
-    for (const w of [116, 56, 40]) for (const l of pane(v(ds), w, 40, a).before) expect(wid(l)).toBeLessThanOrEqual(Math.max(w, 116))
-    expect(needs(view(62), 116, NOOP)).toEqual([])
+    for (const w of [116, 56, 40]) for (const l of pane(v(ds), w, 40, a).before) expect(wid(l)).toBeLessThanOrEqual(w)
+    expect(txt(pane(view(62), 116, 40, NOOP).before).join('\n')).not.toContain('NEEDS YOU')
   })
   test('the other tabs carry the one-line form on top; the band: `! NEEDS YOU · <title> · +N more · 1: answer`', () => {
-    for (const tab of ['plan', 'settings', 'doctor']) expect(txt(pane({ ...approval(), ui: { tab } }, 116, 40, NOOP).before)[2]).toMatch(/^! NEEDS YOU · approve plan p3 +1: answer$/)
-    expect(txt(band(v([flag('conflict'), DEPLOY]), 115, NOOP))[0]).toMatch(/^! NEEDS YOU · a2 flagged conflict · \+1 more +1: answer$/)
+    for (const tab of ['graph', 'settings', 'doctor']) expect(txt(pane({ ...approval(), ui: { tab } }, 116, 40, NOOP).before).slice(0, 6)).toContainEqual(expect.stringMatching(/^! NEEDS YOU · approve plan p3 +1: answer$/))
+    expect(txt(band(v([flag('conflict'), DEPLOY]), 115, NOOP))[1]).toMatch(/^! NEEDS YOU · a2 flagged conflict · \+1 more +1: answer$/)
     for (const w of [120, 60, 36, 24]) for (const l of band(v([DEPLOY]), w, NOOP)) expect(wid(l)).toBeLessThanOrEqual(w)
   })
 })

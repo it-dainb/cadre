@@ -29,15 +29,13 @@ describe('settings rows (scenario: every layer)', () => {
     expect(all['strictness'].value).toBe('strict')   // the repo file tightened the advisory from the user file
   })
   for (const w of [60, 120]) test(`golden lines at ${w}`, () => {
-    const t = frame(w).join('\n'), s = frame(w, 40).join('\n')
-    expect(t).toContain('SETTINGS 49 keys')
-    expect(t).toContain('▸ changelog.path docs/CHANGES.md [repo] e: edit')
-    expect(t).toContain('maxParallel 5 [user] edit')
-    expect(t).toContain('disable false [default]' + (w >= 100 ? ' user-level only' : '') + ' toggle')
-    expect(t).toContain('roles.worker.tier deep [user] cycle')
-    expect(s).toMatch(/strictness strict \[repo\]/)
-    if (w >= 100) expect(s).toContain('tighten-only from repo')
-    else expect(s).toContain('SECURITY')
+    const t = frame(w).join('\n'), s = frame(w, rowsOf(settingsScenario).findIndex(r => r.key === 'strictness')).join('\n')
+    expect(t).toContain('changelog.path docs/CHANGES.md repo')
+    expect(t).toContain('maxParallel 5 user')
+    expect(t).toContain('roles.worker.tier deep user')
+    expect(t).toContain('e: change')
+    expect(s).toMatch(/strictness strict repo/)
+    expect(s).toContain('default strict · tighten-only from repo')
     expect(frame(w).join('\n')).toContain('9: Settings')
   })
 })
@@ -46,7 +44,8 @@ describe('buttons', () => {
   test('a toggle / cycle / edit button runs the matching config line', () => {
     const all = Object.fromEntries(rowsOf(settingsScenario).map(r => [r.key, r]))
     expect([actOf(all['disable']), actOf(all['jail']), actOf(all['strictness']), actOf(all['maxRows'])]).toEqual(['set disable true', 'set jail off', 'set strictness advisory', 'edit maxRows'])
-    const seg = pane({ ...settingsScenario, ui: { ...settingsScenario.ui, tab: 'settings' } }, 120, 60, A).before.flat().find(s => s.k === 'cfg:maxParallel')!
+    const ssel = rowsOf(settingsScenario).findIndex(r => r.key === 'maxParallel'), p = pane({ ...settingsScenario, ui: { ...settingsScenario.ui, tab: 'settings', ssel } }, 120, 60, A)
+    const seg = [...p.before, ...p.after].flat().find(s => s.hk === 'e')!
     said.length = 0; seg.p!(); expect(said).toEqual(['edit maxParallel'])
   })
   test('toggle writes the user file through the mod with a .bak and re-reads it', async () => {

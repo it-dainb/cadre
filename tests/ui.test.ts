@@ -3,20 +3,13 @@ import type { CadreEvent, EventType, Host, UiOps } from '../types'
 import { TABLE, ring as rebuildRing } from '../core/events'
 import { humanView } from '../core/board'
 import { band } from '../ui/band'
-import { dag } from '../ui/epic'
 import { pane } from '../ui/pane'
-import { sheet } from '../ui/sheet'
-import { type Line, T, at, gl, read, txt } from '../ui/model'
+import { type Line, at, read, txt } from '../ui/model'
 import { levelOf, onEvent, textOf } from '../ui/notify'
 import { acts, openPane, renderBand, renderCard, renderPane, resumeBanner, tickUi } from '../ui/index'
 import { fakeHost } from './support'
-import { BASE, CASES, withStub, MIN, NOOP, SHEET, approval, planDec, ring, rtrim, view } from './fixtures/ui/epic'
-import { GOLDEN } from './fixtures/ui/golden'
-import { WIRE } from './fixtures/ui/wireframes'
+import { BASE, MIN, NOOP, approval, planDec, ring, view } from './fixtures/ui/epic'
 
-const sq = (ls: string[]) => ls.map(l => l.replace(/─{10,}/g, '─').replace(/\s+/g, ' ').trim())
-// v1 draws tabs Epic + Plan + Doctor (8, post-v1: the setup/doctor report, ADR 0007) only (UI-DESIGN 5: 2/3/4 are later); the wireframe's Epic⚑ at 62 m has no attention item behind it (its own band is calm); sheet ids are bd-<id> in the wireframe; the human timeline lane (`*o`: a plan-ready toast and an approve that has no event type) is not compared, nor the last future column of the sync outage (drawn one column long)
-const v1 = (ls: string[]) => sq(ls).filter(l => !/^(human|hum) /.test(l)).map(l => l.replace(/^(syn .*?)╌+$/, '$1').replace(' 2: Task 3: Sync 4: Cost', '').replace(/ 8: ?Doctor( 9: ?Settings)?/, '').replace(' 2:Task', '').replace('Epic⚑', 'Epic').replace(/bd-/g, '')).map(l => l.replace(/^(Enter\/)?n\/p( node)?: select node.*$|^n\/p node ·.*$|^(n: next|n: node) .*$/, 'KEYS').replace('1:Epic 7:Plan', '1: Epic 7: Plan').replace('n: next task p: prev task', 'n/p: task').replace(/n: next p: prev(?= ·|$)|n: next p: prev$/, 'n/p'))   // ADR 0008: the engine draws `key: label`, so the footer keys are labelled Buttons (same keys, same groups)
 const segs = (ls: Line[]) => ls.flat()
 const E: any = Object.fromEntries(['Box', 'Text', 'Button', 'Raster'].map(n => [n, (p: any) => ({ type: n, props: p })]))
 const flat = (n: any): any[] => (n && typeof n === 'object' ? [n, ...(Array.isArray(n) ? n : (n.props?.children ?? []).flatMap?.(flat) ?? flat(n.props?.children))] : [])
@@ -42,99 +35,6 @@ const ev = (type: EventType, data: Record<string, unknown>, o: Partial<CadreEven
   return { schemaVersion: 1, seq: 1, at: 0, type, actor, severity, needsHuman, data, ...o }
 }
 
-describe('goldens (wireframes of UI-DESIGN 6)', () => {
-  for (const k of Object.keys(GOLDEN)) test(k, async () => { expect(rtrim(CASES[k]())).toEqual(GOLDEN[k]) })
-  test('band matches the approved wireframes modulo spacing (working, attention, critical, landed, narrow)', async () => {
-    expect(sq(txt(band(view(62, { board: { resumesQueued: 1 } }), 115, NOOP)))).toEqual(sq(WIRE['Band, working|120']))
-    expect(sq(txt(band(approval(), 115, NOOP)))).toEqual(sq(WIRE['Band, attention (approval)|120']))
-    expect(sq(txt(band(view(82), 115, NOOP)))).toEqual(sq(WIRE['Band, attention (critical flag)|120']))
-    expect(sq(txt(band(view(95, { ui: { ctx: 41, rel: 'v1.4.0' }, board: { cost: { tokens: 1, cachePct: 88 } } }), 115, NOOP)))).toEqual(sq(WIRE['Band, epic landed|120']))
-    expect(sq(txt(band(approval(), 55, NOOP))).slice(0, 2)).toEqual(sq(WIRE['Band, attention (narrow)|60']).slice(0, 2))
-    expect(txt(band(view(62), 55, NOOP))).toEqual(['[RUN] p3 ✓✓✓│▶✓│⏸◌ 4/7 ▶1 ⏸1 ctx34%'])
-  })
-  test('epic + approval sheet match the approved wireframes modulo spacing (live wide, replay stacked, sheet wide, narrow, amended)', async () => {
-    const full = (p: ReturnType<typeof pane>) => [...txt(p.before), ...p.tl!.rows, ...txt(p.after)], rel = { rel: 'v1.4.0' }
-    expect(v1(full(pane(view(62, { ui: rel }), 118, 40, NOOP)))).toEqual(v1(WIRE['Epic view, live, wide|120']))
-    expect(v1(full(pane({ ...view(62, { t: 50 }), ring: view(95).ring }, 58, 40, NOOP)))).toEqual(v1(WIRE['Epic view, replay t-12m, stacked|60']))
-    expect(v1(txt(sheet(approval(), 116, NOOP)))).toEqual(v1(WIRE['Approval sheet, wide|120']))
-    expect(v1(txt(sheet(approval(), 56, NOOP)))).toEqual(v1(WIRE['Approval sheet, narrow|60']))
-    const am = v1(CASES['sheet amended|56']()), w = v1(WIRE['Approval sheet, amended while open|60'])
-    expect([am[0], am[1], am.at(-1)]).toEqual([w[0], w[1], w.at(-1)])
-  })
-  test('band: idle with no plan draws nothing; under 50 columns only line 1; long strips fold the done end', async () => {
-    const v = view(0); expect(band({ ...v, b: { ...v.b, plan: null } }, 115, NOOP)).toEqual([])
-    expect(band(view(62), 45, NOOP)).toHaveLength(1)
-    const many = view(62, { tweak: ts => [...ts, ...Array.from({ length: 12 }, (_, i) => ({ ...ts[0], id: `x${i}`, state: 'done' as const }))] })
-    expect(txt(band(many, 100, NOOP))[1]).toMatch(/\+\d+✓/)
-  })
-  test('every drawn mark has an ASCII form: no unicode glyphs left with ui.glyphs: ascii', async () => {
-    const v = view(62, { cfg: { glyphs: 'ascii' } }), p = pane(v, 118, 40, NOOP)
-    const all = [...txt(band(v, 115, NOOP)), ...txt(p.before), ...p.tl!.rows.map(r => T(v.c, r)), ...txt(p.after)].join('\n')
-    expect(/[⚑✓✗⚠▶⏸◌↻●◉○━┃┏┓┗┛─│┄▷▼█▒░╌╭╮╰╯]/.test(all)).toBe(false)
-    expect(gl(v.c, 'ready')).toBe('o'); expect(gl(v.c, 'attn')).toBe('!')
-  })
-})
-
-describe('Epic view', () => {
-  const g = txt(dag(view(62), 'a2', [], NOOP)).join('\n')
-  test('typed edges: live blocks ━━▶, pending blocks ──▶, conditional ┄▷', async () => {
-    expect(g).toContain('━━┳━▶'); expect(g).toContain('┄▷'); expect(g).toMatch(/──[┳┬]━?─?▶/)
-    expect(txt(dag(view(62), 'a2', [], NOOP)).filter(l => l.includes('┄▷')).length).toBe(1)
-  })
-  test('skipped node: IDLE tag, ○ strip, word "skipped"; wait words name the dependency', async () => {
-    expect(g).toMatch(/a5 fix\s+\[IDLE\]◌/); expect(g).toContain('○○○○○○ skipped'); expect(g).toContain('○○○○○○ waits a2')
-    expect(txt(pane(view(62, { t: 50 }), 58, 40, NOOP).before).join('\n')).toContain('waits a2 a3')
-  })
-  test('selected = heavy border; just-changed = double border + » word «; none when more than 3 flash', async () => {
-    const f = txt(dag(view(62), 'a1', ['a2'], NOOP)).join('\n')
-    expect(f).toContain('┏━━') ; expect(f).toContain('╔════════════════╗'); expect(f).toContain('» implement «')
-    const v = view(62, { cfg: { flash: true } }), now = v.now
-    const ph = (id: string) => ({ ...v.b.tasks.find(t => t.id === id)!, phaseSince: now - 500 })
-    const one = pane({ ...v, b: { ...v.b, tasks: v.b.tasks.map(t => (t.id === 'a2' ? ph('a2') : t)) } }, 118, 40, NOOP)
-    expect(txt(one.before).join('\n')).toContain('╔');
-    const four = pane({ ...v, b: { ...v.b, tasks: v.b.tasks.map(t => (['a1', 'a2', 'a3', 'a4'].includes(t.id) ? ph(t.id) : t)) } }, 118, 40, NOOP)
-    expect(txt(four.before).join('\n')).not.toContain('╔')
-    const off = pane({ ...v, c: { ...v.c, flash: false }, b: { ...v.b, tasks: v.b.tasks.map(t => (t.id === 'a2' ? ph('a2') : t)) } }, 118, 40, NOOP)
-    expect(txt(off.before).join('\n')).not.toContain('╔')
-  })
-  test('every node id row is a Button (engine focus ring); nodes press to select', async () => {
-    const picked: string[] = [], bs = segs(dag(view(62), 'a2', [], { ...NOOP, pick: id => { picked.push(id) } })).filter(s => s.k)
-    expect(bs.map(s => s.k).sort()).toEqual(['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7'].map(x => `n:${x}`))
-    bs.find(s => s.k === 'n:a3')!.p!(); expect(picked).toEqual(['a3'])
-  })
-  test('rail follows plan state (epic run -> dev -> main) and layout flips at 116 columns', async () => {
-    const wide = txt(pane(view(62), 118, 40, NOOP).before).join('\n'), stk = txt(pane(view(62), 100, 40, NOOP).before).join('\n')
-    expect(wide).toContain('epic/p3'); expect(stk).toContain('rail  epic/p3 [RUN]▶ → dev [WAIT]⏸ → main [WAIT]⏸'); expect(stk).toContain('DEPTH 1  after a1'); expect(wide).not.toContain('DEPTH')
-    expect(txt(pane(view(95), 100, 40, NOOP).before).join('\n')).toContain('rail  epic/p3 [OK]✓ → dev [OK]✓ → main [WAIT]⏸')
-  })
-  test('collapse: timeline folds below 34 body rows, log to 2 rows below 22', async () => {
-    expect(pane(view(62), 118, 30, NOOP).tl).toBeUndefined(); expect(pane(view(62), 118, 40, NOOP).tl).toBeDefined()
-    const logRows = (p: ReturnType<typeof pane>) => txt(p.before).filter(l => /^ ?\d+m [.o*!] /.test(l.slice(86)) || /^ ?\d+m [.o*!] /.test(l)).length
-    expect(logRows(pane(view(62), 100, 18, NOOP))).toBe(2); expect(logRows(pane(view(62), 100, 40, NOOP))).toBe(6)
-    expect(pane(view(62, { ui: { tl: false } }), 118, 40, NOOP).tl).toBeUndefined()
-  })
-  test('desktop (no Raster): the timeline header says terminal only', async () => {
-    const p = pane(view(62), 118, 40, NOOP, false); expect(p.tl).toBeUndefined(); expect(txt(p.before).join('\n')).toContain('timeline: terminal only')
-  })
-  test('detail strip: pipeline marks, typed deps, unblocks', async () => {
-    const d = txt(pane(view(62), 118, 40, NOOP).before).join('\n')
-    expect(d).toContain('spec● red● impl◉ green○'); expect(d).toContain('review○ merged○'); expect(d).toContain('after a1 [OK] ━ live edge'); expect(d).toContain('unblocks a6')
-  })
-})
-
-describe('v1 gaps: stubs and go-to-id', () => {
-  test('non-adjacent dependency: ↷ stub on both ends, none for adjacent edges', async () => {
-    const g = txt(dag(view(62, { tweak: withStub }), 'a2', [], NOOP)).join('\n')
-    expect(g.split('↷').length - 1).toBe(2); expect(g).toMatch(/a8 docs/)
-    expect(txt(dag(view(62), 'a2', [], NOOP)).join('\n')).not.toContain('↷')
-  })
-  test('g opens an Input; a known id selects, an unknown one just closes it', async () => {
-    const got: string[] = [], a = { ...NOOP, pick: (i: string) => { got.push(`pick:${i}`) }, step: (w: string) => { got.push(`step:${w}`) } }
-    const f = (go: boolean) => segs(pane(view(62, { ui: { go } }), 118, 40, a).after)
-    expect(f(false).some(s => s.inp)).toBe(false); expect(f(false).some(s => s.hk === 'g')).toBe(true)
-    const i = f(true).find(s => s.inp)!; i.inp!('a3'); i.inp!('zz'); expect(got).toEqual(['pick:a3', 'step:go'])
-  })
-})
 
 describe('replay: pure fold of the ring at the cursor', () => {
   test('the board at 50 min: a3 in review, a2 implementing, a5 still pending, a6 waiting', async () => {
@@ -159,53 +59,18 @@ describe('replay: pure fold of the ring at the cursor', () => {
     expect(f(32)).toBe('a1:review/reviewer a2:active/worker')
     expect(f(50)).toBe('a1:done/merge a2:active/worker')
   })
-  test('header [REPLAY t-12m], actions off, future spans ╌, keys h/l/b/f/e still live', async () => {
-    const p = pane(view(62, { t: 50 }), 58, 40, NOOP), t = txt(p.before).join('\n')
-    expect(t).toContain('[REPLAY t-12m]'); expect(t).toContain('(actions off)'); expect(p.tl!.rows.join('\n')).toContain('╌')
-    expect(segs(p.after).filter(s => s.hk).map(s => s.hk).sort()).toEqual(['b', 'e', 'f', 'g', 'h', 'l', 'n', 'p', 't'])
-    expect(txt(pane(view(62), 118, 40, NOOP).before)[0]).toContain('[LIVE]')
-  })
-  test('the sheet is read-only, live and in replay: no answer buttons (the dialog answers, ADR 0012)', async () => {
-    for (const v of [approval(), { ...approval(), t: BASE + 10 * MIN }]) expect(segs(sheet(v, 100, NOOP)).filter(s => s.k === 'a' || s.k === 'x')).toHaveLength(0)
-  })
 })
 
 describe('keys', () => {
-  test('band: only key 1, and only while attention exists; none when calm (no typed line, no d)', async () => {
-    expect(segs(band(view(62), 115, NOOP)).filter(s => s.hk)).toHaveLength(0)
-    expect(segs(band(approval(), 115, NOOP)).filter(s => s.hk).map(s => s.hk).sort()).toEqual(['1'])
-    expect(segs(band(view(82), 115, NOOP)).filter(s => s.hk).map(s => s.hk)).toEqual(['1'])
+  test('band: key 1 only while a decision waits (the drive cell has its own key)', async () => {
+    expect(segs(band(view(62), 115, NOOP)).filter(s => s.hk === '1')).toHaveLength(0)
+    expect(segs(band(approval(), 115, NOOP)).filter(s => s.hk === '1')).toHaveLength(1)
+    expect(segs(band(view(82), 115, NOOP)).filter(s => s.hk === '1')).toHaveLength(1)
   })
-  test('attention: degraded containment is a [CRIT] item; a gate approval reads "approve gate <id>"', async () => {
-    const v = view(62, { board: { containment: { state: 'degraded', unsandboxed: 0 } } })
-    expect(txt(band(v, 115, NOOP))[0]).toContain('! NEEDS YOU · Containment degraded · run /cadre init')
-    const g = view(62, { board: { decisions: [{ ...planDec(), id: 'gate:a6', kind: 'gate', title: 'approve gate a6 · Remember me' }] } })
-    expect(txt(band(g, 115, NOOP))[0]).toMatch(/approve gate a6 .*1: answer/); expect(txt(band(g, 115, NOOP)).join('\n')).not.toContain('/cadre approve')
-  })
-  test('attention: a pending init diff is a band row with the open button and no typed line, also before any plan exists', async () => {
-    const v = view(62, { board: { containment: { state: 'degraded', unsandboxed: 0 }, decisions: [{ ...planDec(), id: 'init:4', kind: 'init', title: 'init stage 4 diff ready · confirm it' }] } })
-    expect(txt(band(v, 115, NOOP)).join('\n')).toMatch(/init stage 4 diff ready.*1: answer/); expect(txt(band(v, 115, NOOP)).join('\n')).not.toMatch(/\/cadre|type /)
-    const np = { ...v, b: { ...v.b, plan: undefined, tasks: [] } }   // init runs before any plan exists: the band must still draw
-    expect(txt(band(np, 115, NOOP)).join('\n')).toContain('init stage 4 diff ready')
-    v.b.decisions = []; expect(txt(band(v, 115, NOOP))[0]).toContain('Containment degraded')
-  })
-  test('presses route to handlers: 1 opens the decision\'s dialog (approval, git flag); a state that is not a decision opens its tab', async () => {
+  test('presses route to handlers: 1 opens the decision\'s dialog (approval, git flag)', async () => {
     const got: string[] = [], a = { go: (t: string) => { got.push(`go:${t}`) }, pick: (i: string) => { got.push(`pick:${i}`) }, answer: (id: string) => { got.push(`answer:${id}`) }, step: () => {} }
     segs(band(approval(), 115, a)).find(s => s.hk === '1')!.p!(); segs(band(view(82), 115, a)).find(s => s.hk === '1')!.p!()
-    segs(band(view(62, { board: { containment: { state: 'degraded', unsandboxed: 0 } } }), 115, a)).find(s => s.hk === '1')!.p!()
-    expect(got).toEqual(['answer:plan:p3', expect.stringMatching(/^answer:flag:/), 'go:epic'])
-  })
-})
-
-describe('Plan tab = approval sheet', () => {
-  test('summary counts; the footer pages n/p (no answer buttons); paging n/p', async () => {
-    const wide = txt(sheet(approval(), 116, NOOP))
-    expect(wide[0]).toContain('12 scenarios'); expect(wide[1]).toContain('3 NEW · 2 CHANGED · 4 same'); expect(wide.at(-1)).toMatch(/^n: next task p: prev task/); expect(wide.join('\n')).not.toMatch(/\/cadre|@/)
-    const v = approval(); const page = txt(sheet({ ...v, ui: { si: 2 } }, 116, NOOP)).join('\n')
-    expect(page).toContain('a3 · fix'); expect(page).toContain('- validateToken(t: Token) -> Claims|null'); expect(page).toContain('task 3/7')
-  })
-  test('amended while open: banner names the changed task', async () => {
-    const t = CASES['sheet amended|56'](); expect(t[0]).toContain('plan changed since you opened it'); expect(t[1]).toContain('a3 scenarios')
+    expect(got).toEqual(['answer:plan:p3', expect.stringMatching(/^answer:flag:/)])
   })
 })
 
@@ -257,16 +122,16 @@ describe('notification policy (UI-DESIGN 4)', () => {
 })
 
 describe('secrets: nothing secret is drawn or stored (ADR 0012)', () => {
-  test('the band, the sheet, the epic tab, status line, toasts, notify, log, ring and human view carry no code', async () => {
+  test('the band, the board, status line, toasts, notify, log, ring and human view carry no code', async () => {
     const a = mk(), v = approval(62); await seed(a.h, v)
     for (const e of [ev('approval.pending', { planId: 'p3', missing: [] }, { at: 0 }), ev('flag.raised', { taskId: 'a1', flag: 'g' }, { taskId: 'a1', at: 20_000 }), ev('drive.status', { state: 'paused', reason: 'approval' }, { at: 40_000 })]) await onEvent(a.h, e)
     await a.run()
-    const outside = JSON.stringify([a.calls, (a.h as any).logs, txt(pane({ ...v, ui: { tab: 'epic' } }, 118, 40, NOOP).before), ring(), humanView(v.b), v.ring, txt(band(v, 115, NOOP)), txt(sheet(v, 116, NOOP))])
+    const outside = JSON.stringify([a.calls, (a.h as any).logs, txt(pane({ ...v, ui: { tab: 'board' } }, 118, 40, NOOP).before), ring(), humanView(v.b), v.ring, txt(band(v, 115, NOOP))])
     expect(outside).not.toMatch(/code8|[0-9a-f]{8}@|\/cadre approve/); expect(await a.h.secret.read()).toEqual({})
   })
-  test('`1` on the Plan tab opens the plan\'s dialog, bound to its hash; the work starts in after(1)', async () => {
+  test('`1` on the Board opens the plan\'s dialog, bound to its hash; the work starts in after(1)', async () => {
     const a = mk(), v = approval(62); await seed(a.h, v); const answered: unknown[][] = []; a.h.answer = async (...x) => { answered.push(x); return { text: 'ok' } }; a.h.ask = async (_q, ls) => ls[0]
-    const h = (v.b.decisions ?? [])[0].hash, one = segs(pane({ ...v, ui: { tab: 'plan' } }, 116, 40, acts(a.h)).before).find(s => s.hk === '1')!
+    const h = (v.b.decisions ?? [])[0].hash, one = segs(pane({ ...v, ui: { tab: 'board' } }, 116, 40, acts(a.h)).before).find(s => s.hk === '1')!
     one.p!(); expect(answered).toEqual([]); expect(a.timers.map(t => t.ms)).toEqual([1]); await a.run()
     expect(answered).toEqual([['plan:p3', 'a', h, {}]]); expect(a.of('fill')).toEqual([])
   })
@@ -281,51 +146,36 @@ describe('render hooks, handlers, fallbacks', () => {
     const t = await renderBand(a.h, { props: { bodyColumns: 115 } }, next); expect(t.type).toBe('Box'); expect(t.props.children.at(-1).type).toBe('engine'); expect(flat(t).filter((n: any) => n.type === 'Button').map((n: any) => n.props.hotkey).sort()).toEqual(['1'])
     const calm = mk(); expect((await renderBand(calm.h, { props: { bodyColumns: 115 } }, next)).type).toBe('engine')
   })
-  test('pane: one Raster sized to the body, base64 cells; blit repaints the cursor without a re-render', async () => {
-    const a = mk(); await seed(a.h); const t = await renderPane(a.h, { surface: 'terminal', props: { bodyColumns: 118, scroll: { bodyRows: 40 } } })
-    const r = flat(t).find((n: any) => n.type === 'Raster'); expect([r.props.key, r.props.columns, r.props.rows, r.props.cells.length]).toEqual(['tl', 118, 9, 4 * Math.ceil(118 * 9 * 12 / 3)])
-    await tickUi(a.h); expect(a.of('blit')[0]).toMatchObject({ requestId: 'cadre', key: 'tl' }); expect(a.of('blit')[0].cells.length).toBe(r.props.cells.length)
+  test('pane: the timeline tab draws one Raster sized to the body, base64 cells; the 30 s tick asks for a redraw', async () => {
+    const a = mk(); await seed(a.h, view(62, { ui: { tab: 'timeline' } })); const t = await renderPane(a.h, { surface: 'terminal', props: { bodyColumns: 118, scroll: { bodyRows: 40 } } })
+    const r = flat(t).find((n: any) => n.type === 'Raster'); expect([r.props.key, r.props.columns, r.props.cells.length]).toEqual(['tl', 118, 4 * Math.ceil(118 * r.props.rows * 12 / 3)])
+    await tickUi(a.h); expect(a.of('inv').length).toBeGreaterThan(0)
   })
   test('M10: the tick copies the resolved strictness into the ui atom; the render reads it (the hook cannot read env/config)', async () => {
     const a = mk(); await seed(a.h); a.h.config = async () => ({ strictness: 'advisory' }) as any
     expect((await read(a.h)).sx).toBe('strict'); await tickUi(a.h); expect((await read(a.h)).sx).toBe('advisory')
   })
-  test('openPane: tab + focus request; where nothing draws the sheet goes to $.ui.log', async () => {
-    const a = mk(); await seed(a.h, approval(62)); await openPane(a.h, 'plan')
-    expect(a.of('open')).toEqual([{ id: 'cadre', title: 'cadre', focus: true, columns: 120 }]); expect(await read(a.h).then(v => v.ui.tab)).toBe('plan'); expect((a.h as any).logs).toHaveLength(0)
-    const b = mk({ open: async () => ({ isPlaced: false, reason: 'no room' }) }); await seed(b.h, approval(62)); await openPane(b.h, 'plan')
-    expect((b.h as any).toasts[0]).toContain('no room'); expect((b.h as any).logs[0]).toContain('PLAN p3'); expect((b.h as any).logs[0]).not.toContain('@')
+  test('openPane: tab + focus request; where nothing draws the dialog opens instead', async () => {
+    const a = mk(); await seed(a.h, approval(62)); await openPane(a.h, 'board')
+    expect(a.of('open')).toEqual([{ id: 'cadre', title: 'cadre', focus: true, columns: 120 }]); expect(await read(a.h).then(v => v.ui.tab)).toBe('board'); expect((a.h as any).logs).toHaveLength(0)
+    const b = mk({ open: async () => ({ isPlaced: false, reason: 'no room' }) }); await seed(b.h, approval(62)); await openPane(b.h, 'board')
+    expect((b.h as any).toasts[0]).toContain('no room')
   })
-  test('handlers: n/p select, h/l move the cursor (live at the edge), b/f jump to attention events, e = live, t toggles the timeline, sheet paging', async () => {
+  test('handlers: n/p select, h/l move the cursor (live at the edge), e = live, done toggle, key sheet toggle', async () => {
     const a = mk(); await seed(a.h); const x = acts(a.h), st = async (w: string, d = 0) => { x.step(w, d); await a.run(); return read(a.h) }
     expect((await st('node', 1)).ui.sel).toBe('a3'); expect((await st('node', 1)).ui.sel).toBe('a6'); expect((await st('node', -1)).ui.sel).toBe('a3')
     const t1 = (await st('time', -1)).t as number; expect(t1).toBeLessThan(BASE + 62 * MIN); expect(t1).toBeGreaterThan(BASE); expect((await st('time', 1)).t).toBe(null)
-    const b = await st('attn', -1); expect(b.t).not.toBe(null); expect((await st('live')).t).toBe(null); expect((await st('tl')).ui.tl).toBe(false); expect((await st('tl')).ui.tl).toBe(true)
-    await seed(a.h, approval()); expect((await st('sheet', 1)).ui.si).toBe(1); expect((await st('sheet', -5)).ui.si).toBe(0); expect((await st('sheet', 99)).ui.si).toBe(SHEET.length - 1)
+    await st('time', -1); expect((await st('live')).t).toBe(null)
+    expect((await st('keys')).ui.ks).toBe(true); expect((await st('keys')).ui.ks).toBe(false); expect((await st('done')).ui.dn).toBe(true)
   })
   test('result-card row: engine row while running or unmapped; else a glyphed row + next line', async () => {
     const a = mk(), v = view(62, { tweak: ts => ts.map(t => (t.id === 'a1' ? { ...t, card: 'worker → review  a1 "Add login"  green ✓ test 41s\nnext: spawn reviewer for a1' } : t)), ui: { cards: { tu1: 'a1' } } }); await seed(a.h, v)
     expect((await renderCard(a.h, { props: { tool_use_id: 'tu1', isRunning: true } }, next)).type).toBe('engine'); expect((await renderCard(a.h, { props: { tool_use_id: 'zz', isRunning: false } }, next)).type).toBe('engine')
-    const t = await renderCard(a.h, { props: { tool_use_id: 'tu1', isRunning: false } }, next); expect(text(t)).toBe('⏺ [OK] worker → review  a1 "Add login"  green ✓ test 41s  next: spawn reviewer for a1')
+    const t = await renderCard(a.h, { props: { tool_use_id: 'tu1', isRunning: false } }, next); expect(text(t)).toBe('⏺ ✓ worker → review  a1 "Add login"  green ✓ test 41s  next: spawn reviewer for a1')
   })
-  test('resume banner: transcript log line, band cell until the first ack', async () => {
+  test('resume banner: one transcript line, plain words (the band carries the drive state)', async () => {
     const a = mk(); await seed(a.h, view(62, { board: { resumesQueued: 1, drive: { on: false, level: 'epic', epicId: null, turns: 0, costUsd: 0, startedAt: null } } })); await resumeBanner(a.h, { decisions: 5, next: 'complete a5', stale: 1 })
-    expect((a.h as any).logs[0]).toBe('● cadre: [OK] resumed · mission "Auth v2" · epic p3 · 1 running (re-adopted) · [IDLE] 1 stale → rebind · ↻ 1')
-    expect(txt(band(await read(a.h), 115, NOOP))[0]).toBe('[OK] ↺ cadre resumed from beads · 5 decisions · next: complete a5 · [WAIT] drive off · band 2: resume')
-    await a.h.ui.update(u => ({ ...u, ack: Date.now() + 1e12 })); expect(txt(band(await read(a.h), 115, NOOP))[0]).toMatch(/^\[RUN\] cadre/)
-  })
-  test('resume banner shows the rehydrated drive state: continuing when drive survived the reset', async () => {
-    const a = mk(); await seed(a.h, view(62, { board: { drive: { on: true, level: 'epic', epicId: 'p3', turns: 4, costUsd: 1, startedAt: 0 } } })); await resumeBanner(a.h, { decisions: 5, next: 'complete a5' })
-    expect(txt(band(await read(a.h), 115, NOOP))[0]).toBe('[OK] ↺ cadre resumed from beads · 5 decisions · next: complete a5 · [RUN] drive ▶ continuing')
-    expect(((await a.h.ui.read()).res as any).n).toContain('[RUN] drive ▶ continuing')
+    expect((a.h as any).logs[0]).toBe('✓ resumed · mission "Auth v2" · epic p3 · 1 running (re-adopted) · 1 stale → rebind · 1 queued · next: complete a5')
   })
 })
 
-describe('Doctor tab (post-v1, ADR 0007)', () => {
-  test('8: Doctor is always on the tab row; with no report it says how to get one; a report shows its rows', () => {
-    const v = view(62, {}), keys = (p: ReturnType<typeof pane>) => p.before.flat().filter(s => s.hk).map(s => s.hk)
-    expect(keys(pane(v, 118, 40, NOOP))).toContain('8')
-    expect(txt(pane({ ...v, ui: { tab: 'doctor' } }, 118, 40, NOOP).before).join('\n')).toContain('no report yet · run /cadre doctor')
-    expect(txt(pane({ ...v, ui: { tab: 'doctor', 'doctor.rows': [['ok', 'git 2.43.0']] } }, 118, 40, NOOP).before).join('\n')).toContain('[OK] git 2.43.0')
-  })
-})

@@ -27,7 +27,7 @@ v2 fixes the structure first and the styling second.
 | P3 | **One signal per state:** glyph + colour; words only for `NEEDS YOU` / `FAILED` | No `[TAG]` words outside those two |
 | P4 | **One view at a time.** Graph, timeline, activity, doctor and settings are views you switch to, not regions that are always open | The board view draws at most: header, sections, agents, inspector, timeline summary, footer |
 | P5 | **Fit or degrade, never overflow.** Every line fits `bodyColumns` at 40, 60, 120 and 160 | The ui-dev `--all` sweep reports no line wider than `bodyColumns` |
-| P6 | **Keys you can use now.** The footer shows 4–6 keys valid in the current view, plus `?` | No footer key is a no-op in its view |
+| P6 | **Keys you can use now.** The footer shows 4–6 keys valid in the current view, plus `k` (the key sheet) | No footer key is a no-op in its view |
 | P7 | **Plain words.** No private shorthand | Wording lint (`tests/wording.test.ts` extended to UI strings) |
 | P8 | **Zero tokens.** Everything here is display only | Unchanged from v1 |
 
@@ -65,11 +65,11 @@ Widths:
 ### 4.1 Frame
 
 ```text
-1 Board  2 Graph  3 Timeline  4 Activity  8 Doctor  9 Settings      ?: keys
+1: Board  2: Graph  3: Timeline  4: Activity  8: Doctor  9: Settings
 p3 auth-login · 4/7 done · epic/p3-auth-login                      live
 ```
 
-- **Tab row** (row 1): numbered tabs. The current tab is bold + `accent`; the others are `inactive`. A tab with something needing you shows `!` after its name.
+- **Tab row** (row 1): numbered tabs, drawn by the engine as `1: Board` (a Button prints `k: label` itself). The current tab is bold + `accent`; the others are `inactive`. A tab with something needing you shows `!` after its name.
   - ≥80 columns: full names.
   - 50–79: `1 Brd 2 Gph 3 Tml 4 Act 8 Doc 9 Set`, with the current tab spelled out.
   - <50: `1 2 3 4 8 9 · Board`.
@@ -105,7 +105,7 @@ Timeline  62m · 3 agents · sync offline 14m                      3: open
 a2  Session refresh · feat
   spec ✓  red ✓  implement ›  green  review  merge
   after a1 · unblocks a6 · worker 23m
-↑↓: select  enter: task  c: collapse done  ?: keys
+↑↓: select  enter: task  c: collapse done  k: keys
 ```
 
 Rules:
@@ -113,7 +113,7 @@ Rules:
 - **Agents** is the only place that shows who works, elapsed time and context %. Task rows show the step only (P2).
 - **Done** collapses to its title and count by default when it has more than 3 rows (`c` toggles).
 - **Waiting** includes ready (`○`) and dependency-blocked (`·`) tasks. The fact column says why: `after a2`, `runs only if a3 fails`, `ready`.
-- **Inspector:** the selected task, with title + type, a pipeline line using the step names from BRAND §5 (`✓` done, `›` current, plain = not reached), its dependencies, and its agent. Selection follows the most recently changed running task until you move it.
+- **Inspector:** the selected task, with title + type, a pipeline line using the step names from BRAND §5 (`✓` done, `›` current, plain = not reached), its dependencies, and its agent's role (the elapsed time lives in Agents only, P2). Selection follows the most recently changed running task until you move it.
 - **Timeline summary:** one line; `3` opens the view.
 
 ### 4.3 `2 Graph`
@@ -186,7 +186,7 @@ NEEDS YOU
 
 ### 5.4 Footer
 
-One line, 4–6 keys valid in the current view, plus `?: keys`. `?` opens a key sheet for the current view (the full list, grouped).
+One line, 4–6 keys valid in the current view, plus `k: keys`. `k` opens a key sheet for the current view (the full list, grouped).
 
 ### 5.5 Change flash (BRAND §9)
 
@@ -220,7 +220,7 @@ A row whose state changed draws in `accent` + bold for 1.5 s. It then shows `· 
 | Where | Keys |
 |---|---|
 | band (empty composer) | `1` answer the oldest decision (opens the dialog) |
-| pane, any view | `1 2 3 4 8 9` views (`1` answers instead while a decision is pending) · `?` key sheet · `esc` back to the prompt (engine) |
+| pane, any view | `1 2 3 4 8 9` views (`1` answers instead while a decision is pending) · `k` key sheet · `esc` back to the prompt (engine) |
 | dialog (engine) | `↑↓` choose · `enter` answer · `esc` not now |
 | board | `↑↓` select · `enter` open task detail · `c` collapse done |
 | graph | `↑↓` select · `enter` detail |

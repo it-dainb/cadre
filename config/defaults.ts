@@ -22,7 +22,7 @@ export const defaults = () => ({
   suites: { integration: 'all' },
   review: { deepLabels: ['security', 'breaking'], maxRework: 3 }, limits: { reportRetries: 3 },
   branches: { main: '', dev: 'dev', epicPrefix: 'epic/' }, release: { onEpicDone: 'propose' },
-  ui: { glyphs: 'unicode', flash: true, density: 'normal', v2: false },   // v2: the new band + pane (tokens in ui/tokens.ts)
+  ui: { glyphs: 'unicode', flash: true, density: 'normal' },
   maxParallel: 3, maxRows: 6, reuse: { maxContextPct: 60, cacheTtlMs: 3_600_000 },   // 1h: roles ship as agent files with experimental.cacheTtl 1h (A28, ADR 0001 S44)
   disable: false,
 })

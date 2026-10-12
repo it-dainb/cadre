@@ -1,5 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
-import { approval, view } from './fixtures/ui/epic'
+import { BASE, MIN, approval, view } from './fixtures/ui/epic'
 
 const BAND = { hasSurvey: false, isWorking: false, maxRows: 8, bodyColumns: 115, scroll: { offset: 0, bodyRows: 8 }, view: {} }
 const PANE = { title: 'cadre', isFocused: true, bodyColumns: 118, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} }
@@ -29,10 +29,13 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await band.unmount()
     seed(view(62))
     const pane = await $.ui.mount({ plugin: 'cadre', surface, component: 'Pane', requestId: 'cadre', props: PANE })
-    expect((await pane.findAll({ type: 'Raster' })).length).toBe(surface === 'terminal' ? 1 : 0)
-    expect((await pane.find({ text: /SELECTED/ }))?.text).toContain('a2')
-    expect((await pane.findAll({ type: 'Button' })).length).toBeGreaterThan(10)
+    expect((await pane.find({ text: /Session refresh/ }))?.text).toContain('a2')
+    expect((await pane.findAll({ type: 'Button' })).length).toBeGreaterThan(5)
     await pane.unmount()
+    seed(view(62, { ui: { tab: 'timeline', t: BASE + 62 * MIN } }))   // the kit clock is 0: a replay cursor puts the lanes in range
+    const tl = await $.ui.mount({ plugin: 'cadre', surface, component: 'Pane', requestId: 'cadre', props: PANE })
+    expect((await tl.findAll({ type: 'Raster' })).length).toBe(surface === 'terminal' ? 1 : 0)
+    await tl.unmount()
   })
 }
 
