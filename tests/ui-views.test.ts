@@ -10,6 +10,8 @@ import { activity } from '../ui/views/activity'
 import { doctor } from '../ui/views/doctor'
 import { settings } from '../ui/views/settings'
 import { NOOP } from './fixtures/ui/epic'
+import { rowsOf } from '../ui/settings'
+const rowsOfFor = (s: any) => rowsOf({ ...s, ui: { ...s.ui, cfg: { v2: true } } } as any)
 
 const VIEWS = { graph, timeline, activity, doctor, settings }, WIDTHS = [40, 60, 80, 120, 160]
 const lines = (o: ReturnType<typeof graph>) => [...txt(o.lines), ...txt([o.keys])].map(l => l.trimEnd())
@@ -23,6 +25,12 @@ describe('v2 views', () => {
       expect([at, odd(ls)]).toEqual([at, []])
       if (ascii) expect([at, ls.join('').match(/[^\x00-\x7e…—·›]/g)?.filter(ch => !ALLOWED.has(ch) || ch.charCodeAt(0) > 126 && !'…—·›'.includes(ch))]).toEqual([at, undefined])
     }
+  })
+  test('settings: drive.mode carries its plain note when selected', () => {
+    const s = SCENARIOS['settings-drive'], i = rowsOfFor(s).findIndex(r => r.key === 'drive.mode')
+    expect(i).toBeGreaterThanOrEqual(0)
+    const t = txt(settings({ ...s, ui: { ...s.ui, ssel: i, cfg: { v2: true } } }, 120, 40, NOOP).lines).join('\n')
+    expect(t).toContain('yolo: no questions after approval')
   })
   test('density: compact has no blank rows, relaxed has more rows than normal', () => {
     const n = (density: string) => doctor({ ...SCENARIOS['doctor-drive-stopped'], ui: { ...SCENARIOS['doctor-drive-stopped'].ui, cfg: { v2: true, density } } }, 80, 60, NOOP).lines

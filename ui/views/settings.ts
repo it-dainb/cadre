@@ -7,7 +7,8 @@ import { actOf, groupOf, rowsOf, val } from '../settings'
 import { type Renderer, joinSections, keyLine, muted, relax, title, ucfg, win } from './types'
 
 const WORD = { bool: 'toggle', enum: 'cycle', number: 'change', text: 'change', list: 'change' } as const
-const NOTE = (cls: string) => (cls === 'S' ? 'tighten-only from repo' : cls === 'U' ? 'user-level only' : '')
+const KEY_NOTE: Record<string, string> = { 'drive.mode': 'yolo: no questions after approval' }
+const NOTE = (cls: string, key = '') => [KEY_NOTE[key], cls === 'S' ? 'tighten-only from repo' : cls === 'U' ? 'user-level only' : ''].filter(Boolean).join(SEP)
 
 export const settings: Renderer = (v, cols, rows, a) => {
   const w = Math.min(cols, 80)   // keys and values stay close together on a wide pane
@@ -22,7 +23,7 @@ export const settings: Renderer = (v, cols, rows, a) => {
     const at = secs.at(-1)!
     at.push(i === sel ? [S(text + t, undefined, { i: true })] : [S(text), muted(t)])
   })
-  const r = rs[sel], note = NOTE(r.cls)
+  const r = rs[sel], note = NOTE(r.cls, r.key)
   const all = joinSections(secs.map(s => relax(s, c.density)), c.density), body = win(all, all.findIndex(l => l.some(x => x.i)), Math.max(2, rows - 1))
   return { lines: [...body, [muted(clip(`${' '.repeat(INDENT)}default ${val({ ...r, value: r.def })}${note ? `${SEP}${note}` : ''}`, w))]],
     keys: keyLine(live ? [['e', WORD[r.kind], () => a.run?.(actOf(r))], ['n', 'next', () => a.run?.('sel 1')], ['p', 'prev', () => a.run?.('sel -1')]] : []) }
