@@ -6,7 +6,7 @@ import { pipeOf } from '../task-management/registry'
 import { resolveDeps, type Deps } from './admission'
 import { apply } from './machine'
 import { emit } from './events'
-import { ask } from './decide'
+import { ask, yoloOn } from './decide'
 import { fnv1a64 } from './board'
 import * as G from './git'
 import { auditView, matches, modeOf, pkgOf, rootOf, type Pkg } from './specview'
@@ -148,18 +148,20 @@ export async function specAsk(h: Host, id: string, why: string): Promise<void> {
 export async function specChange(h: Host, d: Deps, id: string, why: string): Promise<void> {
   await apply(h, { kind: 'block', id, at: await h.now(), actor: 'mod' }, pipeOf(d.reg)); await d.store.move(id, 'blocked', d.actor).catch(() => undefined)
   await d.store.setMeta(id, { 'cadre.blocked': 'spec_change', 'cadre.specChange': why.slice(0, 1500) }, d.actor)
+  if (yoloOn((await h.board.read()).drive)) return   // yolo: main decides it (core/drive asks main, core/close.decide applies it)
   await specAsk(h, id, why)
-  h.toast(`cadre: ${id} spec change · press 1`)
+  h.toast(`${id} spec change · press 1`)
 }
 // accept: back to the tester step (the view is rebuilt from the spec commit when it is spawned: new red, amended specCommit); reject: the worker resumes and conforms
-export async function resolveSpec(h: Host, id: string, how: string): Promise<{ text: string }> {
+export async function resolveSpec(h: Host, id: string, how: string, by: 'human' | 'main' = 'human'): Promise<{ text: string }> {   // main: yolo's own decision
   const d = await resolveDeps(h), t = (await h.board.read()).tasks.find(x => x.id === id), task = t && (await d.store.get(id))
   if (!t || t.state !== 'blocked' || task?.meta['cadre.blocked'] !== 'spec_change') return { text: `${id} is not waiting on a spec change` }
   if (how !== 'accept' && how !== 'reject') return { text: `/cadre resolve ${id} accept|reject` }
   const pipe = pipeOf(d.reg), acc = how === 'accept'
   if (acc && !pipe(t.type, t.lane).includes('tester')) return { text: `${id}: type ${t.type} has no tester step; reject instead` }
-  const r = await apply(h, acc ? { kind: 'rewind', id, at: await h.now(), actor: 'human', on: 'tester' } : { kind: 'unblock', id, at: await h.now(), actor: 'human' }, pipe)
+  const r = await apply(h, acc ? { kind: 'rewind', id, at: await h.now(), actor: by, on: 'tester' } : { kind: 'unblock', id, at: await h.now(), actor: by }, pipe)
   if (!r.ok) return { text: r.error }
+  await d.store.resume(id, d.actor)   // beads follows the board out of blocked (as unblock does), or the next report cannot move it
   const note = acc ? `spec change accepted: ${task!.meta['cadre.specChange'] ?? ''}` : 'spec change rejected: the locked tests stay; conform to them'
   await d.store.setMeta(id, { 'cadre.blocked': '', 'cadre.decision': note.slice(0, 1500) }, d.actor); await d.store.comment(id, `[cadre:decision v1] ${note}`, d.actor)
   return { text: acc ? `${id}: accepted; spawn it for the tester to amend the spec (new red, amended specCommit)` : `${id}: rejected; spawn it to resume the worker` }

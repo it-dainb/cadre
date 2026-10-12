@@ -25,7 +25,7 @@ export async function route(h: Host, c: Command): Promise<Out> {   // every disp
       return { text }
     }
     case 'doctor': return { text: await doctor(h) }
-    case 'goal': return { text: c.origin.kind === 'composer' ? await goal(h, a ?? '') : `refused: origin ${c.origin.kind} cannot start a goal; type it in the prompt` }   // the human's own words only
+    case 'goal': case 'yolo': return { text: c.origin.kind === 'composer' ? await goal(h, a ?? '', c.cmd === 'yolo' ? 'yolo' : 'auto') : `refused: origin ${c.origin.kind} cannot start a goal; type it in the prompt` }   // the human's own words only
     case 'lane': { const why = isHuman(c.origin); return { text: why ? `refused: ${why}` : await changeLane(h, await storeOf(h), await registryOf(h), a ?? '') } }
     case 'config': if (!a || a === 'show') return { text: configText(await cfgOf(h), c.args[1]) }
   }
@@ -42,7 +42,7 @@ export const configText = (cfg: unknown, prefix?: string): string => {
 }
 // words; `k="a b"` is one argv element `k=a b` (a field value with spaces, ADR 0009). argv only: nothing reaches a shell
 export const argsOf = (t: string): string[] => (t.match(/\w+="[^"]*"|\S+/g) ?? []).map(a => a.replace(/^(\w+)="([^"]*)"$/, '$1=$2'))
-// The typed surface (ADR 0011): `/cadre` (the pane) · `/cadre setup|init|doctor` · `/cadre <goal>`. An old subcommand word gets a one-line hint, so a typo never starts a plan;
+// The typed surface (ADR 0011, 0013): `/cadre` (the pane) · `/cadre setup|init|doctor` · `/cadre <goal>` · `/cadre yolo <goal>`. An old subcommand word gets a one-line hint, so a typo never starts a plan;
 // the other dispatcher commands are reached only by the dialog's answers (and the Settings tab's presses).
 export const OLD = ['approve', 'reject', 'resolve', 'restore', 'release', 'drive', 'config', 'sync', 'adapter', 'status', 'open', 'confirm', 'cancel', 'resume', 'lane', 'goal', 'setup', 'init', 'doctor']
 export const HINT = "that's answered in the dialog now: press 1 on the band or run /cadre"
@@ -50,6 +50,7 @@ export function parse(text: string): { cmd: string; args: string[] } | { hint: s
   const t = text.trim(), [w = '', ...rest] = argsOf(t)
   if (!t) return { cmd: 'pane', args: [] }
   if (['setup', 'init', 'doctor'].includes(w) && !rest.length) return { cmd: w, args: [] }
+  if (w === 'yolo') return rest.length ? { cmd: 'yolo', args: [t.slice(4).trim()] } : { hint: 'usage: /cadre yolo <goal> · after you approve the plan, nothing is asked until it lands on dev' }   // ADR 0013
   return OLD.includes(w) ? { hint: HINT } : { cmd: 'goal', args: [t] }
 }
 export const run: Hook = async (h, e) => {

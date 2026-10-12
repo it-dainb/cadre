@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { compact, drain, queueResume, step, submit } from '../core/reuse'
 import { UI } from '../core/board'
 import { checkpoint } from '../core/effect'
-import { casDrive, drive, goal } from '../core/drive'
+import { arm, casDrive, drive, goal } from '../core/drive'
 import { prune, rehydrate, warm } from '../core/session'
 import { tick } from '../core/admission'
 import { wrap } from '../core/effect'
@@ -151,7 +151,7 @@ describe('compaction (8.3, S49) and rehydrate (8.2, 13.4)', () => {
   test('after /clear: pointer + live bindings come back, card queued once, banner called; drive continues with its lease moved to the new session', async () => {
     const { h, a, epic, submitted } = await mk()
     await h.bind.update(() => ({ ag1: B(a, 'S1'), ag9: B('gone', 'S1') }))
-    await ROUTES.drive(h, { schemaVersion: 1, cmd: 'drive', args: ['on'], origin: { kind: 'composer' } })
+    await arm(h, 'auto')
     await turn(h, { reason: 'answer' })   // drives once and saves the pointer
     const banner: any[] = []; UI.banner = async (_h, o) => { banner.push(o) }
     const fresh = await cleared(h)
@@ -212,9 +212,9 @@ describe('compaction (8.3, S49) and rehydrate (8.2, 13.4)', () => {
 })
 
 describe('drive (9)', () => {
-  test('/cadre drive on arms without submitting; the first submit comes from #1 after next; a timer tick never submits', async () => {
+  test('arming submits nothing; the first submit comes from #1 after next; a timer tick never submits', async () => {
     const { h, submitted, order } = await mk()
-    expect((await ROUTES.drive(h, { schemaVersion: 1, cmd: 'drive', args: ['on'], origin: { kind: 'composer' } })).text).toContain('armed')
+    expect(await arm(h, 'auto')).toBe('drive auto on')
     expect(submitted).toEqual([])
     await tick(h); expect(submitted).toEqual([])
     await turn(h, { reason: 'answer' }, order)
@@ -222,7 +222,7 @@ describe('drive (9)', () => {
   })
   test('pauses at a human gate (blocked task) and resumes when it clears; agent turns never drive', async () => {
     const { h, a, submitted } = await mk()
-    await ROUTES.drive(h, { schemaVersion: 1, cmd: 'drive', args: ['on'], origin: { kind: 'composer' } })
+    await arm(h, 'auto')
     await h.board.update((s: any) => ({ ...s, tasks: s.tasks.map((t: any) => (t.id === a ? { ...t, state: 'blocked' } : t)) }))
     await turn(h, { reason: 'answer' })
     expect((await h.board.read()).drive.paused).toBe(`blocked ${a}`); expect(submitted).toEqual([])
@@ -231,38 +231,38 @@ describe('drive (9)', () => {
     await turn(h, { reason: 'answer', agentId: 'x' }); expect(submitted).toEqual([])
     await turn(h, { reason: 'answer' }); expect((await h.board.read()).drive.paused).toBeUndefined(); expect(submitted.length).toBe(1)
   })
-  test('bounds: USD over maxCostUsd pauses (stays paused until re-armed); no progress in N driven turns pauses', async () => {
+  test('bounds: USD over maxCostUsd stops (stays stopped until resumed); no progress in N driven turns stops', async () => {
     const one = await mk({ usd: 1 })
-    await ROUTES.drive(one.h, { schemaVersion: 1, cmd: 'drive', args: ['on'], origin: { kind: 'composer' } })
+    await arm(one.h, 'auto')
     one.h.usage = async () => ({ cost: { usd: 30 } })
     await turn(one.h, { reason: 'answer' })
-    expect((await one.h.board.read()).drive.paused).toMatch(/^cost \$29/); expect(one.submitted).toEqual([])
+    expect((await one.h.board.read()).drive.stopped).toMatch(/^cost \$29/); expect(one.submitted).toEqual([])
     await turn(one.h, { reason: 'answer' }); expect(one.submitted).toEqual([])
     const two = await mk(); two.cfg.drive.noProgressTurns = 2
-    await ROUTES.drive(two.h, { schemaVersion: 1, cmd: 'drive', args: ['on'], origin: { kind: 'composer' } })
+    await arm(two.h, 'auto')
     for (let i = 0; i < 4; i++) await turn(two.h, { reason: 'answer' })
-    expect((await two.h.board.read()).drive.paused).toMatch(/^no progress/); expect(two.submitted.length).toBe(2)
+    expect((await two.h.board.read()).drive.stopped).toMatch(/^no progress/); expect(two.submitted.length).toBe(2)
   })
   test('G9: the USD bound survives a usage reset and /clear (deltas against a per-session baseline)', async () => {
     const { h, store, cfg, submitted } = await mk({ usd: 1, cfg: c => { c.drive.maxCostUsd = 10 } }), usage = (usd: number) => { h.usage = async () => ({ cost: { usd } }) }
-    await ROUTES.drive(h, { schemaVersion: 1, cmd: 'drive', args: ['on'], origin: { kind: 'composer' } })
+    await arm(h, 'auto')
     usage(5); await turn(h, { reason: 'answer' }); expect((await h.board.read()).drive.costUsd).toBe(4)
     usage(2); await turn(h, { reason: 'answer' }); expect((await h.board.read()).drive.costUsd).toBe(6)   // usage reset to 0 then 2: +2, not -3
     await casDrive(h, store, r => r && { ...r, lease: { ...r.lease, session: 'S2' } }); await h.secret.update((s: any) => ({ ...s, session: 'S2' }))   // /clear: new session, lease moved
     usage(3); await turn(h, { reason: 'answer' }); expect((await h.board.read()).drive.costUsd).toBe(6)   // new baseline 3
-    usage(9); await turn(h, { reason: 'answer' }); expect((await h.board.read()).drive.paused).toMatch(/^cost \$12/); expect(cfg.drive.maxCostUsd).toBe(10)
+    usage(9); await turn(h, { reason: 'answer' }); expect((await h.board.read()).drive.stopped).toMatch(/^cost \$12/); expect(cfg.drive.maxCostUsd).toBe(10)
   })
   test('lease in beads: another session holding a live lease is refused and never drives', async () => {
     const { h, store, epic, submitted } = await mk({ session: 'S1' })
     await store.setMeta(await controlOf(h, store), { 'cadre.drive': JSON.stringify({ on: true, level: 'epic', epicId: epic, turns: 0, cost: 0, last: 0, sess: 'S2', startedAt: 1000, lastSeq: 0, idle: 0, lease: { session: 'S2', until: 9e15 } }) }, 'x')
-    expect((await ROUTES.drive(h, { schemaVersion: 1, cmd: 'drive', args: ['on'], origin: { kind: 'composer' } })).text).toBe('refused: drive: held by S2')
+    expect(await arm(h, 'auto')).toBe('drive is held by S2')
     await h.board.update((s: any) => ({ ...s, drive: { ...s.drive, on: true } }))
     await turn(h, { reason: 'answer' })
     expect(submitted).toEqual([]); expect((await h.board.read()).drive.heldBy).toBe('S2')
   })
   test('/goal observed on command.run and on prompt.submit text: drive pauses; /goal clear lifts it; the command passes untouched', async () => {
     const { h, submitted } = await mk()
-    await ROUTES.drive(h, { schemaVersion: 1, cmd: 'drive', args: ['on'], origin: { kind: 'composer' } })
+    await arm(h, 'auto')
     expect(await goal(h, { command: 'goal', args: 'tests pass' }, (e: any) => ({ text: `engine ${e.args}` }))).toEqual({ text: 'engine tests pass' })
     expect((await h.board.read()).drive.paused).toBe('two loop owners: /goal active')
     await turn(h, { reason: 'answer' }); expect(submitted).toEqual([])
@@ -323,7 +323,7 @@ describe('tdd author:same (3.5)', () => {
 describe('drive done / plan flags (9)', () => {
   test('integration-failed on the plan pauses; plan.landed finishes drive with the /clear hint past clearHintPct', async () => {
     const { h, submitted } = await mk({ pct: 55 })
-    await ROUTES.drive(h, { schemaVersion: 1, cmd: 'drive', args: ['on'], origin: { kind: 'composer' } })
+    await arm(h, 'auto')
     await h.board.update((s: any) => ({ ...s, plan: { ...s.plan, flags: ['integration-failed'] } }))
     await turn(h, { reason: 'answer' }); expect((await h.board.read()).drive.paused).toBe('resolve integration-failed'); expect(submitted).toEqual([])
     await h.board.update((s: any) => ({ ...s, plan: { ...s.plan, flags: [], state: 'done-on-dev', landed: { dev: 'dev', sha: 'abc', at: 1 } } }))

@@ -29,7 +29,7 @@ describe('approve: bound to the decision hash, completeness (DESIGN 3.1, ADR 001
   })
   test('a replay after approval is refused (the decision is gone)', async () => {
     const w = await world(); const { plan: p } = await plan(w)
-    expect((await w.text({ cmd: 'approve', args: [p] })).text).toBe(`Plan ${p} approved: 1 task ready; epic branch epic/${p}-auth-login cut.`)
+    expect((await w.text({ cmd: 'approve', args: [p] })).text).toBe(`Plan ${p} approved: 1 task ready; epic branch epic/${p}-auth-login cut · drive auto on.`)
     expect((await w.text({ cmd: 'approve', args: [p] })).text).toContain('refused')
   })
   test('accepted: drafts -> todo through the machine, plan approved, decision record, epic branch cut from dev (first approval only)', async () => {

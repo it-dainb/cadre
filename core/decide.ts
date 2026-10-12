@@ -1,6 +1,9 @@
 // How to ask the human (ADR 0008, 0012, CONTRACTS): `ask` puts a Decision on the board (human view), `settle` clears it. The native dialog answers any Decision (ui/index.answerDialog
 // -> core/dispatch.answer); the pane lists it read-only (ui/needs). Every human-in-the-loop phase calls ask when it needs the human and settle when it is answered; none draws UI.
-import type { Decision, Host } from '../types'
+import type { Decision, Host, Snapshot } from '../types'
+
+// yolo while it runs (core/drive): main decides spec changes and blocked questions, so they never become a decision for the human
+export const yoloOn = (d: Snapshot['drive']): boolean => d.on && !d.stopped && d.mode === 'yolo'
 
 export const ask = async (h: Host, d: Decision): Promise<void> => {
   await h.board.update(b => { const l = b.decisions ?? [], i = l.findIndex(x => x.id === d.id); return { ...b, decisions: i < 0 ? [...l, d] : l.map((x, j) => (j === i ? d : x)) } })   // replace keeps its place in the queue

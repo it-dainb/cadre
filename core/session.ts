@@ -23,7 +23,7 @@ export interface Entry { sessionId: string; agentId: string; taskId: string; tex
 // ---- resume card (8.2) from the board (+ decisions from the store) ----
 export async function cardOf(h: Host, s: Snapshot, store?: TaskStore): Promise<{ text: string; decisions: number }> {
   const dec = store ? await safe(h, 'decisions', async () => (await store.list({})).filter(t => t.type === 'decision').sort((a, b) => a.updatedAt.localeCompare(b.updatedAt)).map(t => t.title)) : undefined
-  const d = s.drive, drive = d.on ? (d.paused ? `paused (${d.paused})` : `on ${d.turns} turns`) : 'off'
+  const d = s.drive, drive = d.on ? (d.stopped ? `stopped (${d.stopped})` : d.paused ? `paused (${d.paused})` : `on ${d.turns} turns`) : 'off'
   const text = renderCard({ mission: s.mission, epic: s.plan && { id: s.plan.id, title: s.plan.slug, intent: s.plan.state }, decisions: dec ?? [], questions: s.tasks.filter(t => t.state === 'blocked').map(t => `${t.id}: blocked`),
     inflight: s.tasks.filter(t => t.state === 'active' || t.state === 'review').map(t => ({ id: t.id, step: t.step, owner: t.owner })), drive, next: nextAction(modelView(s)) })
   return { text, decisions: dec?.length ?? 0 }
@@ -52,10 +52,11 @@ async function reask(h: Host, store: TaskStore, plan: Snapshot['plan'] & {}) {
   const kids = await store.list({ parent: plan.id }).catch(() => []), gate = kids.find(t => t.type === 'gate' && !['done', 'cancelled'].includes(t.category))
   if (gate) await gateDraw(h, gate)   // a gate and a plan share the one approval slot: the gate blocks the work, so it goes first
   else if (plan.state === 'draft' || kids.some(t => t.category === 'draft' && t.type !== 'gate')) await redraw(h, store, await registryOf(h))
-  for (const t of kids) if (t.meta['cadre.blocked'] === 'spec_change') { await h.board.update(s => ({ ...s, tasks: s.tasks.map(x => (x.id === t.id && !x.flags.includes('spec_change') ? { ...x, flags: [...x.flags, 'spec_change'] } : x)) })); await specAsk(h, t.id, t.meta['cadre.specChange'] ?? '') }
+  const r = await casDrive(h, store, () => undefined).catch(() => undefined), y = !!r?.on && r.epicId === plan.id && !r.stopped && r.mode === 'yolo'   // yolo: main decides spec changes, release is the human's later
+  for (const t of kids) if (t.meta['cadre.blocked'] === 'spec_change') { await h.board.update(s => ({ ...s, tasks: s.tasks.map(x => (x.id === t.id && !x.flags.includes('spec_change') ? { ...x, flags: [...x.flags, 'spec_change'] } : x)) })); if (!y) await specAsk(h, t.id, t.meta['cadre.specChange'] ?? '') }
   for (const f of plan.flags ?? []) { const d = flagDecision(plan.id, f); if (d) await ask(h, d) }
   for (const f of Object.keys((await h.git.read()).flags ?? {})) { const d = flagDecision('', f); if (d) await ask(h, d) }
-  if (plan.state === 'done-on-dev') await propose(h, await h.cwd(), (await cfgOf(h)).branches.dev)
+  if (plan.state === 'done-on-dev' && !y) await propose(h, await h.cwd(), (await cfgOf(h)).branches.dev)
 }
 export async function rehydrate(h: Host): Promise<boolean> {
   const b0 = await h.board.read()
@@ -68,7 +69,7 @@ export async function rehydrate(h: Host): Promise<boolean> {
   await safe(h, 'decisions', () => reask(h, store, p.plan))
   await safe(h, 'ring rebuild', async () => { if (await ring(h, store, p.epic)) await resetDelivery(h) })
   const rec = await casDrive(h, store, r => (r?.on && r.epicId === p.epic && r.lease.session === p.session ? { ...r, lease: { session: me, until: now + LEASE } } : undefined))   // our own lease moves to the new session id
-  if (rec?.on && rec.epicId === p.epic) await h.board.update(s => ({ ...s, drive: { ...s.drive, on: true, turns: rec.turns } }))   // drive survives /clear: it continues at the next turn.complete (9)
+  if (rec?.on && rec.epicId === p.epic) await h.board.update(s => ({ ...s, drive: { ...s.drive, on: true, turns: rec.turns, mode: rec.mode, stopped: rec.stopped } }))   // drive survives /clear: it continues at the next turn.complete (9)
   let gone = 0
   for (const [a, b] of Object.entries((p.bind ?? {}) as Record<string, Binding>)) {
     if (a.startsWith('~')) continue

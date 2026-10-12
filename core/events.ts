@@ -1,6 +1,6 @@
 // Domain events (DESIGN 2.5): envelope, per-type actor/severity/needsHuman table, in-module bus, 500/epic ring, rebuild hook.
 // The attention LEVEL (silent/band/toast/notify) is UI policy computed from severity + needsHuman; never stored here.
-import { ask, flagDecision, settle } from './decide'
+import { ask, flagDecision, settle, yoloOn } from './decide'
 import type { Actor, CadreEvent, EventRing, EventType, Host, Severity } from '../types'
 import type { TaskStore } from '../task-management/store'
 
@@ -18,7 +18,8 @@ export const TABLE: Record<EventType, Row> = {
   'flag.resolved': ['human', 'info', false, ['taskId', 'flag']],
   'approval.pending': ['mod', 'info', true, ['planId', 'missing']],
   'sync.state_changed': ['sync', 'info', false, ['target', 'state', 'at'], ['pending', 'conflicts']],
-  'drive.status': ['mod', 'info', false, ['state']],
+  'drive.status': ['mod', 'info', false, ['state'], ['reason']],
+  'drive.decided': ['main', 'info', false, ['kind', 'text'], ['taskId']],   // a decision taken without the human (core/drive.decided): Activity, Doctor
   'cost.updated': ['mod', 'info', false, ['tokens']],
   'init.stage': ['mod', 'info', false, ['stage', 'state'], ['name']],
   'plan.landed': ['mod', 'info', false, ['planId', 'sha']],
@@ -48,7 +49,7 @@ export async function emit(h: Host, type: EventType, data: Record<string, unknow
   await h.events.update(r => { ev = mk(r.seq + 1, at, type, data, o); return put(r, epic, ev) })
   try {   // a flag is a decision for the human until it is resolved (ADR 0008)
     const tid = String(data.taskId ?? ''), fl = String(data.flag ?? '')
-    if (type === 'flag.raised' && !(b0.decisions ?? []).some(d => d.id === `flag:${tid}:${fl}`)) { const d = flagDecision(tid, fl, b0.tasks.find(t => t.id === tid)?.title); if (d) await ask(h, d) }
+    if (type === 'flag.raised' && !(yoloOn(b0.drive) && (fl === 'spec_change' || fl === 'blocked')) && !(b0.decisions ?? []).some(d => d.id === `flag:${tid}:${fl}`)) { const d = flagDecision(tid, fl, b0.tasks.find(t => t.id === tid)?.title); if (d) await ask(h, d) }
     if (type === 'flag.resolved') await settle(h, ...fl.split(',').map(f => `flag:${tid}:${f}`))
   } catch (e) { h.log(`decision update failed: ${e}`) }
   for (const s of subs) try { await s(h, ev) } catch (e) { h.log(`subscriber failed on ${type}: ${e}`) }

@@ -100,7 +100,7 @@ describe('a lite plan end to end in the store (native/tasks)', () => {
     const s = await w.h.board.read(), [t] = await w.store.list({ parent: s.plan!.id })
     expect(s.plan).toMatchObject({ lane: 'lite', laneReason: 'one small fix in src/a.ts' }); expect(s.plan!.laneOverride).toBeUndefined()
     expect(t).toMatchObject({ title: 'Fix paging', type: 'bug' }); expect(t.meta['cadre.lane']).toBe('lite'); expect(s.approval.missing).toEqual([])
-    expect(laneLine(s.plan, [t], reg)).toBe('lite · 1 task · fix · one small fix in src/a.ts')
+    expect(laneLine(s.plan, [t], reg)).toBe('auto · lite · 1 task · fix · one small fix in src/a.ts')
   })
   test('repro: a bug a test reproduces runs tester → red first', async () => {
     const w = await world(); await w.call('TaskCreate', { subject: 'Fix paging', description: 'd', metadata: { ...LITE, repro: true } })
@@ -111,7 +111,7 @@ describe('a lite plan end to end in the store (native/tasks)', () => {
     await w.call('TaskCreate', { subject: 'More', description: 'd', metadata: { type: 'feature' } })
     const s = await w.h.board.read(), ds = await w.store.list({ parent: s.plan!.id })
     expect(s.plan).toMatchObject({ lane: 'full', laneOverride: 'lite is one task' }); expect(ds.every(t => !t.meta['cadre.lane'])).toBe(true)
-    expect(s.approval.missing.length).toBe(2); expect(laneLine(s.plan, ds, reg)).toBe('full · 2 tasks · lite is one task → full · one small fix in src/a.ts')
+    expect(s.approval.missing.length).toBe(2); expect(laneLine(s.plan, ds, reg)).toBe('auto · full · 2 tasks · lite is one task → full · one small fix in src/a.ts')
   })
   test('validation: lane and reason only with kind plan; lane values; repro is a boolean', async () => {
     const w = await world()

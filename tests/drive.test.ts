@@ -1,0 +1,173 @@
+// Autonomy modes (ADR 0013): `/cadre yolo <goal>`, drive armed at approval (never before, never answers a dialog), the gate policy per mode, hard stops, stop/resume.
+import { describe, expect, test } from 'claude-code/testing'
+import { decide, parse, route, run } from '../commands/cadre'
+import { arm } from '../core/drive'
+import { report } from '../core/close'
+import { drain } from '../core/reuse'
+import { resolveDeps } from '../core/admission'
+import { dispatch } from '../core/dispatch'
+import { flagDecision, ask } from '../core/decide'
+import { BUDGET } from './fixtures/budget.generated'
+import { world } from './fixtures/native/world'
+import { fakeHost } from './support'
+import { defaults } from '../config/index'
+
+const LITE = { kind: 'plan', lane: 'lite', reason: 'one small fix in src/a.ts', type: 'bug', changelog: { category: 'Fixed', entry: 'off-by-one in paging' } }
+const SET = '/hm/u/.claude/settings.json'
+// a lite plan drafted under `mode`, optionally approved in the dialog; main's turn ends through #1 (drain); submits and dialog answers are recorded
+async function go(mode: 'auto' | 'yolo', approve = true) {
+  const w = await world(), submitted: string[] = [], answered: string[] = [], files: Record<string, string> = { [SET]: '{}' }
+  Object.assign(w.h, { submit: async (t: string) => { submitted.push(t) }, usage: async () => ({ cost: { usd: 1 } }), readText: async (p: string) => files[p] ?? null })
+  await w.h.ui.update(u => ({ ...u, mode }))   // what `/cadre yolo <goal>` leaves for the plan it drafts
+  await w.call('TaskCreate', { subject: 'Fix paging', description: 'off-by-one in src/page.ts', metadata: LITE })
+  const s = await w.h.board.read(), id = s.plan!.id, t = s.tasks[0].id
+  if (approve) { const d = s.decisions!.find(x => x.id === `plan:${id}`)!; expect((await decide(w.h, d.id, 'a', d.hash)).text).toContain(`drive ${mode} on`) }
+  ;(w.h as any).answer = async (id: string) => { answered.push(id) }   // drive must never call it
+  const turn = () => drain(w.h, { reason: 'answer' }, async () => ({ text: 'done' }))
+  const board = () => w.h.board.read(), evs = async () => Object.values((await w.h.events.read()).epics).flat()
+  const setTask = (o: object) => w.h.board.update(b => ({ ...b, tasks: b.tasks.map(x => (x.id === t ? { ...x, ...o } : x)) }))
+  return { ...w, id, t, submitted, answered, files, turn, board, evs, setTask }
+}
+const bindWorker = async (w: Awaited<ReturnType<typeof go>>) => {
+  await w.store.claim(w.t, (await resolveDeps(w.h)).actor); await w.setTask({ state: 'active', step: 'worker', owner: 'ag1' })
+  await w.h.bind.update(b => ({ ...b, ag1: { taskId: w.t, role: 'worker', step: 'worker', worktree: '/wt/t', sessionId: 's', ctxTokens: 0, startedAt: 0 } }))
+}
+
+describe('T6.1 /cadre yolo <goal>: the mode rides on the plan', () => {
+  test('parser: `yolo <goal>` is its own form; bare `yolo` is a hint; a capitalized Yolo is a goal', () => {
+    expect(parse('yolo add a page size flag')).toEqual({ cmd: 'yolo', args: ['add a page size flag'] })
+    expect(parse('yolo')).toHaveProperty('hint'); expect(parse('Yolo it')).toEqual({ cmd: 'goal', args: ['Yolo it'] })
+  })
+  test('dormant refused; composer only; the brief is the goal guide; the mode waits for the plan', async () => {
+    const off = fakeHost(); await off.secret.update(() => ({}))
+    expect((await run(off, { args: 'yolo fix it', origin: { kind: 'composer' } }, () => ({}))).text).toBe('cadre is off in this repo · run /cadre init')
+    const h = Object.assign(fakeHost({ files: { '/plug/guides/goal.md': (BUDGET.guides as Record<string, string>).goal } }), { root: async () => '/plug' })
+    expect((await run(h, { args: 'yolo fix it', origin: { kind: 'sdk' } }, () => ({}))).text).toContain('refused')
+    expect((await run(h, { args: 'yolo fix it', origin: { kind: 'composer' } }, () => ({}))).text).toBe('goal (yolo): Claude is on it · the plan comes up for approval · after that nothing is asked until it lands on dev')
+    expect((await h.ui.read()).mode).toBe('yolo'); expect(String((await h.ui.read()).goal)).toMatch(/^Goal from the user: fix it/)
+  })
+  test('the plan gets the mode (taken once); the approval dialog line starts with it; a plain plan is auto', async () => {
+    const y = await go('yolo', false), d = (await y.board()).decisions!.find(x => x.kind === 'plan')!
+    expect((await y.board()).plan!.mode).toBe('yolo'); expect(d.lines[0]).toBe('yolo · lite · 1 task · fix · one small fix in src/a.ts')
+    expect((await y.h.ui.read()).mode).toBeUndefined(); expect((await y.store.get(y.id)).meta['cadre.mode']).toBe('yolo')
+    const w = await world(); await w.call('TaskCreate', { subject: 'Fix paging', description: 'd', metadata: LITE }); expect((await w.h.board.read()).plan!.mode).toBe('auto')
+  })
+})
+
+describe('T6.2 drive is armed at approval, never before, and never answers a dialog', () => {
+  test('a draft plan: no drive, a turn end submits nothing; approval arms it (mode, bounds) and queues the first push', async () => {
+    const w = await go('auto', false); await w.turn()
+    expect((await w.board()).drive.on).toBe(false); expect(w.submitted).toEqual([])
+    const d = (await w.board()).decisions!.find(x => x.kind === 'plan')!; await decide(w.h, d.id, 'a', d.hash)
+    expect((await w.board()).drive).toMatchObject({ on: true, mode: 'auto', turns: 0, maxTurns: 100, maxUsd: 20, maxMinutes: 240 })
+    expect(String((await w.h.ui.read()).goal)).toContain(`Plan ${w.id} is approved`)
+    expect((await w.evs()).some(e => e.type === 'drive.status' && e.data.state === 'armed')).toBe(true)
+    expect(await arm(w.h, 'yolo')).toBe('drive already runs this plan')   // an amendment's approval keeps the run
+  })
+  test('each main turn end submits the next step; agent turns never do', async () => {
+    const w = await go('auto'); await w.h.ui.update(({ goal: _g, ...u }) => u)   // the approval push went out
+    await drain(w.h, { reason: 'answer', agentId: 'x' }, async () => ({})); expect(w.submitted).toEqual([])
+    await w.turn(); expect(w.submitted).toEqual([`Continue: spawn TASK-${w.t}`]); expect((await w.board()).drive.turns).toBe(1)
+  })
+  test('a decision on the board pauses drive; it is never answered by drive; the answer lifts the pause and hands main the next step', async () => {
+    const w = await go('auto'); await w.h.ui.update(({ goal: _g, ...u }) => u)
+    await w.h.git.update(g => ({ ...g, flags: { 'git:dev': { ref: 'refs/heads/dev', old: 'a', tip: 'b' } } as any })); await ask(w.h, flagDecision('', 'git:dev')!)
+    await w.turn(); await w.turn()
+    expect((await w.board()).drive.paused).toBe('resolve git:dev'); expect(w.submitted).toEqual([]); expect(w.answered).toEqual([])
+    expect((await w.board()).decisions!.map(d => d.id)).toContain('flag::git:dev')
+    await w.h.git.update(g => ({ ...g, flags: {} }))
+    const d = (await w.board()).decisions!.find(x => x.id === 'flag::git:dev')!; await decide(w.h, d.id, 'k', d.hash)   // the human answers
+    expect((await w.board()).drive.paused).toBeUndefined(); expect((await w.h.ui.read()).goal).toBe(`Continue: spawn TASK-${w.t}`)
+  })
+})
+
+describe('T6.3 gate policy', () => {
+  test('auto pauses only on the critical list: an informational flag does not pause; blocked, plan flags and moved refs do', async () => {
+    const w = await go('auto'); await w.h.ui.update(({ goal: _g, ...u }) => u)
+    await w.setTask({ flags: ['auto-reported'] }); await w.turn(); expect((await w.board()).drive.paused).toBeUndefined(); expect(w.submitted.length).toBe(1)
+    await w.setTask({ flags: [], state: 'blocked' }); await w.turn(); expect((await w.board()).drive.paused).toBe(`blocked ${w.t}`)
+    await w.setTask({ state: 'todo' }); await w.h.board.update(b => ({ ...b, plan: { ...b.plan!, flags: ['integration-failed'] } })); await w.turn()
+    expect((await w.board()).drive.paused).toBe('resolve integration-failed'); expect(w.submitted.length).toBe(1)
+    expect((await w.board()).drive.stopped).toBeUndefined()
+  })
+  test('yolo never asks after approval: a spec change and a blocked question go to main; its answers are applied and recorded', async () => {
+    const w = await go('yolo'); await w.h.ui.update(({ goal: _g, ...u }) => u); await bindWorker(w)
+    const d = await resolveDeps(w.h)
+    expect(await report(w.h, d, 'ag1', { role: 'worker', outcome: 'spec_change', reason: 'the spec expects page 0 but pages start at 1' })).toContain('Stop and wait')
+    expect((await w.board()).decisions ?? []).toEqual([])
+    await w.turn(); expect(w.submitted.at(-1)).toContain(`Task ${w.t} asks to change its locked spec: the spec expects page 0`)
+    expect(w.submitted.at(-1)).toContain('do not ask the user'); expect((await w.board()).drive.paused).toBeUndefined()
+    expect((await w.call('TaskUpdate', { taskId: w.t, metadata: { decision: 'maybe' } })).result.error).toContain('"accept" or "reject"')
+    expect((await w.call('TaskUpdate', { taskId: w.t, metadata: { decision: 'reject: the tests match the API docs' } })).result.success).toBe(true)
+    let t = (await w.board()).tasks[0]; expect([t.state, t.step, t.flags]).toEqual(['active', 'worker', []])
+    expect(await report(w.h, d, 'ag1', { role: 'worker', outcome: 'blocked', reason: 'which page size: 20 or 50?' })).toContain('Stop and wait')
+    await w.turn(); expect(w.submitted.at(-1)).toContain(`Task ${w.t} is blocked: which page size: 20 or 50?`)
+    expect((await w.call('TaskUpdate', { taskId: w.t, metadata: { decision: '50, because the API caps pages at 50' } })).result.success).toBe(true)
+    t = (await w.board()).tasks[0]; expect([t.state, t.flags]).toEqual(['active', []])
+    expect((await w.board()).decisions ?? []).toEqual([]); expect(w.answered).toEqual([])
+    expect((await w.evs()).filter(e => e.type === 'drive.decided').map(e => [e.data.kind, e.actor])).toEqual([['spec', 'main'], ['question', 'main']])
+    expect((await w.store.list({})).filter(x => x.title.startsWith('yolo: ')).map(x => x.title)).toEqual([`yolo: ${w.t}: spec change rejected: the tests match the API docs`, `yolo: ${w.t}: 50, because the API caps pages at 50`])
+  })
+  test('auto: a spec change is a dialog and main cannot decide it', async () => {
+    const w = await go('auto'); await bindWorker(w)
+    await report(w.h, await resolveDeps(w.h), 'ag1', { role: 'worker', outcome: 'spec_change', reason: 'pages start at 1' })
+    expect((await w.board()).decisions!.map(d => d.id)).toEqual([`flag:${w.t}:spec_change`])
+    expect((await w.call('TaskUpdate', { taskId: w.t, metadata: { decision: 'reject: no' } })).result.error).toContain('the human accepts or rejects it')
+  })
+  test('rework past the cap while driving: cancelled and recorded; a task others need stops the run instead', async () => {
+    for (const critical of [false, true]) {
+      const w = await go('auto'); await w.store.claim(w.t, (await resolveDeps(w.h)).actor); await w.store.setMeta(w.t, { 'cadre.rework': '3', 'cadre.sourceCommit': 'c1', 'cadre.worktree': '/wt/t' }, 'x')
+      await w.setTask({ state: 'review', step: 'reviewer' })
+      if (critical) await w.h.board.update(b => ({ ...b, tasks: [...b.tasks, { ...b.tasks[0], id: 'z9', state: 'todo', step: '', deps: [{ id: w.t, type: 'blocks' }] }] }))
+      await w.h.bind.update(b => ({ ...b, rv: { taskId: w.t, role: 'reviewer', step: 'reviewer', worktree: '/wt/t', sessionId: 's', ctxTokens: 0, startedAt: 0 } }))
+      const r = await report(w.h, await resolveDeps(w.h), 'rv', { role: 'reviewer', verdict: 'changes', summary: 'still off by one', findings: [{ severity: 'major', file: 'a.ts', issue: 'off by one' }], coverage: [], contractStatus: [] }, { lax: true })
+      const b = await w.board(), t = b.tasks.find(x => x.id === w.t)!
+      if (!critical) { expect(r).toContain('was cancelled'); expect(t.state).toBe('cancelled'); expect((await w.evs()).some(e => e.type === 'drive.decided' && e.data.kind === 'rework')).toBe(true) }
+      else { expect(b.drive.stopped).toBe(`${w.t} failed review 4 times and z9 needs it`); expect(t.flags).toContain('rework:4/3'); expect(b.decisions!.some(d => d.id === `flag:${w.t}:rework:4/3`)).toBe(true) }
+    }
+  })
+})
+
+describe('hard stops (both modes), bounds, stop/resume', () => {
+  test('a settings file changed, containment broke, an agent moved a protected branch: stop in both modes; a human ref move stops yolo only', async () => {
+    for (const mode of ['auto', 'yolo'] as const) {
+      const w = await go(mode); await w.h.ui.update(({ goal: _g, ...u }) => u)
+      w.files[SET] = '{"permissions":{}}'; await w.turn(); expect((await w.board()).drive.stopped).toBe('a settings file changed during the run'); expect(w.submitted).toEqual([])
+      expect((await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['resume'], origin: { kind: 'press' } }, route)).text).toBe('drive resumed')
+      await w.h.board.update(b => ({ ...b, containment: { state: 'contained', unsandboxed: 0 } }))   // a resume records containment as it is now
+      await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['stop'], origin: { kind: 'press' } }, route); await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['resume'], origin: { kind: 'press' } }, route)
+      await w.h.board.update(b => ({ ...b, containment: { state: 'degraded', unsandboxed: 0 } })); await w.h.ui.update(({ goal: _g, ...u }) => u); await w.turn()
+      expect((await w.board()).drive.stopped).toBe('containment broke during the run')
+      await w.h.board.update(b => ({ ...b, containment: { state: 'contained', unsandboxed: 0 } })); await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['resume'], origin: { kind: 'press' } }, route); await w.h.ui.update(({ goal: _g, ...u }) => u)
+      await w.h.git.update(g => ({ ...g, flags: { 'git:dev:agent': {} } as any })); await w.turn(); expect((await w.board()).drive.stopped).toBe('an agent moved dev')
+      await w.h.git.update(g => ({ ...g, flags: { 'git:dev': {} } as any })); await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['resume'], origin: { kind: 'press' } }, route); await w.turn()
+      expect([(await w.board()).drive.stopped, (await w.board()).drive.paused]).toEqual(mode === 'yolo' ? ['resolve git:dev', undefined] : [undefined, 'resolve git:dev'])
+      expect(w.submitted).toEqual([]); expect(w.answered).toEqual([])
+    }
+  })
+  test('bounds hold: max turns stops the run; a resume is a fresh budget', async () => {
+    const w = await go('auto'); const c = defaults(); c.drive.maxTurns = 2; (w.h as any).config = async () => c
+    await w.h.ui.update(({ goal: _g, ...u }) => u)
+    for (let i = 0; i < 4; i++) await w.turn()
+    expect(w.submitted.length).toBe(2); expect((await w.board()).drive.stopped).toBe('max turns 2')
+    expect((await w.evs()).some(e => e.type === 'drive.status' && e.data.state === 'stopped' && e.data.reason === 'max turns 2')).toBe(true)
+    await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['resume'], origin: { kind: 'press' } }, route); expect((await w.board()).drive.turns).toBe(0)
+  })
+  test('stop/resume: dialog or press only; stopped drive submits nothing; yolo hands its quiet decisions to the human on stop; resume hands main the next step', async () => {
+    const w = await go('yolo'); await w.h.ui.update(({ goal: _g, ...u }) => u)
+    expect((await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['stop'], origin: { kind: 'composer' } }, route)).text).toContain('refused')
+    await w.setTask({ state: 'blocked', flags: ['blocked'] }); expect((await w.board()).decisions ?? []).toEqual([])
+    expect((await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['stop'], origin: { kind: 'press' } }, route)).text).toBe('Drive stopped.')
+    expect((await w.board()).drive.stopped).toBe('stopped by you'); expect((await w.board()).decisions!.map(d => d.id)).toEqual([`flag:${w.t}:blocked`])
+    await w.turn(); expect(w.submitted).toEqual([])
+    expect((await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['status'], origin: { kind: 'composer' } }, route)).text).toBe('drive yolo · 0 turns · $0 · stopped: stopped by you')
+    await w.setTask({ state: 'todo', flags: [] })
+    expect((await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['resume'], origin: { kind: 'dialog' } }, route)).text).toBe('drive resumed')
+    expect((await w.board()).drive.stopped).toBeUndefined(); expect((await w.h.ui.read()).goal).toBe(`Continue: spawn TASK-${w.t}`)
+  })
+  test('the plan landed: drive finishes; yolo says the release is the human\'s', async () => {
+    const w = await go('yolo'); await w.h.board.update(b => ({ ...b, plan: { ...b.plan!, state: 'done-on-dev', landed: { dev: 'dev', sha: 's', at: 1 } } })); await w.turn()
+    expect((await w.board()).drive.on).toBe(false); expect(w.submitted).toEqual([]); expect(w.h.toasts.join()).toContain('the release is yours')
+    expect((await w.board()).decisions ?? []).toEqual([])
+  })
+})

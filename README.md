@@ -36,7 +36,12 @@ Then, inside Claude Code:
    - **full**: a feature, several tasks, or a public API change. The full plan with scenarios and contracts.
    The lane shows in the approval dialog, with an option to change it; type something instead to ask Claude for a change. Breaking, security, public contract changes and plans of 3+ tasks are always full.
 
-`/cadre` alone opens the pane. Those five forms (`/cadre`, `/cadre <goal>`, `setup`, `init`, `doctor`) are all you type; every decision is answered in a dialog. It opens once by itself; after that `1` (on the band or in the pane) opens it again, and the pane lists everything that needs you.
+4. **After you approve, it runs by itself.** Two modes:
+   - **auto** (`/cadre <goal>`): Claude carries the plan until it lands on dev and asks you only at the critical points: a change to the agreed spec, a question only you can answer, an integration that fails twice, a protected branch moved outside cadre, and the release.
+   - **yolo** (`/cadre yolo <goal>`): after the approval nothing is asked. Claude decides spec changes and blocked questions itself and each decision is recorded (Activity, Doctor) for you to review. It stops, never releases, when the plan lands on dev.
+   Both stop by themselves when an agent moves a protected branch, the sandbox settings change, or a bound is hit (100 turns, $20, 240 minutes, or 3 turns without progress; Settings → Drive). The band shows `auto · turn 12/100 · $1.20 · 2: stop`; `2` stops and resumes.
+
+`/cadre` alone opens the pane. Those six forms (`/cadre`, `/cadre <goal>`, `/cadre yolo <goal>`, `setup`, `init`, `doctor`) are all you type; every decision is answered in a dialog. It opens once by itself; after that `1` (on the band or in the pane) opens it again, and the pane lists everything that needs you.
 
 ## How it works
 
@@ -62,6 +67,7 @@ More: [the loop in detail](docs/commands.md#the-loop-in-detail).
 | `/cadre setup` | One-time machine setup. [Details](docs/setup-details.md) |
 | `/cadre init` | One-time repo setup. Turns cadre on in the repo. |
 | `/cadre doctor` | Read-only health check. Safe any time. |
+| `/cadre <goal>` · `/cadre yolo <goal>` | Start work; after approval it runs to dev, asking at the critical points (auto) or not at all (yolo). |
 | `/cadre open` · `/cadre status` | Open the board pane · print the board as text. |
 | Settings | Press `9` in the pane: every setting, where its value comes from, and buttons to change it. |
 

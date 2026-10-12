@@ -75,7 +75,8 @@ export function nextAction(s: Omit<Snapshot, 'seq' | 'cost'>): string {
   const ts = s.tasks as SnapTask[], a: string[] = []
   if (s.plan?.state === 'draft') return s.approval.missing.length ? 'complete the draft plan (see missing)' : `ask the human to approve ${s.plan.id}`
   a.push(...ts.filter(t => t.state === 'review' && t.step === 'merge').map(t => `complete TASK-${t.id}`))
-  a.push(...ts.filter(t => t.state === 'blocked').map(t => `ask the human about ${t.id}`))
+  const y = s.drive?.on && !s.drive.stopped && s.drive.mode === 'yolo'   // yolo: main answers blocked tasks itself (core/drive)
+  a.push(...ts.filter(t => t.state === 'blocked').map(t => (y ? `decide ${t.id} yourself (TaskUpdate ${t.id} metadata.decision)` : `ask the human about ${t.id}`)))
   a.push(...ts.filter(t => t.state === 'review' && t.step === 'reviewer' && !t.owner).map(t => `spawn TASK-${t.id} (reviewer)`))
   const r = ts.find(t => isReady(t, ts)); if (r) a.push(`spawn TASK-${r.id}`)   // one per turn; the ready list on the line says the rest
   return a.length ? a.join('; ') : ts.length && ts.every(closed) ? `complete the epic: TaskUpdate ${s.plan?.id} completed` : 'wait'

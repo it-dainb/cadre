@@ -18,6 +18,8 @@ import { integrateEpic } from './integrate'
 import { green as tddGreen, lockedViolations, verifyOf, resolveSpec, specChange, testerDone } from './tdd'
 import { modeOf, pkgOf } from './specview'
 import * as G from './git'
+import { decided, stop } from './drive'
+import { yoloOn } from './decide'
 
 
 export const NUDGE: Record<string, string> = { worker: 'You stopped without calling report. Call it now: {"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"} (or outcome "blocked" with reason).', tester: 'You stopped without calling report. Call it now with role "tester", outcome "done", summary and tests.', reviewer: 'You stopped without calling report. Call it now with role "reviewer", verdict, summary, findings, coverage and contractStatus.', explorer: ASK_NUDGE }
@@ -128,7 +130,16 @@ async function verdict(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
     await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'reviewer', to: 'review✓', commit: C, flags: x.flags, next: `complete TASK-${t.id}` }) }))
     return `verdict accepted: pass@${sha7(C)}. Stop.`
   }
-  const n = num(task.meta['cadre.rework']) + 1, max = d.cfg.review.maxRework
+  const n = num(task.meta['cadre.rework']) + 1, max = d.cfg.review.maxRework, dr = (await h.board.read()).drive
+  if (n > max && dr.on && !dr.stopped) {   // past the cap while driving (both modes): cancel it and go on, unless other open tasks need it: then the run stops (ADR 0013)
+    const all = (await h.board.read()).tasks, need = all.filter(x => x.deps.some(p => p.id === t.id) && x.state !== 'done' && x.state !== 'cancelled').map(x => x.id)
+    if (!need.length) {
+      const e = await cancelTask(h, d, t.id, `review asked for changes ${n} times`); if (e) throw new Error(e)
+      await decided(h, 'rework', `${t.id} cancelled: review asked for changes ${n} times (limit ${max})`, t.id)
+      return `verdict accepted: changes (${n}/${max}); the task is over its limit and was cancelled. Stop.`
+    }
+    await stop(h, `${t.id} failed review ${n} times and ${need.join(', ')} need${need.length === 1 ? 's' : ''} it`)
+  }
   await d.store.resume(t.id, d.actor); await d.store.setMeta(t.id, { 'cadre.rework': String(n), 'cadre.step': 'worker', 'cadre.review': '' }, d.actor)
   await clear(h, t.id, 'rework:'); if (n > max) await raise(h, t.id, `rework:${n}/${max}`)
   const bind = await h.bind.read(), w = ownerOf(bind, t.id, 'worker')
@@ -166,8 +177,8 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
   if (r.outcome === 'done') return workerDone(h, d, t, b, r)
   const spec = r.outcome === 'spec_change', why = String(r.reason ?? r.summary ?? '').slice(0, 400)
   if (spec) { await specChange(h, d, t.id, why); await record(h, d, t.id, 'blocked', t.step, { why }, { summary: r.summary, reason: r.reason }); await raise(h, t.id, 'spec_change') }
-  else await blockTask(h, d, t, why, 'blocked', { summary: r.summary, reason: r.reason, questions: r.questions })
-  return spec ? 'spec change recorded; the human decides. Stop and wait.' : 'blocked recorded; main asks the human and you are resumed with the decision. Stop and wait.'
+  else { await d.store.setMeta(t.id, { 'cadre.question': why }, d.actor); await blockTask(h, d, t, why, 'blocked', { summary: r.summary, reason: r.reason, questions: r.questions }) }   // yolo: main answers it from this (core/drive)
+  return spec ? 'spec change recorded; it is decided for you. Stop and wait.' : 'blocked recorded; you are resumed with the answer. Stop and wait.'
 }
 
 // ---- #2 turn.complete: L3 sweep every turn; an agent that stopped without reporting is nudged x2, auto-reported, or released ----
@@ -277,8 +288,16 @@ async function cancelTask(h: Host, d: Deps, id: string, why: string): Promise<st
 async function decide(h: Host, d: Deps, id: string, text: string): Promise<string | null> {
   const t = (await h.board.read()).tasks.find(x => x.id === id)
   if (t?.state !== 'blocked') return `${id} is not blocked; nothing to decide`
-  if ((await d.store.get(id)).meta['cadre.blocked'] === 'spec_change') return `${id} awaits a spec change decision: the human accepts or rejects it in the cadre dialog`
-  return unblock(h, d, id, `Decision from the human: ${text}`, 'blocked')
+  const y = yoloOn((await h.board.read()).drive)
+  if ((await d.store.get(id)).meta['cadre.blocked'] === 'spec_change') {   // yolo: main accepts or rejects it, through the same path as the dialog (recorded)
+    if (!y) return `${id} awaits a spec change decision: the human accepts or rejects it in the cadre dialog`
+    const m = /^\s*(accept|reject)\w*\b[\s:,.-]*([\s\S]*)$/i.exec(text); if (!m) return `${id}: metadata.decision must start with "accept" or "reject", then the reason`
+    const how = m[1].toLowerCase(), r = await resolveSpec(h, id, how, 'main'); if (!/accepted|rejected/.test(r.text)) return r.text
+    await clear(h, id, 'spec_change'); await decided(h, 'spec', `${id}: spec change ${how}ed: ${m[2].trim() || 'no reason given'}`, id); return null
+  }
+  const e = await unblock(h, d, id, y ? `Decision: ${text}` : `Decision from the human: ${text}`, 'blocked')
+  if (!e && y) await decided(h, 'question', `${id}: ${text}`, id)
+  return e
 }
 async function unblock(h: Host, d: Deps, id: string, text: string, flag: string): Promise<string | null> {
   const m = await apply(h, { kind: 'unblock', id, at: await h.now(), actor: 'main' }, pipe(d)); if (!m.ok) return m.error

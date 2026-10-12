@@ -103,6 +103,8 @@ export async function touched(h: Host, store: TaskStore, reg: TypeRegistry): Pro
 export const isHuman = (o: Origin): string | null => (o.kind === 'press' || o.kind === 'dialog' ? null : `origin ${o.kind} cannot decide: the human answers in the dialog (press 1)`)
 // agent-run setup/init (commands/agentrun fills these at load; core never imports commands/agentrun: a load cycle)
 export const RUN: { recheck?(h: Host): Promise<string>; cancel?(h: Host, kind: string): Promise<void> } = {}
+// drive (core/drive fills these at load; a static import would be a load cycle): arm at approval, hand main the next step after a dialog answer
+export const DRIVE: { arm?(h: Host, mode: 'auto' | 'yolo'): Promise<string>; kick?(h: Host): Promise<void> } = {}
 // gates = everything that decides or changes state for the human; only `init`/`setup` with no subcommand (start the run) may also be typed
 const gated = (c: Command): boolean => ['approve', 'reject', 'resolve', 'release', 'restore'].includes(c.cmd) || (['init', 'setup'].includes(c.cmd) && !!c.args[0]) || (c.cmd === 'config' && c.args[0] === 'set') || (c.cmd === 'sync' && c.args[0] === 'add') || (c.cmd === 'drive' && c.args[0] !== 'status')
 
@@ -160,8 +162,9 @@ async function approve(h: Host, c: Command): Promise<Out> {
   await settleIf(h, 'plan:')
   let note = ''
   if (first) try { await cutEpic(h, plan.id, (await cfgOf(h)).branches.dev); note = `; epic branch ${plan.epicBranch} cut` } catch (e) { note = `; epic branch cut failed: ${(e as Error).message}` }
-  await queueBrief(h, `Plan ${plan.id} is approved: spawn its ready tasks one by one (each by its id), follow the cards until every task is done, then complete the plan (TaskUpdate ${plan.id} completed).`)   // main continues by itself (no drive)
-  return { text: `Plan ${plan.id} approved: ${plural(ids.length, 'task')} ready${note}.` }
+  await queueBrief(h, `Plan ${plan.id} is approved: spawn its ready tasks one by one (each by its id), follow the cards until every task is done, then complete the plan (TaskUpdate ${plan.id} completed).`)   // drive's first push; drive continues at each turn end (ADR 0013)
+  const dr = first ? await DRIVE.arm?.(h, plan.mode ?? 'auto').catch((e: Error) => `drive not armed: ${e.message}`) : undefined
+  return { text: `Plan ${plan.id} approved: ${plural(ids.length, 'task')} ready${note}${dr ? ` · ${dr}` : ''}.` }
 }
 async function reject(h: Host, c: Command): Promise<Out> {
   const [planId, ...why] = c.args, store = await storeOf(h), reg = await registryOf(h), s = await h.board.read()
@@ -218,5 +221,5 @@ export async function answer(h: Host, id: string, key: string, hash: string, rou
   const d = ((await h.board.read()).decisions ?? []).find(x => x.id === id), o = d?.options.find(x => x.key === key)?.run
   if (!d || d.hash !== hash || !o) return refuse('it changed; review again')   // nothing runs
   const [cmd, ...args] = o.split(/\s+/).filter(Boolean).flatMap(a => (a === '{fields}' ? (d.fields ?? []).map(f => `${f.key}=${vals[f.key] ?? f.value ?? ''}`) : [a]))   // fields as k=v argv elements
-  try { return await dispatch(h, { schemaVersion: 1, cmd, args, origin: { kind: 'dialog' } }, route) } catch (x) { return { text: `cadre: ${(x as Error).message}` } }
+  try { const out = await dispatch(h, { schemaVersion: 1, cmd, args, origin: { kind: 'dialog' } }, route); await DRIVE.kick?.(h).catch(e => h.log(`drive: ${e}`)); return out } catch (x) { return { text: `cadre: ${(x as Error).message}` } }
 }

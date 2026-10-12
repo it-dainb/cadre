@@ -9,6 +9,7 @@ import { cut, insert } from './changelog'
 import { casRef, checkRun, exists, git, jailMode, op, tip, worktreeRemove, writableJail } from './git'
 import { inferVersion, landDev, lastTag, mergeEpic, release, wtPath, wtRootOf } from './branches'
 import { repoKeyOf } from '../commands/init'
+import { redFix } from './drive'
 
 
 const setPlan = (h: Host, ev: string, patch: Record<string, unknown> = {}) =>
@@ -67,6 +68,7 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
   const dev = cfg.branches.dev, tmp = wtPath(await wtRootOf(h, cfg), repoKeyOf(root), `int-${epicId}`)
   const fail = async (why: string, flag: boolean) => {
     await worktreeRemove(h.run, root, tmp).catch(() => {})
+    if (flag && (await redFix(h, epicId, why).catch(e => (h.log(`fix task: ${e}`), false)))) flag = false   // driving: the first red gets one fix task, no flag (ADR 0013)
     await setPlan(h, 'fail', flag ? { flags: [...(p.flags ?? []).filter(f => f !== 'integration-failed'), 'integration-failed'] } : {})
     if (flag) await emit(h, 'flag.raised', { taskId: epicId, flag: 'integration-failed' })
     await store.comment(epicId, `integration ${flag ? 'failed' : 'refused'}: ${why}`, 'cadre').catch(() => {})
@@ -93,7 +95,7 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
     const at = await h.now()
     await setPlan(h, 'land', { landed: { dev, sha, at }, flags: (p.flags ?? []).filter(f => f !== 'integration-failed') })
     await emit(h, 'plan.landed', { planId: epicId, sha })
-    if (cfg.release.onEpicDone === 'propose') await propose(h, root, dev)
+    if (cfg.release.onEpicDone === 'propose' && (await h.board.read()).drive.mode !== 'yolo') await propose(h, root, dev)   // yolo stops at landed on dev: the release stays the human's
     return null
   } catch (e) { return await fail(`integration error: ${(e as Error).message}`, false) }
 }

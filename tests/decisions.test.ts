@@ -65,7 +65,7 @@ describe('answers: the chosen label runs its option as origin dialog; the hash i
     const w = await world(), { plan: p, task } = await plan(w); await ui(w, () => 'Approve'); await answerDialog(w.h)
     expect((await w.store.get(task)).category).toBe('todo'); expect((await w.h.board.read()).plan?.state).toBe('approved'); expect(decisions(await read(w.h))).toEqual([])
     expect(await goal(w.h)).toBe(`Plan ${p} is approved: spawn its ready tasks one by one (each by its id), follow the cards until every task is done, then complete the plan (TaskUpdate ${p} completed).`)
-    expect((w.h as any).logs.at(-1)).toBe(`Plan ${p} approved: 1 task ready; epic branch epic/${p}-auth-login cut.`)
+    expect((w.h as any).logs.at(-1)).toBe(`Plan ${p} approved: 1 task ready; epic branch epic/${p}-auth-login cut · drive auto on.`)
   })
   test('the close of the plan\'s last open task nudges main once (its card\'s next line) to complete the plan', async () => {
     const w = await world(), { plan: p, task } = await plan(w); await w.text({ cmd: 'approve', args: [p] })
@@ -149,12 +149,12 @@ describe('no nagging: a decision pops once, when it first appears; `1` re-opens 
 describe('the plan decision: each fact once, plural, no "0 scenarios"', () => {
   test('lite: "approve plan <id>", the lane line carries "1 task", the row has no scenario count', async () => {
     const w = await world(), p = await w.call('TaskCreate', { subject: 'Fix paging', description: 'n is 1-based', metadata: LITE }), d = await top(w.h), id = p.result.task.id
-    expect(d.title).toBe(`approve plan ${id}`); expect(d.lines[0]).toBe('lite · 1 task · fix · one small fix in src/a.ts'); expect(d.lines.slice(1)).toEqual([expect.stringMatching(/^  \S+ bug Fix paging$/)])
+    expect(d.title).toBe(`approve plan ${id}`); expect(d.lines[0]).toBe('auto · lite · 1 task · fix · one small fix in src/a.ts'); expect(d.lines.slice(1)).toEqual([expect.stringMatching(/^  \S+ bug Fix paging$/)])
     const all = [d.title, ...d.lines].join('\n'); expect(all).not.toMatch(/\b1 tasks\b|0 scenarios/); expect(all.match(/1 task\b/g)).toHaveLength(1)
   })
   test('full: the lane line has the count once; rows name their own scenarios; at most 6 lines', async () => {
     const w = await world(); await plan(w); const d = await top(w.h)
-    expect(d.lines[0]).toBe('full · 1 task · feat'); expect(d.lines[1]).toMatch(/ · 1 scenario$/); expect(d.lines.length).toBeLessThanOrEqual(6)
+    expect(d.lines[0]).toBe('auto · full · 1 task · feat'); expect(d.lines[1]).toMatch(/ · 1 scenario$/); expect(d.lines.length).toBeLessThanOrEqual(6)
   })
 })
 

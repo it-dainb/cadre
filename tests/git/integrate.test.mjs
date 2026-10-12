@@ -88,3 +88,35 @@ test('integration refreshes a dev checkout that has human edits: unrelated edits
     else { assert.equal(readFileSync(join(d, 'c.txt'), 'utf8'), 'c\n'); assert.match(sh(d, 'status', '--porcelain'), /^\?\? notes\.txt$/) }   // c.txt checked out, nothing staged as a revert
   }
 })
+
+// ---- drive (ADR 0013): release is never automatic under yolo; integration red gets one fix task, then auto asks and yolo stops ----
+const { MemoryStore } = await import('../../task-management/adapters/memory/store.ts')
+const { defaults: types } = await import('../../task-management/registry.ts')
+async function driven(mode, check) {
+  const w = await world(check), store = new MemoryStore(() => 1000); await store.init({ types: types(), journal: false })
+  const epic = await store.createEpic('auth', 'g'); store.comment = async () => {}
+  Object.assign(w.h, { taskStore: async () => store })
+  await w.h.board.update(b => ({ ...b, epic, plan: { ...b.plan, id: epic }, tasks: [], drive: { ...b.drive, on: true, mode } }))
+  return { ...w, store, epic }
+}
+test('yolo: the plan lands on dev and no release is proposed; auto proposes it (a dialog)', async () => {
+  const y = await driven('yolo'); assert.equal(await integrateEpic(y.h, y.epic), null)
+  const ty = Object.values((await y.h.events.read()).epics).flat().map(e => e.type); assert.ok(ty.includes('plan.landed')); assert.ok(!ty.includes('release.proposed'))
+  assert.equal(((await y.h.board.read()).decisions ?? []).length, 0)
+  const a = await driven('auto'); assert.equal(await integrateEpic(a.h, a.epic), null)
+  assert.deepEqual(((await a.h.board.read()).decisions ?? []).map(d => d.kind), ['release'])
+})
+test('integration red while driving: ONE fix task (approved, recorded), no flag; the 2nd red stops yolo, asks in auto', async () => {
+  for (const mode of ['yolo', 'auto']) {
+    const { h, store, epic } = await driven(mode, ['false'])
+    assert.match(await integrateEpic(h, epic), /failed/)
+    let b = await h.board.read(); assert.deepEqual(b.plan.flags ?? [], []); assert.equal((b.decisions ?? []).length, 0)
+    const fix = b.tasks.find(t => t.type === 'bug'); assert.equal(fix.state, 'todo'); assert.equal(fix.lane, 'lite')
+    assert.ok((await store.list({})).some(t => t.title.includes('fix task')))   // the decision record
+    assert.ok(Object.values((await h.events.read()).epics).flat().some(e => e.type === 'drive.decided' && e.data.kind === 'integration'))
+    await h.board.update(x => ({ ...x, tasks: x.tasks.map(t => ({ ...t, state: 'done' })) }))
+    assert.match(await integrateEpic(h, epic), /failed/); b = await h.board.read()
+    assert.deepEqual(b.plan.flags, ['integration-failed']); assert.equal(b.tasks.filter(t => t.type === 'bug').length, 1)
+    assert.equal(b.drive.stopped, mode === 'yolo' ? 'integration failed twice' : undefined)
+  }
+})

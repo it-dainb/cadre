@@ -30,16 +30,21 @@ const taskLane = (lane: Lane, t: Task, reg: TypeRegistry) => (lane !== 'lite' ? 
 export async function relane(h: Host, store: TaskStore, reg: TypeRegistry): Promise<void> {
   const p = (await h.board.read()).plan; if (!p || p.slug === 'mission' || p.state !== 'draft' || p.approvedAt) return
   const epic = await store.get(p.id), asked = (epic.meta['cadre.lane'] || 'full') as Lane, drafts = await draftsOf(store, p.id), r = laneOf(asked, drafts, reg)
+  let mode = epic.meta['cadre.mode'] as 'auto' | 'yolo' | undefined
+  if (!mode) {   // the mode of the goal that started it (`/cadre yolo <goal>`), taken once; a plan main starts on its own is auto
+    await h.ui.update(u => { mode = u.mode === 'yolo' ? 'yolo' : 'auto'; const { mode: _m, ...rest } = u; return rest })   // ponytail: the next plan takes it, even when the goal went to the ask lane first
+    await store.setMeta(p.id, { 'cadre.mode': mode! }, 'human')
+  }
   for (const t of drafts) { const l = taskLane(r.lane, t, reg); if ((t.meta['cadre.lane'] ?? '') !== l) await store.setMeta(t.id, { 'cadre.lane': l }, 'main') }
-  await h.board.update(b => (b.plan?.id === p.id ? { ...b, plan: { ...b.plan, lane: r.lane, laneReason: epic.meta['cadre.laneReason'] || undefined, laneOverride: r.why } } : b))
+  await h.board.update(b => (b.plan?.id === p.id ? { ...b, plan: { ...b.plan, mode, lane: r.lane, laneReason: epic.meta['cadre.laneReason'] || undefined, laneOverride: r.why } } : b))
 }
 export async function retouch(h: Host, store: TaskStore, reg: TypeRegistry): Promise<string[]> { await relane(h, store, reg); return touched(h, store, reg) }
 
-// the decision's first line (core/dispatch.redraw): "lite · 1 task · fix · <reason>"; an override names itself
+// the decision's first line (core/dispatch.redraw): "auto · lite · 1 task · fix · <reason>" (the mode drive runs it in, ADR 0013); an override names itself
 export function laneLine(plan: Plan | null, drafts: Task[], reg: TypeRegistry = defaults()): string | null {
   if (!plan?.lane) return null
   const n = plural(drafts.length, 'task'), ty = drafts.length === 1 ? reg[drafts[0].type]?.commit ?? drafts[0].type : ''
-  return [plan.lane, n, ty, plan.laneOverride ? `${plan.laneOverride} → ${plan.lane}` : '', plan.laneReason ?? ''].filter(Boolean).join(' · ').slice(0, 160)
+  return [plan.mode ?? 'auto', plan.lane, n, ty, plan.laneOverride ? `${plan.laneOverride} → ${plan.lane}` : '', plan.laneReason ?? ''].filter(Boolean).join(' · ').slice(0, 160)
 }
 // the Lane → <next> option: ask → lite → full → ask, skipping a lane the plan cannot take; null when there is nothing to change
 export function nextLane(plan: Plan, drafts: Task[], reg: TypeRegistry): Lane {
@@ -74,10 +79,11 @@ export async function sendBrief(h: Host): Promise<void> {
   let text: string | undefined; await h.ui.update(u => { text = u.goal as string | undefined; if (!text) return u; const { goal: _g, ...r } = u; return r })
   if (text) await h.submit?.(modelText('brief', text)).catch((e: Error) => h.log(`could not hand the goal to Claude: ${e.message.slice(0, 120)}`))
 }
-// `/cadre <goal>` (commands/cadre, human origin, active repo): the guide inlined after the goal
-export async function goal(h: Host, text: string): Promise<string> {
+// `/cadre <goal>` · `/cadre yolo <goal>` (commands/cadre, human origin, active repo): the guide inlined after the goal
+export async function goal(h: Host, text: string, mode: 'auto' | 'yolo' = 'auto'): Promise<string> {
   const g = await h.readText(`${(await h.root?.()) ?? '.'}/guides/goal.md`)
   if (!g) return 'the goal guide is missing from the plugin; ask the human to reinstall it'
+  await h.ui.update(u => ({ ...u, mode }))   // relane stamps it on the plan this goal drafts
   await queueBrief(h, `Goal from the user: ${text.slice(0, 1000)}\n\n${g}`)
-  return 'goal: Claude is on it · the plan comes up for approval'
+  return `goal${mode === 'yolo' ? ' (yolo)' : ''}: Claude is on it · the plan comes up for approval${mode === 'yolo' ? ' · after that nothing is asked until it lands on dev' : ''}`
 }

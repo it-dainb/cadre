@@ -20,6 +20,7 @@ export interface Plan {
   id: string; slug: string; state: PlanState; epicBranch: string; approvedAt?: number
   landed?: { dev: string; sha: string; at: number }; released?: { version: string; at: number }
   flags?: string[]   // plan-level flags (integration-failed)
+  mode?: 'auto' | 'yolo'   // ADR 0013: how drive runs it after approval (core/lanes.relane)
   lane?: 'ask' | 'lite' | 'full'; laneReason?: string; laneOverride?: string   // ADR 0011: the effective lane, main's (or the human's) reason, why the override moved it (core/lanes)
 }
 // A decision the human owes (ADR 0008, 0012): ONE record, answered ONLY in the native ask dialog (ui/index.answerDialog), bound to `hash`; the pane lists it read-only (ui/needs).
@@ -37,7 +38,8 @@ export interface Snapshot {
   schemaVersion: 1; seq: number; repo: string; mission: string | null; epic: string | null
   plan: Plan | null; tasks: SnapTask[]
   approval: { planId: string | null; missing: string[] }
-  drive: { on: boolean; level: 'epic'; epicId: string | null; turns: number; costUsd: number; startedAt: number | null; paused?: string; heldBy?: string }
+  drive: { on: boolean; level: 'epic'; epicId: string | null; turns: number; costUsd: number; startedAt: number | null; paused?: string; heldBy?: string
+    mode?: 'auto' | 'yolo'; stopped?: string; maxTurns?: number; maxUsd?: number; maxMinutes?: number }   // core/drive: paused = waiting on a gate (lifts by itself); stopped = needs `drive resume`
   sync: { target: string; state: 'ok' | 'offline' | 'conflict' | 'auth'; pending: number; at: number }[]
   cost: { tokens: number; usd?: number; cachePct?: number }
   containment: { state: 'contained' | 'degraded' | 'unknown'; unsandboxed: number }
@@ -49,7 +51,7 @@ export interface Snapshot {
 export type EventType =
   | 'task.transitioned' | 'task.phase_changed' | 'task.skipped' | 'agent.bound' | 'agent.unbound'
   | 'check.ran' | 'flag.raised' | 'flag.resolved' | 'approval.pending' | 'sync.state_changed'
-  | 'drive.status' | 'cost.updated' | 'init.stage' | 'plan.landed' | 'plan.released' | 'release.proposed'
+  | 'drive.status' | 'drive.decided' | 'cost.updated' | 'init.stage' | 'plan.landed' | 'plan.released' | 'release.proposed'
 export interface CadreEvent {
   schemaVersion: 1; seq: number; at: number; type: EventType; taskId?: string; agentId?: string
   actor: Actor; severity: Severity; needsHuman: boolean; data: Record<string, unknown>
