@@ -69,20 +69,43 @@ export async function red(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, te
   return { ok: true, card: `red ✓ ${tests.length} failing (${secs(r.ms)})\n${lines.join('\n')}`, tests: tests.map(t => find(r.cases!, t.name)!.name) }
 }
 
-// ---- green (9): verify at the current tree passes; spec tests present and passed (skipped != passed); knownRed runs but never gates ----
+// ---- failure baseline (ADR 0014 G, generalises knownRed): a check that was red when the plan started gates only on NEW failures. Measured once per plan and
+// check, lazily (the first time it fails), at the plan's start commit (merge-base of the plan branch and dev) in a throwaway worktree; kept in epic meta cadre.baseline ----
+type Base = { exit: number; fails?: string[] }
+const failing = (cs?: Case[]) => cs?.filter(c => c.status === 'failure' || c.status === 'error').map(c => c.name)
+async function baseline(h: Host, d: Deps, pkg: Pkg, name: string): Promise<Base | null> {
+  const s = await h.board.read(), br = s.plan?.epicBranch; if (!s.epic || !br) return null
+  const key = `${pkg.root}:${name}`, all = JSON.parse((await d.store.get(s.epic)).meta['cadre.baseline'] || '{}') as Record<string, Base>
+  if (all[key]) return all[key]
+  const start = (await G.git(h.run, d.root, ['merge-base', br, d.cfg.branches.dev])).trim(), tmp = `${d.wtRoot}/${d.key}.scratch/baseline`, root = rootOf(pkg) ? `${tmp}/${pkg.root}` : tmp
+  await h.run(['git', '-C', d.root, 'worktree', 'add', '-f', '--detach', tmp, start]); await h.run(['mkdir', '-p', `${tmp}-s`])
+  try {
+    if (pkg.setup?.length) await h.run(d.cfg.jail === 'off' ? pkg.setup : G.writableJail({ wt: tmp, scratch: `${tmp}-s`, pkgRoot: root, argv: pkg.setup, writable: d.cfg.jailWritable }), { cwd: root })
+    const r = await runCheck(h, d, { id: 'baseline' } as Task, tmp, pkg, name); all[key] = { exit: r.exit, ...(r.cases ? { fails: failing(r.cases) } : {}) }
+  } finally { await h.run(['git', '-C', d.root, 'worktree', 'remove', '--force', tmp]); await h.run(['rm', '-rf', `${tmp}-s`]) }
+  await d.store.setMeta(s.epic, { 'cadre.baseline': JSON.stringify(all) }, d.actor)
+  return all[key]
+}
+// null = a new failure (the gate fails); else why it is not new. With a JUnit report: fails no test that passed at the start; without one: the check was red then too
+export async function oldFailure(h: Host, d: Deps, pkg: Pkg, name: string, cases?: Case[]): Promise<string | null> {
+  const b = await baseline(h, d, pkg, name).catch(() => null); if (!b?.exit) return null
+  const now = failing(cases); if (now && b.fails) return now.some(n => !b.fails!.includes(n)) ? null : `${name} fails only where it failed before the plan`
+  return now ? null : `${name} was already red before the plan`
+}
+
+// ---- green (9): verify at the current tree passes (or fails only as it did before the plan); spec tests present and passed (skipped != passed); knownRed runs but never gates ----
 export async function green(h: Host, d: Deps, task: Task, wt: string): Promise<Gate> {
   const pkg = pkgOf(d, task); if (!pkg) return { ok: false, why: 'no package', card: 'green ✗ no package' }
   const no = (why: string): Gate => ({ ok: false, why, card: `green ✗ ${why}` }), names = [...new Set([...verifyOf(pkg), ...(pkg.tdd?.report ? [redOf(pkg)] : [])])]
-  let ms = 0, cases: Case[] | undefined
+  let ms = 0, cases: Case[] | undefined; const kr: string[] = []
   for (const n of names) {
     const r = await runCheck(h, d, task, wt, pkg, n, verifyOf(pkg).includes(n) ? 'green' : undefined); ms += r.ms; if (n === redOf(pkg)) cases = r.cases
-    if (verifyOf(pkg).includes(n) && r.exit) return no(`${n} fails (exit=${r.exit}): ${r.tail.slice(-300)}`)
+    if (verifyOf(pkg).includes(n) && r.exit) { const k = await oldFailure(h, d, pkg, n, r.cases); if (!k) return no(`${n} fails (exit=${r.exit}): ${r.tail.slice(-300)}`); kr.push(k) }
   }
   if (pkg.tdd?.report) {
     const spec = JSON.parse(task.meta['cadre.specTests'] ?? '[]') as string[], bad = spec.filter(n => find(cases ?? [], n)?.status !== 'passed')
     if (bad.length) return no(`spec test(s) not passed: ${bad.slice(0, 5).join(', ')}`)
   }
-  const kr: string[] = []
   for (const n of pkg.knownRed ?? []) if (pkg.checks[n]) kr.push(`${n}=${(await runCheck(h, d, task, wt, pkg, n)).exit}`)
   return { ok: true, card: `green ✓ ${names.join('+')} (${secs(ms)})${kr.length ? ` · knownRed ${kr.join(' ')}` : ''}` }
 }

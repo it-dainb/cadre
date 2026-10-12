@@ -29,7 +29,7 @@ const commitPaths = async (h: Host, wt: string, paths: string[], msg: string, am
 async function runSuites(h: Host, cfg: any, wt: string, files: string[] | null, epicId: string, kr: { root: string; n: string }[] = []): Promise<string | null> {
   const pkgs: any[] = cfg.packages ?? [], owner = (f: string) => pkgs.reduce<any>((best, p) => (p.root === '.' || f === p.root || f.startsWith(`${p.root}/`)) && (!best || p.root.length > best.root.length) ? p : best, null)
   const hit = new Set(files?.map(owner)), touched = pkgs.filter(p => !files || hit.has(p))
-  const mode = cfg.jail === 'off' ? 'none' as const : await jailMode(h.run)
+  const mode = cfg.jail === 'off' ? 'none' as const : await jailMode(h.run), base = JSON.parse((await Promise.resolve().then(async () => (await storeOf(h)).get(epicId)).catch(() => null))?.meta['cadre.baseline'] || '{}')
   const scratch = `${wt}-scratch`; await h.run(['mkdir', '-p', scratch])
   try {
     for (const p of touched) {
@@ -40,6 +40,7 @@ async function runSuites(h: Host, cfg: any, wt: string, files: string[] | null, 
         if (!p.checks?.[n]) continue
         const r = await checkRun(h.run, mode, { ...j, argv: p.checks[n], writable: cfg.jailWritable }); await emit(h, 'check.ran', { taskId: epicId, name: `${p.root}:${n}`, ok: !r.exitCode, exit: r.exitCode })
         if (p.knownRed?.includes(n)) { if (!r.exitCode) kr.push({ root: p.root, n }); continue }   // known red runs, never gates; green now = its mark goes after the landing (ADR 0014)
+        if (r.exitCode && base[`${p.root}:${n}`]?.exit) continue   // red when the plan started too: the tasks' green gates guard new failures (core/tdd.oldFailure)
         if (r.exitCode) return `${p.root}:${n} failed (exit ${r.exitCode}): ${tail(r)}`
       }
     }

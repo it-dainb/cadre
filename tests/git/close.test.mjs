@@ -102,7 +102,7 @@ test('merges refused while a git:* flag is open; protected path edit refused at 
   const w = await world(), id = w.ids[0], { h, store } = w; await w.spawn(id); const wt = (await store.get(id)).meta['cadre.worktree']
   edit(wt, 'CHANGELOG.md', 'x'); assert.match(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }), /protected or locked paths changed: CHANGELOG\.md/)
   execFileSync('rm', [join(wt, 'CHANGELOG.md')]); edit(wt)
-  w.dep.cfg.packages[0].checks.verify = ['false']; assert.match(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }), /green gate failed/)
+  w.dep.cfg.packages[0].checks.verify = ['test', '!', '-f', 'b.txt']; assert.match(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }), /green gate failed/)
   w.dep.cfg.packages[0].checks.verify = ['true']; await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }); await w.spawn(id); await w.rep('ag2', w.pass)
   await h.git.update(g => ({ ...g, flags: { 'git:epic/p1-x': {} } })); assert.match(await C.closeTask(h, w.dep, id), /refused while git flag git:epic\/p1-x/)
   assert.equal((await h.board.read()).tasks[0].step, 'merge')

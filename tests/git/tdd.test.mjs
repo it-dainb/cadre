@@ -146,6 +146,15 @@ test('green: spec tests must be passed (skipped != passed); knownRed runs but ne
   const g2 = await T.green(w2.h, w2.d, await mkTask(w2), t2.wt); assert.equal(g2.ok, false); assert.match(g2.why, /spec test\(s\) not passed: s\.login ok/)
 })
 
+test('failure baseline: a test red when the plan started does not fail the green gate; a NEW failing test does; measured once per plan', async () => {
+  const w = world(); writeFileSync(join(w.root, 'test/old.json'), tc('old', 'failure')); sh(w.root, 'commit', '-qam', 'old is red'); sh(w.root, 'branch', '-f', 'epic/e1-x', 'dev')
+  await w.h.board.update(s => ({ ...s, epic: 'e1', plan: { id: 'e1', slug: 'x', state: 'approved', epicBranch: 'epic/e1-x' } }))
+  const wt = await worktree(w)
+  let g = await T.green(w.h, w.d, await mkTask(w), wt); assert.ok(g.ok, g.why); assert.match(g.card, /test fails only where it failed before the plan/)
+  assert.deepEqual(JSON.parse(w.meta['cadre.baseline']), { '.:test': { exit: 1, fails: ['s.old'] } })
+  writeFileSync(join(wt, 'test/new.json'), tc('new', 'failure')); g = await T.green(w.h, w.d, await mkTask(w), wt); assert.equal(g.ok, false); assert.match(g.why, /test fails/)
+  const n = w.meta['cadre.baseline']; await T.green(w.h, w.d, await mkTask(w), wt); assert.equal(w.meta['cadre.baseline'], n)   // kept: not measured again
+})
 test('spec_change: owner report blocks; reject resumes the worker, accept rewinds to the tester; both leave a decision', async () => {
   for (const how of ['reject', 'accept']) {
     const w = world(), r = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']); assert.ok(r.res.ok, r.res.why)
