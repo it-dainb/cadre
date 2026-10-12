@@ -153,7 +153,7 @@ async function project(h: Host, cfg: Config): Promise<Row[]> {
     const a = (cfg.adapters as Record<string, any>)[(v as any)?.adapter ?? t]
     rows.push(await call(h, t, a ?? {}, 'ping', {}, 5000).then((): Row => ['ok', `sync ${t} answers`], (e): Row => ['warn', `sync ${t}: ${e.message}`, '/cadre sync now']))
   }
-  rows.push(b.drive.paused ? ['warn', `drive paused: ${b.drive.paused}`, '/cadre drive on'] : ['ok', `drive ${b.drive.on ? `on, ${b.drive.turns} turns` : 'off'}`])
+  rows.push(b.drive.stopped ? ['warn', `drive stopped: ${b.drive.stopped}`, 'press 2 on the band to resume'] : b.drive.paused ? ['warn', `drive paused: ${b.drive.paused}`, 'it continues by itself after you answer'] : ['ok', `drive ${b.drive.on ? `on, ${b.drive.turns} turns` : 'off until a plan is approved'}`])
   return rows
 }
 export async function doctor(h: Host): Promise<string> {
