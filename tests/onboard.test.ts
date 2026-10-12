@@ -7,6 +7,7 @@ import { fakeHost, task } from './support'
 import { plan, world } from './fixtures/native/world'
 import { BUDGET } from './fixtures/budget.generated'
 import type { Host } from '../types'
+import { resolve, rows } from '../config/index'
 
 // ADR 0014: one message state machine for bare `/cadre` and every command that does not apply here
 describe('the one-line status', () => {
@@ -44,11 +45,20 @@ describe('setup preferences: main hands them over, cadre writes ~/.claude/cadre.
   }
   const call = (h: Host, metadata: Record<string, unknown>, agentId?: string) => prefsCall(h, { tool: 'TaskCreate', subject: 'preferences', description: 'the user\'s choices', metadata: { kind: 'preferences', ...metadata }, ...(agentId ? { agentId } : {}) }) as Promise<any>
   const card = async (h: Host) => ((await h.board.read()).decisions ?? []).find(d => d.id === 'init:93')
-  test('values: only mode and the three limits, in range; defaults drop their keys', () => {
-    expect(wantOf({ kind: 'preferences', mode: 'yolo', maxTurns: 50 })).toEqual({ mode: 'yolo', maxTurns: 50, maxCostUsd: 20, maxWallMinutes: 240 })
+  test('values: only mode, the three limits and the two parallel caps, in range; defaults drop their keys', () => {
+    expect(wantOf({ kind: 'preferences', mode: 'yolo', maxTurns: 50 })).toEqual({ mode: 'yolo', maxTurns: 50, maxCostUsd: 20, maxWallMinutes: 240, maxParallel: 3, maxEpics: 2 })
     expect(wantOf({ mode: 'fast' })).toContain('metadata.mode'); expect(wantOf({ maxTurns: 1.5 })).toContain('whole number'); expect(wantOf({ maxCostUsd: 0 })).toContain('metadata.maxCostUsd'); expect(wantOf({ theme: 'x' })).toContain('unknown')
     expect(nextOf({ theme: 'dark', drive: { maxTurns: 10 } }, wantOf({}) as any)).toEqual({ theme: 'dark' })
     expect(nextOf({}, wantOf({ mode: 'yolo', maxCostUsd: 5 }) as any)).toEqual({ drive: { mode: 'yolo', maxCostUsd: 5 } })
+    expect(nextOf({ milestone: { maxEpics: 4 } }, wantOf({ maxParallel: 0, maxEpics: 2 }) as any)).toEqual({ maxParallel: 0 })
+    expect(wantOf({ maxEpics: -1 })).toContain('from 0 to 100 (0 = no limit)'); expect(wantOf({ maxTurns: 0 })).toContain('from 1 to')
+  })
+  test('parallelism: tasks per plan and plans per milestone are written; unlimited (0) says what it costs on the card', async () => {
+    const { h, files } = mk(); await call(h, { maxParallel: 0, maxEpics: 5 })
+    const d = (await card(h))!; expect(d.lines.at(-1)).toBe('every parallel task is a full Claude agent: cost and load grow; drive limits still apply')
+    expect((await decide(h, d.id, 'a', d.hash)).text).toMatch(/^setup: your preferences are written/)
+    expect(JSON.parse(files[USER])).toEqual({ maxParallel: 0, milestone: { maxEpics: 5 } })
+    const n = mk(); await call(n.h, { maxParallel: 5 }); expect((await card(n.h))!.lines.join('\n')).not.toContain('full Claude agent')
   })
   test('the card shows the diff; Confirm writes with a .bak and re-reads; the checklist row follows it', async () => {
     const { h, files } = mk({ [USER]: '{"theme":"dark"}\n' })
@@ -75,7 +85,7 @@ describe('setup preferences: main hands them over, cadre writes ~/.claude/cadre.
     files[USER] = 'not json'; expect((await call(h, { mode: 'yolo' })).deny).toContain('not valid JSON')
   })
   test('doctor row: where the preferences come from and what they are', async () => {
-    expect(await prefsRow(mk().h)).toEqual(['ok', 'your preferences: the defaults (mode auto, limits 100/$20/240m)'])
+    expect(await prefsRow(mk().h)).toEqual(['ok', 'your preferences: the defaults (mode auto, limits 100/$20/240m, parallel 3 tasks/2 epics)'])
     expect((await prefsRow(mk({ [USER]: '{"drive":{"maxTurns":5}}' }).h))[1]).toContain('~/.claude/cadre.json')
   })
 })
@@ -84,4 +94,11 @@ test('a goal run refuses a separate mission draft: the plan carries it', async (
   const w = await world(); await w.h.secret.update(s => ({ ...s, run: { kind: 'init' as const, at: 0, turns: 0, follow: 0, guide: 'g', goal: { text: 'fix it', mode: 'auto' as const } } }))
   const r = await w.call('TaskCreate', { subject: 'Fix it', description: 'Goal: fix it', metadata: { kind: 'mission' } })
   expect(r.deny).toContain('metadata.mission'); expect((await w.h.board.read()).plan).toBeNull()
+})
+
+test('Settings lists both parallel keys with their defaults (tasks per plan 3, plans per milestone 2)', async () => {
+  const r = rows([{ name: '~/.claude/cadre.json', trust: 'user', value: { maxParallel: 0 } }])
+  expect(r.find(x => x.key === 'maxParallel')).toMatchObject({ value: 0, def: 3, src: 'user', kind: 'number' })
+  expect(r.find(x => x.key === 'milestone.maxEpics')).toMatchObject({ value: 2, def: 2, cls: 'O', kind: 'number' })
+  expect(resolve([{ name: '.cadre/config.json', trust: 'repo', value: { milestone: { maxEpics: 4 } } }]).config.milestone.maxEpics).toBe(4)
 })

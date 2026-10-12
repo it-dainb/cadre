@@ -100,6 +100,7 @@ describe('claim (3.4)', () => {
     await h.board.update(s => ({ ...s, tasks: s.tasks.map(t => (t.id === ids[3] ? { ...t, flags: ['git:dev'] } : t)) })); expect(((await admitWith(h, d, spawn(ids[3]), next)) as any).deny).toContain('flag git:dev')
     await h.board.update(s => ({ ...s, tasks: s.tasks.map((t, i) => (i === 3 ? { ...t, flags: [], condition: undefined } : i === 0 ? { ...t, state: 'active' } : { ...t, state: i === 1 ? 'active' : t.state }) as SnapTask) })); d.cfg.maxParallel = 2
     expect(((await admitWith(h, d, spawn(ids[3]), next)) as any).deny).toContain('limit 2'); expect(seen).toEqual([])
+    d.cfg.maxParallel = 0; expect(((await admitWith(h, d, spawn(ids[3]), next)) as any)?.deny ?? '').not.toContain('limit')   // 0 = no cap (setup preferences)
   })
   test('a rejected spawn ({deny}) or a thrown next releases the claim and the board, removes the new worktree; a throw is rethrown', async () => {
     const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}); await w.board(h, epic, ids)

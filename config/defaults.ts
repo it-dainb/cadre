@@ -23,7 +23,8 @@ export const defaults = () => ({
   review: { deepLabels: ['security', 'breaking'], maxRework: 3 }, limits: { reportRetries: 3 },
   branches: { main: '', dev: 'dev', epicPrefix: 'epic/' }, release: { onEpicDone: 'propose' },
   ui: { glyphs: 'unicode', flash: true, density: 'normal' },
-  maxParallel: 3, maxRows: 6, reuse: { maxContextPct: 60, cacheTtlMs: 3_600_000 },   // 1h: roles ship as agent files with experimental.cacheTtl 1h (A28, ADR 0001 S44)
+  maxParallel: 3, milestone: { maxEpics: 2 }, maxRows: 6,   // maxParallel/maxEpics 0 = no cadre cap (drive bounds still apply); milestone.maxEpics is stored for the milestone lane (ADR 0014)
+  reuse: { maxContextPct: 60, cacheTtlMs: 3_600_000 },   // 1h: roles ship as agent files with experimental.cacheTtl 1h (A28, ADR 0001 S44)
   disable: false,
 })
 export type Config = ReturnType<typeof defaults>

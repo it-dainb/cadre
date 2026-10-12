@@ -9,24 +9,32 @@ import { defaults } from '../config/index'
 import { diff as jdiff } from '../policy/settings'
 
 const CARD = 93, STAMP = 'cadre:prefs'
-type Want = { mode: 'auto' | 'yolo'; maxTurns: number; maxCostUsd: number; maxWallMinutes: number }
-const LIM: [keyof Want, number][] = [['maxTurns', 10_000], ['maxCostUsd', 10_000], ['maxWallMinutes', 10_080]]
+type Want = { mode: 'auto' | 'yolo'; maxTurns: number; maxCostUsd: number; maxWallMinutes: number; maxParallel: number; maxEpics: number }
+// metadata key -> config path, the range (min..max); 0 on the two parallel keys = no cadre cap
+const AT: Record<keyof Want, string[]> = { mode: ['drive', 'mode'], maxTurns: ['drive', 'maxTurns'], maxCostUsd: ['drive', 'maxCostUsd'], maxWallMinutes: ['drive', 'maxWallMinutes'], maxParallel: ['maxParallel'], maxEpics: ['milestone', 'maxEpics'] }
+const LIM: [keyof Want, number, number][] = [['maxTurns', 1, 10_000], ['maxCostUsd', 1, 10_000], ['maxWallMinutes', 1, 10_080], ['maxParallel', 0, 100], ['maxEpics', 0, 100]]
+const dig = (o: any, p: string[]) => p.reduce((x, k) => x?.[k], o)
+const UNCAPPED = 'every parallel task is a full Claude agent: cost and load grow; drive limits still apply'
 const pathOf = async (h: Host) => `${await h.home()}/.claude/cadre.json`
 const readJ = (t: string | null): Record<string, any> | null => { try { const v = t ? JSON.parse(t) : {}; return v && typeof v === 'object' && !Array.isArray(v) ? v : null } catch { return null } }
 
 // metadata -> the wanted values, or why not (an absent key keeps the default)
 export function wantOf(m: Record<string, unknown>): Want | string {
-  const d = defaults().drive, w: Want = { mode: d.mode as Want['mode'], maxTurns: d.maxTurns, maxCostUsd: d.maxCostUsd, maxWallMinutes: d.maxWallMinutes }
-  for (const k of Object.keys(m)) if (!['kind', 'mode', ...LIM.map(l => l[0])].includes(k)) return `metadata.${k}: unknown (allowed: mode, maxTurns, maxCostUsd, maxWallMinutes)`
+  const w = Object.fromEntries(Object.entries(AT).map(([k, p]) => [k, dig(defaults(), p)])) as Want
+  for (const k of Object.keys(m)) if (k !== 'kind' && !(k in AT)) return `metadata.${k}: unknown (allowed: ${Object.keys(AT).join(', ')})`
   if (m.mode !== undefined) { if (m.mode !== 'auto' && m.mode !== 'yolo') return 'metadata.mode: expected "auto" or "yolo"'; w.mode = m.mode }
-  for (const [k, max] of LIM) if (m[k] !== undefined) { const v = m[k]; if (typeof v !== 'number' || !(v > 0) || v > max || (k !== 'maxCostUsd' && !Number.isInteger(v))) return `metadata.${k}: expected a ${k === 'maxCostUsd' ? 'number' : 'whole number'} from 1 to ${max}`; (w as any)[k] = v }
+  for (const [k, min, max] of LIM) if (m[k] !== undefined) { const v = m[k]; if (typeof v !== 'number' || v < min || v > max || (k !== 'maxCostUsd' && !Number.isInteger(v)) || (k === 'maxCostUsd' && !(v > 0))) return `metadata.${k}: expected a ${k === 'maxCostUsd' ? 'number' : 'whole number'} from ${min} to ${max}${min === 0 ? ' (0 = no limit)' : ''}`; (w as any)[k] = v }
   return w
 }
-// the user file with these choices: a default value drops its key, an emptied drive section goes
+// the user file with these choices: a default value drops its key, an emptied section goes
 export function nextOf(cur: Record<string, any>, w: Want): Record<string, any> {
-  const d = defaults().drive as Record<string, unknown>, drive: Record<string, unknown> = { ...cur.drive }
-  for (const [k, v] of Object.entries(w)) if (d[k] === v) delete drive[k]; else drive[k] = v
-  const { drive: _d, ...rest } = cur; return Object.keys(drive).length ? { ...rest, drive } : rest
+  const out = structuredClone(cur)
+  for (const [k, p] of Object.entries(AT)) {
+    const v = w[k as keyof Want], last = p[p.length - 1], par = p.slice(0, -1).reduce((o, x) => (o[x] = o[x] && typeof o[x] === 'object' ? o[x] : {}), out)
+    if (dig(defaults(), p) === v) delete par[last]; else par[last] = v
+    if (p.length > 1 && !Object.keys(out[p[0]]).length) delete out[p[0]]
+  }
+  return out
 }
 async function plan(h: Host, w: Want) {
   const path = await pathOf(h), old = await h.readText(path), cur = readJ(old)
@@ -44,7 +52,7 @@ export async function prefsCall(h: Host, e: any): Promise<unknown | undefined> {
   if (!p.lines.length) { await h.store.set(STAMP, { at: await h.now() }); return { result: modelData('tool-result', { task: { id: 'preferences', subject: 'preferences' } }), context: [modelText('context', 'Nothing to change: these are already the settings. Go on with the next phase.')] } }
   await h.ui.update(u => ({ ...u, 'prefs.pending': { sig: p.sig, want: w } }))
   await initPropose(h, CARD, `setup preferences\n${p.sig}`, { title: 'setup · your preferences · confirm', short: 'setup preferences', sub: 'setup prefs',
-    lines: ['cadre writes this after you confirm (a .bak is kept):', ...p.lines.slice(0, 5).map(l => `  ~/.claude/cadre.json: ${l}`)] })
+    lines: ['cadre writes this after you confirm (a .bak is kept):', ...p.lines.slice(0, w.maxParallel === 0 || w.maxEpics === 0 ? 4 : 5).map(l => `  ~/.claude/cadre.json: ${l}`), ...(w.maxParallel === 0 || w.maxEpics === 0 ? [UNCAPPED] : [])] })
   return { result: modelData('tool-result', { task: { id: 'preferences', subject: 'preferences' } }), context: [modelText('context', 'cadre shows these choices to the user in a dialog. Tell them to confirm it there (press 1), then go on with the next phase.')] }
 }
 // `setup prefs confirm` (the card's Confirm, dialog only): the file is re-read and must be what the card showed
@@ -66,6 +74,6 @@ export async function prefsItem(h: Host): Promise<{ name: string; st: 'ok' | 'fa
 }
 // doctor's row
 export async function prefsRow(h: Host): Promise<['ok', string]> {
-  const d = (await cfgOf(h)).drive, has = !!readJ(await h.readText(await pathOf(h)))?.drive
-  return ['ok', `your preferences: ${has ? '~/.claude/cadre.json' : 'the defaults'} (mode ${d.mode}, limits ${d.maxTurns}/$${d.maxCostUsd}/${d.maxWallMinutes}m)`]
+  const c = await cfgOf(h), d = c.drive, u = readJ(await h.readText(await pathOf(h))), has = Object.values(AT).some(p => dig(u, p) !== undefined), n = (x: number) => (x === 0 ? 'no cap' : String(x))
+  return ['ok', `your preferences: ${has ? '~/.claude/cadre.json' : 'the defaults'} (mode ${d.mode}, limits ${d.maxTurns}/$${d.maxCostUsd}/${d.maxWallMinutes}m, parallel ${n(c.maxParallel)} tasks/${n(c.milestone.maxEpics)} epics)`]
 }

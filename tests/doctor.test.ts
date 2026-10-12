@@ -140,7 +140,7 @@ describe('doctor', () => {
   })
   test('a dormant repo: one warn row for the project, no other project rows', async () => {
     const h = mk({ repo: true }); await h.secret.update(x => ({ ...x, active: false })); await doctor(h)
-    const rows = JSON.stringify((await h.ui.read())['doctor.rows']); expect(rows).toContain('project: not set up here'); expect(rows).toContain('your preferences: the defaults (mode auto, limits 100/$20/240m)'); expect(rows).not.toContain('init incomplete')
+    const rows = JSON.stringify((await h.ui.read())['doctor.rows']); expect(rows).toContain('project: not set up here'); expect(rows).toContain('your preferences: the defaults (mode auto, limits 100/$20/240m, parallel 3 tasks/2 epics)'); expect(rows).not.toContain('init incomplete')
   })
   test('inside a repo: init, containment, beads and branch rows each point at /cadre init', async () => {
     const h = mk({ repo: true }); await doctor(h); const log = ((await h.ui.read())['doctor.rows'] as any[]).map(r => `${r[1]} fix: ${r[2] ?? ''}`).join('\n')

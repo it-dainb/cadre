@@ -123,7 +123,7 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
   if (t.condition?.state === 'not-met') return deny(`${t.id} never runs: its condition (${t.condition.on} failed) is not met`)
   if (!(await d.store.ready(s.epic)).includes(t.id)) return deny(`${t.id} is not ready (waiting on a dependency or gate); spawn a task that TaskList shows ready`)
   const running = s.tasks.filter(x => x.state === 'active').length
-  if (running >= d.cfg.maxParallel) return deny(`${running} agents already running (limit ${d.cfg.maxParallel}); wait for one to finish`)
+  if (d.cfg.maxParallel > 0 && running >= d.cfg.maxParallel) return deny(`${running} agents already running (limit ${d.cfg.maxParallel}); wait for one to finish`)
   const spike = kindOf(spec) === 'spike'
   if (!spike && !(await G.exists(h.run, d.root, s.plan.epicBranch))) return lostEpic(h, s, t)
   const res = await apply(h, { kind: 'claim', id: t.id, at: await h.now(), actor: 'mod', owner: d.actor }, pipe)   // the CAS reserve: one winner (S2)

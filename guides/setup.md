@@ -38,8 +38,11 @@ Done when you told the user.
 ## Phase 5: preferences
 Ask the user with AskUserQuestion, in one round:
 - the default mode: "auto" (Claude asks you to approve each plan and the decisions it cannot make) or "yolo" (after you approve a plan, nothing is asked until it lands on dev);
-- the limits for one plan run: turns (default 100), cost in dollars (default 20), minutes (default 240). Offer "Keep the defaults".
-Then hand the answers to cadre with one TaskCreate: subject `preferences`, description `the user's choices`, metadata `{"kind": "preferences", "mode": "auto", "maxTurns": 100, "maxCostUsd": 20, "maxWallMinutes": 240}` with their values. cadre shows the change in a dialog and writes it after they confirm; do not edit any settings file. Tell the user to confirm it in the cadre dialog (press 1).
+- the limits for one plan run: turns (default 100), cost in dollars (default 20), minutes (default 240). Offer "Keep the defaults";
+- tasks worked on in parallel in one plan: 1, 3 (default), 5 or unlimited;
+- plans worked on in parallel in one milestone: 1, 3, 5 or unlimited (default 2).
+Unlimited is the value 0.
+Then hand the answers to cadre with one TaskCreate: subject `preferences`, description `the user's choices`, metadata `{"kind": "preferences", "mode": "auto", "maxTurns": 100, "maxCostUsd": 20, "maxWallMinutes": 240, "maxParallel": 3, "maxEpics": 2}` with their values. cadre shows the change in a dialog and writes it after they confirm; do not edit any settings file. Tell the user to confirm it in the cadre dialog (press 1).
 Done when the TaskCreate was accepted.
 
 ## Phase 6: what needs the password

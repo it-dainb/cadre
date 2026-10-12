@@ -7,7 +7,7 @@ import { actOf, groupOf, rowsOf, val } from '../settings'
 import { type Renderer, joinSections, keyLine, muted, relax, title, ucfg, win } from './types'
 
 const WORD = { bool: 'toggle', enum: 'cycle', number: 'change', text: 'change', list: 'change' } as const
-const KEY_NOTE: Record<string, string> = { 'drive.mode': 'yolo: no questions after approval' }
+const KEY_NOTE: Record<string, string> = { 'drive.mode': 'yolo: no questions after approval', maxParallel: '0 = no cap', 'milestone.maxEpics': `used by milestones${SEP}0 = no cap` }
 const NOTE = (cls: string, key = '') => [KEY_NOTE[key], cls === 'S' ? 'tighten-only from repo' : cls === 'U' ? 'user-level only' : ''].filter(Boolean).join(SEP)
 
 export const settings: Renderer = (v, cols, rows, a) => {
