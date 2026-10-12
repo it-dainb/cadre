@@ -1,4 +1,4 @@
-// Command dispatcher (DESIGN 2.5, 3.1): the only entry for `/cadre` commands. Origin rules (gates: press or ask-dialog only, ADR 0012),
+// Command dispatcher (DESIGN 2.5, 3.1): the only entry for `/cadre` commands. Origin rules (gates: the ask dialog only, ADR 0012),
 // approve/reject bound to the decision's content hash, init confirm. Also the draft<->board mirror shared with native/tasks.ts.
 import type { Host, SnapTask } from '../types'
 import type { Task, TaskStore } from '../task-management/store'
@@ -9,15 +9,15 @@ import { defaults as cfgDefaults, resolve, envLayer } from '../config/index'
 import type { Config } from '../config/index'
 import { canon, fnv1a64, stamp, withConditions } from './board'
 import { emit } from './events'
-import { ask, settle, settleIf } from './decide'
+import { ask, plural, settle, settleIf } from './decide'
 import { scoped } from '../commands/init'
 import { apply, epicNext } from './machine'
 import { missingList } from './validate'
 import { cutEpic } from './branches'
-import { laneLine, laneOption } from './lanes'
+import { laneLine, laneOption, queueBrief } from './lanes'
 import * as G from './git'
 
-export type Origin = { kind: string; name?: string }   // press | dialog (human) · composer (typed start commands only) | sdk | bridge | plugin | adapter
+export type Origin = { kind: string; name?: string }   // dialog (a decision's answer) | press (a Settings toggle, not a decision) · composer (typed start commands only) | sdk | bridge | plugin | adapter
 export interface Command { schemaVersion: 1; cmd: string; args: string[]; origin: Origin }
 export type Out = { text: string }
 export type Route = (h: Host, c: Command) => Promise<Out>
@@ -69,9 +69,10 @@ export async function redraw(h: Host, store: TaskStore, reg: TypeRegistry): Prom
   if (!planId || missing.length) await settleIf(h, 'plan:')   // nothing to approve yet
   else {
     const sc = (t: Task) => (t.acceptance ?? '').split('\n').filter(Boolean).length, m = await missionOf_(store, s), ll = laneLine(s.plan, drafts, reg), lo = laneOption(s.plan, drafts, reg)   // a mission card shows the mission itself
-    await ask(h, { id: `plan:${planId}`, kind: 'plan', title: m ? `approve the mission · ${m.title}` : `approve plan ${planId} · ${drafts.length} tasks`, short: m ? 'approve the mission' : `approve ${planId} (${drafts.length} tasks)`, tab: m ? 'epic' : 'plan', hash: planHash(drafts, m, ll),
-      lines: m ? (m.description || m.title).split('\n').filter(Boolean).slice(0, 8) : [...(ll ? [ll] : []), `${drafts.length} tasks · ${drafts.reduce((n, t) => n + sc(t), 0)} scenarios`, ...drafts.slice(0, 5).map(t => `  ${t.id} ${t.type} ${t.title} · ${sc(t)} scenarios`), ...(drafts.length > 5 ? [`  +${drafts.length - 5} more (open the Plan tab)`] : [])],
-      options: [{ key: 'a', label: 'Approve', verb: 'approve', run: `approve ${planId}` }, { key: 'x', label: 'Reject', verb: 'reject', run: `reject ${planId} rejected in the pane` }, { key: 'c', label: 'Change', verb: 'change', fill: `Change ${planId}: ` }, ...(lo ? [lo] : [])] })
+    const all = drafts.reduce((n, t) => n + sc(t), 0), k = drafts.length > 5 ? 4 : 5   // body <= 6 lines, each fact once (BRAND P2): the count on the lane line, scenarios per task, none when 0
+    await ask(h, { id: `plan:${planId}`, kind: 'plan', title: m ? `approve the mission · ${m.title}` : `approve plan ${planId}`, short: m ? 'approve the mission' : `approve ${planId}`, tab: m ? 'epic' : 'plan', hash: planHash(drafts, m, ll), change: `Change ${planId}: `,
+      lines: m ? (m.description || m.title).split('\n').filter(Boolean).slice(0, 6) : [ll ?? [plural(drafts.length, 'task'), ...(all ? [plural(all, 'scenario')] : [])].join(' · '), ...drafts.slice(0, k).map(t => `  ${t.id} ${t.type} ${t.title}${sc(t) ? ` · ${plural(sc(t), 'scenario')}` : ''}`), ...(drafts.length > k ? [`  +${drafts.length - k} more on the Plan tab`] : [])],
+      options: [{ key: 'a', label: 'Approve', verb: 'approve', run: `approve ${planId}` }, { key: 'x', label: 'Reject', verb: 'reject', run: `reject ${planId} rejected in the dialog` }, ...(lo ? [lo] : [])] })
   }
   return missing
 }
@@ -98,15 +99,15 @@ export async function touched(h: Host, store: TaskStore, reg: TypeRegistry): Pro
 }
 
 // ---- origin ----
-// null = human; else the refusal reason. Only a Button press or the ask dialog is human evidence (ADR 0012): no typed, sdk, adapter or model origin approves anything.
-export const isHuman = (o: Origin): string | null => (o.kind === 'press' || o.kind === 'dialog' ? null : `origin ${o.kind} cannot decide: press the button on the card (or answer the dialog)`)
+// null = human; else the refusal reason. A decision is answered in the ask dialog (ADR 0012); a press is a Settings toggle (not a decision). No typed, sdk, adapter or model origin decides.
+export const isHuman = (o: Origin): string | null => (o.kind === 'press' || o.kind === 'dialog' ? null : `origin ${o.kind} cannot decide: the human answers in the dialog (press 1)`)
 // agent-run setup/init (commands/agentrun fills these at load; core never imports commands/agentrun: a load cycle)
 export const RUN: { recheck?(h: Host): Promise<string>; cancel?(h: Host, kind: string): Promise<void> } = {}
 // gates = everything that decides or changes state for the human; only `init`/`setup` with no subcommand (start the run) may also be typed
 const gated = (c: Command): boolean => ['approve', 'reject', 'resolve', 'release', 'restore'].includes(c.cmd) || (['init', 'setup'].includes(c.cmd) && !!c.args[0]) || (c.cmd === 'config' && c.args[0] === 'set') || (c.cmd === 'sync' && c.args[0] === 'add') || (c.cmd === 'drive' && c.args[0] !== 'status')
 
-// ---- init confirm (DESIGN 10.1): the card is bound to the diff's content hash; a confirm is the press (or dialog) on it ----
-// `d` (optional) is what the human sees: sub = the command the buttons run (`init`, `setup`, `sync add <name>`); `change` = the re-plan command (none: no Cancel/Change, e.g. sync add)
+// ---- init confirm (DESIGN 10.1): the decision is bound to the diff's content hash; a confirm is the dialog's answer to it ----
+// `d` (optional) is what the human sees: sub = the command the options run (`init`, `setup`, `sync add <name>`); `change` = the re-plan command (none: no Cancel/Change, e.g. sync add)
 export async function initPropose(h: Host, stage: number, diff: string, d?: { title: string; short?: string; lines: string[]; sub: string; change?: string }): Promise<void> {
   if (d) await ask(h, { id: `init:${stage}`, kind: 'init', title: d.title, short: d.short, lines: d.lines, hash: fnv1a64(diff), tab: 'epic',
     options: [{ key: 'a', label: 'Confirm', verb: 'approve', run: `${d.sub} confirm` }, ...(d.change ? [{ key: 'x', label: 'Cancel', verb: 'reject', run: `${d.sub} cancel` }, { key: 'c', label: 'Change', verb: 'change', run: d.change }] : [])] })
@@ -123,9 +124,9 @@ const refuse = (why: string): Out => ({ text: `refused: ${why}` })
 export const gateOf = async (store: TaskStore, id: string): Promise<Task | null> => { const g = await store.get(id).catch(() => null); return g && g.type === 'gate' && !['done', 'cancelled'].includes(g.category) ? g : null }
 export async function gateDraw(h: Host, g: Task): Promise<void> {
   await h.board.update(b => ({ ...b, approval: { planId: g.id, missing: [] } }))
-  await ask(h, { id: `gate:${g.id}`, kind: 'gate', title: `approve gate ${g.id} · ${g.title}`, short: `approve gate ${g.id}`, tab: 'epic', sel: g.id, hash: gateHash(g),
-    lines: [g.title, ...(g.description ?? '').split('\n').filter(Boolean).slice(0, 4), 'a human gate: the work after it waits for you'],
-    options: [{ key: 'a', label: 'Approve', verb: 'approve', run: `approve ${g.id}` }, { key: 'c', label: 'Change', verb: 'change', fill: `Change ${g.id}: ` }] })
+  await ask(h, { id: `gate:${g.id}`, kind: 'gate', title: `approve gate ${g.id} · ${g.title}`, short: `approve gate ${g.id}`, tab: 'epic', sel: g.id, hash: gateHash(g), change: `Change ${g.id}: `,
+    lines: [...(g.description ?? '').split('\n').filter(Boolean).slice(0, 4), 'a human gate: the work after it waits for you'],
+    options: [{ key: 'a', label: 'Approve', verb: 'approve', run: `approve ${g.id}` }] })
 }
 async function approveGate(h: Host, store: TaskStore, reg: TypeRegistry, g: Task): Promise<Out> {
   if (((await h.board.read()).decisions ?? []).find(d => d.id === `gate:${g.id}`)?.hash !== gateHash(g)) { await gateDraw(h, g); return refuse('it changed; review again') }
@@ -159,7 +160,8 @@ async function approve(h: Host, c: Command): Promise<Out> {
   await settleIf(h, 'plan:')
   let note = ''
   if (first) try { await cutEpic(h, plan.id, (await cfgOf(h)).branches.dev); note = `; epic branch ${plan.epicBranch} cut` } catch (e) { note = `; epic branch cut failed: ${(e as Error).message}` }
-  return { text: `Plan ${plan.id} approved: ${ids.length} task${ids.length === 1 ? '' : 's'} ready${note}.` }
+  await queueBrief(h, `Plan ${plan.id} is approved: spawn its ready tasks one by one (each by its id), follow the cards until every task is done, then complete the plan (TaskUpdate ${plan.id} completed).`)   // main continues by itself (no drive)
+  return { text: `Plan ${plan.id} approved: ${plural(ids.length, 'task')} ready${note}.` }
 }
 async function reject(h: Host, c: Command): Promise<Out> {
   const [planId, ...why] = c.args, store = await storeOf(h), reg = await registryOf(h), s = await h.board.read()
@@ -199,23 +201,22 @@ export async function restore(h: Host, name?: string): Promise<Out> {
   return r.exitCode ? refuse(`${e.name}: ${r.stderr.trim().slice(0, 200)}`) : { text: `Restored ${e.paths.length} path(s) of ${e.name} into ${e.tree} (the stash is kept).` }
 }
 
-// route = the handler for everything else (commands/cadre.ts); a gate command from any origin but a press / the ask dialog is refused before it (ADR 0012)
+// route = the handler for everything else (commands/cadre.ts); a gate command from any origin but the ask dialog (or a Settings press) is refused before it (ADR 0012)
 export async function dispatch(h: Host, c: Command, route: Route): Promise<Out> {
   if (c.schemaVersion !== 1) return refuse('unsupported command schemaVersion')
   const why = gated(c) ? isHuman(c.origin) : ['init', 'setup'].includes(c.cmd) && !['composer', 'press', 'dialog'].includes(c.origin.kind) ? `origin ${c.origin.kind} cannot start ${c.cmd}` : null
   if (why) return refuse(why)
-  if ((c.cmd === 'init' || c.cmd === 'setup') && c.args[0] === 'cancel') { await settleIf(h, 'init:'); await RUN.cancel?.(h, c.cmd); return { text: `${c.cmd}: cancelled` } }   // the card's Cancel: ends the run and its lease
+  if ((c.cmd === 'init' || c.cmd === 'setup') && c.args[0] === 'cancel') { await settleIf(h, 'init:'); await RUN.cancel?.(h, c.cmd); return { text: `${c.cmd}: cancelled` } }   // the decision's Cancel: ends the run and its lease
   if (c.cmd === 'approve') return approve(h, c)
   if (c.cmd === 'reject') return reject(h, c)
   return route(h, c)
 }
 
-// An answer to decision `id`, option `key`, drawn with `hash`: a button press (origin 'press') or the ask dialog (origin 'dialog'). The card changing in between refuses it (the card redraws);
-// otherwise the option's command runs as that origin. commands/cadre passes its router.
-export async function answer(h: Host, id: string, key: string, hash: string, origin: 'press' | 'dialog', route: Route): Promise<Out> {
+// The dialog's answer to decision `id`, option `key`, asked with `hash` (+ the values typed for its fields). The decision changing while the dialog was open refuses it (the dialog
+// re-asks); otherwise the option's command runs as origin dialog. commands/cadre passes its router.
+export async function answer(h: Host, id: string, key: string, hash: string, route: Route, vals: Record<string, string> = {}): Promise<Out> {
   const d = ((await h.board.read()).decisions ?? []).find(x => x.id === id), o = d?.options.find(x => x.key === key)?.run
   if (!d || d.hash !== hash || !o) return refuse('it changed; review again')   // nothing runs
-  const typed = ((await h.ui.read()).fields as Record<string, Record<string, string>> | undefined)?.[id] ?? {}
-  const [cmd, ...args] = o.split(/\s+/).filter(Boolean).flatMap(a => (a === '{fields}' ? (d.fields ?? []).map(f => `${f.key}=${typed[f.key] ?? f.value ?? ''}`) : [a]))   // card fields as k=v argv elements
-  try { return await dispatch(h, { schemaVersion: 1, cmd, args, origin: { kind: origin } }, route) } catch (x) { return { text: `cadre: ${(x as Error).message}` } }
+  const [cmd, ...args] = o.split(/\s+/).filter(Boolean).flatMap(a => (a === '{fields}' ? (d.fields ?? []).map(f => `${f.key}=${vals[f.key] ?? f.value ?? ''}`) : [a]))   // fields as k=v argv elements
+  try { return await dispatch(h, { schemaVersion: 1, cmd, args, origin: { kind: 'dialog' } }, route) } catch (x) { return { text: `cadre: ${(x as Error).message}` } }
 }

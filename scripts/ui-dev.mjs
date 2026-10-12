@@ -1,5 +1,5 @@
-// Dev-only UI loop (docs/dev/ui-dev.md): draws the REAL ui/ renderers (band + pane + card + timeline) for a scenario in your terminal, hot-reloads on save.
-//   node --experimental-transform-types scripts/ui-dev.mjs [scenario] [--width N] [--tab epic|plan|doctor|settings|card] [--once] [--all] | --dump <scenario> (JSON for harness/tui.sh --scenario)
+// Dev-only UI loop (docs/dev/ui-dev.md): draws the REAL ui/ renderers (band + pane + Needs you + timeline) for a scenario in your terminal, hot-reloads on save.
+//   node --experimental-transform-types scripts/ui-dev.mjs [scenario] [--width N] [--tab epic|plan|doctor|settings] [--once] [--all] | --dump <scenario> (JSON for harness/tui.sh --scenario)
 // Each frame renders in a fresh child process (clean module cache = hot reload for free; a broken file draws a red frame instead of killing the loop).
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, watch, writeFileSync } from 'node:fs'
@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const ME = fileURLToPath(import.meta.url), ROOT = join(dirname(ME), '..')
-const WIDTHS = [60, 120, 160], TABS = { 1: 'epic', 7: 'plan', 8: 'doctor', 9: 'settings', 0: 'card' }
+const WIDTHS = [60, 120, 160], TABS = { 1: 'epic', 7: 'plan', 8: 'doctor', 9: 'settings' }
 const FLAGS = ['--experimental-transform-types', '--no-warnings']
 
 // ---------- child: render one frame, print JSON ----------
@@ -18,24 +18,23 @@ const sgr = (codes, s) => (codes.length ? `\x1b[${codes.join(';')}m${s}\x1b[0m` 
 async function child(req) {
   await import(pathToFileURL(join(ROOT, 'tests/dev/register.mjs')))
   const I = f => import(pathToFileURL(join(ROOT, f)))
-  const [{ band }, { pane }, { defaultTab, decisions }, M] = await Promise.all([I('ui/band.ts'), I('ui/pane.ts'), I('ui/card.ts'), I('ui/model.ts')])
+  const [{ band }, { pane }, M] = await Promise.all([I('ui/band.ts'), I('ui/pane.ts'), I('ui/model.ts')])
   const s = (await I(`scenarios/${req.name}.ts`)).default
   const ring = [...(s.ring ?? s.events ?? [])].sort((a, b) => a.at - b.at), n = ring.length
   const v = { b: s.b ?? s.snapshot, ring, sec: s.sec ?? s.secret ?? {}, ui: { ...s.ui }, c: { ...M.CFG, ...(s.c ?? s.cfg) }, now: s.now, sx: s.sx ?? 'strict', t: s.t ?? null }
-  if (req.dump) return { b: v.b, ring, sec: v.sec, ui: { ...v.ui, tab: v.ui.tab ?? s.tab ?? defaultTab(v) }, c: s.c ?? s.cfg ?? {}, now: v.now }   // harness/tui.sh --scenario: seeded into the real engine's atoms
+  if (req.dump) return { b: v.b, ring, sec: v.sec, ui: { ...v.ui, tab: v.ui.tab ?? s.tab ?? 'epic' }, c: s.c ?? s.cfg ?? {}, now: v.now }   // harness/tui.sh --scenario: seeded into the real engine's atoms
   // event cursor: idx = events applied; n = live. Undefined: the scenario's own t (live unless it asks for a replay)
   let idx = req.idx ?? (v.t === null ? n : ring.filter(e => e.at <= v.t).length)
   idx = Math.max(0, Math.min(n, idx))
   v.t = idx >= n ? null : idx === 0 ? (ring[0]?.at ?? v.now) - 1 : ring[idx - 1].at
   v.ui = { ...v.ui, ...req.ui }
-  v.ui.tab = req.tab ?? v.ui.tab ?? s.tab ?? defaultTab(v)
+  v.ui.tab = req.tab ?? v.ui.tab ?? s.tab ?? 'epic'
   const w = req.w ?? s.width ?? 120, rows = [], patch = {}
   const said = []
-  const dc = (id, key) => { const d = (v.b.decisions ?? []).find(x => x.id === id), o = d?.options.find(x => x.key === key); return o ? (o.fill ? `prefill composer: ${o.fill}` : `/cadre ${o.run ?? ''}`) : `press ${id} ${key}` }
   const acts = {
-    go: t => { patch.tab = t; said.push(`go tab ${t}`) }, pick: id => { patch.sel = id; said.push(`select ${id}`) }, fill: c => said.push(`prefill composer: ${c}`),
-    press: (id, k) => said.push(dc(id, k)), run: c => said.push(`/cadre config ${c}`), input: (id, k, x) => said.push(`field ${id}.${k} = ${x}`),
-    step: (what, d) => { said.push(`step ${what} ${d}`); if (what === 'dec') patch.di = Math.max(0, Math.min(decisions(v).length - 1, Number(v.ui.di ?? 0) + d)); if (what === 'tl') patch.tl = v.ui.tl === false },
+    go: t => { patch.tab = t; said.push(`go tab ${t}`) }, pick: id => { patch.sel = id; said.push(`select ${id}`) },
+    answer: id => { const d = (v.b.decisions ?? []).find(x => x.id === id); said.push(`dialog: ${d?.title} [${(d?.options ?? []).filter(o => o.run).map(o => o.label).join(' | ')}]`) }, run: c => said.push(`/cadre config ${c}`),
+    step: (what, d) => { said.push(`step ${what} ${d}`); if (what === 'tl') patch.tl = v.ui.tl === false },
   }
   const bandLines = band(v, w, acts), p = pane(v, w, req.rows ?? 40, acts, true)
   const flat = [...bandLines, ...p.before, ...p.after]
@@ -72,7 +71,7 @@ async function main(argv) {
   if (argv[0] === '--dump') { const r = await run({ name: argv[1], dump: true }); if (r.error) { console.error(r.error); process.exit(1) } console.log(JSON.stringify(r)); return }
   if (has('--all')) {   // CI: every scenario x tab x {60,120} renders
     let bad = 0
-    for (const name of names()) for (const w of [60, 120]) for (const tab of ['epic', 'plan', 'doctor', 'settings', 'card']) {
+    for (const name of names()) for (const w of [60, 120]) for (const tab of ['epic', 'plan', 'doctor', 'settings']) {
       const r = await run({ name, w, tab }); if (r.error) { bad++; console.error(`FAIL ${name} ${tab} ${w}\n${r.error}`) }
     }
     console.log(bad ? `${bad} failed` : `ok: ${names().length} scenarios`); process.exit(bad ? 1 : 0)
@@ -83,7 +82,7 @@ async function main(argv) {
     console.log((process.stdout.isTTY && !process.env.NO_COLOR ? r.ansi : r.plain).join('\n')); return
   }
   const out = x => process.stdout.write(x)
-  let last = null, status = 'q quit · ←/→ events · 1/7/8/0 tabs · w width · s save golden · a x c y r k n p buttons', busy = false, again = false, errs = ''
+  let last = null, status = 'q quit · ←/→ events · 7/8/9 tabs · w width · s save golden · 1 answer · n p buttons', busy = false, again = false, errs = ''
   const draw = async () => {
     if (busy) { again = true; return } busy = true
     do {

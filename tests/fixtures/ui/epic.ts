@@ -5,9 +5,9 @@ import { flagDecision } from '../../../core/decide'
 import { type Cfg, CFG, type View, at } from '../../../ui/model'
 
 export const MIN = 60_000, BASE = 1_000_000
-// what core/dispatch.redraw asks for a plan (same shape), and a made-up kind used to prove the card needs no per-kind code
-export const planDec = (n = 7): Decision => ({ id: 'plan:p3', kind: 'plan', title: `approve plan p3 · ${n} tasks`, short: `approve p3 (${n} tasks)`, tab: 'plan', hash: 'h1', lines: [`${n} tasks`],
-  options: [{ key: 'a', label: 'Approve', verb: 'approve', run: 'approve p3' }, { key: 'x', label: 'Reject', verb: 'reject', run: 'reject p3 rejected in the pane' }, { key: 'c', label: 'Change', verb: 'change', fill: 'Change p3: ' }] })
+// what core/dispatch.redraw asks for a plan (same shape)
+export const planDec = (n = 7): Decision => ({ id: 'plan:p3', kind: 'plan', title: 'approve plan p3', short: 'approve p3', tab: 'plan', hash: 'h1', lines: [`${n} tasks · 12 scenarios`], change: 'Change p3: ',
+  options: [{ key: 'a', label: 'Approve', verb: 'approve', run: 'approve p3' }, { key: 'x', label: 'Reject', verb: 'reject', run: 'reject p3 rejected in the dialog' }] })
 type Spec = { id: string; title: string; type: string; kind: SnapTask['kind']; deps: SnapTask['deps']; ph: [number, string][] }
 const D = (id: string, type: SnapTask['deps'][0]['type'] = 'blocks') => ({ id, type })
 export const SPECS: Spec[] = [

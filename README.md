@@ -2,7 +2,7 @@
 
 **A Claude Code plugin that makes Claude plan, test, review and merge like a disciplined team, enforced in code, not prompts.**
 
-- **You approve by click.** Claude drafts a plan; nothing runs until you press Approve on a card.
+- **You approve in a dialog.** Claude drafts a plan; nothing runs until you choose Approve in Claude Code's own question dialog.
 - **Tests first.** A separate tester writes a failing test, then a worker makes it pass.
 - **Isolated and reviewed.** Every task gets its own git worktree and an independent review before it merges.
 - **A live board in your terminal.** See every task, step and agent without leaving Claude Code.
@@ -28,15 +28,15 @@ claude plugin install cadre@cadre
 
 Then, inside Claude Code:
 
-1. `/cadre setup`: once per machine. Claude checks your tools and fixes what it can, in the open; you confirm the settings card.
-2. `/cadre init`: once per repo. Claude sets up the task store, your build and test commands, and a changelog; you approve the mission and the safety settings on their cards.
+1. `/cadre setup`: once per machine. Claude checks your tools and fixes what it can, in the open; you confirm the settings in a dialog.
+2. `/cadre init`: once per repo. Claude sets up the task store, your build and test commands, and a changelog; you approve the mission and the safety settings, each in a dialog.
 3. **Start work:** `/cadre <goal in plain words>`, e.g. `/cadre fix the off-by-one in src/page.ts`. Claude picks a lane and says why:
    - **ask**: a question or investigation. An explorer answers it; nothing changes.
-   - **lite**: one small, clear change. One task, drafted for you; press **Approve** once and it runs worker → review → merge (a bug a test can reproduce gets the failing test first).
+   - **lite**: one small, clear change. One task, drafted for you; choose **Approve** once and Claude runs it to the end: worker → review → merge (a bug a test can reproduce gets the failing test first).
    - **full**: a feature, several tasks, or a public API change. The full plan with scenarios and contracts.
-   The lane shows on the approval card; press **l** to change it. Breaking, security, public contract changes and plans of 3+ tasks are always full.
+   The lane shows in the approval dialog, with an option to change it; type something instead to ask Claude for a change. Breaking, security, public contract changes and plans of 3+ tasks are always full.
 
-`/cadre` alone opens the pane. Those five forms (`/cadre`, `/cadre <goal>`, `setup`, `init`, `doctor`) are all you type; every other action is a button on the card.
+`/cadre` alone opens the pane. Those five forms (`/cadre`, `/cadre <goal>`, `setup`, `init`, `doctor`) are all you type; every decision is answered in a dialog. It opens once by itself; after that `1` (on the band or in the pane) opens it again, and the pane lists everything that needs you.
 
 ## How it works
 
@@ -48,7 +48,7 @@ plan → your approval → tester (test goes red) → worker (goes green)
 
 | Who | Does |
 |---|---|
-| **You** | Approve plans, resolve flags, cut releases. Every one is a button. |
+| **You** | Approve plans, resolve flags, cut releases. Every one is a dialog answer. |
 | **Main Claude** | Plans and manages. It never edits code and has no shell. |
 | **Worker agents** | Tester writes the test, worker writes the code, reviewer checks it. Each works in its own worktree. |
 | **cadre itself** | Owns git (workers cannot commit or push), runs the checks, enforces every step, never pushes. |
@@ -65,7 +65,7 @@ More: [the loop in detail](docs/commands.md#the-loop-in-detail).
 | `/cadre open` · `/cadre status` | Open the board pane · print the board as text. |
 | Settings | Press `9` in the pane: every setting, where its value comes from, and buttons to change it. |
 
-Everything else is a button on the card. The typed fallbacks, config keys and the extension protocol are in [docs/commands.md](docs/commands.md).
+Every decision is a dialog (`1` opens it). The typed fallbacks, config keys and the extension protocol are in [docs/commands.md](docs/commands.md).
 
 ## Requirements
 

@@ -1,7 +1,7 @@
 # cadre brand (terminal)
 
 > Status: v1, decided 2026-10-12 (choices made by the user from the variants in `design/research/tui.md` §5).
-> Scope: every pixel cadre draws inside Claude Code: the band above the prompt, the `cadre` pane, decision cards, toasts.
+> Scope: every pixel cadre draws inside Claude Code: the band above the prompt, the `cadre` pane, toasts. Decisions are answered in the engine's own dialog (ADR 0012), which cadre does not style.
 > TUI-DESIGN.md applies these tokens to layouts and components. When the two disagree, this file wins for tokens; TUI-DESIGN.md wins for layout.
 
 ## 1. Personality
@@ -25,10 +25,10 @@ Claude Code mods can only colour text and boxes with **theme keys**, which follo
 | `fg` | `text` | body text |
 | `muted` | `inactive` | secondary facts, timestamps, done rows, section labels |
 | `accent` | `claude` | the running task, the selected row's glyph, the primary button, the change flash |
-| `attention` | `warning` + bold | "needs you": the attention line, the decision card title |
+| `attention` | `warning` + bold | "needs you": the `! NEEDS YOU` line and section title, the `!` glyph |
 | `success` | `success` | done / pass glyph |
 | `danger` | `error` | failed / blocked / critical glyph and word |
-| `rule` | `subtle` | the one thin rule between sections, the card border |
+| `rule` | `subtle` | the one thin rule between sections |
 
 **Budget: at most 4 hues on any screen** (fg, muted, accent, plus one of attention/success/danger). Never use `error` for anything that is not a failure. No `backgroundColor` on regions: the only background is `inverse` on the selected row.
 
@@ -56,7 +56,7 @@ Contrast floor: 4.5:1 for text, 3:1 for spans against the terminal background.
 
 | Level | Attributes | Used for |
 |---|---|---|
-| Title | bold | section titles, the card title, the selected task's title |
+| Title | bold | section titles, a pending decision's title, the selected task's title |
 | Body | plain | everything else |
 | Label | `inactive` | metadata: times, counts, sources, hints |
 | Selection | `inverse` | the selected row (one at a time) |
@@ -108,9 +108,9 @@ Rules:
 
 ## 8. Borders: "frameless"
 
-- cadre draws **no boxes** around panes or sections. The engine frames the pane.
+- cadre draws **no boxes at all**: not around panes, sections, nodes or decisions. The engine frames the pane.
 - Sections are separated by one blank row; a single `─` rule in `subtle` only where two regions sit side by side or a list scrolls into another.
-- **The decision card is the only bordered element:** a rounded single border (`╭ ╮ ╰ ╯ ─ │`) in `subtle`, with the title in `attention` on the top edge. "If it has a box, it needs you."
+- **"Needs you" is marked by colour and words, not a box:** the `!` glyph and `NEEDS YOU` in `attention` + bold. The decision itself is answered in the engine's AskUserQuestion dialog (ADR 0012); the pane only lists it, read-only.
 - No double borders, no heavy borders, no per-node boxes in the graph view.
 
 ## 9. Motion: "still + live counters + a quiet flash"
@@ -126,7 +126,7 @@ Rules:
 - Readable on light and dark themes (theme keys; `inactive` instead of `dimColor`).
 - `ui.glyphs: ascii` for fonts that lack the glyphs; ASCII auto-selected for `TERM=dumb` and non-UTF-8 locales.
 - `ui.flash: false` for people who don't want motion.
-- Every action is a key and a visible Button; nothing depends on a mouse.
+- Every action is a key and a visible Button; nothing depends on a mouse. Decisions are answered in the native dialog (keyboard: arrows, Enter, Esc); `1` opens it from the band or the pane.
 
 ## 11. Do and don't
 
@@ -135,7 +135,7 @@ Rules:
 | Show a fact once, where it belongs | Repeat counts on the band, the header and the graph |
 | `› a2 Session refresh · implement · 23m` | `[RUN]▶ a2 … ●●◉○○○ implement` |
 | `9m ago review asked for changes on a2` | `58m o rev a2 changes → resumed` |
-| One rounded box: the decision card | Boxes around every node and section |
+| `! NEEDS YOU` in the attention colour, no box | Boxes around every node, section or decision |
 | `NEEDS YOU` once, in the attention colour | `[ATTN] ⚑ NEEDS YOU` with three signals |
-| Keys that work now: `a: approve  x: reject  ?: more` | A footer listing every key of every mode |
+| Keys that work now: `1: answer  ?: more` | A footer listing every key of every mode |
 | Settings and health in the pane, on the band only when broken | `strict · contained ✓ · cache 87% · pm ✓` on every frame |

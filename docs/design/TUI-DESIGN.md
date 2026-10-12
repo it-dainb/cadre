@@ -44,13 +44,13 @@ At most **two lines**; nothing at all when there's no plan and nothing needs you
 
 ```text
 › a2 Session refresh · implement · 23m                    p3 auth-login · 4/7
-! NEEDS YOU · approve plan p4                                         1: open
+! NEEDS YOU · approve plan p4                                       1: answer
 ```
 
 | Line | Content | Shown when |
 |---|---|---|
 | 1 "now" | the running task with the most recent change: glyph, id, title, step, elapsed. If 2+ run: `› a2 Session refresh · +1 running`. Right side: plan + progress | a plan exists |
-| 2 "needs you" | `! NEEDS YOU · <the oldest decision title>` · `+N more` · `1: open` | a decision is pending |
+| 2 "needs you" | `! NEEDS YOU · <the oldest decision title>` · `+N more` · `1: answer` (opens the dialog, ADR 0012) | a decision is pending |
 | problem line (replaces line 1) | `✗ containment degraded · /cadre doctor` or `✗ sync offline 14m` | containment ≠ contained, or sync offline > 60 s |
 
 Settings-type facts (`strict`, `contained ✓`, `cache %`, `pm ✓`) are **not** on the band. They live in the pane header and Doctor, and appear on the band only as a problem line.
@@ -58,7 +58,7 @@ Settings-type facts (`strict`, `contained ✓`, `cache %`, `pm ✓`) are **not**
 Widths:
 - ≥100: as above.
 - 50–99: the right side drops to `4/7`, the title truncates first.
-- <50: line 1 is `› a2 · 4/7`; line 2 is `! NEEDS YOU · 1: open`.
+- <50: line 1 is `› a2 · 4/7`; line 2 is `! <title> · 1: answer`.
 
 ## 4. The pane
 
@@ -74,7 +74,7 @@ p3 auth-login · 4/7 done · epic/p3-auth-login                      live
   - 50–79: `1 Brd 2 Gph 3 Tml 4 Act 8 Doc 9 Set`, with the current tab spelled out.
   - <50: `1 2 3 4 8 9 · Board`.
 - **Header** (row 2): plan id and slug · progress · epic branch (≥100 only) · `live` or `replay · 14m ago` (replay in `attention` + inverse).
-- When a decision is pending, the **decision card** (§5.1) sits directly under the header, above the view. It is the only boxed element. The view under it stays readable (not dimmed) but loses its keys while the card is focused.
+- When a decision is pending, the **Needs you** section (§5.1) sits directly under the header, above the view: the full list on `1 Board`, the one-line form on every other view. It is read-only; `1` opens the dialog for the oldest decision (so the Board tab is reached by click while one is pending). There is no box.
 
 ### 4.2 `1 Board` (default view)
 
@@ -150,22 +150,25 @@ Unchanged in content (ADR 0007, 0.8.0 Settings). Restyled to BRAND:
 
 ## 5. Components
 
-### 5.1 Decision card (the only box)
+### 5.1 Needs you (read-only) and the decision dialog
+
+Decisions are answered **only** in the engine's AskUserQuestion dialog (ADR 0012). The pane lists them; it has no option buttons, no inputs and no box.
 
 ```text
-╭─ NEEDS YOU · approve plan p4 ─────────────────────────── 1 of 2 ─╮
-│ lite · 1 task · fix · "fix the pager off-by-one"                 │
-│   a9  Fix page() off-by-one        worker → review → merge       │
-│                                                                  │
-│ a: approve   x: reject   c: change   l: lane → full              │
-╰──────────────────────────────────────────────────────────────────╯
+NEEDS YOU
+  ! approve plan p4                                              1: answer
+    lite · 1 task · fix · fix the pager off-by-one
+      p4.1 bug Fix page() off-by-one
+  ! a2 flagged conflict                                             answer
+    conflict: Keep accepts the state, Cancel task ends it.
 ```
 
-- **Border:** rounded, `subtle`. The title sits on the top edge, `NEEDS YOU` in `attention` + bold. The queue position (`1 of 2`) is right-aligned on the top edge.
-- **Body:** at most 6 lines, with no repeated facts (v1 said "7 tasks" twice). Longer content (a full plan sheet, a diff) opens with `enter` in the Board inspector area and scrolls.
-- **Fields** (Decision.fields) render as labelled inputs inside the card.
-- **Buttons:** one row, at most 4, plus `n/p` when queued. A destructive action is never the first button.
-- **Overflow:** the card width is `min(bodyColumns, 72)`. Below 50 columns the buttons stack one per line.
+- **Section:** `NEEDS YOU` in `attention` + bold, then one row per decision, oldest first: `!` (attention) · the title (bold; a plan row opens the Plan tab on enter, a task row selects the task) · `answer` right-aligned (`1` on the oldest). The decision's lines follow, indented 4, read-only. Other views show the one-line form `! NEEDS YOU · <title> · +N more · 1: answer`.
+- **Dialog:**
+  - **Question:** the title on the first line, then at most 6 body lines with no repeated facts (a count, a lane or a reason appears once; `0 scenarios` is never shown).
+  - **Options, in order:** the decision's runnable options as the decision lists them (a positive action first, a destructive one never first), at most 4; `Not now` when there would be fewer than 2; then the engine's own "Type something".
+  - **Type something** sends the text to Claude as a change request (`Change <id>: …` for a plan or gate). A decision with fields asks each field first (`Keep <value>` / `Cancel`, or type the new value); a refused value re-asks with `! <why>` on top.
+- **When it opens:** by itself once, when the decision first appears, if the composer is empty and no dialog of ours is up; afterwards only with `1`. A dismissal (Esc) never brings it back by itself.
 
 ### 5.2 Task row
 
@@ -196,7 +199,7 @@ A row whose state changed draws in `accent` + bold for 1.5 s. It then shows `· 
 | ≥116 wide | board + inspector side by side; full tab names; ctx % in agent rows | two lines, full |
 | 80–115 | inspector below; full tab names | two lines, right side shortened |
 | 60–79 | inspector below; short tab names; no ctx %; timeline lanes still shown | two lines, short |
-| 40–59 | inspector collapses to its first line; numbers-only tab row; timeline = activity only; card buttons stacked | `› a2 · 4/7` / `! NEEDS YOU · 1: open` |
+| 40–59 | inspector collapses to its first line; numbers-only tab row; timeline = activity only | `› a2 · 4/7` / `! <title> · 1: answer` |
 | <40 | header + Needs you + Running only; "widen the pane for more" | attention line only |
 
 `ui.density: compact` removes the blank rows between sections. `relaxed` adds a blank row after each task row.
@@ -207,7 +210,7 @@ A row whose state changed draws in `accent` + bold for 1.5 s. It then shows `· 
 |---|---|
 | dormant (cadre off in this repo) | band: nothing · pane: `cadre is off in this repo · /cadre init` |
 | no plan | band: nothing (or a needs-you line) · board: `no tasks yet · /cadre <goal> to start` |
-| setup/init run | board replaced by the run checklist card (✓ / ✗ / … / ·) under the header |
+| setup/init run | board replaced by the run checklist (✓ / ✗ / … / ·) under the header |
 | replay | header `replay · 14m ago` in attention + inverse; buttons disabled; band stays live |
 | degraded / offline | band problem line; Doctor tab shows `!` |
 | error rendering a view | a one-line `couldn't draw this view · /cadre doctor` instead of a crash (v1 crashed on an empty board) |
@@ -216,9 +219,9 @@ A row whose state changed draws in `accent` + bold for 1.5 s. It then shows `· 
 
 | Where | Keys |
 |---|---|
-| band (empty composer) | `1` open the oldest decision |
-| pane, any view | `1 2 3 4 8 9` views · `?` key sheet · `esc` back to the prompt (engine) |
-| card focused | `a` `x` `c` `l` (per decision) · `n` `p` queue |
+| band (empty composer) | `1` answer the oldest decision (opens the dialog) |
+| pane, any view | `1 2 3 4 8 9` views (`1` answers instead while a decision is pending) · `?` key sheet · `esc` back to the prompt (engine) |
+| dialog (engine) | `↑↓` choose · `enter` answer · `esc` not now |
 | board | `↑↓` select · `enter` open task detail · `c` collapse done |
 | graph | `↑↓` select · `enter` detail |
 | timeline | `←→` step · `home/end` · `e` live |
@@ -230,7 +233,7 @@ Keys are one lowercase letter or one digit (engine rule). No key does anything o
 
 As in BRAND §10. In addition:
 - Every view has a text-only form at <40 columns.
-- The card is reachable with `1` from an empty composer.
+- The decision dialog is reachable with `1` from an empty composer or the pane.
 - Nothing requires colour to be read.
 
 ## 10. What v2 removes from v1
@@ -246,7 +249,7 @@ As in BRAND §10. In addition:
 ## 11. Build plan
 
 1. Tokens module `ui/tokens.ts` with the BRAND roles, glyph table + ASCII, spacing constants and Raster palettes. Every renderer imports from it, with no literal colours or glyphs elsewhere.
-2. Band v2 (§3), then the pane frame + Board (§4.1–4.2), then the card restyle (§5.1). Each step lands with ui-dev scenarios and goldens.
+2. Band v2 (§3), then the pane frame + Board (§4.1–4.2) with the Needs you section (§5.1). Each step lands with ui-dev scenarios and goldens.
 3. Graph, Timeline, Activity views (§4.3–4.5); Doctor and Settings restyle (§4.6).
 4. Remove the v1-only code (§10). The `ui/` LOC cap stays 750.
 
@@ -255,9 +258,10 @@ As in BRAND §10. In addition:
 - **Overflow sweep:** `scripts/ui-dev.mjs --all` renders every scenario × every tab × widths 40/60/80/120/160 and fails on any line wider than `bodyColumns`. The harness must draw Buttons as `k: label`, like the engine.
 - **No-duplicate check:** per frame, a progress count, an elapsed time or a context % appears at most once.
 - **Wording lint** extended to UI strings: no `w1`, `rev`, `syn`, `tst`, `!<`, `!>`, no raw epoch minutes.
-- **Glyph check:** no glyph outside the BRAND §6 set (plus the box characters of the card and the Raster blocks).
+- **Glyph check:** no glyph outside the BRAND §6 set (plus the `─` rule and the Raster blocks).
 - **Goldens:** regenerated from the scenarios after a human looks at each one in ui-dev; never self-approved.
 
 ## 13. Decision log
 
 - 2026-10-12: colour Claude-native; state = glyph + colour; frameless (card is the only box); spacing standard + airy sections; safe check/arrow glyphs; UPPERCASE only for NEEDS YOU / FAILED; motion still + live counters + quiet row flash; band = now + needs-you ≤2 lines; main view Board (list by state); agents in their own section; timeline as its own view with a 1-line summary; numbered tab row with short forms below 80 columns.
+- 2026-10-12 (0.8.0, ADR 0012): decisions are answered only in the native dialog. The decision card, its buttons and its fields are gone; the pane has a read-only Needs you section and `1: answer` (band and pane) re-opens the dialog. A dialog opens by itself at most once per decision. No box anywhere (BRAND §8).

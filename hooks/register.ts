@@ -18,11 +18,11 @@ import { answer, describe } from '../native/tasks'
 import { wrap } from '../core/effect'
 import { handle, SPECS } from '../tools/index'
 import { context, attachment } from '../core/briefs'
-import { press, run } from '../commands/cadre'
+import { decide, run } from '../commands/cadre'
 import { nudge } from '../commands/doctor'
 import { pump, turnEnd } from '../commands/agentrun'
 import { tick } from '../task-management/sync-engine/loop'
-import { onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapCard, resumeBanner } from '../ui/index'
+import { autoAsk, onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapCard, resumeBanner } from '../ui/index'
 import { load } from '../config/index'
 import { wire, repoKeyOf, rootFor } from '../commands/init'
 import { BdStore } from '../task-management/adapters/beads/store'
@@ -93,7 +93,7 @@ function host($): Host {
   }
   h.config = async () => { const root = await h.cwd(); return (await load(h, { home: await h.home(), root, repoKey: repoKeyOf(root) })).config }
   h.taskStore = async () => wire.store(h, await h.config!(), await h.cwd())
-  h.press = (id, key, hash, origin) => press(h, id, key, hash, origin)
+  h.answer = (id, key, hash, vals) => decide(h, id, key, hash, vals)
   h.ask = async (q, o) => String(await $.ui.ask(q, o))
   h.sendTo = (agentId, text) => $.session.send({ to: { agentId }, text })   // core/reuse.drain only
   h.submit = text => $.prompt.submit({ text })   // drive, from #1 after next only
@@ -138,7 +138,7 @@ export const register: Register = (on, opts) => {
     await wake(host($)).catch(e => $.ui.log(`cadre: session start: ${e}`))   // active repos only: $.store 'policy' + cadre.ui.cfg + containment band (agents ship as agents/*.md files, A28)
     for (const t of SPECS) await $.tool.register(t)   // report, inspect, run_check: isDeferred:false (5.2)
     { const h = host($); if (await wake(h).catch(() => false)) await nudge(h).catch(() => {}) }   // active repos only: no setup stamp for this Claude Code build -> one toast
-    $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
+    $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
     $.clock.every(30_000, () => { const h = host($); void wake(h).then(act => act && tickUi(h)).catch(() => {}) })   // live timeline cursor (blit, no re-render)
     return next(e)
   })

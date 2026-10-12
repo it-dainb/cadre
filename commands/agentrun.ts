@@ -1,6 +1,6 @@
 // Agent-run setup and init (ADR 0010). `/cadre setup|init` hands MAIN one short brief that points at a guide; Claude does the work with visible tool calls under a
-// scoped maintenance lease (policy/guards). cadre only CHECKS: at every main turn end while a run is active it re-runs the checks, redraws the checklist card and,
-// when something Claude owns still fails, sends ONE follow-up naming it (at most 3 per run; then the card shows what is left and [r] Retry).
+// scoped maintenance lease (policy/guards). cadre only CHECKS: at every main turn end while a run is active it re-runs the checks, redraws the checklist decision and,
+// when something Claude owns still fails, sends ONE follow-up naming it (at most 3 per run; then the decision shows what is left and Retry).
 import type { Host, Secret } from '../types'
 import { fnv1a64 } from '../core/board'
 import { ask, settle } from '../core/decide'
@@ -31,7 +31,7 @@ async function draw(h: Host, k: Kind, its: Item[], state: 'on' | 'stopped' | 'do
   const n = its.filter(i => i.st === 'ok' || i.st === 'warn').length, human = !its.some(i => i.st === 'fail') && its.some(i => i.st === 'wait')
   const title = state === 'done' ? `${k} · all done` : state === 'stopped' ? `${k} · stopped · ${its.length - n} left` : `${k} · ${n}/${its.length} done · ${human ? 'needs you' : 'Claude is on it'}`
   const lines = [...(note ? [note] : []), ...its.map(i => `${G[i.st]} ${i.name}${i.why ? `: ${i.why}` : ''}`)]
-  await ask(h, { id: `run:${k}`, kind: 'init', title, short: title, lines, hash: fnv1a64(title + lines.join('\n')), tab: 'epic',
+  await ask(h, { id: `run:${k}`, kind: 'init', title, short: title, lines, hash: fnv1a64(title + lines.join('\n')), tab: 'epic', ...(state === 'on' && !human ? { quiet: true as const } : {}),
     options: [...(state === 'stopped' ? [{ key: 'r', label: 'Retry', verb: 'change', run: k }] : []), { key: 'x', label: state === 'done' ? 'Close' : 'Cancel', verb: 'reject', run: `${k} cancel` }] })
 }
 const followUp = async (h: Host, k: Kind, fails: Item[], guide: string) => [
@@ -47,29 +47,29 @@ export async function start(h: Host, k: Kind): Promise<string> {
   const at = await h.now(); await h.secret.update(s => ({ ...s, run: { kind: k, at, turns: 0, follow: 0, guide, snap: {} } })); await resnap(h)
   await draw(h, k, its, 'on')
   await send(h, `${WHAT[k]}. Follow ${guide} step by step.`)
-  return `${k}: Claude is on it · progress on the cadre card`
+  return `${k}: Claude is on it · progress in the cadre pane`
 }
-// re-check now (a main turn ended, or the human answered a gate on its card): done ends the run; a failure Claude owns gets a follow-up; the limits stop it
+// re-check now (a main turn ended, or the human answered a gate in the dialog): done ends the run; a failure Claude owns gets a follow-up; the limits stop it
 export async function recheck(h: Host, turn = false): Promise<string> {
   const r = (await h.secret.read()).run; if (!r) return ''
-  if (await moved(h, r)) return `${r.kind}: stopped · a settings file changed · see the card`
+  if (await moved(h, r)) return `${r.kind}: stopped · a settings file changed · press 1`
   const k = r.kind, its = await items(h, k), fails = its.filter(i => i.st === 'fail'), turns = r.turns + (turn ? 1 : 0)
   if (finished(its)) { await end(h); await draw(h, k, its, 'done'); h.toast(`cadre: ${k} done`); return `${k}: all done` }
   const out = turns >= LIMIT.turns || (await h.now()) - r.at >= LIMIT.ms
-  if (out || (fails.length && r.follow >= LIMIT.follow)) { await end(h); await draw(h, k, its, 'stopped', out ? 'the time or turn limit was reached' : 'Claude stopped with steps still open'); return `${k}: stopped · see the card` }
+  if (out || (fails.length && r.follow >= LIMIT.follow)) { await end(h); await draw(h, k, its, 'stopped', out ? 'the time or turn limit was reached' : 'Claude stopped with steps still open'); return `${k}: stopped · press 1` }
   await h.secret.update(s => ({ ...s, run: { ...r, turns, follow: r.follow + (fails.length ? 1 : 0) } }))
   await draw(h, k, its, 'on')
   if (fails.length) await send(h, await followUp(h, k, fails, r.guide))
   if (turn) await pump(h)
-  return `${k}: ${fails.length ? 'Claude is on it' : 'waiting for you on the card'}`
+  return `${k}: ${fails.length ? 'Claude is on it' : 'waiting for you · press 1'}`
 }
 // main's turn.complete (register.ts): works in dormant repos too
 export async function turnEnd(h: Host, e: { agentId?: string }): Promise<void> { if (!e.agentId && (await h.secret.read()).run) await recheck(h, true) }
-// `/cadre setup|init cancel` (core/dispatch): the lease ends and the card goes
+// `/cadre setup|init cancel` (core/dispatch): the lease ends and the decision goes
 export async function cancel(h: Host, k: string): Promise<void> { if ((await h.secret.read()).run?.kind === k) await end(h); await settle(h, `run:${k}`) }
 
 // ---- settings watch (ADR 0010): Bash under the lease could still write a settings file. Their bytes are kept when the run starts and after each of cadre's
-// own confirmed writes (resnap); any other change stops the run with a CRIT card: [r] Restore the kept bytes (the changed file is kept as .cadre-changed) or [k] Keep.
+// own confirmed writes (resnap); any other change stops the run with a CRIT decision: Restore the kept bytes (the changed file is kept as .cadre-changed) or [k] Keep.
 const watched = async (h: Host) => [`${await h.home()}/.claude/settings.json`, `${await h.cwd()}/.claude/settings.local.json`]
 export async function resnap(h: Host): Promise<void> {
   const snap: Record<string, string | null> = {}; for (const p of await watched(h)) snap[p] = await h.readText(p)

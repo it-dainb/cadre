@@ -4,25 +4,24 @@ import type { Command, Out } from '../core/dispatch'
 import { ROUTES, answer, cfgOf, dispatch, isHuman, registryOf, resolveEpic, restore, storeOf } from '../core/dispatch'
 import { changeLane, goal } from '../core/lanes'
 import { wake } from '../core/session'
-import { defaultTab, openPane } from '../ui/index'
-import { read } from '../ui/model'
+import { autoAsk, openPane } from '../ui/index'
 import { confirm as initConfirm } from './init'
 import { confirmUser, doctor } from './doctor'
 import { recheck, resnap, settingsAnswer, start } from './agentrun'
 import { defaults } from '../config/index'
 
-export async function route(h: Host, c: Command): Promise<Out> {   // every dispatcher command (presses; tests)
+export async function route(h: Host, c: Command): Promise<Out> {   // every dispatcher command (dialog answers, Settings presses; tests)
   const [a] = c.args
   if (!['setup', 'doctor', 'init', 'open'].includes(c.cmd) && !(await wake(h))) return { text: 'cadre is off in this repo · run /cadre init' }   // per-repo opt-in (ADR 0007)
   switch (c.cmd) {
-    case 'open': await openPane(h, a ?? defaultTab(await read(h))); return { text: `Opened the cadre pane (${a ?? 'epic'}).` }
+    case 'open': await openPane(h, a ?? 'epic'); return { text: `Opened the cadre pane (${a ?? 'epic'}).` }
     case 'resolve': if (a && a === (await h.board.read()).plan?.id) return resolveEpic(h, a, c.args[1] ?? ''); break
     case 'restore': return restore(h, a)
-    case 'init': case 'setup': {   // Claude does the work (ADR 0010); the checklist and the containment confirm show as decision cards (ADR 0008)
+    case 'init': case 'setup': {   // Claude does the work (ADR 0010); the checklist and the containment confirm are decisions (ADR 0012)
       const text = a === 'restore' || a === 'keep' ? await settingsAnswer(h, a)
         : a === 'confirm' ? [await (c.cmd === 'init' ? initConfirm : confirmUser)(h), await resnap(h).then(() => recheck(h))].filter(Boolean).join(' · ')   // cadre's own confirmed write is not a change from outside
         : await start(h, c.cmd)
-      if ((await h.board.read()).decisions?.length) await openPane(h, 'card').catch(() => {})
+      await autoAsk(h).catch(() => {})   // a new decision pops once
       return { text }
     }
     case 'doctor': return { text: await doctor(h) }
@@ -31,7 +30,7 @@ export async function route(h: Host, c: Command): Promise<Out> {   // every disp
     case 'config': if (!a || a === 'show') return { text: configText(await cfgOf(h), c.args[1]) }
   }
   const r = ROUTES[c.cmd]
-  return r ? r(h, c) : { text: `unknown /cadre subcommand "${c.cmd}". Try: status, open, approve <id>, reject, resolve, release, restore, init, setup, doctor, sync, config, drive (decisions are buttons on the card)` }
+  return r ? r(h, c) : { text: `unknown /cadre subcommand "${c.cmd}". Try: status, open, approve <id>, reject, resolve, release, restore, init, setup, doctor, sync, config, drive (decisions are answered in the dialog: press 1)` }
 }
 
 // command.run {command:'cadre'}
@@ -41,12 +40,12 @@ export const configText = (cfg: unknown, prefix?: string): string => {
   const def = new Map(flat(defaults())), rows = flat(cfg).filter(([k, v]) => (prefix ? k.startsWith(prefix) : def.get(k) !== v))
   return (rows.length ? `config${prefix ? ` ${prefix}` : ' (differs from the defaults; /cadre config show <prefix> lists a section)'}:\n${rows.map(([k, v]) => `${k} = ${v}`).join('\n')}` : prefix ? `no config keys under ${prefix}` : 'config: all defaults').slice(0, 2000)
 }
-// words; `k="a b"` is one argv element `k=a b` (card fields typed by hand, ADR 0009). argv only: nothing reaches a shell
+// words; `k="a b"` is one argv element `k=a b` (a field value with spaces, ADR 0009). argv only: nothing reaches a shell
 export const argsOf = (t: string): string[] => (t.match(/\w+="[^"]*"|\S+/g) ?? []).map(a => a.replace(/^(\w+)="([^"]*)"$/, '$1=$2'))
 // The typed surface (ADR 0011): `/cadre` (the pane) · `/cadre setup|init|doctor` · `/cadre <goal>`. An old subcommand word gets a one-line hint, so a typo never starts a plan;
-// the other dispatcher commands are reached only by a press (the card's buttons, the pane's tabs).
+// the other dispatcher commands are reached only by the dialog's answers (and the Settings tab's presses).
 export const OLD = ['approve', 'reject', 'resolve', 'restore', 'release', 'drive', 'config', 'sync', 'adapter', 'status', 'open', 'confirm', 'cancel', 'resume', 'lane', 'goal', 'setup', 'init', 'doctor']
-export const HINT = "that's a button now: press 1 on the band or run /cadre"
+export const HINT = "that's answered in the dialog now: press 1 on the band or run /cadre"
 export function parse(text: string): { cmd: string; args: string[] } | { hint: string } {
   const t = text.trim(), [w = '', ...rest] = argsOf(t)
   if (!t) return { cmd: 'pane', args: [] }
@@ -57,9 +56,9 @@ export const run: Hook = async (h, e) => {
   const p = parse(String(e.args ?? '')); if ('hint' in p) return { text: p.hint }
   const kind = e.origin?.kind === 'press' ? 'unclassified' : e.origin?.kind ?? 'unclassified'   // 'press' is ours alone
   try {
-    if (p.cmd === 'pane') { await openPane(h, defaultTab(await read(h))); return { text: 'Opened the cadre pane.' } }   // the card when a decision waits, else the epic
+    if (p.cmd === 'pane') { await openPane(h, 'epic'); return { text: 'Opened the cadre pane.' } }   // Needs you is on top of the epic tab
     return await dispatch(h, { schemaVersion: 1, ...p, origin: { kind, name: e.origin?.name } }, route)
   } catch (x) { return { text: `cadre: ${(x as Error).message}` } }
 }
-// a Button press / ask-dialog answer on decision `id`, option `key`, drawn with `hash` (ADR 0008, 0012): core/dispatch.answer
-export const press = (h: Host, id: string, key: string, hash: string, origin: 'press' | 'dialog' = 'press'): Promise<Out> => answer(h, id, key, hash, origin, route)
+// the dialog's answer on decision `id`, option `key`, asked with `hash` (+ field values) (ADR 0012): core/dispatch.answer
+export const decide = (h: Host, id: string, key: string, hash: string, vals?: Record<string, string>): Promise<Out> => answer(h, id, key, hash, route, vals)

@@ -1,7 +1,7 @@
 # Set up cadre in this project
 
 You prepare the current project for cadre. Work through the phases in order. Run every command with Bash in the project folder so the user sees it. Edit files with Read, Edit and Write.
-Rules: change only the files this guide names (`.cadre/`, `.git/info/exclude`, `CHANGELOG.md`). Never edit source files or a Claude Code settings file; cadre applies settings after the user confirms a card. Never make up a name or an email. Never commit anything except the first commit of a new repository.
+Rules: change only the files this guide names (`.cadre/`, `.git/info/exclude`, `CHANGELOG.md`). Never edit source files or a Claude Code settings file; cadre applies settings after the user confirms them in the dialog. Never make up a name or an email. Never commit anything except the first commit of a new repository.
 
 ## Phase 1: repository
 1. `git rev-parse --git-dir`. No repository: `git init -b main`.
@@ -25,7 +25,7 @@ Done when `bd config get events-journal` prints `true`.
 
 ## Phase 3: mission
 Ask the user with AskUserQuestion, in one round: the goal in one line, the constraints, the non-goals. Then draft it with TaskCreate: subject = the goal, description = `Goal: …\nConstraints: …\nNon-goals: …`, metadata `{"kind": "mission"}`.
-Tell the user to approve the mission on the cadre card. Do not wait for it: go on with phase 4.
+Tell the user to approve the mission in the cadre dialog (key 1 opens it). Do not wait for it: go on with phase 4.
 
 ## Phase 4: build and test commands
 Find how this project installs, builds and tests. Read, in this order (CI wins over prose): CI config (`ls .github/workflows` and the files there, or other CI files), task runners (`Makefile`, `justfile`, `package.json` scripts, `pyproject.toml`, `Cargo.toml`, `go.mod`), then `README` and `CONTRIBUTING`. `git ls-files` shows what exists.
@@ -56,4 +56,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 If it exists and a message names a line, fix only that heading.
 
 ## Phase 6: stop
-Say in two or three lines what you set up. Tell the user that two things wait for them on the cadre card: the mission (if not approved yet) and the safety settings, which cadre writes once everything else passes and they confirm. Then stop. cadre checks everything again on its own; if something is still open you get a message naming it.
+Say in two or three lines what you set up. Tell the user that two things wait for them in the cadre dialog (key 1 opens it): the mission (if not approved yet) and the safety settings, which cadre writes once everything else passes and they confirm. Then stop. cadre checks everything again on its own; if something is still open you get a message naming it.

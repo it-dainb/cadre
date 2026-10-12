@@ -93,7 +93,7 @@ async function update(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
       await store.dropDrafts([id]); await retouch(h, store, reg)
       return out(true, ['status'], undefined, [missingLine((await h.board.read()).approval.missing)])
     }
-    if (draft) return out(false, [], `${life} does not apply to a draft: the human approves it on the card`)
+    if (draft) return out(false, [], `${life} does not apply to a draft: the human approves it in the dialog`)
     const why = await LIFECYCLE[life]!(h, id, e)
     const card = !why && life === 'completed' ? (await h.board.read()).tasks.find(x => x.id === id)?.card : undefined   // the close card: main sees that the squash landed
     return out(!why, why ? [] : [life === 'decision' ? 'metadata.decision' : 'status'], why ?? undefined, card ? [card] : undefined)

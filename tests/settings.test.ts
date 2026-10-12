@@ -1,7 +1,7 @@
 // Settings tab (hotkey 9): rows/sources/classes from the settings scenario at 60 and 120, and the buttons' writes through the mod (config/route).
 import { describe, expect, test } from 'claude-code/testing'
 import settingsScenario from '../scenarios/settings'
-import { ROUTES } from '../core/dispatch'
+import { ROUTES, answer } from '../core/dispatch'
 import { rows } from '../config/index'
 import { configPress, refreshSettings } from '../config/route'
 import { pane } from '../ui/pane'
@@ -13,14 +13,10 @@ import { banned } from './fixtures/wording'
 
 const HOME = '/hm/u/.claude/cadre.json', REPO = '/repo/.cadre/config.json'
 const said: string[] = []
-const A: Acts = { go() {}, pick() {}, fill() {}, press() {}, step() {}, run: c => said.push(c) }
+const A: Acts = { go() {}, pick() {}, answer() {}, step() {}, run: c => said.push(c) }
 const frame = (w: number, ssel = 0) => txt(pane({ ...settingsScenario, ui: { ...settingsScenario.ui, tab: 'settings', ssel } }, w, 60, A).before).map(l => l.replace(/\s+/g, ' ').trim())
-// what commands/cadre.press does with an option: its run line, {fields} -> value=<typed>, as the human's press
-const press = async (h: any, id: string, key: string, hash: string) => {
-  const d = (await h.board.read()).decisions.find((x: any) => x.id === id), run: string = d.options.find((o: any) => o.key === key).run
-  const typed = (await h.ui.read()).fields?.[id]?.value ?? ''
-  return configPress(h, run.replace(/^config /, '').replace('{fields}', `value=${typed}`))
-}
+// what the dialog's answer does (core/dispatch.answer): the option's run line, {fields} -> value=<typed>, as origin dialog
+const press = (h: any, id: string, key: string, hash: string, value: string) => answer(h, id, key, hash, async (x, c) => ROUTES.config(x, c), { value })
 const hostWith = async (files: Record<string, string> = {}) => { const h = fakeHost({ files }); await refreshSettings(h); return { h, files } }
 
 describe('settings rows (scenario: every layer)', () => {
@@ -65,17 +61,17 @@ describe('buttons', () => {
     await configPress(h, actOf(jail)); expect(JSON.parse(files[HOME]).jail).toBe('on')
     expect((await configPress(h, 'set jail sideways')).text).toContain('expected one of')
   })
-  test('field edit: validation error on the card, then success', async () => {
+  test('field edit: the value typed in the dialog is validated (refused: the decision is re-asked with the error), then saved', async () => {
     const { h, files } = await hostWith()
     await configPress(h, 'edit maxParallel')
     let d = (await h.board.read()).decisions!.find(x => x.id === 'cfg:maxParallel')!
     expect(d.fields).toEqual([{ key: 'value', label: 'maxParallel', value: '3' }]); expect(d.options.map(o => o.key)).toEqual(['a', 'r', 'x'])
-    await h.ui.update(u => ({ ...u, fields: { 'cfg:maxParallel': { value: 'lots' } } }))
-    expect((await press(h, d.id, 'a', d.hash)).text).toContain('refused: expected a number')
+    const d0 = d; expect((await press(h, d.id, 'a', d.hash, 'lots')).text).toContain('refused: expected a number')
     d = (await h.board.read()).decisions!.find(x => x.id === 'cfg:maxParallel')!; expect(d.error).toContain('expected a number'); expect(files[HOME]).toBeUndefined()
-    await h.ui.update(u => ({ ...u, fields: { 'cfg:maxParallel': { value: '7' } } }))
-    expect((await press(h, d.id, 'a', d.hash)).text).toBe('maxParallel = 7 · saved for you')
-    expect(JSON.parse(files[HOME]).maxParallel).toBe(7); expect((await h.board.read()).decisions ?? []).toEqual([]); expect((await h.ui.read()).tab).toBe('settings')
+    expect((await press(h, d0.id, 'a', d0.hash, '7')).text).toContain('refused: it changed')   // the old hash: the dialog re-asks the fresh one
+    d = (await h.board.read()).decisions!.find(x => x.id === 'cfg:maxParallel')!
+    expect((await press(h, d.id, 'a', d.hash, '7')).text).toBe('maxParallel = 7 · saved for you')
+    expect(JSON.parse(files[HOME]).maxParallel).toBe(7); expect((await h.board.read()).decisions ?? []).toEqual([])
     expect(banned(d.title, d.lines, d.options.map(o => o.label))).toEqual([])
   })
   test('save to repo: O keys only, never S or U', async () => {

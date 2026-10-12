@@ -54,10 +54,10 @@ describe('init confirm (DESIGN 10.1): the card is bound to the diff hash', () =>
     expect(await initConfirm(w.h, 2)).toBe(true); expect((await w.h.board.read()).decisions).toEqual([])
     expect(await initConfirm(w.h, 2)).toBe(false)   // replay
   })
-  test('answer: a changed diff (new hash) refuses the old button; the current one runs', async () => {
+  test('answer: a changed diff (new hash) refuses the old answer; the current one runs', async () => {
     const w = await world(); await initPropose(w.h, 2, 'd1', card); const old = (await w.h.board.read()).decisions![0].hash
     await initPropose(w.h, 2, 'd2', card)
-    expect((await answer(w.h, 'init:2', 'a', old, 'press', route)).text).toBe('refused: it changed; review again')
-    expect((await answer(w.h, 'init:2', 'a', (await w.h.board.read()).decisions![0].hash, 'press', route)).text).toBe('routed')
+    expect((await answer(w.h, 'init:2', 'a', old, route)).text).toBe('refused: it changed; review again')
+    expect((await answer(w.h, 'init:2', 'a', (await w.h.board.read()).decisions![0].hash, route)).text).toBe('routed')
   })
 })

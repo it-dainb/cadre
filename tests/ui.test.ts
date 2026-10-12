@@ -8,7 +8,7 @@ import { pane } from '../ui/pane'
 import { sheet } from '../ui/sheet'
 import { type Line, T, at, gl, read, txt } from '../ui/model'
 import { levelOf, onEvent, textOf } from '../ui/notify'
-import { acts, openPane, prefill, renderBand, renderCard, renderPane, resumeBanner, tickUi } from '../ui/index'
+import { acts, openPane, renderBand, renderCard, renderPane, resumeBanner, tickUi } from '../ui/index'
 import { fakeHost } from './support'
 import { BASE, CASES, withStub, MIN, NOOP, SHEET, approval, planDec, ring, rtrim, view } from './fixtures/ui/epic'
 import { GOLDEN } from './fixtures/ui/golden'
@@ -165,9 +165,8 @@ describe('replay: pure fold of the ring at the cursor', () => {
     expect(segs(p.after).filter(s => s.hk).map(s => s.hk).sort()).toEqual(['b', 'e', 'f', 'g', 'h', 'l', 'n', 'p', 't'])
     expect(txt(pane(view(62), 118, 40, NOOP).before)[0]).toContain('[LIVE]')
   })
-  test('prefill buttons are off in replay: the sheet footer is read-only', async () => {
-    const live = sheet(approval(), 100, NOOP), past = sheet({ ...approval(), t: BASE + 10 * MIN }, 100, NOOP)
-    expect(segs(live).filter(s => s.k === 'a' || s.k === 'x')).toHaveLength(2); expect(segs(past).filter(s => s.k === 'a' || s.k === 'x')).toHaveLength(0)
+  test('the sheet is read-only, live and in replay: no answer buttons (the dialog answers, ADR 0012)', async () => {
+    for (const v of [approval(), { ...approval(), t: BASE + 10 * MIN }]) expect(segs(sheet(v, 100, NOOP)).filter(s => s.k === 'a' || s.k === 'x')).toHaveLength(0)
   })
 })
 
@@ -179,32 +178,33 @@ describe('keys', () => {
   })
   test('attention: degraded containment is a [CRIT] item; a gate approval reads "approve gate <id>"', async () => {
     const v = view(62, { board: { containment: { state: 'degraded', unsandboxed: 0 } } })
-    expect(txt(band(v, 115, NOOP))[0]).toContain('[CRIT] ✗ Containment degraded · run /cadre init')
+    expect(txt(band(v, 115, NOOP))[0]).toContain('! NEEDS YOU · Containment degraded · run /cadre init')
     const g = view(62, { board: { decisions: [{ ...planDec(), id: 'gate:a6', kind: 'gate', title: 'approve gate a6 · Remember me' }] } })
-    expect(txt(band(g, 115, NOOP))[0]).toMatch(/approve gate a6 .*1: open/); expect(txt(band(g, 115, NOOP)).join('\n')).not.toContain('/cadre approve')
+    expect(txt(band(g, 115, NOOP))[0]).toMatch(/approve gate a6 .*1: answer/); expect(txt(band(g, 115, NOOP)).join('\n')).not.toContain('/cadre approve')
   })
   test('attention: a pending init diff is a band row with the open button and no typed line, also before any plan exists', async () => {
     const v = view(62, { board: { containment: { state: 'degraded', unsandboxed: 0 }, decisions: [{ ...planDec(), id: 'init:4', kind: 'init', title: 'init stage 4 diff ready · confirm it' }] } })
-    expect(txt(band(v, 115, NOOP)).join('\n')).toMatch(/init stage 4 diff ready.*1: open/); expect(txt(band(v, 115, NOOP)).join('\n')).not.toMatch(/\/cadre|type /)
+    expect(txt(band(v, 115, NOOP)).join('\n')).toMatch(/init stage 4 diff ready.*1: answer/); expect(txt(band(v, 115, NOOP)).join('\n')).not.toMatch(/\/cadre|type /)
     const np = { ...v, b: { ...v.b, plan: undefined, tasks: [] } }   // init runs before any plan exists: the band must still draw
     expect(txt(band(np, 115, NOOP)).join('\n')).toContain('init stage 4 diff ready')
     v.b.decisions = []; expect(txt(band(v, 115, NOOP))[0]).toContain('Containment degraded')
   })
-  test('presses route to handlers: 1 opens the decision card (approval, git flag)', async () => {
-    const got: string[] = [], a = { go: (t: string) => { got.push(`go:${t}`) }, pick: (i: string) => { got.push(`pick:${i}`) }, fill: () => {}, press: () => {}, step: () => {} }
-    segs(band(approval(), 115, a)).find(s => s.hk === '1')!.p!(); segs(band(view(82), 115, a)).find(s => s.hk === '1')!.p!();
-    expect(got).toEqual(['go:card', 'go:card'])   // a decision's band button opens its card (ADR 0008)
+  test('presses route to handlers: 1 opens the decision\'s dialog (approval, git flag); a state that is not a decision opens its tab', async () => {
+    const got: string[] = [], a = { go: (t: string) => { got.push(`go:${t}`) }, pick: (i: string) => { got.push(`pick:${i}`) }, answer: (id: string) => { got.push(`answer:${id}`) }, step: () => {} }
+    segs(band(approval(), 115, a)).find(s => s.hk === '1')!.p!(); segs(band(view(82), 115, a)).find(s => s.hk === '1')!.p!()
+    segs(band(view(62, { board: { containment: { state: 'degraded', unsandboxed: 0 } } }), 115, a)).find(s => s.hk === '1')!.p!()
+    expect(got).toEqual(['answer:plan:p3', expect.stringMatching(/^answer:flag:/), 'go:epic'])
   })
 })
 
 describe('Plan tab = approval sheet', () => {
-  test('summary counts; the footer buttons are Approve / Reject; paging n/p', async () => {
+  test('summary counts; the footer pages n/p (no answer buttons); paging n/p', async () => {
     const wide = txt(sheet(approval(), 116, NOOP))
-    expect(wide[0]).toContain('12 scenarios'); expect(wide[1]).toContain('3 NEW · 2 CHANGED · 4 same'); expect(wide.at(-1)).toMatch(/a: Approve plan · x: Reject plan/); expect(wide.join('\n')).not.toMatch(/\/cadre|@/)
+    expect(wide[0]).toContain('12 scenarios'); expect(wide[1]).toContain('3 NEW · 2 CHANGED · 4 same'); expect(wide.at(-1)).toMatch(/^n: next task p: prev task/); expect(wide.join('\n')).not.toMatch(/\/cadre|@/)
     const v = approval(); const page = txt(sheet({ ...v, ui: { si: 2 } }, 116, NOOP)).join('\n')
     expect(page).toContain('a3 · fix'); expect(page).toContain('- validateToken(t: Token) -> Claims|null'); expect(page).toContain('task 3/7')
   })
-  test('amended while open: banner names the changed task and the buttons stay', async () => {
+  test('amended while open: banner names the changed task', async () => {
     const t = CASES['sheet amended|56'](); expect(t[0]).toContain('plan changed since you opened it'); expect(t[1]).toContain('a3 scenarios')
   })
 })
@@ -264,17 +264,11 @@ describe('secrets: nothing secret is drawn or stored (ADR 0012)', () => {
     const outside = JSON.stringify([a.calls, (a.h as any).logs, txt(pane({ ...v, ui: { tab: 'epic' } }, 118, 40, NOOP).before), ring(), humanView(v.b), v.ring, txt(band(v, 115, NOOP)), txt(sheet(v, 116, NOOP))])
     expect(outside).not.toMatch(/code8|[0-9a-f]{8}@|\/cadre approve/); expect(await a.h.secret.read()).toEqual({})
   })
-  test('prefill: empty composer -> fills; text in it -> toast and no fill; refused -> "type <cmd>"', async () => {
-    const a = mk(); await prefill(a.h, '/cadre drive on'); expect(a.of('fill')).toEqual(['/cadre drive on'])
-    const b = mk({ peek: async () => 'half typed' }); await prefill(b.h, '/cadre drive on'); expect(b.of('fill')).toEqual([]); expect(b.of('toast')).toEqual(['cadre: composer not empty: clear it, then press again'])
-    const c = mk({ fill: async () => ({ isFilled: false }) }); await prefill(c.h, '/cadre drive on'); expect(c.of('toast')).toEqual(['cadre: type /cadre drive on'])
-  })
-  test('sheet buttons PRESS the plan decision bound to its hash (never prefill a typed command); the work starts in after(1)', async () => {
-    const a = mk(), v = approval(62); await seed(a.h, v); const pressed: unknown[][] = []; a.h.press = async (...x) => { pressed.push(x); return { text: 'ok' } }
-    const h = (v.b.decisions ?? [])[0].hash
-    segs(sheet(v, 116, acts(a.h))).find(s => s.k === 'a')!.p!(); expect(pressed).toEqual([]); expect(a.timers.map(t => t.ms)).toEqual([1]); await a.run()
-    expect(pressed).toEqual([['plan:p3', 'a', h]]); expect(a.of('fill')).toEqual([])
-    segs(sheet(v, 116, acts(a.h))).find(s => s.k === 'x')!.p!(); await a.run(); expect(pressed.at(-1)).toEqual(['plan:p3', 'x', h])
+  test('`1` on the Plan tab opens the plan\'s dialog, bound to its hash; the work starts in after(1)', async () => {
+    const a = mk(), v = approval(62); await seed(a.h, v); const answered: unknown[][] = []; a.h.answer = async (...x) => { answered.push(x); return { text: 'ok' } }; a.h.ask = async (_q, ls) => ls[0]
+    const h = (v.b.decisions ?? [])[0].hash, one = segs(pane({ ...v, ui: { tab: 'plan' } }, 116, 40, acts(a.h)).before).find(s => s.hk === '1')!
+    one.p!(); expect(answered).toEqual([]); expect(a.timers.map(t => t.ms)).toEqual([1]); await a.run()
+    expect(answered).toEqual([['plan:p3', 'a', h, {}]]); expect(a.of('fill')).toEqual([])
   })
 })
 
@@ -300,7 +294,7 @@ describe('render hooks, handlers, fallbacks', () => {
     const a = mk(); await seed(a.h, approval(62)); await openPane(a.h, 'plan')
     expect(a.of('open')).toEqual([{ id: 'cadre', title: 'cadre', focus: true, columns: 120 }]); expect(await read(a.h).then(v => v.ui.tab)).toBe('plan'); expect((a.h as any).logs).toHaveLength(0)
     const b = mk({ open: async () => ({ isPlaced: false, reason: 'no room' }) }); await seed(b.h, approval(62)); await openPane(b.h, 'plan')
-    expect((b.h as any).toasts[0]).toContain('no room'); expect((b.h as any).logs[0]).toContain('Approve plan'); expect((b.h as any).logs[0]).not.toContain('@')
+    expect((b.h as any).toasts[0]).toContain('no room'); expect((b.h as any).logs[0]).toContain('PLAN p3'); expect((b.h as any).logs[0]).not.toContain('@')
   })
   test('handlers: n/p select, h/l move the cursor (live at the edge), b/f jump to attention events, e = live, t toggles the timeline, sheet paging', async () => {
     const a = mk(); await seed(a.h); const x = acts(a.h), st = async (w: string, d = 0) => { x.step(w, d); await a.run(); return read(a.h) }

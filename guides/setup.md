@@ -1,7 +1,7 @@
 # Set up cadre on this machine
 
 You prepare this machine for cadre, once. Work through the phases in order. Run every command with Bash so the user sees it. Edit files with Read, Edit and Write.
-Rules: never use `sudo`. Never touch the Claude Code install. Prefer user-level fixes (your home folder, an npm prefix you own, a PATH line in your shell profile). Move things aside instead of deleting them. Never make up a name or an email. Never edit a Claude Code settings file (`settings.json`, `settings.local.json`): cadre applies those after the user confirms a card. Say what you changed.
+Rules: never use `sudo`. Never touch the Claude Code install. Prefer user-level fixes (your home folder, an npm prefix you own, a PATH line in your shell profile). Move things aside instead of deleting them. Never make up a name or an email. Never edit a Claude Code settings file (`settings.json`, `settings.local.json`): cadre applies those after the user confirms them in the dialog. Say what you changed.
 
 ## Phase 1: look
 Run these and note what is missing or old:
@@ -32,7 +32,7 @@ Only if `bd version` failed or shows an older version.
 Done when `bd version` shows 1.3.0 or newer and `command -v bd` names the new one.
 
 ## Phase 4: user settings
-If the message names the user settings, do not edit the file. cadre shows the change on a card. Tell the user: "Please confirm the user settings card in the cadre pane."
+If the message names the user settings, do not edit the file. cadre shows the change in a dialog. Tell the user: "Please confirm the user settings in the cadre dialog (press 1)."
 Done when you told the user.
 
 ## Phase 5: what needs the password

@@ -5,11 +5,11 @@ export const WIRE: Record<string, string[]> = {
   "  ✓a1 ✓a4 ✓a7 │ ▶a2 ✓a3 │ ⏸a6 ◌a5   4/7 done · ▶1 ⏸1 ◌1   ↻1"
  ],
  "Band, attention (approval)|120": [
-  "[ATTN] ⚑ NEEDS YOU · approve plan p3 · 7 tasks · 12 scenarios · 3 new / 2 changed symbols   1: open sheet",
+  "! NEEDS YOU · approve plan p3   1: answer",
   "  ○a1 ○a4 ○a7 │ ⏸a2 ⏸a3 │ ⏸a6 ⏸a5   0/7 done · ▶0 ⏸4 ◌0"
  ],
  "Band, attention (critical flag)|120": [
-  "[ATTN] ⚑ NEEDS YOU · [CRIT] ✗ git:dev:agent · dev moved outside a cadre merge · merges blocked   1: open",
+  "! NEEDS YOU · git:dev:agent · dev moved outside a cadre merge · merges blocked   1: answer",
   "  ✓a1 ✓a4 ✓a7 │ ✓a2 ✓a3 │ ✗a6 ◌a5   5/7 done · ▶0 ⏸0 ◌1"
  ],
  "Band, epic landed|120": [
@@ -19,7 +19,7 @@ export const WIRE: Record<string, string[]> = {
   "[RUN] p3 ✓✓✓│▶✓│⏸◌ 4/7 ▶1 ⏸1 · ctx34%"
  ],
  "Band, attention (narrow)|60": [
-  "[ATTN] ⚑ approve p3 (7 tasks)         1: open sheet",
+  "! NEEDS YOU · approve p3   1: answer",
   "[WAIT] p3 ○○○│⏸⏸│⏸⏸ 0/7 ▶0 ⏸4 ctx34%"
  ],
  "Epic view, live, wide|120": [
@@ -110,7 +110,7 @@ export const WIRE: Record<string, string[]> = {
   "│ - authenticate(req: Request) -> User",
   "│ + authenticate(req: Request) -> User|null",
   "──────────────",
-  "[ATTN] a: Approve plan · x: Reject plan · n: next task p: prev task · PgDn: scroll"
+  "n: next task p: prev task · PgDn: scroll"
  ],
  "Approval sheet, narrow|60": [
   "p3 · 7 tasks · NEW 3 · CHANGED 2 · task 1/7",
@@ -125,11 +125,11 @@ export const WIRE: Record<string, string[]> = {
   "- (req: Request) -> User",
   "+ (req: Request) -> User|null",
   "──────────────",
-  "[ATTN] a: approve · x: reject · n: next p: prev"
+  "n: next p: prev"
  ],
  "Approval sheet, amended while open|60": [
   "[WARN] ⚠ plan changed since you opened it",
   "(bd-a3 scenarios) · re-read",
-  "[ATTN] a: approve · n: next p: prev"
+  "n: next p: prev"
  ]
 }

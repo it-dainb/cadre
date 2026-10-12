@@ -1,28 +1,20 @@
-// UI entry points wired by hooks/register.ts (UI-DESIGN 5, 7): render hooks (band, pane, result card), press handlers, prefill (5.2), openPane, resume banner, cursor tick.
+// UI entry points wired by hooks/register.ts (UI-DESIGN 5, 7): render hooks (band, pane, result card), press handlers, the decision dialog (ADR 0012), openPane, resume banner, cursor tick.
 // The UI reads the human view, the ring and the secret only; render is pure; writes happen in handlers (and a press's own work runs in after(1), UI-14).
-import type { Host } from '../types'
+import type { Decision, Host } from '../types'
 import { band as bandOf } from './band'
 import { pane, sel } from './pane'
 import { sheet, sheetOf, sheetSig } from './sheet'
-import { card } from './card'
 import { blit, cells, timeline } from './timeline'
 import { ack, levelOf, onEvent as notifyEvent } from './notify'
-import { cur as curDec, decisions, defaultTab } from './card'
-export { defaultTab }
+import { decisions } from './needs'
+import { queueBrief } from '../core/lanes'
 import { strictOf } from '../config/index'
 import { configPress, refreshSettings } from '../config/route'
-import { type Acts, S, at, cols, draw, gl, kindOf, read, t0, tg, txt, col, REDO } from './model'
+import { type Acts, S, at, cols, cut, draw, gl, kindOf, read, t0, tg, txt, col, REDO } from './model'
 
 export { ack, syncStatus } from './notify'
 let lastW = 0   // width of the last pane draw: a cache for cursor-only blits (a resize is a redraw), not state
 const later = (h: Host, fn: () => Promise<unknown>) => h.ops?.after(1, () => fn().catch(e => h.toast(`cadre: ${e}`)))
-
-// 5.2: a button only loads the command into an EMPTY composer; the human presses Enter (composer origin).
-export async function prefill(h: Host, cmd: string): Promise<void> {
-  const o = h.ops!
-  if ((await o.peek()).trim()) return o.toast('cadre: composer not empty: clear it, then press again')
-  if (!(await o.fill(cmd)).isFilled) o.toast(`cadre: type ${cmd}`)
-}
 
 // Open the pane on a tab (called by /cadre open|approve and by presses). Where nothing draws, the content goes to $.ui.log instead (C3).
 const OPEN = { id: 'cadre', title: 'cadre', columns: 120 }
@@ -31,57 +23,70 @@ export async function openPane(h: Host, tab: string, o: { focus?: boolean; quiet
   if (tab === 'settings') await refreshSettings(h)
   const opened = o.pre ?? h.ops!.open({ ...OPEN, ...(o.focus === false ? {} : { focus: true as const }) })   // `focus: false` is refused by the engine: leave it out
   const v = await read(h)
-  await h.ui.update(u => ({ ...u, tab, ...(tab === 'plan' || tab === 'card' ? { seen: { hash: (v.b.decisions ?? []).find(d => d.id === `plan:${v.b.plan?.id}`)?.hash ?? '', sig: sheetSig(v) } } : {}) }))
+  await h.ui.update(u => ({ ...u, tab, ...(tab === 'plan' ? { seen: { hash: (v.b.decisions ?? []).find(d => d.id === `plan:${v.b.plan?.id}`)?.hash ?? '', sig: sheetSig(v) } } : {}) }))
   const r = await opened
   if (!r.isPlaced) {
-    if (!o.quiet) { h.toast(`cadre: pane not shown${r.reason ? ` · ${r.reason.slice(0, 30)}` : ''} · /cadre status`); if (tab === 'plan') h.log(txt(sheet(v, 100, NOOP)).join('\n')) }
-    if (tab === 'card' || tab === 'plan') await askDialog(h)   // no pane can draw here (VS Code panel, Remote Control): the same Decision as a dialog (ADR 0012)
+    if (!o.quiet) { h.toast(`cadre: pane not shown${r.reason ? ` · ${r.reason.slice(0, 30)}` : ''}`); if (tab === 'plan') h.log(txt(sheet(v, 100, NOOP)).join('\n')) }
+    if (decisions(v).length) later(h, () => answerDialog(h))   // no pane (VS Code panel, Remote Control) and no band key: the dialog of the oldest decision
   }
   if (!o.quiet) await ack(h)
 }
-const NOOP: Acts = { go() {}, pick() {}, fill() {}, press() {}, step() {} }
-// a decision appears: show its card, focused only while the composer is empty (the engine also refuses focus over a dialog, and an unasked open needs the columns, UI-02). Once per decision.
-export async function onEvent(h: Host, e: Parameters<typeof notifyEvent>[1]): Promise<void> {
-  await notifyEvent(h, e)
-  if (!h.ops || levelOf(e) < 2 && e.type !== 'release.proposed') return
-  const d = decisions(await read(h)).at(-1), ui = await h.ui.read()   // the newest one asked; the card opens once per decision
-  if (!d || ui.ck === `${d.id}:${d.hash}`) return
-  await h.ui.update(u => ({ ...u, ck: `${d.id}:${d.hash}` }))
-  await openPane(h, 'card', { quiet: true, focus: !(await h.ops.peek()).trim() })
+const NOOP: Acts = { go() {}, pick() {}, answer() {}, step() {} }
+export async function onEvent(h: Host, e: Parameters<typeof notifyEvent>[1]): Promise<void> { await notifyEvent(h, e); await autoAsk(h) }
+
+// A decision pops its dialog by itself at most ONCE, when it first appears, and only over an empty composer with no dialog of ours up (a `quiet` one never does).
+// After that only `1` (band or pane) opens it: a dismissal (Esc) never comes back on its own.
+export async function autoAsk(h: Host): Promise<void> {
+  if (!h.ask || !h.ops) return
+  const shown = ((await h.ui.read()).shown as string[] | undefined) ?? [], fresh = decisions(await read(h)).filter(d => !d.quiet && !shown.includes(d.id))
+  if (!fresh.length) return
+  await h.ui.update(u => ({ ...u, shown: [...shown, ...fresh.map(d => d.id)].slice(-100) }))
+  if (!asking && !(await h.ops.peek()).trim()) later(h, () => answerDialog(h, fresh[0].id))
 }
 
-// The same Decision where no pane can draw: an AskUserQuestion dialog with its runnable options. The chosen label maps to that option; the hash is re-checked when the answer arrives
-// (core/dispatch.answer). Other mods or hooks could auto-answer the dialog: accepted only on surfaces without a pane (ADR 0012). -p / dismiss: $.ui.ask rejects, nothing is decided.
+// The ONE way a decision is answered (ADR 0012): the native AskUserQuestion dialog. Fields first, one ask each (keep the value or type a new one); then the
+// decision's runnable options (at most 4; "Not now" added when fewer than 2; the engine adds "Type something"). Typed text there is a change request to main
+// (Decision.change). The answer goes to core/dispatch.answer, which re-checks the hash; a refusal that moved the decision (stale, an invalid value) re-asks it.
+// Dismissed or -p ($.ui.ask rejects): nothing is decided. Auto-answers by other mods are an accepted risk (ADR 0012).
+export const NOT_NOW = 'Not now'
+const body = (d: Decision) => [d.title, ...(d.error ? [`! ${d.error}`] : []), ...d.lines].slice(0, 7).join('\n')   // the title + at most 6 lines
 let asking = false
-export async function askDialog(h: Host): Promise<void> {
-  if (!h.ask || !h.press || asking) return
-  const d = decisions(await read(h))[0], os = d?.options.filter(o => o.run) ?? []
-  if (!d || !os.length) return
+export async function answerDialog(h: Host, id?: string): Promise<void> {
+  if (!h.ask || !h.answer || asking) return
   asking = true
   try {
-    const a = await h.ask([d.title, ...d.lines].join('\n'), os.map(o => o.label)).catch(() => undefined), o = os.find(x => x.label === a)
-    if (o) h.log(`cadre: ${(await h.press(d.id, o.key, d.hash, 'dialog')).text}`)
-  } finally { asking = false }
+    for (let n = 0, last = ''; n < 3; n++) {
+      const ds = decisions(await read(h)), d = id ? ds.find(x => x.id === id) : ds[0]
+      if (!d || d.hash === last) return
+      const vals: Record<string, string> = {}
+      for (const f of d.fields ?? []) {
+        const keep = f.value ? `Keep ${f.value}` : 'Leave it empty', x = (await h.ask(`${f.label}?`, [keep, 'Cancel'])).trim()
+        if (x === 'Cancel') return
+        vals[f.key] = x === keep ? f.value ?? '' : x
+      }
+      const os = d.options.filter(o => o.run).slice(0, 4), x = (await h.ask(body(d), [...os.map(o => o.label), ...(os.length < 2 ? [NOT_NOW] : [])])).trim(), o = os.find(y => y.label === x)
+      if (!o) {
+        if (x && x !== NOT_NOW && !d.fields?.length) { await queueBrief(h, `${d.change ?? `About "${d.title}": `}${x}`); h.log(`cadre: sent to Claude · ${cut(x, 60)}`) }
+        return
+      }
+      const r = await h.answer(d.id, o.key, d.hash, vals); h.log(`cadre: ${r.text}`)
+      if (!r.text.startsWith('refused')) return
+      id = d.id; last = d.hash
+    }
+  } catch { /* dismissed, or -p: nothing is decided */ } finally { asking = false }
 }
 
 export function acts(h: Host): Acts {
   return {
     go: tab => { const pre = h.ops!.open({ ...OPEN, focus: true }); later(h, () => openPane(h, tab, { pre })) },
     pick: id => { const pre = h.ops!.open({ ...OPEN, focus: true }); later(h, async () => { await h.ui.update(u => ({ ...u, sel: id, go: false })); await openPane(h, 'epic', { pre }) }) },
-    run: cmd => later(h, async () => { const r = await configPress(h, cmd); h.toast(`cadre: ${r.text.split('\n')[0].slice(0, 53)}`); h.ops?.invalidate() }),
-    fill: cmd => later(h, async () => { await prefill(h, cmd); await ack(h) }),
-    // a press: the option's command as the human's origin (ADR 0008). A refusal means the card went stale (its hash moved): say so and redraw it.
-    press: (id, key, hash) => later(h, async () => {
-      const r = await h.press!(id, key, hash); await ack(h)
-      const l = r.text.split('\n')[0]   // a toast is a pointer (<= 60 chars); the reason stays on the card
-      h.toast(l.length <= 53 ? `cadre: ${l}` : `cadre: ${l.slice(0, Math.max(20, l.lastIndexOf(' ', 36)))}… · see the card`); h.ops?.invalidate()
-    }),
-    input: (id, key, x) => later(h, () => h.ui.update(u => { const f = (u.fields as Record<string, Record<string, string>> | undefined) ?? {}; return { ...u, fields: { ...f, [id]: { ...f[id], [key]: x } } } })),   // a typed field value (card fields, ADR 0009)
+    run: cmd => later(h, async () => { const r = await configPress(h, cmd); h.toast(`cadre: ${r.text.split('\n')[0].slice(0, 53)}`); h.ops?.invalidate(); await autoAsk(h) }),   // a Settings toggle (a press, not a decision); edit asks its decision
+    answer: id => later(h, async () => { await ack(h); await answerDialog(h, id) }),   // `1`: the decision's dialog, again
     step: (what, d) => later(h, async () => {
       const v = await read(h), ids = cols(at(v).tasks).flat().map(t => t.id), cur = v.t ?? v.now
       const unit = 60000 * timeline(v, lastW || 116).mpc, evs = v.ring.filter(e => levelOf(e) >= 2).map(e => e.at)
       const go = (t: number | null) => ({ t: t === null || t > v.now - unit / 2 ? null : Math.max(t0(v), t) })
-      const p: Record<string, unknown> = what === 'dec' ? { di: Math.max(0, Math.min(decisions(v).length - 1, curDec(v) + d)) } : what === 'sheet' ? { si: Math.max(0, Math.min(sheetOf(v).length - 1, Number(v.ui.si ?? 0) + d)) }
+      const p: Record<string, unknown> = what === 'sheet' ? { si: Math.max(0, Math.min(sheetOf(v).length - 1, Number(v.ui.si ?? 0) + d)) }
         : what === 'node' ? { sel: ids[(ids.indexOf(sel(v)) + d + ids.length) % ids.length] }
         : what === 'time' ? go(cur + d * unit) : what === 'attn' ? go(d > 0 ? evs.find(x => x > cur) ?? null : [...evs].reverse().find(x => x < cur) ?? null)
         : what === 'go' ? { go: !v.ui.go } : what === 'live' ? { t: null, sel: undefined } : { tl: v.ui.tl === false }

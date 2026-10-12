@@ -25,7 +25,7 @@ test('every slot is a pass-through until its owner fills it: tool.call, tool.che
   on('command.run', () => ({ text: 'engine' })); on('fs.read', () => ({ value: '{}' }))   // an initialised repo: .cadre/config.json exists
   expect(await $.tool.call({ tool: 'Read', file_path: '/w/a.ts' })).toEqual({ result: 'ok' })
   expect((await $.prompt.submit({ text: 'hello' })).text).toBe('hello')
-  expect((await $.command.run({ command: 'cadre', args: 'status' })).text).toBe("that's a button now: press 1 on the band or run /cadre")   // commands/cadre.run is filled: it answers itself (ADR 0011: old subcommands are buttons)
+  expect((await $.command.run({ command: 'cadre', args: 'status' })).text).toBe("that's answered in the dialog now: press 1 on the band or run /cadre")   // commands/cadre.run is filled: it answers itself (ADR 0011: old subcommands are buttons)
   expect(seen).toEqual(['call:Read', 'prompt'])
 })
 

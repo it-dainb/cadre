@@ -32,7 +32,7 @@ describe('the typed surface (ADR 0011): five forms only', () => {
     const g = (BUDGET.guides as Record<string, string>).goal, sent: string[] = []
     const h = Object.assign(fakeHost({ files: { '/plug/guides/goal.md': g } }), { root: async () => '/plug', submit: async (t: string) => { sent.push(t) } })
     expect((await run(h, { args: 'fix the bug', origin: { kind: 'sdk' } }, () => ({}))).text).toContain('refused')
-    expect(await run(h, { args: 'old status', origin: { kind: 'composer' } }, () => ({}))).toEqual({ text: 'goal: Claude is on it · the lane and the plan show on the card' })
+    expect(await run(h, { args: 'old status', origin: { kind: 'composer' } }, () => ({}))).toEqual({ text: 'goal: Claude is on it · the plan comes up for approval' })
     expect(sent).toEqual([])   // a command frame cannot submit (live 0.7.0)
     await sendBrief(h); await sendBrief(h)
     expect(sent).toEqual([`Goal from the user: old status\n\n${g}`]); expect((await h.ui.read()).goal).toBeUndefined()

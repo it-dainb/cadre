@@ -4,7 +4,7 @@ import type { DecisionOption, Host, Plan } from '../types'
 import type { Task, TaskStore } from '../task-management/store'
 import { defaults, kindOf, type TypeRegistry } from '../task-management/registry'
 import { draftsOf, touched } from './dispatch'
-import { settleIf } from './decide'
+import { plural, settleIf } from './decide'
 
 export type Lane = 'ask' | 'lite' | 'full'
 export const LANES: readonly Lane[] = ['ask', 'lite', 'full']
@@ -34,13 +34,13 @@ export async function relane(h: Host, store: TaskStore, reg: TypeRegistry): Prom
 }
 export async function retouch(h: Host, store: TaskStore, reg: TypeRegistry): Promise<string[]> { await relane(h, store, reg); return touched(h, store, reg) }
 
-// the card (core/dispatch.redraw): "lite · 1 task · fix · <reason>"; an override names itself
+// the decision's first line (core/dispatch.redraw): "lite · 1 task · fix · <reason>"; an override names itself
 export function laneLine(plan: Plan | null, drafts: Task[], reg: TypeRegistry = defaults()): string | null {
   if (!plan?.lane) return null
-  const n = `${drafts.length} task${drafts.length === 1 ? '' : 's'}`, ty = drafts.length === 1 ? reg[drafts[0].type]?.commit ?? drafts[0].type : ''
+  const n = plural(drafts.length, 'task'), ty = drafts.length === 1 ? reg[drafts[0].type]?.commit ?? drafts[0].type : ''
   return [plan.lane, n, ty, plan.laneOverride ? `${plan.laneOverride} → ${plan.lane}` : '', plan.laneReason ?? ''].filter(Boolean).join(' · ').slice(0, 160)
 }
-// [l] Lane → <next>: ask → lite → full → ask, skipping a lane the plan cannot take; null when there is nothing to change
+// the Lane → <next> option: ask → lite → full → ask, skipping a lane the plan cannot take; null when there is nothing to change
 export function nextLane(plan: Plan, drafts: Task[], reg: TypeRegistry): Lane {
   const from = LANES.indexOf(plan.lane ?? 'full')
   for (let i = 1; i < 3; i++) { const l = LANES[(from + i) % 3]; if (l === 'ask' || laneOf(l, drafts, reg).lane === l) return l }
@@ -49,7 +49,7 @@ export function nextLane(plan: Plan, drafts: Task[], reg: TypeRegistry): Lane {
 export const laneOption = (plan: Plan | null, drafts: Task[], reg: TypeRegistry = defaults()): DecisionOption | null =>
   plan?.lane && plan.state === 'draft' && !plan.approvedAt ? { key: 'l', label: `Lane → ${nextLane(plan, drafts, reg)}`, verb: 'change', run: `lane ${plan.id}` } : null
 
-// `lane <planId>` (the card's [l], press only: commands/cadre). ask drops the draft plan and asks main to spawn the question; full asks main for the missing fields.
+// `lane <planId>` (the plan decision's Lane option, dialog only: commands/cadre). ask drops the draft plan and asks main to spawn the question; full asks main for the missing fields.
 export async function changeLane(h: Host, store: TaskStore, reg: TypeRegistry, planId: string): Promise<string> {
   const p = (await h.board.read()).plan
   if (!p || p.id !== planId || !laneOption(p, [], reg)) return `refused: no first draft plan ${planId}`
@@ -63,11 +63,11 @@ export async function changeLane(h: Host, store: TaskStore, reg: TypeRegistry, p
   }
   await store.setMeta(p.id, { 'cadre.lane': to, 'cadre.laneReason': 'changed by you' }, 'human')
   await retouch(h, store, reg)
-  if (to === 'full') await queueBrief(h, `The user moved plan ${p.id} to the full lane. Give each task what the plan rules ask (scenarios, interface, changelog, package) and split it into tasks if needed; the "missing:" line says what is left. Then tell the user to approve it on the card.`)
+  if (to === 'full') await queueBrief(h, `The user moved plan ${p.id} to the full lane. Give each task what the plan rules ask (scenarios, interface, changelog, package) and split it into tasks if needed; the "missing:" line says what is left. Then tell the user to approve it in the dialog (key 1 opens it).`)
   return `${p.id}: lane ${to}`
 }
 
-// ---- the goal brief: `$.prompt.submit` is refused from a command or press frame (live 0.7.0), so it waits in `ui.goal` and goes out from commands/agentrun.pump ----
+// ---- briefs to main (the goal, a change request, an approved plan): `$.prompt.submit` is refused from a command or press frame (live 0.7.0), so it waits in `ui.goal` and goes out from commands/agentrun.pump ----
 export const queueBrief = (h: Host, text: string) => h.ui.update(u => ({ ...u, goal: text }))
 export async function sendBrief(h: Host): Promise<void> {
   let text: string | undefined; await h.ui.update(u => { text = u.goal as string | undefined; if (!text) return u; const { goal: _g, ...r } = u; return r })
@@ -78,5 +78,5 @@ export async function goal(h: Host, text: string): Promise<string> {
   const g = await h.readText(`${(await h.root?.()) ?? '.'}/guides/goal.md`)
   if (!g) return 'cadre: the goal guide is missing from the plugin; reinstall cadre'
   await queueBrief(h, `Goal from the user: ${text.slice(0, 1000)}\n\n${g}`)
-  return 'goal: Claude is on it · the lane and the plan show on the card'
+  return 'goal: Claude is on it · the plan comes up for approval'
 }

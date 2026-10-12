@@ -35,15 +35,15 @@ export const GOLDEN: Record<string, string[]> = {
   "  +a1 +a4 +a7 | >a2 +a3 | =a6 .a5   4/7 done · >1 =1 .1"
  ],
  "band attention|115": [
-  "[ATTN] ⚑ NEEDS YOU · approve plan p3 · 7 tasks · 12 scenarios · 3 new / 2 changed symbols             1: open sheet",
+  "! NEEDS YOU · approve plan p3                                                                             1: answer",
   "  ○a1 ○a4 ○a7 │ ⏸a2 ⏸a3 │ ⏸a6 ⏸a5   0/7 done · ▶0 ⏸4 ◌0"
  ],
  "band attention|55": [
-  "[ATTN] ⚑ approve p3 (7 tasks)             1: open sheet",
+  "! NEEDS YOU · approve p3                      1: answer",
   "[WAIT] p3 ○○○│⏸⏸│⏸⏸ 0/7 ▶0 ⏸4 ctx34%"
  ],
  "band critical|115": [
-  "[ATTN] ⚑ NEEDS YOU · [CRIT] ✗ git:dev:agent · dev moved outside a cadre merge · merges blocked              1: open",
+  "! NEEDS YOU · git:dev:agent · dev moved outside a cadre merge · merges blocked                            1: answer",
   "  ✓a1 ✓a4 ✓a7 │ ✓a2 ✓a3 │ ✗a6 ◌a5   5/7 done · ▶0 ⏸0 ◌1"
  ],
  "band landed|115": [

@@ -14,8 +14,8 @@ const stubs = (on) => {
 
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`band + pane validate and draw on ${surface}; keys press; Raster only on terminal`, async ($, on) => {
-    const opened: any[] = [], clock = mock.clock(on)
-    stubs(on)
+    const opened: any[] = [], clock = mock.clock(on), asked: any[] = []
+    stubs(on); on('tool.call', (_$, e) => { asked.push(e); return { result: { answers: { [e.questions[0].question]: 'Not now' } } } })
     on('ui.render', () => ({ type: 'Text', props: {}, children: ['engine'] }))
     on('ui.open', (_$, e) => { opened.push(e); return { value: { isPlaced: true } } })
     on('ui.panes', () => ({ value: [] }))
@@ -24,8 +24,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect((await band.find({ text: /NEEDS YOU/ }))?.text).toContain('approve plan p3')
     expect((await band.find({ text: /engine$/ }))?.text.endsWith('engine')).toBe(true)   // our rows wrap the engine's band
     expect((await band.findAll({ type: 'Button' })).map(b => b.key).sort()).toEqual(['att'])
-    await band.press({ key: 'att' }); await clock.advance(1)
-    expect(opened.map(o => o.id)).toEqual(['cadre'])
+    await band.press({ key: 'att' }); await clock.advance(1); await clock.advance(1)
+    expect(asked.map(e => e.tool)).toEqual(['AskUserQuestion']); expect(opened).toEqual([])   // `1` = the decision's dialog, no pane
     await band.unmount()
     seed(view(62))
     const pane = await $.ui.mount({ plugin: 'cadre', surface, component: 'Pane', requestId: 'cadre', props: PANE })
@@ -36,10 +36,10 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
-// the card's button pressed through the REAL register (Host.press wiring, hooks, state): a plan asked by TaskCreate is approved by the press; a wrong wiring leaves it a draft
-test('card press through the engine: Approve approves the plan (register wires Host.press to the decision press)', async ($, on) => {
-  const clock = mock.clock(on)
-  stubs(on)
+// the dialog through the REAL register (Host.ask + Host.answer wiring, hooks, state): a plan asked by TaskCreate pops its dialog once; `1` in the pane re-opens it; Approve approves
+test('dialog through the engine: pops once, `1` re-opens it, Approve approves the plan (register wires Host.answer)', async ($, on) => {
+  const clock = mock.clock(on), asked: any[] = []; let say = 'Not now'
+  stubs(on); on('tool.call', (_$, e, next) => { if (e.tool !== 'AskUserQuestion') return next(e); asked.push(e.questions[0]); return { result: { answers: { [e.questions[0].question]: say } } } })
   for (const k of Object.keys(store)) delete store[k]
   Object.assign(store, { secret: { active: true } })
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['engine'] })); on('ui.open', () => ({ value: { isPlaced: true } })); on('ui.panes', () => ({ value: [] }))
@@ -49,9 +49,10 @@ test('card press through the engine: Approve approves the plan (register wires H
   const meta = { type: 'feature', package: '.', scenarios: ['S1: Given a user When they log in Then a session exists'], changelog: { category: 'Added', entry: 'Login' }, interface: { symbols: [{ name: 'login', kind: 'function', params: ['email: string'], returns: 'Session', status: 'new' }] } }
   await $.tool.call({ tool: 'TaskCreate', subject: 'Auth login', description: 'goal', metadata: { kind: 'plan' } }); await $.tool.call({ tool: 'TaskCreate', subject: 'Add login', description: 'impl', metadata: meta })
   expect(store.board.decisions.map((d: any) => d.kind)).toEqual(['plan']); expect(store.board.plan.state).toBe('draft')
-  store.ui = { ...store.ui, tab: 'card' }
+  await clock.advance(1); await clock.advance(1)   // the event's autoAsk: the dialog once, answered "Not now"
+  expect(asked.length).toBe(1); expect(asked[0].options.map((o: any) => o.label)).toEqual(['Approve', 'Reject', 'Lane → ask']); expect(store.board.plan.state).toBe('draft')
   const pane = await $.ui.mount({ plugin: 'cadre', surface: 'terminal', component: 'Pane', requestId: 'cadre', props: PANE })
-  await pane.press({ key: 'a' }); await clock.advance(1); await clock.advance(1)
-  expect(store.board.plan.state).toBe('approved'); expect(store.board.decisions).toEqual([])
+  say = 'Approve'; await pane.press({ key: 'att' }); await clock.advance(1); await clock.advance(1)
+  expect(asked.length).toBe(2); expect(store.board.plan.state).toBe('approved'); expect(store.board.decisions).toEqual([])
   await pane.unmount()
 })

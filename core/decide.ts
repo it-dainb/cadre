@@ -1,5 +1,5 @@
-// How to ask the human (ADR 0008, CONTRACTS): `ask` puts a Decision on the board (human view), `settle` clears it. ui/card draws any Decision; a press is core's `press` (commands/cadre).
-// Every human-in-the-loop phase calls ask when it needs the human and settle when it is answered; none draws UI.
+// How to ask the human (ADR 0008, 0012, CONTRACTS): `ask` puts a Decision on the board (human view), `settle` clears it. The native dialog answers any Decision (ui/index.answerDialog
+// -> core/dispatch.answer); the pane lists it read-only (ui/needs). Every human-in-the-loop phase calls ask when it needs the human and settle when it is answered; none draws UI.
 import type { Decision, Host } from '../types'
 
 export const ask = async (h: Host, d: Decision): Promise<void> => {
@@ -9,6 +9,7 @@ export const settle = async (h: Host, ...ids: string[]): Promise<void> => {
   const on = ids.filter(Boolean); if (!on.length || !((await h.board.read()).decisions ?? []).some(d => on.includes(d.id))) return
   await h.board.update(b => ({ ...b, decisions: (b.decisions ?? []).filter(d => !on.includes(d.id)) }))
 }
+export const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? '' : 's'}`
 export const settleIf = async (h: Host, pre: string): Promise<void> => settle(h, ...((await h.board.read()).decisions ?? []).filter(d => d.id.startsWith(pre)).map(d => d.id))
 
 // a flag raised on a task / the epic / a git ref (core/events.emit calls this for every flag.raised; a phase that knows more asks first under the same id and wins)

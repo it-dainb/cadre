@@ -22,13 +22,14 @@ export interface Plan {
   flags?: string[]   // plan-level flags (integration-failed)
   lane?: 'ask' | 'lite' | 'full'; laneReason?: string; laneOverride?: string   // ADR 0011: the effective lane, main's (or the human's) reason, why the override moved it (core/lanes)
 }
-// A decision the human owes (ADR 0008): ONE record drawn by ONE renderer (ui/card). Approved only by a press on its Button or the ask dialog, both bound to `hash` (ADR 0012); no typed code.
-// Option keys are hotkeys (one lowercase letter; n and p are the queue's). `run` = a dispatcher command (`<sub> <args>`) run as origin press; `fill` = text loaded into the composer instead.
-export interface DecisionOption { key: string; label: string; verb: string; run?: string; fill?: string }
+// A decision the human owes (ADR 0008, 0012): ONE record, answered ONLY in the native ask dialog (ui/index.answerDialog), bound to `hash`; the pane lists it read-only (ui/needs).
+// `run` = a dispatcher command (`<sub> <args>`) run as origin dialog; an option without `run` closes the dialog and decides nothing ("Not now").
+export interface DecisionOption { key: string; label: string; verb: string; run?: string }
 export interface Decision {
   id: string; kind: string; title: string; short?: string; lines: string[]; hash: string; options: DecisionOption[]   // hash = content hash: a press bound to an older one is refused
-  tab?: string; sel?: string; crit?: boolean                                                                             // pane tab behind the card · task to select · [CRIT] tag
-  fields?: DecisionField[]; error?: string   // text the human types on the card (Input); an option's run gets them where it says {fields} (k=v argv). error: the last submit's refusal, shown on the card
+  tab?: string; sel?: string; crit?: boolean                                                                             // pane tab with the full detail · task to select · [CRIT] tag
+  fields?: DecisionField[]; error?: string   // asked one by one in the dialog before the options; an option's run gets them where it says {fields} (k=v argv). error: the last answer's refusal, shown in the re-ask
+  change?: string; quiet?: true              // change: the prefix main gets with the dialog's free text (default `About "<title>": `) · quiet: never pops by itself (a progress card)
 }
 export interface DecisionField { key: string; label: string; value?: string }   // value = prefill
 // The board snapshot = the read model.
@@ -109,8 +110,8 @@ export interface Host {
   version?(): Promise<string>                           // $.session.version().version: the running Claude Code build (commands/doctor)
   taskStore?(): Promise<any>; config?(): Promise<any>   // the TaskStore (a core/dispatch storeOf) and resolved Config; register.ts wires them (config falls back to env layer + defaults)
   sendTo?(agentId: string, text: string): Promise<{ isDelivered: boolean; reason?: string }>   // $.session.send({to:{agentId}}): core/reuse.drain only (the one sender)
-  press?(id: string, key: string, hash: string, origin?: 'press' | 'dialog'): Promise<{ text: string }>   // an answer to decision `id`, option `key`, drawn with `hash`: stale = refused; else the option's command runs as that origin (core/dispatch.answer; ADR 0008, 0012)
-  ask?(question: string, options: string[]): Promise<string>   // $.ui.ask (AskUserQuestion dialog): the answer label; rejects in -p / on dismiss. Only for surfaces with no pane (ADR 0012)
+  answer?(id: string, key: string, hash: string, vals?: Record<string, string>): Promise<{ text: string }>   // the dialog's answer to decision `id`, option `key`, asked with `hash` (+ field values): stale = refused; else the option's command runs as origin dialog (core/dispatch.answer, ADR 0012)
+  ask?(question: string, options: string[]): Promise<string>   // $.ui.ask (AskUserQuestion dialog): the chosen label or the free text; rejects in -p / on dismiss. The only way a decision is answered (ADR 0012)
   submit?(text: string): Promise<unknown>; usage?(): Promise<{ context?: { percent?: number }; cost?: { usd: number } }>   // $.prompt.submit (drive, #1 only) · $.session.usage
   root?(): Promise<string>                              // $.plugin.root: the plugin's folder (guides/ for agent-run setup/init, ADR 0010)
 }

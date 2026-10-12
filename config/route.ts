@@ -1,6 +1,6 @@
 // Internal `config` command the Settings tab buttons call (DESIGN 12, ADR 0007): the MOD writes the settings file after the human's press, never Claude.
 //   set <key> <value> -> ~/.claude/cadre.json (or the repo's section there, when the key already lives in it) · repo <key> <value> -> .cadre/config.json (O keys only)
-//   edit <key> -> the Decision card with a field · cancel <key> · sel <+1|-1> · refresh. Every write: .bak of the old bytes, write, re-read.
+//   edit <key> -> a Decision with one field (asked in the dialog) · cancel <key> · sel <+1|-1> · refresh. Every write: .bak of the old bytes, write, re-read.
 import { ROUTES, dispatch, isHuman } from '../core/dispatch'
 import { ask, settle } from '../core/decide'
 import { start } from '../core/session'
@@ -26,17 +26,15 @@ function coerce(row: Row, raw: string): unknown | Error {
   return raw
 }
 
-// the card of one key: a field prefilled with the value; the same id is asked again with the refusal as `error`
+// the decision of one key: a field prefilled with the value; the same id is asked again with the refusal as `error` (the dialog re-asks it)
 async function editCard(h: any, row: Row, error?: string): Promise<void> {
   const note = row.cls === 'S' ? 'security key: the repo file may only tighten it' : row.cls === 'U' ? 'user-level only: never read from the repo file' : 'a repo value is shared with the team',
     hint = row.kind === 'list' ? 'a comma-separated list' : row.kind === 'number' ? 'a number' : 'text'
-  await ask(h, { id: ID(row.key), kind: 'config', title: `edit ${row.key}`, lines: [`now ${show(row.value) || '(empty)'} [${row.src}] · default ${show(row.def) || '(empty)'}`, `${note} · ${hint}`], hash: `${row.key}|${show(row.value)}|${error ?? ''}`, tab: 'epic',
+  await ask(h, { id: ID(row.key), kind: 'config', title: `edit ${row.key}`, lines: [`now ${show(row.value) || '(empty)'} [${row.src}] · default ${show(row.def) || '(empty)'}`, `${note} · ${hint}`], hash: `${row.key}|${show(row.value)}|${error ?? ''}`, tab: 'settings',
     fields: [{ key: 'value', label: row.key, value: show(row.value) }], ...(error ? { error } : {}),
     options: [{ key: 'a', label: 'Save for me', verb: 'approve', run: `config set ${row.key} {fields}` }, ...(row.cls === 'O' ? [{ key: 'r', label: 'Save to repo', verb: 'approve', run: `config repo ${row.key} {fields}` }] : []), { key: 'x', label: 'Cancel', verb: 'reject', run: `config cancel ${row.key}` }] })
-  const n = ((await h.board.read()).decisions ?? []).length
-  await h.ui.update((u: any) => ({ ...u, tab: 'card', di: n - 1 }))
 }
-const back = async (h: any, key: string) => { await settle(h, ID(key)); await h.ui.update(({ fields, ...u }: any) => ({ ...u, tab: 'settings', ...(fields ? { fields: Object.fromEntries(Object.entries(fields).filter(([k]) => k !== ID(key))) } : {}) })) }
+const back = (h: any, key: string) => settle(h, ID(key))
 
 async function save(h: any, scope: 'user' | 'repo', key: string, raw: string): Promise<{ text: string }> {
   const row = (await settingsRows(h)).find(r => r.key === key)

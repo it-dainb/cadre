@@ -50,7 +50,7 @@ export async function propose(h: Host, root: string, dev: string): Promise<void>
   const version = inferVersion(tag, subj)
   await h.ui.update(u => ({ ...u, rel: version }))
   await ask(h, { id: `release:${version}`, kind: 'release', title: `release v${version}?`, lines: [`${dev} merges into main with an annotated tag v${version}`], hash: version, tab: 'epic', options: [{ key: 'r', label: 'Release', verb: 'release', run: `release ${version}` }] })
-  await emit(h, 'release.proposed', { version }); h.toast(`Epic landed on ${dev} · release v${version}? /cadre release`)
+  await emit(h, 'release.proposed', { version }); h.toast(`Epic landed on ${dev} · release v${version}? · press 1`)
 }
 
 // §3.9 Integration. null = landed on dev; otherwise the refusal / failure text (also left as a comment on the epic).

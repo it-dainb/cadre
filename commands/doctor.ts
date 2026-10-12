@@ -102,7 +102,7 @@ export async function setupItems(h: Host): Promise<Item[]> {
     h.log(`fix command: ${x.full}`)
   }
   const p = await mplan(h, path, PATCH).catch((e: Error) => e), need = !(p instanceof Error) && p.lines.length > 0
-  m.rows.push(p instanceof Error ? ['crit', `user settings unreadable: ${p.message}`] : need ? ['crit', 'user settings lack env CLAUDE_CODE_ENABLE_TODO_TOOLS="1"', 'confirm the user settings card'] : ['ok', 'user settings: env CLAUDE_CODE_ENABLE_TODO_TOOLS is set'])
+  m.rows.push(p instanceof Error ? ['crit', `user settings unreadable: ${p.message}`] : need ? ['crit', 'user settings lack env CLAUDE_CODE_ENABLE_TODO_TOOLS="1"', 'confirm the user settings: press 1'] : ['ok', 'user settings: env CLAUDE_CODE_ENABLE_TODO_TOOLS is set'])
   await report(h, 'setup', m.rows, false)   // the run card holds the checklist; the pane's doctor tab has the rows
   if (!m.rows.some(r => r[0] === 'crit')) await h.store.set(STAMP, { cc: m.facts.cc, bd: m.facts.bd, bwrap: m.facts.bwrap ?? '', jail: m.facts.jail, at: await h.now() })
   if (need) await proposeUser(h, p.lines, fnv1a64(p.lines.join('\n') + (p.old ?? '')))
@@ -117,8 +117,8 @@ async function proposeUser(h: Host, lines: string[], sig: string): Promise<void>
 }
 export async function confirmUser(h: Host): Promise<string> {
   const was = (await h.ui.read())['setup.pending'], good = await initConfirm(h, USER_CARD), path = `${await h.home()}/.claude/settings.json`
-  if (!good || !was) return 'setup: nothing pending; the card shows the current diff'
-  const p = await mplan(h, path, PATCH); if (fnv1a64(p.lines.join('\n') + (p.old ?? '')) !== was) return 'setup: the settings file changed since the card; nothing written'
+  if (!good || !was) return 'setup: nothing pending; press 1 for the current diff'
+  const p = await mplan(h, path, PATCH); if (fnv1a64(p.lines.join('\n') + (p.old ?? '')) !== was) return 'setup: the settings file changed since you saw it; nothing written'
   await mapply({ readText: h.readText, writeText: h.write }, path, PATCH); await h.ui.update(({ 'setup.pending': _p, ...u }) => u)
   return 'setup: user settings written'
 }

@@ -107,7 +107,7 @@ async function propose5(c: Ctx, caches: string[]): Promise<void> {
 export async function confirm(h: Host): Promise<string> {
   const c = await ctxOf(h), pend = (await h.ui.read())['init.pending'] as { sig: string; caches: string[] } | undefined, good = await initConfirm(h, 5)
   if (!good || !pend) return 'init: nothing pending; the card shows the current diff'
-  const p = await plan5(c, pend.caches); if (p.sig !== pend.sig) return 'init: the settings files changed since the card; nothing written'
+  const p = await plan5(c, pend.caches); if (p.sig !== pend.sig) return 'init: the settings files changed since you saw them; nothing written'
   for (const [path, text] of p.writes) { const old = await h.readText(path); if (old !== null && old !== text) await h.write(`${path}.bak`, old); if (old !== text) await h.write(path, text) }
   await setPolicy(h, { repo: p.real, wtRoot: p.wt, home: c.home }); await contain(h).catch(() => {})
   await h.ui.update(({ 'init.pending': _p, ...u }) => u); await settle(h, 'init:5')

@@ -89,7 +89,7 @@ describe('setup checklist (ADR 0010): checks only, Claude fixes', () => {
     const h = mk({ tools: NOBD }), its = await setupItems(h)
     expect(h.calls.some(a => a[0] === 'npm' && a[1] === 'install')).toBe(false); expect(h.writes).toEqual([]); expect(await h.store.get('cadre:setup')).toBeUndefined()
     expect(its.filter(i => i.st === 'fail')).toEqual([{ name: 'bd not found', st: 'fail', why: 'npm install -g @beads/bd@latest' }])
-    expect(its.find(i => i.st === 'wait')).toEqual({ name: 'user settings lack env CLAUDE_CODE_ENABLE_TODO_TOOLS="1"', st: 'wait', why: 'confirm the user settings card' })   // never Claude's to edit
+    expect(its.find(i => i.st === 'wait')).toEqual({ name: 'user settings lack env CLAUDE_CODE_ENABLE_TODO_TOOLS="1"', st: 'wait', why: 'confirm the user settings: press 1' })   // never Claude's to edit
     expect(banned(its.filter(i => i.st === 'fail').map(i => `${i.name}: ${i.why}`))).toEqual([])
     expect(h.logs).toHaveLength(1); await setupItems(h); expect(h.logs).toHaveLength(1)   // same result again: no new transcript row
   })
@@ -98,7 +98,7 @@ describe('setup checklist (ADR 0010): checks only, Claude fixes', () => {
     const d = (await h.board.read()).decisions!.find(x => x.id === 'init:91')!; expect(d.title).toBe('setup · user settings · confirm'); expect(d.lines.join('\n')).toContain('env.CLAUDE_CODE_ENABLE_TODO_TOOLS')
     expect(h.files[USER]).toBe('{"theme":"dark"}\n'); await settle(h, 'init:91'); expect(await confirmUser(h)).toContain('nothing pending'); expect(h.files[USER]).toBe('{"theme":"dark"}\n')
     await setupItems(h); h.files[USER] = '{"theme":"light"}\n'
-    expect(await confirmUser(h)).toContain('changed since the card'); expect(h.files[USER]).toBe('{"theme":"light"}\n')
+    expect(await confirmUser(h)).toContain('changed since you saw it'); expect(h.files[USER]).toBe('{"theme":"light"}\n')
     await setupItems(h); expect(await confirmUser(h)).toBe('setup: user settings written')
     expect(JSON.parse(h.files[USER])).toEqual({ theme: 'light', env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } }); expect(h.files[`${USER}.bak`]).toBe('{"theme":"light"}\n')
     expect((await setupItems(h)).every(i => i.st === 'ok')).toBe(true)

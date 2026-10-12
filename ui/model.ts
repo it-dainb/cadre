@@ -9,7 +9,7 @@ export const CFG: Cfg = { glyphs: 'unicode', flash: true, notify: 'on', escalate
 export type Seg = { t: string; c?: string; b?: boolean; i?: boolean; d?: boolean; k?: string; hk?: string; p?: () => void; inp?: (v: string) => void; chg?: (v: string) => void; il?: string; iv?: string; af?: true }   // inp: an Input (submit), chg: on change, il/iv: its label/value
 export type Line = Seg[]
 export type View = { b: Snapshot; ring: CadreEvent[]; sec: Secret; ui: Record<string, any>; c: Cfg; now: number; sx: string; t: number | null }
-export type Acts = { go(tab: string): void; pick(id: string): void; fill(cmd: string): void; press(id: string, key: string, hash: string): void; step(what: string, d: number): void; input?(id: string, key: string, v: string): void; run?(cmd: string): void }   // handlers; the render never writes state
+export type Acts = { go(tab: string): void; pick(id: string): void; answer(id: string): void; step(what: string, d: number): void; run?(cmd: string): void }   // handlers; the render never writes state. answer = open the decision's dialog
 
 export async function read(h: Host): Promise<View> {
   const [s, r, sec, ui, now] = await Promise.all([h.board.read(), h.events.read(), h.secret.read(), h.ui.read(), h.now()])
@@ -96,7 +96,7 @@ export function at(v: View): Snapshot {
 export const t0 = (v: View) => v.b.plan?.approvedAt ?? v.ring[0]?.at ?? v.now
 
 // --- attention items (derived from the board + secret; no secrets in text) ---
-// attention = the pending decisions (board.decisions, oldest first; ONE record kind, drawn by ui/card) + two states that are not decisions
+// attention = the pending decisions (board.decisions, oldest first; ONE record kind, answered in the dialog, listed by ui/needs) + two states that are not decisions
 export type Item = { key: string; tag: TagK; text: string; short?: string; tab: string; sel?: string; d?: Decision }
 export function attention(v: View): Item[] {
   const b = v.b, out: Item[] = (b.decisions ?? []).map(d => ({ key: `dec:${d.id}`, tag: d.crit ? 'crit' : d.kind === 'flag' ? 'warn' : 'attn', text: d.title, short: d.short, tab: d.tab ?? 'epic', sel: d.sel, d }))

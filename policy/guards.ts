@@ -68,7 +68,7 @@ export const leaseOf = async (h: Host) => { const r = (await h.secret.read()).ru
 // (permissions, hooks, sandbox) and never ~/.claude/cadre.json (it holds security keys): cadre writes those after the human confirms a card.
 const leased = (real: string, pol: Policy) => !!pol.repo && (under(real, `${pol.repo}/.cadre`) || ['.git/info/exclude', pol.changelog || 'CHANGELOG.md'].some(f => real === `${pol.repo}/${f}`))
 // Claude Code settings files: no agent edits them, lease or not, cadre on or off during a run
-const SETTINGS = /(^|\/)\.claude\/settings[^/]*\.json$/, SETTINGS_DENY = 'these settings are applied for you after you confirm the card'
+const SETTINGS = /(^|\/)\.claude\/settings[^/]*\.json$/, SETTINGS_DENY = 'these settings are applied for you after the human confirms them in the dialog'
 
 // Fence verdict for one file-tool call: undefined = allow-by-fence (continue), 'allow' = tester rule 2, else a deny reason.
 async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, input: unknown, pol: Policy, guide?: string): Promise<string | 'allow' | 'tmp' | undefined> {

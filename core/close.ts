@@ -144,7 +144,8 @@ async function explorerDone(h: Host, d: Deps, t: SnapTask, agentId: string, r: a
   const m = await apply(h, { kind: 'close', id: t.id, at, actor: 'mod', cites: (r.citations ?? []).length }, p); if (!m.ok) throw new Error(m.error)
   await record(h, d, t.id, 'answer', 'explorer', { citations: (r.citations ?? []).length }, { answer: r.answer })
   await d.store.close(t.id, { outcome: 'done', note: String(r.answer ?? '').slice(0, 500), session: d.session })
-  await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'explorer', to: 'done', flags: x.flags, next: 'read the answer (TaskGet)' }) }))
+  const next = await lastNext(h, (await h.board.read()).plan?.id, 'read the answer (TaskGet)')
+  await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'explorer', to: 'done', flags: x.flags, next }) }))
   await unbind(h, agentId, 'answer', t.id); return 'answer recorded; the spike is done. Stop.'
 }
 
@@ -214,6 +215,8 @@ async function cleanup(h: Host, d: Deps, id: string, task: Task, keep?: string) 
   if (wt) await G.op(h, () => G.worktreeRemove(h.run, d.root, wt, br))
   await h.run(['rm', '-rf', `${d.wtRoot}/${d.key}.views/${id}`])
 }
+// the close of the plan's last open task nudges main once (the card's next line) to complete the plan, so it lands and a new goal is accepted
+export const lastNext = async (h: Host, plan: string | undefined, or: string) => { const b = await h.board.read(); return plan && b.plan?.id === plan && b.plan.state === 'approved' && b.tasks.every(x => x.state === 'done' || x.state === 'cancelled') ? `every task is done: complete the plan (TaskUpdate ${plan} completed)` : or }
 export async function closeTask(h: Host, d: Deps, id: string): Promise<string | null> {
   const t = (await h.board.read()).tasks.find(x => x.id === id)
   if (!t) return `no task ${id}`
@@ -249,7 +252,8 @@ export async function closeTask(h: Host, d: Deps, id: string): Promise<string | 
   const at = await h.now(), m = await apply(h, { kind: 'close', id, at, actor: 'main' }, pipe(d)); if (!m.ok) return m.error
   await d.store.close(id, { outcome: 'done', note: `squashed ${sha7(sha)} into ${plan.epicBranch}`, session: d.session })
   await record(h, d, id, 'close', 'mod', { squash: sha, epic: plan.epicBranch, reviewed: C })
-  await patch(h, id, x => ({ ...x, card: card({ id, title: t.title, role: 'main', to: 'done', commit: sha, flags: [], next: 'wait' }) }))
+  const next = await lastNext(h, plan.id, 'wait')
+  await patch(h, id, x => ({ ...x, card: card({ id, title: t.title, role: 'main', to: 'done', commit: sha, flags: [], next }) }))
   await cleanup(h, d, id, task); return null
 }
 

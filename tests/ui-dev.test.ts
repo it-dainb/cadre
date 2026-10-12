@@ -11,7 +11,7 @@ describe('ui-dev scenarios', () => {
     expect(s.about.length > 0).toBe(true)
     for (const w of [60, 120]) {
       txt(band(s, w, NOOP))
-      for (const tab of ['epic', 'plan', 'doctor', 'card', 'settings']) {
+      for (const tab of ['epic', 'plan', 'doctor', 'settings']) {
         const p = pane({ ...s, ui: { ...s.ui, tab } }, w, 40, NOOP)
         expect(txt([...p.before, ...p.after]).length > 0).toBe(true)
       }
@@ -19,10 +19,10 @@ describe('ui-dev scenarios', () => {
   })
 })
 
-test('regression: an empty board (fresh init) draws the epic and card tabs at 60 and 120', () => {
+test('regression: an empty board (fresh init) draws the epic and plan tabs at 60 and 120', () => {
   const s = SCENARIOS['empty-dormant']
-  for (const w of [60, 120]) for (const tab of ['epic', 'card']) {
+  for (const w of [60, 120]) for (const [tab, says] of [['epic', 'no tasks yet'], ['plan', 'no plan yet']]) {
     const t = txt(pane({ ...s, ui: { tab } }, w, 40, NOOP).before).join('\n')
-    expect(t).toContain('no tasks yet')
+    expect(t).toContain(says)
   }
 })
