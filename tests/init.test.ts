@@ -177,7 +177,7 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     const d = (await card(h))!; expect(d.quiet).toBeUndefined(); expect(d.title).toBe('init · Claude stopped · 7 left')
     expect(d.lines.slice(0, 2)).toEqual(['Claude stopped with checks still failing', 'Claude: "I cannot run git here: the folder is read-only."'])
     expect(d.options.map(o => o.label)).toEqual(['Let Claude try again', 'Stop setup']); expect(sent).toEqual([])   // no follow-up: the human decides
-    expect((await h.secret.read()).run).toBeUndefined(); expect(await statusLine(h)).toBe('setup · 1 needs you · press 1')
+    expect((await h.secret.read()).run).toBeUndefined(); expect(await statusLine(h)).toBe('setup · 1 needs you · press 1 to answer')
   })
   test('three refusals, each after Claude tried (tool calls): the fourth stop goes through and the dialog says so; a green stop is never refused', async () => {
     const { h, tick, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]; await start(h, 'init'); await tick()
