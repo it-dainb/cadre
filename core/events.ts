@@ -11,7 +11,7 @@ export const TABLE: Record<EventType, Row> = {
   'task.transitioned': ['mod', 'info', false, ['taskId', 'from', 'to'], ['cites']],   // cites: a spike's citation count on done
   'task.phase_changed': ['mod', 'info', false, ['taskId', 'from', 'to']],
   'task.skipped': ['mod', 'info', false, ['taskId', 'on']],
-  'agent.bound': ['mod', 'info', false, ['agentId', 'taskId', 'role'], ['tier']],   // tier: a reviewer's depth (ADR 0016)
+  'agent.bound': ['mod', 'info', false, ['agentId', 'taskId', 'role'], ['tier', 'model', 'effort', 'escalated', 'forced']],   // tier: a reviewer's depth (ADR 0016); model/effort the run used (0.11.0)
   'agent.unbound': ['mod', 'info', false, ['agentId', 'reason']],                 // reason: answer|stopped|stale|rebind
   'check.ran': ['mod', 'info', false, ['taskId', 'name', 'ok'], ['phase', 'failing', 'secs', 'exit']],
   'flag.raised': ['mod', 'warn', true, ['taskId', 'flag']],

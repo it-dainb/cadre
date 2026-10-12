@@ -8,8 +8,9 @@ export const defaults = () => ({
   changelog: { path: 'CHANGELOG.md' },
   roles: {
     testerView: 'view', tdd: { author: 'separate' },
-    worker: { tier: 'standard', effort: 'default' }, tester: { tier: 'standard', effort: 'default' },
-    reviewer: { tier: 'standard', effort: 'default' }, explorer: { tier: 'fast', effort: 'low' },
+    worker: { tier: 'standard', effort: 'default', byRisk: {}, escalate: { after: 0, to: '' } }, tester: { tier: 'standard', effort: 'default', byRisk: {}, escalate: { after: 0, to: '' } },
+    reviewer: { tier: 'standard', effort: 'default', byRisk: {}, escalate: { after: 0, to: '' } },   // byRisk: {light|standard|thorough: {tier, effort}}; escalate.after 0 = off (core/risk.route)
+    explorer: { tier: 'fast', effort: 'low' },
   },
   models: { fast: 'haiku', standard: 'sonnet', deep: 'opus' },
   adapters: {} as Record<string, unknown>,
@@ -35,7 +36,7 @@ export const CLASS: Record<string, Cls> = {
   adapters: 'U', store: 'U', 'store.timeoutMs': 'O', 'store.pollMs': 'O', worktrees: 'U', drive: 'U', 'drive.mode': 'S', 'cost.prices': 'U', disable: 'U',
 }
 // Free-form subtrees: keys under them are not validated against the defaults.
-export const OPEN = ['adapters', 'sync', 'types', 'packages', 'cost.prices']
+export const OPEN = ['adapters', 'sync', 'types', 'packages', 'cost.prices', 'roles.worker.byRisk', 'roles.tester.byRisk', 'roles.reviewer.byRisk']
 // Tighten rule per S key (repo layer): bool -> only the strict value; enum -> the stricter (later) value; list -> intersection.
 export const TIGHTEN: Record<string, ['bool', boolean] | ['enum', ...string[]] | ['list'] | ['min'] | ['grow']> = {
   'review.tiers.light.files': ['min'], 'review.tiers.light.lines': ['min'], 'review.tiers.thorough.files': ['min'], 'review.tiers.thorough.lines': ['min'], 'review.tiers.risky': ['grow'],   // ADR 0016: a repo may only send more changes to the deeper review

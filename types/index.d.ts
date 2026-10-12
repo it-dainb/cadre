@@ -72,7 +72,7 @@ export interface Secret {
 export interface Binding {
   taskId: string; role: Role; step: string; worktree: string; sessionId: string
   lastReviewedCommit?: string; ctxTokens: number; startedAt: number
-  lastAt?: number; retired?: boolean                   // last turn.step (idle clock, core/reuse); retired = needs a fresh spawn (admission rebinds it)
+  lastAt?: number; retired?: boolean; effort?: string                   // last turn.step (idle clock, core/reuse); retired = needs a fresh spawn (admission rebinds it)
 }
 export interface GitState {
   busy: boolean; epoch: number

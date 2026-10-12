@@ -194,6 +194,17 @@ describe('review spawn', () => {
       expect(/\b(light|thorough|tier)\b/i.test(seen[0].prompt.replace(/Small change|Large or sensitive change/g, ''))).toBe(false)
     }
   })
+  test('routing: byRisk + escalation after a failed round; model/effort recorded on the task, the bound event and the binding; env overrides recorded as forced', async () => {
+    const { w, h, d, id } = await inReview('reviewer'); await w.store.update(id, { labels: [] }, d.actor); w.numstat.out = '1\t1\tsrc/a.ts\n'
+    Object.assign(d.cfg.roles.reviewer, { byRisk: { light: { effort: 'medium' } }, escalate: { after: 1, to: 'deep' } })
+    const a = ok('rv1'); await admitWith(h, d, spawn(id), a.next); expect(a.seen[0].model).toBe('sonnet'); expect((await h.bind.read()).rv1.effort).toBe('medium')
+    expect(JSON.parse((await w.store.get(id)).meta['cadre.runs'])).toEqual([{ role: 'reviewer', model: 'sonnet', effort: 'medium', risk: 'light' }])
+    await h.bind.update(() => ({})); await w.store.setMeta(id, { 'cadre.rework': '1' }, d.actor)
+    const b = ok('rv2'); await admitWith(h, d, spawn(id), b.next); expect(b.seen[0].model).toBe('opus')
+    const ev = ofEpic(await h.events.read(), (await h.board.read()).epic!).filter(e => e.type === 'agent.bound').at(-1)!; expect(ev.data).toMatchObject({ model: 'opus', effort: 'medium', escalated: true })
+    await h.bind.update(() => ({})); (h as any).env = async () => ({ CLAUDE_CODE_EFFORT_LEVEL: 'low' })
+    await admitWith(h, d, spawn(id), ok('rv3').next); expect(JSON.parse((await w.store.get(id)).meta['cadre.runs']).at(-1)).toMatchObject({ effort: 'low', forced: '/low' })
+  })
   test('never below sonnet: a fast reviewer tier is raised to standard', async () => {
     const { w, h, d, id } = await inReview('reviewer'); await w.store.update(id, { labels: [] }, d.actor); d.cfg.roles.reviewer.tier = 'fast'
     const { next, seen } = ok('rv1'); await admitWith(h, d, spawn(id), next); expect(seen[0].model).toBe('sonnet')

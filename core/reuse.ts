@@ -77,8 +77,8 @@ export function usdOf(u: U, cfg: any): number | undefined {   // cost.prices: {<
 }
 const ck = (id: string) => `cadre:cost:${id}`
 export async function* step(h: Host, e: any, next: (e: any) => any): AsyncGenerator<any, any, any> {
-  const b = e.agentId && (await h.bind.read())[e.agentId], eff = b && (await safe(h, 'effort', async () => (await cfgOf(h)).roles[b.step === 'tester' ? 'tester' : b.role]?.effort))
-  const r = yield* next(eff && eff !== 'default' ? { ...e, effort: eff } : e)   // TM-03: roles.<role>.effort; 'default' keeps the agent file's frontmatter
+  const b = e.agentId && (await h.bind.read())[e.agentId], eff = b && (b.effort ?? (await safe(h, 'effort', async () => (await cfgOf(h)).roles[b.step === 'tester' ? 'tester' : b.role]?.effort)))
+  const r = yield* next(eff && eff !== 'default' ? { ...e, effort: eff } : e)   // TM-03: the effort admission routed for this run (core/risk.route), else roles.<role>.effort; 'default' keeps the agent file's frontmatter
   if (r?.usage) await safe(h, 'cost', async () => {
     const id = e.agentId ?? 'main'
     await h.store.set(ck(id), add(((await h.store.get(ck(id))) as U) ?? zero(), r.usage)); const ak = await scoped(h, 'cost:all'); await h.store.set(ak, add(((await h.store.get(ak)) as U) ?? zero(), r.usage))

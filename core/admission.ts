@@ -8,7 +8,7 @@ import { kindOf, pipeOf, type TypeRegistry } from '../task-management/registry'
 import { repoKeyOf } from '../commands/init'
 import { cfgOf, storeOf } from './dispatch'
 import { agentsOf, bindAgent, commit, leaseLive, safe, sessionOf, unbindAgent } from './board'
-import { FOCUS, parseNumstat, reviewTier, type Tier } from './risk'
+import { FOCUS, parseNumstat, reviewTier, route, taskRisk, type RoleRoute, type Tier } from './risk'
 import { held, ownerOf, savePointer, stampAlive } from './session'
 import { BLOCKING, apply, epicNext } from './machine'
 import { emit } from './events'
@@ -42,11 +42,9 @@ export async function resolveDeps(h: Host): Promise<Deps> {
 }
 export const admit: Hook = async (h, e, next) => { await warm(h); return admitWith(h, await resolveDeps(h), e, next) }
 
-const modelOf = (d: Deps, role: Role, rt?: Tier) => {
-  const base = d.cfg.roles[role]?.tier   // ADR 0016: a reviewer is never below standard (sonnet); a thorough review takes the deep tier
-  const tier = role === 'reviewer' ? (rt === 'thorough' ? 'deep' : base === 'fast' ? 'standard' : base) : base
-  return tier ? (d.cfg.models as Record<string, string>)[tier] ?? tier : undefined
-}
+// model x effort for a run (core/risk.route); env overrides beat cadre and are recorded as forced (Claude Code applies them anyway)
+const rounds = (task?: { meta: Record<string, string> }) => (+(task?.meta['cadre.rework'] ?? 0) || 0) + (+(task?.meta['cadre.rebase'] ?? 0) || 0)
+const routeOf = (d: Deps, role: Role, risk: Tier, n = 0) => route(d.cfg.roles[role] as RoleRoute, d.cfg.models, risk, n, role === 'reviewer')
 const stepsOf = (d: Deps) => (type: string, lane?: string) => { const p = pipeOf(d.reg)(type, lane); return d.view ? p : p.filter(s => s !== 'tester' && s !== 'red') }   // no view builder: tester/red skipped
 
 export async function admitWith(h: Host, d: Deps, e: any, next: (e: any) => any): Promise<any> {
@@ -56,7 +54,7 @@ export async function admitWith(h: Host, d: Deps, e: any, next: (e: any) => any)
   if (ids.length > 1) return deny(`one agent takes one task, but the prompt names ${ids.join(', ')}; spawn one agent per task`)
   if (!ids.length) {   // marker-less: a read-only explorer; forks pass untouched
     if (e.fork) return next(e)
-    const m = modelOf(d, 'explorer')
+    const m = routeOf(d, 'explorer', 'light').model
     const r = await next({ ...e, subagentType: 'cadre:explorer', ...(m ? { model: m } : {}), prompt: modelText('agent-brief', brief('explorer', { id: '', title: '', type: '', question: e.prompt })) })
     if (r?.agentId) await asked(h, r.agentId, e)   // tracked from the start: its stop is observed and main only sees its card (core/asks)
     return r
@@ -71,15 +69,19 @@ export async function admitWith(h: Host, d: Deps, e: any, next: (e: any) => any)
 }
 
 // ---- shared tail: retype, model, cwd, next(), bind. A rejected or thrown spawn runs `undo` (release) and rethrows. ----
-async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTask, role: Role, prompt: string, cwd: string, step: string, wt: string, undo: () => Promise<void>, rt?: Tier) {
-  const m = modelOf(d, role, rt)
+async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTask, role: Role, prompt: string, cwd: string, step: string, wt: string, undo: () => Promise<void>, rt?: Tier, task?: Task) {
+  const risk = rt ?? taskRisk(d.cfg.review.tiers, pathsOf(task), !!task?.labels.some(l => d.cfg.review.deepLabels.includes(l)), [], task?.meta['cadre.risk'])
+  const r0 = routeOf(d, step === 'tester' ? 'tester' : role, risk, rounds(task)), env = await h.env()
+  const forced = env.CLAUDE_CODE_SUBAGENT_MODEL || env.CLAUDE_CODE_EFFORT_LEVEL ? `${env.CLAUDE_CODE_SUBAGENT_MODEL ?? ''}/${env.CLAUDE_CODE_EFFORT_LEVEL ?? ''}` : undefined
+  const run = { role, model: env.CLAUDE_CODE_SUBAGENT_MODEL || r0.model || 'default', effort: env.CLAUDE_CODE_EFFORT_LEVEL || r0.effort || 'default', risk, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }
   let r: any
-  try { r = await next({ ...e, subagentType: `cadre:${role}`, prompt: modelText('agent-brief', prompt), ...(m ? { model: m } : {}), cwd }) } catch (err) { await undo(); throw err }
+  try { r = await next({ ...e, subagentType: `cadre:${role}`, prompt: modelText('agent-brief', prompt), ...(r0.model ? { model: r0.model } : {}), cwd }) } catch (err) { await undo(); throw err }
   if (r?.deny) { await undo(); return r }
   await unbindAgent(h, `~${t.id}`)
   if (r?.agentId) {
-    await bindAgent(h, r.agentId, { taskId: t.id, role, step, worktree: wt, sessionId: d.session, ctxTokens: 0, startedAt: await h.now() })
-    await emit(h, 'agent.bound', { agentId: r.agentId, taskId: t.id, role, ...(rt ? { tier: rt } : {}) }, { agentId: r.agentId, taskId: t.id, actor: 'mod' })
+    await bindAgent(h, r.agentId, { taskId: t.id, role, step, worktree: wt, sessionId: d.session, ctxTokens: 0, startedAt: await h.now(), ...(r0.effort ? { effort: r0.effort } : {}) })
+    await emit(h, 'agent.bound', { agentId: r.agentId, taskId: t.id, role, ...(rt ? { tier: rt } : {}), model: run.model, effort: run.effort, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }, { agentId: r.agentId, taskId: t.id, actor: 'mod' })
+    if (task) await safe(h, 'runs', async () => { let a: unknown[] = []; try { a = JSON.parse((await d.store.get(t.id)).meta['cadre.runs'] || '[]') } catch {}; await d.store.setMeta(t.id, { 'cadre.runs': JSON.stringify([...a, run].slice(-20)) }, d.actor) })
     await h.store.set(`cadre:${d.key}:hb:${t.id}`, { s: d.session, at: 0 })   // the owner session (core/session.ownerOf): another session judges the claim by it; at 0: the next tick renews the claim
     await safe(h, 'pointer', () => savePointer(h))   // S22: a /clear before main's next turn.complete must still find this binding (the pointer was saved only there)
   }
@@ -157,7 +159,7 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
       meta = { ...meta, 'cadre.base': task.meta['cadre.base'] ?? base, 'cadre.branch': branch, 'cadre.worktree': wt }
     }
     await d.store.setMeta(t.id, meta, d.actor); if (!spike) await lockCore(h, d, t.id)   // a core that already landed is locked for this task
-    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, await plan(d, s, t))), cwd, step, spike ? '' : cwd, undo)
+    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, await plan(d, s, t))), cwd, step, spike ? '' : cwd, undo, undefined, task)
   } catch (err) {
     await undo()
     if (err instanceof StoreError) return deny(`${err.code}: ${err.message}`)
@@ -200,7 +202,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
       handoff = [`checkpoint ${cp}: the work so far is committed in your tree; continue from it, do not redo it`, await G.diffStat(h.run, wt, `${hb}..${cp}`), await G.diffPatch(h.run, wt, `${hb}..${cp}`), task.meta['cadre.lastCheck'] ? `last check: ${task.meta['cadre.lastCheck']}` : '', task.meta['cadre.report'] ?? ''].filter(Boolean).join('\n')
     }
     const cwd = spike ? d.root : viewed(d, role) ? await d.view!(h, d, task, wt) : wt
-    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, { ...(await plan(d, s, t)), handoff, decisions: task.meta['cadre.decision'] ? [task.meta['cadre.decision']] : undefined })), cwd, t.step, spike ? '' : cwd, undo)
+    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, { ...(await plan(d, s, t)), handoff, decisions: task.meta['cadre.decision'] ? [task.meta['cadre.decision']] : undefined })), cwd, t.step, spike ? '' : cwd, undo, undefined, task)
   } catch (err) { await undo(); throw err }
 }
 
@@ -216,7 +218,7 @@ async function review(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
     const epicMeta = s.epic ? (await d.store.get(s.epic).catch(() => null))?.meta['cadre.corePaths'] : undefined, core: string[] = (() => { try { return JSON.parse(epicMeta ?? '[]') } catch { return [] } })()
     const rt = reviewTier(d.cfg.review.tiers, parseNumstat(await G.git(h.run, wt, ['diff', '--numstat', `${base}..${src}`])), task.labels.some(l => d.cfg.review.deepLabels.includes(l)), core)
     await d.store.setMeta(t.id, { 'cadre.reviewTier': rt }, d.actor)
-    const r = await launch(h, d, e, next, t, 'reviewer', brief('reviewer', briefOf(s, t, task, e, d, 'reviewer', { sourceCommit: src, diffStat, diff, report: task.meta['cadre.report'], flags: t.flags, focus: FOCUS[rt] })), wt, 'reviewer', wt, undo, rt)
+    const r = await launch(h, d, e, next, t, 'reviewer', brief('reviewer', briefOf(s, t, task, e, d, 'reviewer', { sourceCommit: src, diffStat, diff, report: task.meta['cadre.report'], flags: t.flags, focus: FOCUS[rt] })), wt, 'reviewer', wt, undo, rt, task)
     if (r?.agentId) await commit(h, b => ({ ...b, tasks: b.tasks.map(x => (x.id === t.id ? { ...x, owner: d.actor } : x)) }))   // the reviewer runs the step now (close clears it at the worker's report); no agent bound: nobody would ever clear it
     return r
   } catch (err) { await undo(); throw err }
