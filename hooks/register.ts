@@ -21,7 +21,7 @@ import { handle, SPECS } from '../tools/index'
 import { context, attachment } from '../core/briefs'
 import { decide, run } from '../commands/cadre'
 import { nudge } from '../commands/doctor'
-import { pump, turnEnd } from '../commands/agentrun'
+import { pump, turnEnd, seen, stopCheck, redNote, watch } from '../commands/agentrun'
 import { tick } from '../task-management/sync-engine/loop'
 import { autoAsk, onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapCard, resumeBanner } from '../ui/index'
 import { load } from '../config/index'
@@ -45,6 +45,16 @@ wire.store = async (h, cfg, root) => {
   const actor = String((await h.store.get(`cadre:${repoKeyOf(root)}:actor`)) ?? '') || `cadre/${h.rand(3)}`
   await h.store.set(`cadre:${repoKeyOf(root)}:actor`, actor)
   return new BdStore({ run: h.run, cwd: root, actor, bin: cfg.store.bin, timeoutMs: cfg.store.timeoutMs, dir: await dirOf(h, root) })
+}
+
+// The repo root: the git top level above the session's project root (Claude Code started in a package folder still works on the repo), spelled from the
+// session's own path (--show-cdup, not a realpath: the per-repo keys stay what they were). Not inside git yet (setup runs `git init`): the project root, asked again after 5 s.
+const tops = new Map<string, { v: string; at: number }>()
+async function top($): Promise<string> {
+  const r = String(await $.session.root()), now = Date.now(), m = tops.get(r); if (m && (m.v !== r || now - m.at < 5000)) return m.v
+  const o = await $.process.run(['git', 'rev-parse', '--show-cdup'], { cwd: r }).catch(() => ({ exitCode: 1, stdout: '' }))
+  const up = o.exitCode ? 0 : String(o.stdout).trim().split('/').filter(x => x === '..').length, v = up ? r.split('/').slice(0, -up).join('/') || '/' : r
+  tops.set(r, { v, at: now }); return v
 }
 
 let options: Host['options'] = {}   // set by register(); module vars reset on reload, which re-runs register
@@ -85,7 +95,7 @@ function host($): Host {
       } finally { void it.return?.(undefined) }
     },
     write: async (p, t) => { await $.fs.write(p, t) },
-    cwd: async () => (await read($, secret)).root ?? rootFor(((await $.store.get('cadre:roots')) ?? undefined) as Record<string, string> | undefined, await $.session.root()), home: async () => String((await $.env.get('HOME')) ?? ''),
+    cwd: async () => (await read($, secret)).root ?? rootFor(((await $.store.get('cadre:roots')) ?? undefined) as Record<string, string> | undefined, await top($)), home: async () => String((await $.env.get('HOME')) ?? ''),
     ops: {   // ui/ side effects; a press's own work and every timer run through after()
       els: e => $.ui.resolve(e), open: a => $.ui.open(a), focused: async () => (await $.ui.panes()).some(p => p.id === 'cadre' && p.isFocused),
       toast: (t, o) => { void $.ui.toast(t, o) }, status: t => { void $.ui.status(t) }, invalidate: () => { void $.ui.invalidate('ui.render') }, blit: a => $.ui.blit(a),
@@ -135,14 +145,14 @@ export const register: Register = (on, opts) => {
   // session.start: agents, command, tools env, the one tick. Awaited before turn one (L7).
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'cadre', description: 'cadre: plan, approve, status, resolve, release, drive, init, setup, doctor', argumentHint: '<sub> [args]', immediate: true })
-    const root = await $.session.root(); await update($, secret, x => ({ ...x, root })); await $.store.set('cadre:roots', { ...(((await $.store.get('cadre:roots')) ?? {}) as object), [repoKeyOf(root)]: root })   // the repo root for every hook. Never $.session.cwd(): it follows a Bash `cd` (main in a package folder read its checks and store there after a /clear, live 0.9.1) and in a subagent hook it is the agent's view/worktree
+    const root = await top($); await update($, secret, x => ({ ...x, root })); await $.store.set('cadre:roots', { ...(((await $.store.get('cadre:roots')) ?? {}) as object), [repoKeyOf(root)]: root })   // the repo root for every hook. Never $.session.cwd(): it follows a Bash `cd` (main in a package folder read its checks and store there after a /clear, live 0.9.1) and in a subagent hook it is the agent's view/worktree
     await seed($).catch(x => $.ui.log(`dev scenario not seeded: ${x}`))   // dev only: CADRE_DEV=1 + CADRE_DEV_SCENARIO (harness/tui.sh --scenario)
     await $.env.set('CLAUDE_CODE_ENABLE_TODO_TOOLS', '1')
     await $.env.set('ENABLE_TOOL_SEARCH', 'false')   // S13: isDeferred:false alone does not stop deferral
     await wake(host($)).catch(e => $.ui.log(`session start: ${e}`))   // active repos only: $.store 'policy' + cadre.ui.cfg + containment band (agents ship as agents/*.md files, A28)
     for (const t of SPECS) await $.tool.register(t)   // report, inspect, run_check: isDeferred:false (5.2)
     { const h = host($); if (await wake(h).catch(() => false)) await nudge(h).catch(() => {}) }   // active repos only: no setup stamp for this Claude Code build -> one toast
-    $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
+    $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void watch(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
     $.clock.every(30_000, () => { const h = host($); void wake(h).then(act => act && tickUi(h)).catch(() => {}) })   // live timeline cursor (blit, no re-render)
     return next(e)
   })
@@ -160,6 +170,10 @@ export const register: Register = (on, opts) => {
   // 6. wrap (L3 per-call fingerprint, delta drain, result card, tester log); then our own MCP tools answer innermost
   on('tool.call', { tool: /^/ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return wrap(host($), e, next) }).catch(denyCall)
   on('tool.call', { tool: /^mcp__cadre__/ }, ($, e, next) => handle(host($), e, next)).catch(denyCall)
+  // agent-run setup/init: main's tool results carry what is still red; its stop is refused while a check it owns is red; turn.start feeds the watchdog (commands/agentrun)
+  on('tool.call', { tool: /./ }, async ($, e, next) => { const r = await next(e); if (e.agentId) return r; const h = host($); await seen(h, { tool: true }).catch(() => {}); const t = r?.result !== undefined ? await redNote(h).catch(() => null) : null; return t ? { ...r, context: [...(r.context ?? []), modelText('context', t)] } : r }).catch(passOn)   // a note only: on failure the result goes through as it is
+  on('classic.Stop', async ($, e, next) => { const r = await next(e); const t = await stopCheck(host($), e).catch(() => null); return t ? { ...r, block: modelText('nudge', t) } : r }).catch(passOn)
+  on('turn.start', async ($, e, next) => { const r = await next(e); await seen(host($), { start: true }).catch(() => {}); return r })
   on('tool.describe', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return describe(host($), e, next) })
   // 7. session.send
   on('session.send', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return send(host($), e, next) }).catch(denySend)

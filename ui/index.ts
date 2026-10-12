@@ -30,9 +30,10 @@ export async function openPane(h: Host, tab: string, o: { focus?: boolean; quiet
   const opened = o.pre ?? h.ops!.open({ ...OPEN, ...(o.focus === false ? {} : { focus: true as const }) })   // `focus: false` is refused by the engine: leave it out
   const v = await read(h)
   await h.ui.update(u => ({ ...u, tab }))
-  const r = await opened
+  const r = await Promise.resolve(opened).catch((x: Error) => ({ isPlaced: false, reason: String(x?.message ?? x) }))   // a refused open used to vanish in the callers' catch: say why
+  await h.ui.update(u => ({ ...u, paneErr: r.isPlaced ? undefined : { at: v.now, reason: (r.reason ?? 'not placed').slice(0, 120) } }))   // Doctor shows the last failure
   if (!r.isPlaced) {
-    if (!o.quiet) { h.toast(`pane not shown${r.reason ? ` · ${r.reason.slice(0, 30)}` : ''}`) }
+    if (!o.quiet) { h.toast(`pane not shown${r.reason ? ` · ${r.reason.slice(0, 40)}` : ''}`) }
     if (decisions(v).length) later(h, () => answerDialog(h))   // no pane (VS Code panel, Remote Control) and no band key: the dialog of the oldest decision
   }
   if (!o.quiet) await ack(h)

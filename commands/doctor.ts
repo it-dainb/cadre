@@ -177,5 +177,6 @@ export async function doctor(h: Host): Promise<string> {
   const cfg = await cfgOf(h)
   const m = await machine(h, cfg)   // read-only: a fix line only when its script already exists (setup writes them)
   for (const x of m.scripts) if (x.run && (await h.readText(x.path)) === null) for (const r of m.rows) if (r[2] === `! ${x.run}`) r[2] = 'run /cadre setup to prepare the fix'
-  return report(h, 'doctor', [...m.rows, await prefsRow(h), ...(await project(h, cfg))])
+  const pe = (await h.ui.read()).paneErr as { reason: string } | undefined   // ui/index.openPane: the last open that failed this session
+  return report(h, 'doctor', [...m.rows, await prefsRow(h), ...(pe ? [['warn', `the cadre pane could not open: ${pe.reason}`, 'run /cadre to open it; if it keeps failing, report the reason'] as Row] : []), ...(await project(h, cfg))])
 }

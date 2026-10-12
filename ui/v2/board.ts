@@ -43,7 +43,7 @@ export function needsOne(v: View, w: number, a: Acts): Line[] {
 export function runBody(v: View, w: number): Line[] {
   const d = runOf(v), out: Line[] = [sp(g(v, 'run'), S(clip(` ${d ? d.title.replace(`${SEP}Claude is on it`, '') : `${v.sec.run?.kind} is running`}`, w - 2), undefined, { b: true }))]
   for (const l of d?.lines ?? []) out.push(sp(S(clip(`    ${l}`, w), checkColor(l[0]))))
-  return [...out, sp(S(clip(`  ${v.sec.run?.kind} is running${SEP}the checks run again when Claude stops`, w), color('muted')))]
+  return [...out, ...(v.sec.run ? [sp(S(clip(`  ${v.sec.run.kind} is running${SEP}the checks run again when Claude stops`, w), color('muted')))] : [])]   // stopped: the run is over, its dialog says what is left
 }
 // ---- sections ----
 function trow(v: View, t: SnapTask, w: number, a: Acts, o: { sel: string; flash: string[]; facts?: string[]; time?: string; mute?: boolean }): Line {

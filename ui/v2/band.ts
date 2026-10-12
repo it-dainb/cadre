@@ -11,6 +11,7 @@ export function band2(v: View, w: number, a: Acts): Line[] {
   return ascii(v) ? out.map(l => l.map(s => ({ ...s, t: asciiText(s.t) }))) : out
 }
 function lines(v: View, w: number, a: Acts): Line[] {
+  const pane = (t: string): Seg => S(t, color('muted'), t ? { k: 'pane', p: () => a.go('epic') } : {})   // a click on the plan opens the pane (the [-] at the band's corner is Claude Code's own: it folds the band away)
   const p = v.b.plan, needs = needsOf(v), dr = driveOf(v), bad = problem(v), ts = v.b.tasks, job = runOf(v)
   if (!p && !needs.length && !job) return []
   const landed = p && (p.state === 'done-on-dev' || p.state === 'released'), run = running(ts), top = run[0]
@@ -21,7 +22,7 @@ function lines(v: View, w: number, a: Acts): Line[] {
   let l1: Line = []
   if (p) {
     const head = `${p.id}${wide ? ` ${p.slug}` : ''}`, pr = p.lane === 'milestone' ? '' : prog(ts), hp = [head, pr].filter(Boolean).join(SEP)   // a milestone: the pane header owns the epic count (P2)
-    const right: Line = bothCell.length ? [muted(wide ? `${hp}${SEP}` : ''), ...bothCell] : [muted(tight ? '' : wide ? hp : pr || head)]
+    const right: Line = bothCell.length ? [pane(wide ? `${hp}${SEP}` : ''), ...bothCell] : [pane(tight ? '' : wide ? hp : pr || head)]
     if (bad) l1 = lr(w, [g(v, 'fail'), S(' '), S(bad, color('danger'))], right.filter(s => s.t || s.hk))
     else if (landed) l1 = lr(w, [g(v, 'done'), S(` ${p.id} landed on dev`)], right.filter(s => s.t || s.hk))
     else if (top) {
@@ -29,7 +30,7 @@ function lines(v: View, w: number, a: Acts): Line[] {
       const left: Line = tight ? [g(v, 'run'), S(` ${top.id}${SEP}${pr || p.id}`)] : [g(v, 'run'), S(` ${top.id} `), S(top.title, undefined, { b: false }), muted(more)]
       l1 = lr(w, left, tight ? bothCell.filter(s => s.hk) : right.filter(s => s.t || s.hk))
     } else l1 = lr(w, [g(v, 'wait'), muted(` ${[p.id, pr].filter(Boolean).join(' ')}`)], bothCell.filter(s => s.hk || s.t))
-  } else if (job) l1 = [g(v, 'run'), S(clip(` ${job.id.slice(4)} is running${tight ? '' : `${SEP}Claude is on it`}`, w - 2))]   // init/setup: progress, no key
+  } else if (job && v.sec?.run) l1 = [g(v, 'run'), S(clip(` ${job.id.slice(4)} is running${tight ? '' : `${SEP}Claude is on it`}`, w - 2), undefined, { k: 'pane', p: () => a.go('epic') })]   // init/setup: progress, no key
   // line 2
   let l2: Line | undefined
   if (needs.length) {

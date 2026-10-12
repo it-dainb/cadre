@@ -73,6 +73,11 @@ describe('keys', () => {
     segs(band(approval(), 115, a)).find(s => s.hk === '1')!.p!(); segs(band(view(82), 115, a)).find(s => s.hk === '1')!.p!()
     expect(got).toEqual(['answer:plan:p3', expect.stringMatching(/^answer:flag:/)])
   })
+  // live 0.9.1: the [-] at the band's corner is Claude Code's own (it folds the band away); a click on the plan in the band opens the pane
+  test('a click on the plan in the band opens the pane', async () => {
+    const got: string[] = [], a = { go: (t: string) => { got.push(`go:${t}`) }, pick: () => {}, answer: () => {}, step: () => {} }
+    segs(band(view(62), 115, a)).find(s => s.k === 'pane')!.p!(); expect(got).toEqual(['go:epic'])
+  })
 })
 
 describe('notification policy (UI-DESIGN 4)', () => {
@@ -171,6 +176,9 @@ describe('render hooks, handlers, fallbacks', () => {
     expect(a.of('open')).toEqual([{ id: 'cadre', title: 'cadre', focus: true, columns: 120 }]); expect(await read(a.h).then(v => v.ui.tab)).toBe('board'); expect((a.h as any).logs).toHaveLength(0)
     const b = mk({ open: async () => ({ isPlaced: false, reason: 'no room' }) }); await seed(b.h, approval(62)); await openPane(b.h, 'board')
     expect((b.h as any).toasts[0]).toContain('no room')
+    const c = mk({ open: async () => { throw new Error('ui.open refused: no pane surface') } }); await seed(c.h, approval(62)); await openPane(c.h, 'board')   // a rejected open used to vanish
+    expect((c.h as any).toasts[0]).toBe('pane not shown · ui.open refused: no pane surface'); expect((await read(c.h)).ui.paneErr).toMatchObject({ reason: 'ui.open refused: no pane surface' })
+    await openPane(a.h, 'board'); expect((await read(a.h)).ui.paneErr).toBeUndefined()
   })
   test('handlers: n/p select, h/l move the cursor (live at the edge), e = live, done toggle, key sheet toggle', async () => {
     const a = mk(); await seed(a.h); const x = acts(a.h), st = async (w: string, d = 0) => { x.step(w, d); await a.run(); return read(a.h) }

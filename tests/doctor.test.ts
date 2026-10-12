@@ -161,6 +161,10 @@ describe('toasts', () => {
     const h = mk(); await contain(h)
     expect(h.toasts).toEqual(['cadre: containment degraded · /cadre doctor']); expect(h.toasts[0].length).toBeLessThanOrEqual(60)
   })
+  test('a pane that could not open is a Doctor row with the reason', async () => {
+    const h = mk(); await h.ui.update(u => ({ ...u, paneErr: { at: 1, reason: 'no pane surface' } }))
+    await doctor(h); expect(JSON.stringify((await h.ui.read())['doctor.rows'])).toContain('the cadre pane could not open: no pane surface')
+  })
   // live 0.9.1: right after the safety confirm the session still read the old settings; the band said degraded until a restart
   test('the tick moves a degraded band to contained once the session reads the new settings; quietly, and never down', async () => {
     let s: Record<string, any> = {}; const h = mk(); Object.assign(h, { settings: async () => s }); await setPolicy(h, { repo: '/repo', wtRoot: '/wt/repo', home: HOME })

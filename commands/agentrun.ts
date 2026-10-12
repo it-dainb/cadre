@@ -14,7 +14,7 @@ import { diff as jdiff } from '../policy/settings'
 
 type Kind = 'setup' | 'init'
 const G: Record<Item['st'], string> = { ok: '✓', fail: '✗', wait: '…', todo: '·', warn: '!' }
-const items = (h: Host, k: Kind) => (k === 'setup' ? setupItems(h) : initItems(h))
+const items = (h: Host, k: Kind, quick = false) => (k === 'setup' ? setupItems(h) : initItems(h, { quick }))
 const finished = (its: Item[]) => its.every(i => i.st === 'ok' || i.st === 'warn')
 const WHAT = { setup: 'Set up cadre on this machine', init: 'Set up cadre in this project' }
 
@@ -30,15 +30,26 @@ export async function pump(h: Host): Promise<void> {
 
 async function draw(h: Host, k: Kind, its: Item[], state: 'on' | 'stopped' | 'done', note?: string): Promise<void> {
   const n = its.filter(i => i.st === 'ok' || i.st === 'warn').length, human = !its.some(i => i.st === 'fail') && its.some(i => i.st === 'wait')
-  const title = state === 'done' ? `${k} · all done` : state === 'stopped' ? `${k} · stopped · ${its.length - n} left` : `${k} · ${n}/${its.length} done · ${human ? 'needs you' : 'Claude is on it'}`
-  const lines = [...(note ? [note] : []), ...its.map(i => `${G[i.st]} ${i.name}${i.why ? `: ${i.why}` : ''}`)]
-  await ask(h, { id: `run:${k}`, kind: 'init', title, short: title, lines, hash: fnv1a64(title + lines.join('\n')), tab: 'epic', ...(state === 'on' && (!human || (await h.secret.read()).run?.goal) ? { quiet: true as const } : {}),   // a goal run: the human's cards (safety, then mission + plan) pop themselves; the checklist never does
-    options: [...(state === 'stopped' ? [{ key: 'r', label: 'Retry', verb: 'change', run: k }] : []), { key: 'x', label: state === 'done' ? 'Close' : 'Cancel', verb: 'reject', run: `${k} cancel` }] })
+  const title = state === 'done' ? `${k} · all done` : state === 'stopped' ? `${k} · Claude stopped · ${its.length - n} left` : `${k} · ${n}/${its.length} done · ${human ? 'needs you' : 'Claude is on it'}`
+  const lines = [...(note ? note.split('\n') : []), ...its.map(i => `${G[i.st]} ${i.name}${i.why ? `: ${i.why}` : ''}`)]
+  await ask(h, { id: `run:${k}`, kind: 'init', title, short: title, lines, hash: fnv1a64(title + lines.join('\n')), tab: 'epic', ...(state === 'done' || (state === 'on' && (!human || (await h.secret.read()).run?.goal)) ? { quiet: true as const } : {}),   // done: shown in the pane, never a "needs you"   // a goal run: the human's cards (safety, then mission + plan) pop themselves; the checklist never does
+    options: state === 'stopped' ? [{ key: 'r', label: 'Let Claude try again', verb: 'change', run: `${k} retry` }, { key: 'x', label: `Stop ${k === 'init' ? 'setup' : k}`, verb: 'reject', run: `${k} cancel` }]
+      : [{ key: 'x', label: state === 'done' ? 'Close' : 'Cancel', verb: 'reject', run: `${k} cancel` }] })
 }
+// where in the guide each check is done (guides/init.md phases)
+const PHASE: Record<string, string> = { repository: 'phase 1', 'task store': 'phase 2', mission: 'phase 3', 'build and test commands': 'phase 4', 'commands pass on a clean checkout': 'phase 4', workflow: 'phase 4', changelog: 'phase 5' }
+const redList = (fails: Item[]) => fails.map((i, n) => `${n + 1}. ${i.name}${i.why ? `: ${i.why}` : ''}${PHASE[i.name] ? ` (${PHASE[i.name]})` : ''}`)
 const followUp = async (h: Host, k: Kind, fails: Item[], guide: string) => [
-  'Some steps are still open. Each item below must pass:', ...fails.map((i, n) => `${n + 1}. ${i.name}${i.why ? `: ${i.why}` : ''}`),
-  `Keep following ${guide}. When you are done, stop; the checks run again on their own.`,
+  'Setup is not done: these checks still fail.', ...redList(fails),
+  `Fix them now, following ${guide}. If you cannot fix one, say which one and why, then stop.`,
 ].join('\n').replaceAll(`${await h.home()}/`, '~/')
+// Claude stopped with checks still red and cannot go on (refused 3 times, or it stopped without trying again): ONE dialog for the human, never a silent "running"
+async function stuck(h: Host, r: NonNullable<Secret['run']>, its: Item[], why: string): Promise<string> {
+  await end(h); await h.ui.update(u => ({ ...u, retry: { kind: r.kind, goal: r.goal } }))   // "Let Claude try again" starts the same run, the goal still queued
+  const said = (r.said ?? '').replace(/\s+/g, ' ').trim()
+  await draw(h, r.kind, its, 'stopped', [why, ...(said ? [`Claude: "${said.slice(0, 200)}${said.length > 200 ? '…' : ''}"`] : [])].join('\n'))
+  return `${r.kind}: stopped · press 1`
+}
 
 // `/cadre setup` | `/cadre init` (human origin only: core/dispatch). Nothing open: done at once. Else the lease starts and main gets the brief.
 // `goal` (the onboarding dialog's Set up, commands/cadre): init skips the mission question (drafted with the plan) and the goal flow follows once every check passes (ADR 0014)
@@ -55,7 +66,7 @@ export async function start(h: Host, k: Kind, goal?: { text: string; mode: 'auto
   return `${k}: Claude is on it · progress in the cadre pane${goal ? ' · then your goal' : ''}`
 }
 // re-check now (a main turn ended, or the human answered a gate in the dialog): done ends the run; a failure Claude owns gets a follow-up; the limits stop it
-export async function recheck(h: Host, turn = false): Promise<string> {
+export async function recheck(h: Host, turn = false, ended = turn): Promise<string> {   // ended: Claude stopped (its turn end, or the watchdog); a human answer only re-checks
   const r = (await h.secret.read()).run; if (!r) return ''
   if (await moved(h, r)) return `${r.kind}: stopped · a settings file changed · press 1`
   const k = r.kind, its = await items(h, k), fails = its.filter(i => i.st === 'fail'), turns = r.turns + (turn ? 1 : 0)
@@ -63,15 +74,54 @@ export async function recheck(h: Host, turn = false): Promise<string> {
   if (finished(its) && r.goal) { await end(h); await settle(h, `run:${k}`); await goalBrief(h, r.goal.text, r.goal.mode); h.toast('init done · Claude plans your goal'); return `${k}: all done · Claude plans your goal` }   // no "all done" dialog: the plan's dialog is next
   if (finished(its)) { await end(h); await draw(h, k, its, 'done'); h.toast(`cadre: ${k} done`); return `${k}: all done` }
   const out = turns >= LIMIT.turns || (await h.now()) - r.at >= LIMIT.ms
-  if (out || (fails.length && r.follow >= LIMIT.follow)) { await end(h); await draw(h, k, its, 'stopped', out ? 'the time or turn limit was reached' : 'Claude stopped with steps still open'); return `${k}: stopped · press 1` }
-  await h.secret.update(s => ({ ...s, run: { ...r, turns, follow: r.follow + (fails.length ? 1 : 0) } }))
+  if (out) return stuck(h, r, its, 'the time or turn limit was reached')
+  if (fails.length && ended && (r.follow >= LIMIT.follow || r.stopSeen)) return stuck(h, r, its, r.follow >= LIMIT.follow ? 'Claude stopped 3 times with checks still failing' : 'Claude stopped with checks still failing')   // stopSeen: the stop check let it stop (it said it cannot go on)
+  await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, turns, follow: s.run.follow + (fails.length && ended ? 1 : 0) } } : s))
   await draw(h, k, its, 'on')
-  if (fails.length) await send(h, await followUp(h, k, fails, r.guide))
+  if (fails.length && ended) await send(h, await followUp(h, k, fails, r.guide))   // Claude is still at work otherwise: its stop is checked when it comes
   if (turn) await pump(h)
   return `${k}: ${fails.length ? 'Claude is on it' : 'waiting for you · press 1'}`
 }
 // main's turn.complete (register.ts): works in dormant repos too
-export async function turnEnd(h: Host, e: { agentId?: string }): Promise<void> { if (!e.agentId && (await h.secret.read()).run) await recheck(h, true) }
+export async function turnEnd(h: Host, e: { agentId?: string; answer?: string }): Promise<void> {
+  if (e.agentId || !(await h.secret.read()).run) return
+  const now = await h.now(); await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, busy: false, seen: now, ...(e.answer ? { said: e.answer } : {}) } } : s))
+  await recheck(h, true)
+}
+// main's turn.start / tool.call (register.ts): the watchdog's clock, and the tool count the stop check reads
+export async function seen(h: Host, o: { start?: boolean; tool?: boolean } = {}): Promise<void> {
+  if (!(await h.secret.read()).run) return
+  const now = await h.now(); await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, seen: now, ...(o.start ? { busy: true } : {}), ...(o.tool ? { tools: (s.run.tools ?? 0) + 1 } : {}) } } : s))
+}
+
+// ---- Claude's stop during a run (classic Stop): while a check Claude owns is red, the stop is refused with the list (at most 3 per run). A second stop with no tool
+// call since the last refusal is Claude saying it cannot go on: it may stop, and its turn end shows the human the dialog. Where classic hooks are off (managed
+// machines) this never runs and the turn end sends the same list as a follow-up instead. ----
+export async function stopCheck(h: Host, e: { last_assistant_message?: string }): Promise<string | null> {
+  const r = (await h.secret.read()).run; if (!r) return null
+  const fails = (await items(h, r.kind)).filter(i => i.st === 'fail')
+  await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, stopSeen: true, ...(e.last_assistant_message ? { said: e.last_assistant_message } : {}) } } : s))
+  if (!fails.length || r.follow >= LIMIT.follow || (r.follow > 0 && !r.tools)) return null
+  await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, follow: s.run.follow + 1, tools: 0 } } : s))
+  return followUp(h, r.kind, fails, r.guide)
+}
+// ---- after each of main's tool calls in a run: one line naming what is still red (no clean-checkout run, no proposal) ----
+export async function redNote(h: Host): Promise<string | null> {
+  const r = (await h.secret.read()).run; if (!r) return null
+  const fails = (await items(h, r.kind, true)).filter(i => i.st === 'fail')
+  return fails.length ? `setup still open: ${fails.map(i => `${i.name}${i.why ? ` (${i.why})` : ''}`).join('; ')}`.replaceAll(`${await h.home()}/`, '~/') : null
+}
+// ---- the watchdog (the 5 s tick): a run whose main has been quiet for a while is checked as if Claude had stopped. A missed turn end (live: a run sat in "running"
+// with nothing working) still ends in a follow-up or the dialog. Quiet = no turn on for 60 s, or a turn on with no step or tool call for 10 minutes. ----
+export const QUIET = { idle: 60_000, busy: 600_000 }
+export async function watch(h: Host): Promise<void> {
+  const r = (await h.secret.read()).run; if (!r || r.brief) return   // a brief waiting goes out first (pump)
+  const since = (await h.now()) - (r.seen ?? r.at)
+  if (since < (r.busy ? QUIET.busy : QUIET.idle)) return
+  if (((await h.board.read()).decisions ?? []).some(d => !d.quiet)) return   // the human has something to answer: that is not a stall
+  await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, busy: false } } : s)); await seen(h)
+  await recheck(h, false, true)
+}
 // `/cadre setup|init cancel` (core/dispatch): the lease ends and the decision goes
 export async function cancel(h: Host, k: string): Promise<void> { if ((await h.secret.read()).run?.kind === k) await end(h); await settle(h, `run:${k}`) }
 

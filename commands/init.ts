@@ -169,11 +169,13 @@ const ctxOf = async (h: Host): Promise<Ctx> => {
 }
 const it = (name: string, why: string | null, blocked = false): Item => (blocked ? { name, st: 'todo', why: 'after the steps above' } : why ? { name, st: 'fail', why } : { name, st: 'ok' })
 // The checklist (also doctor's project rows). Later phases that need an earlier one wait as `todo`; containment is proposed on its card once the rest passes.
-export async function initItems(h: Host): Promise<Item[]> {
+// quick: what a tool result shows mid-run; no clean-checkout run, no safety card, no containment read
+export async function initItems(h: Host, o: { quick?: boolean } = {}): Promise<Item[]> {
   const c = await ctxOf(h), r = await repo(c), s = r ? 'needs the repository first' : await store(c), m = await mission(c), p = packages(c)
-  const a = !r && !s && !p ? await audit(c) : undefined, w = workflow(c), l = await changelog(c)
+  const a = !r && !s && !p && !o.quick ? await audit(c) : undefined, w = workflow(c), l = await changelog(c)
   const audited: Item = a && !a.why && a.red.length ? { name: 'commands pass on a clean checkout', st: 'ok', why: redLine(a.red) } : it('commands pass on a clean checkout', a?.why ?? null, !a)
   const out = [it('repository', r), it('task store', s, !!r), m, it('build and test commands', p), audited, it('workflow', w), it('changelog', l)]
+  if (o.quick) return out
   if (await contained(c)) out.push({ name: 'safety settings', st: 'ok' })
   else if (out.every(i => i.st === 'ok' || (i === m && i.st === 'wait'))) { await propose5(c, a!.caches, a!.red); out.push({ name: 'safety settings', st: 'wait', why: 'confirm them on their card' }) }
   else out.push({ name: 'safety settings', st: 'todo', why: 'after the steps above' })

@@ -26,6 +26,7 @@ export async function route(h: Host, c: Command): Promise<Out> {   // every disp
     case 'init': case 'setup': {   // Claude does the work (ADR 0010); the checklist and the containment confirm are decisions (ADR 0012)
       const conf = a === 'prefs' && c.args[1] === 'confirm' ? confirmPrefs : a === 'confirm' ? (c.cmd === 'init' ? initConfirm : confirmUser) : undefined
       const text = a === 'restore' || a === 'keep' ? await settingsAnswer(h, a)
+        : a === 'retry' ? await start(h, c.cmd, ((await h.ui.read()).retry as { goal?: { text: string; mode: 'auto' | 'yolo' } } | undefined)?.goal)   // "Let Claude try again": the same run, the goal still queued
         : conf ? [await conf(h), await resnap(h).then(() => recheck(h))].filter(Boolean).join(' · ')   // cadre's own confirmed write is not a change from outside
         : await start(h, c.cmd, c.cmd === 'init' && a === 'goal' ? ((await h.ui.read()).onboard as { text: string; mode: 'auto' | 'yolo' } | undefined) : undefined)   // `init goal`: the "Set up" answer of the onboarding dialog
       await autoAsk(h).catch(() => {})   // a new decision pops once
@@ -47,11 +48,12 @@ export const READY = 'Ready when you are · /cadre <goal> to start · /cadre yol
 export const NO_PLAN = 'No plan yet · /cadre <goal> to start'
 const setUp = async (h: Host) => !!(await h.store.get('cadre:setup'))   // commands/doctor stamps it when setup finds nothing critical
 export async function status(h: Host): Promise<string> {
-  if (!(await wake(h))) return modelText('context', (await setUp(h)) ? READY : WELCOME)   // a set-up repo implies a set-up machine: no welcome there
+  const ds = (await h.board.read()).decisions ?? [], mine = ds.filter(d => !d.quiet && /^(run|init):/.test(d.id))   // setup/init waiting on the human: said even before the repo is on
+  if (!(await wake(h))) return modelText('context', mine.length ? `setup · ${mine.length} needs you · press 1` : (await setUp(h)) ? READY : WELCOME)   // a set-up repo implies a set-up machine: no welcome there
   await warm(h)
   const b = await h.board.read(), p = b.plan, needs = (b.decisions ?? []).length, ts = b.tasks, n = `${ts.filter(t => t.state === 'done').length}/${ts.length}`
   const left = await unfinished(h)
-  const text = needs ? `${p?.id ?? 'cadre'} · ${needs} needs you · press 1 to answer`
+  const text = needs ? `${p?.id ?? (mine.length ? 'setup' : 'cadre')} · ${needs} needs you · press 1 to answer`
     : !p || p.slug === 'mission' || p.state === 'done-on-dev' || p.state === 'released' ? NO_PLAN
     : left ? `Unfinished plan ${left.id} ${left.slug} (${left.done}/${left.total}) · /cadre continue to pick it up`   // core/session.unfinished: the same test as continue and the band
     : [p.id + ' ' + p.slug, `${n} done`, ...ts.filter(t => t.state === 'active' || t.state === 'review').slice(0, 1).map(t => `running ${t.id} ${stepName(t.step)}`), '/cadre to open'].join(' · ')

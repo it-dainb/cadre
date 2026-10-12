@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { clearKnownRed, confirm, initItems, repoKeyOf, rootFor, wire } from '../commands/init'
 import { load } from '../config/index'
-import { pump, recheck, start, turnEnd } from '../commands/agentrun'
-import { SETTING_UP, decide, run as cadreRun } from '../commands/cadre'
+import { QUIET, pump, recheck, redNote, seen, start, stopCheck, turnEnd, watch } from '../commands/agentrun'
+import { SETTING_UP, decide, run as cadreRun, status as statusLine } from '../commands/cadre'
 import { guard, policyOf, setPolicy, settingsOnly, LIMIT } from '../policy/guards'
 import { wake, warm } from '../core/session'
 import { fakeHost } from './support'
@@ -120,15 +120,15 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     expect((await cadreRun(h, { args: 'init', origin: { kind: 'sdk' } }, () => ({}))).text).toContain('refused'); await tick()
     expect((await h.secret.read()).run).toBeUndefined(); expect(sent).toEqual([])
   })
-  test('main turn end: re-check, ONE follow-up naming what still fails, at most 3; then the card shows what is left and Retry', async () => {
+  test('main turn end (no stop check here, as on a managed machine): ONE follow-up naming what still fails, at most 3; then the dialog shows what is left', async () => {
     const { h, sent, tick, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]
     await start(h, 'init'); await tick(); sent.length = 0
     await turnEnd(h, { agentId: 'sub1' }); await tick(); expect(sent).toEqual([])   // a subagent's turn is not main's
     for (let i = 1; i <= 3; i++) { await turnEnd(h, {}); await tick(); expect(sent).toHaveLength(i) }
-    expect(sent[0]).toBe(`Some steps are still open. Each item below must pass:\n1. mission: no mission yet\n2. changelog: CHANGELOG.md is missing\nKeep following ${PLUG}/guides/init.md. When you are done, stop; the checks run again on their own.`)
+    expect(sent[0]).toBe(`Setup is not done: these checks still fail.\n1. mission: no mission yet (phase 3)\n2. changelog: CHANGELOG.md is missing (phase 5)\nFix them now, following ${PLUG}/guides/init.md. If you cannot fix one, say which one and why, then stop.`)
     expect(banned(sent)).toEqual([])
     await turnEnd(h, {}); await tick(); expect(sent).toHaveLength(3)
-    const d = (await card(h))!; expect(d.title).toBe('init · stopped · 3 left'); expect(d.lines[0]).toBe('Claude stopped with steps still open'); expect(d.options.map(o => o.label)).toEqual(['Retry', 'Cancel'])
+    const d = (await card(h))!; expect(d.title).toBe('init · Claude stopped · 3 left'); expect(d.lines[0]).toBe('Claude stopped 3 times with checks still failing'); expect(d.options.map(o => o.label)).toEqual(['Let Claude try again', 'Stop setup'])
     expect((await h.secret.read()).run).toBeUndefined()   // the lease ended
     expect((await decide(h, d.id, 'r', d.hash)).text).toBe('init: Claude is on it · progress in the cadre pane'); await tick(); expect(sent).toHaveLength(4); expect((await h.secret.read()).run?.follow).toBe(0)
   })
@@ -158,12 +158,65 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
   // Cause: stage 4 waited on ui.discoveryAgent, set at spawn and cleared only by an accepted report{discovery}; an unbound explorer that stopped without
   // one (text answer, refused report) is outside close.observe's nudge/auto-report, so init.after returned early forever. Now nothing waits on an agent:
   // the state is the files, re-checked at every main turn end.
-  test('regression: main answers in chat without writing the commands: the card does not stay "Claude is on it"; it is told what is missing, then stops with Retry', async () => {
+  test('regression: main answers in chat without writing the commands: the card does not stay "Claude is on it"; it is told what is missing, then the dialog', async () => {
     const { h, sent, tick } = mk({ files: { ...READY, [CFG]: JSON.stringify({ branches: { main: 'main', dev: 'dev' } }) } })
     await start(h, 'init'); await tick(); sent.length = 0
     for (let i = 0; i < 4; i++) { await turnEnd(h, {}); await tick() }   // each turn: main "summarized the discovery in chat", nothing written
     expect(sent).toHaveLength(3); expect(sent[0]).toContain('1. build and test commands: no packages in .cadre/config.json')
-    expect((await card(h))!.title).toBe('init · stopped · 3 left'); expect((await card(h))!.options.map(o => o.label)).toContain('Retry')
+    expect((await card(h))!.title).toBe('init · Claude stopped · 3 left'); expect((await card(h))!.options.map(o => o.label)).toContain('Let Claude try again')
+  })
+  // live 0.9.1 (2.1.296, a folder with no git): Claude stopped early and the run sat in "running" with nothing working. Claude's stop is refused while a check
+  // it owns is red; a stop with no tool call since the last refusal means it cannot go on; then ONE dialog for the human. Never a silent spinner.
+  test('stop with red checks: refused with the list and the guide step; a second stop without trying is let through, and the dialog shows Claude\'s words', async () => {
+    const { h, sent, tick } = mk({ repo: false, branches: [], mission: false }); await start(h, 'init'); await tick(); sent.length = 0
+    const b1 = await stopCheck(h, { last_assistant_message: 'I looked around.' })
+    expect(b1).toBe(`Setup is not done: these checks still fail.\n1. repository: no git repository yet (phase 1)\n2. mission: no mission yet (phase 3)\n3. build and test commands: no packages in .cadre/config.json (phase 4)\n4. changelog: CHANGELOG.md is missing (phase 5)\nFix them now, following ${PLUG}/guides/init.md. If you cannot fix one, say which one and why, then stop.`)
+    expect(banned(b1!)).toEqual([])
+    expect(await stopCheck(h, { last_assistant_message: 'I cannot run git here: the folder is read-only.' })).toBeNull()   // no tool call since: it says it cannot
+    await turnEnd(h, { answer: 'I cannot run git here: the folder is read-only.' }); await tick()
+    const d = (await card(h))!; expect(d.quiet).toBeUndefined(); expect(d.title).toBe('init · Claude stopped · 7 left')
+    expect(d.lines.slice(0, 2)).toEqual(['Claude stopped with checks still failing', 'Claude: "I cannot run git here: the folder is read-only."'])
+    expect(d.options.map(o => o.label)).toEqual(['Let Claude try again', 'Stop setup']); expect(sent).toEqual([])   // no follow-up: the human decides
+    expect((await h.secret.read()).run).toBeUndefined(); expect(await statusLine(h)).toBe('setup · 1 needs you · press 1')
+  })
+  test('three refusals, each after Claude tried (tool calls): the fourth stop goes through and the dialog says so; a green stop is never refused', async () => {
+    const { h, tick, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]; await start(h, 'init'); await tick()
+    for (let i = 0; i < 3; i++) { expect(await stopCheck(h, {})).toContain('changelog: CHANGELOG.md is missing (phase 5)'); await seen(h, { tool: true }) }
+    expect(await stopCheck(h, {})).toBeNull(); await turnEnd(h, {})
+    expect((await card(h))!.lines[0]).toBe('Claude stopped 3 times with checks still failing')
+    const g = mk({ files: READY }); await start(g.h, 'init'); expect(await stopCheck(g.h, {})).toBeNull()
+  })
+  test('each tool result in a run names what is still red, cheaply (no clean-checkout run); nothing when green or with no run', async () => {
+    const { h, calls, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]; expect(await redNote(h)).toBeNull()
+    await start(h, 'init'); calls.length = 0
+    expect(await redNote(h)).toBe('setup still open: mission (no mission yet); changelog (CHANGELOG.md is missing)')
+    expect(calls.some(a => a[0] === 'bwrap')).toBe(false)
+    files[`${ROOT}/CHANGELOG.md`] = skeleton(); await h.board.update(b => ({ ...b, mission: 'ship it' })); expect(await redNote(h)).toBeNull()
+  })
+  test('Let Claude try again: the same run, the goal still queued', async () => {
+    const { h, sent, tick } = mk({ repo: false, branches: [], mission: false })
+    await start(h, 'init', { text: 'implement MGIoU 1D', mode: 'auto' }); await tick(); await stopCheck(h, {}); await stopCheck(h, {}); await turnEnd(h, {}); sent.length = 0
+    const d = (await card(h))!; expect((await decide(h, d.id, 'r', d.hash)).text).toBe('init: Claude is on it · progress in the cadre pane · then your goal'); await tick()
+    expect((await h.secret.read()).run).toMatchObject({ follow: 0, goal: { text: 'implement MGIoU 1D', mode: 'auto' } }); expect(sent[0]).toContain('then plan the user\'s goal')
+  })
+  test('the watchdog: a run whose main went quiet is checked as if Claude stopped; a turn still on waits 10 minutes; the human\'s card is not a stall', async () => {
+    const { h, sent, tick } = mk({ repo: false, branches: [], mission: false }); let t = 0; Object.assign(h, { now: async () => t })
+    await start(h, 'init'); await tick(); sent.length = 0
+    await seen(h, { start: true }); t = QUIET.idle + 1; await watch(h); await tick(); expect(sent).toEqual([])   // a turn is on: not yet
+    t = QUIET.busy + 1; await watch(h); await tick(); expect(sent).toHaveLength(1); expect(sent[0]).toMatch(/^Setup is not done/)   // the turn end never came: the follow-up goes
+    await h.secret.update(s => ({ ...s, run: { ...s.run!, stopSeen: true } })); t += QUIET.idle + 1; await watch(h)
+    expect((await card(h))!.title).toBe('init · Claude stopped · 7 left')   // the stop check runs here: the dialog
+    const w = mk({ files: READY }); let u = 0; Object.assign(w.h, { now: async () => u }); await start(w.h, 'init'); await w.tick()
+    u = QUIET.idle + 1; await watch(w.h); expect((await w.h.secret.read()).run).toBeDefined()   // only the safety card waits, for the human
+  })
+  test('a folder with no git: Claude runs git init and the first commit, the checks pass, the safety confirm, then the goal', async () => {
+    const { h, g, files, sent, tick } = mk({ repo: false, branches: [], mission: false, files: { [`${PLUG}/guides/goal.md`]: (BUDGET.guides as Record<string, string>).goal } })
+    await start(h, 'init', { text: 'implement MGIoU 1D', mode: 'auto' }); await tick()
+    expect(await stopCheck(h, {})).toContain('repository: no git repository yet (phase 1)'); await seen(h, { tool: true })
+    g.repo = true; g.branches.add('main'); g.branches.add('dev'); Object.assign(files, READY)   // git init -b main, the first commit, dev, exclude, config, changelog
+    expect(await stopCheck(h, {})).toBeNull(); await turnEnd(h, {}); const c = (await card(h, 'init:5'))!
+    expect((await decide(h, c.id, 'a', c.hash)).text).toBe('init: safety settings written · init: all done · Claude plans your goal'); await tick()
+    expect(sent.at(-1)).toMatch(/^Goal from the user: implement MGIoU 1D/)
   })
   test('cancel ends the run and its lease; the card goes', async () => {
     const { h, tick } = mk({ repo: false }); await start(h, 'init'); await tick()

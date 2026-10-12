@@ -30,7 +30,7 @@ export const why = (t: SnapTask, all: SnapTask[]) => {
 // the decisions the human owes (+ a blocked task's question), oldest first; containment/sync are problems, not needs
 export type Need = { id?: string; text: string; short: string; d?: Decision; sel?: string; tab: string }
 export const isRun = (d?: Decision) => !!d?.id.startsWith('run:')
-export const needsOf = (v: View): Need[] => attention(v).filter(i => (i.d && !isRun(i.d)) || i.key.startsWith('q:')).map(i => ({ id: i.d?.id, text: i.text, short: i.short ?? i.text, d: i.d, sel: i.sel, tab: i.tab }))
+export const needsOf = (v: View): Need[] => attention(v).filter(i => (i.d && (!isRun(i.d) || (!v.sec?.run && !i.d.quiet))) || i.key.startsWith('q:')).map(i => ({ id: i.d?.id, text: i.text, short: i.short ?? i.text, d: i.d, sel: i.sel, tab: i.tab }))   // a run's checklist is progress while the run is on; once it stopped (the run is over, not done) it needs the human
 // an init/setup run in flight is progress, not a question: the band and the Board draw it as the "now" line
 export const runOf = (v: View): Decision | undefined => (v.b.decisions ?? []).find(isRun)
 export const stopK = (reason?: string): GlyphK => (/fail|outside|moved|changed|degraded/i.test(reason ?? '') ? 'fail' : 'wait')   // danger colour is for failures; a limit is a plain stop

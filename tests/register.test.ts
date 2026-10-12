@@ -68,3 +68,28 @@ test('the repo root never follows a Bash cd: after /clear with the shell in a pa
   await $.session.start({ ...START, cwd: '/work/kit' })
   expect(Object.values(sets['cadre:roots'] as object)).toEqual(['/work'])
 })
+
+// live 0.9.1: Claude Code started in a package folder still works on the repo: the root is the git top level above the session's project root
+test('the repo root is the git top level above the project root, spelled from the session path', async ($, on) => {
+  const reads: string[] = []
+  on('session.cwd', () => ({ value: '/work/kit' })); on('session.root', () => ({ value: '/work/kit' }))
+  on('process.run', ($, e) => ({ value: { exitCode: 0, stdout: e.argv.join(' ') === 'git rev-parse --show-cdup' ? '../\n' : '', stderr: '' } }))
+  on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined })); on('env.get', () => ({ value: undefined }))
+  on('fs.read', ($, e) => { reads.push(e.path); throw new Error('ENOENT') }); on('command.run', () => ({ text: 'engine' })); on('ui.open', () => ({ value: undefined }))
+  await $.command.run({ command: 'cadre', args: '' })
+  expect(reads).toContain('/work/.cadre/config.json')
+})
+// live 0.9.1 (2.1.296): Claude stopped with setup checks red and the run sat in "running": the stop is refused with the list
+test('during a setup run main\'s stop is refused while a check is red; with no run it passes', async ($, on) => {
+  const env: Record<string, string> = {}, run = { kind: 'init', at: 0, turns: 0, follow: 0, guide: '/p/guides/init.md' }
+  const dump = { b: { schemaVersion: 1, seq: 1, repo: 'r', mission: null, epic: null, plan: null, tasks: [], approval: { planId: null, missing: [] }, drive: { on: false, level: 'epic', epicId: null, turns: 0, costUsd: 0, startedAt: null }, sync: [], cost: { tokens: 0 }, containment: { state: 'unknown', unsandboxed: 0 }, resumesQueued: 0, init: [] }, ring: [], sec: { run } }
+  on('session.start', () => ({ cwd: '/work' })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined }))
+  on('command.register', () => ({ value: undefined })); on('env.set', () => ({ value: undefined })); on('env.get', ($, e) => ({ value: env[e.name] }))
+  on('process.run', () => ({ value: { exitCode: 128, stdout: '', stderr: 'fatal: not a git repository' } })); on('fs.stat', () => ({ value: undefined }))
+  on('fs.read', ($, e) => { if (e.path === '/s.json') return { value: JSON.stringify(dump) }; throw new Error('ENOENT') }); on('classic.Stop', () => ({}))
+  mock.clock(on)
+  expect((await $.classic.Stop({ stop_hook_active: false })).block).toBeUndefined()   // no run: Claude stops as usual
+  env.CADRE_DEV = '1'; env.CADRE_DEV_SCENARIO = '/s.json'; await $.session.start(START)   // a run is on
+  const r = await $.classic.Stop({ stop_hook_active: false, last_assistant_message: 'done looking' })
+  expect(r.block).toMatch(/^Setup is not done: these checks still fail\.\n1\. repository: no git repository yet \(phase 1\)/)
+})
