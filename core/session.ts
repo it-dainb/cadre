@@ -15,6 +15,7 @@ import { LEASE, casDrive } from './drive'
 import { realRoot, setPolicy } from '../policy/guards'
 import { epicBranch, slug, wtRootOf } from './branches'
 import { contain } from '../policy/containment'
+import { asciiOf } from '../config/index'
 
 export const qk = async (h: Host) => `cadre:${repoKeyOf(await h.cwd())}:resumes`
 export interface Entry { sessionId: string; agentId: string; taskId: string; text: string }
@@ -91,7 +92,8 @@ export async function start(h: Host): Promise<void> {
   const cfg = await cfgOf(h), root = await h.cwd(), home = await h.home(), repo = (await h.stat(root, { resolve: true }))?.realPath ?? root
   await setPolicy(h, { repo, wtRoot: `${await realRoot(h, await wtRootOf(h, cfg))}/${repoKeyOf(root)}`, home, mcpAllow: cfg.mcpAllow,
     protect: [cfg.branches.main || 'main', cfg.branches.dev], effectCheck: cfg.effectCheck, epicPrefix: cfg.branches.epicPrefix, changelog: cfg.changelog.path })   // locks are kept: core/tdd owns them
-  await h.ui.update(u => ({ ...u, cfg: { ...(u.cfg as object | undefined), glyphs: cfg.ui.glyphs, maxTurns: cfg.drive.maxTurns } }))
+  const ascii = asciiOf(cfg.ui.glyphs, await h.env())
+  await h.ui.update(u => ({ ...u, cfg: { ...(u.cfg as object | undefined), glyphs: cfg.ui.glyphs, flash: cfg.ui.flash, density: cfg.ui.density, v2: cfg.ui.v2, ascii, maxTurns: cfg.drive.maxTurns } }))   // the render hooks cannot read env: resolve it here
   await safe(h, 'prune', () => prune(h))
 }
 // 13.5 $.store hygiene (ST-15): stale-lease resume entries, bindings of closed or expired tasks in the pointer, quarantine entries older than 30 days

@@ -81,7 +81,7 @@ export const load = async (h: Host, o: { home: string; root: string; repoKey: st
 // cumulative result differs from the one before it, so a repo value that was refused (tighten-only) is not the source. ponytail: a layer that sets a key to its default reads as [default].
 export type Src = 'default' | 'user' | 'repo' | 'env'
 export interface Row { key: string; cls: Cls; value: unknown; def: unknown; src: Src; kind: 'bool' | 'enum' | 'number' | 'text' | 'list'; opts?: string[] }
-const ENUM: [RegExp, string[]][] = [[/^ui\.glyphs$/, ['unicode', 'ascii']], [/^roles\.\w+\.tier$/, ['fast', 'standard', 'deep']]]
+const ENUM: [RegExp, string[]][] = [[/^ui\.glyphs$/, ['unicode', 'ascii']], [/^ui\.density$/, ['compact', 'normal', 'relaxed']], [/^roles\.\w+\.tier$/, ['fast', 'standard', 'deep']]]
 export const optsOf = (key: string): string[] | undefined => (TIGHTEN[key]?.[0] === 'enum' ? (TIGHTEN[key] as string[]).slice(1) : ENUM.find(([r, o]) => o.length && r.test(key))?.[1])
 const leaves = (o: unknown, p = ''): [string, unknown][] => (plain(o) && !isOpen(p) ? Object.entries(o).flatMap(([k, v]) => leaves(v, p ? `${p}.${k}` : k)) : isOpen(p) ? [] : [[p, o]])
 const at = (o: unknown, path: string) => path.split('.').reduce((a: any, k) => a?.[k], o)
@@ -99,3 +99,12 @@ export function rows(layers: Layer[]): Row[] {
 // Strictness as resolved from every layer (userConfig, ~/.claude/cadre.json, repo, env); hosts without a wired config fall back to env/userConfig.
 export const strictOf = async (h: Host): Promise<string> =>
   (await (h as any).config?.().catch(() => undefined))?.strictness ?? (await h.env()).CADRE_STRICTNESS ?? h.options.strictness ?? 'strict'
+
+// ASCII glyphs: `ui.glyphs: ascii`, TERM=dumb, or a non-UTF-8 locale (BRAND §6)
+export const asciiOf = (glyphs: string | undefined, env: Record<string, string | undefined>): boolean => {
+  if (glyphs === 'ascii') return true
+  if (env.TERM === 'dumb') return true
+  const loc = env.LC_ALL || env.LC_CTYPE || env.LANG || ''
+  return loc !== '' && !/utf-?8/i.test(loc)
+}
+
