@@ -1,0 +1,5 @@
+{ "repo": "ledger", "tier": "light", "epic": "Money formatting", "goal": "Show cents as dollars.",
+  "tasks": [{ "key": "a", "title": "Add formatCents", "type": "feature", "description": "Format integer cents as US dollars: a $ sign, thousands separated by commas, always two decimals, a leading - for negatives.",
+    "scenarios": ["Given 123456 When formatCents is called Then it returns \"$1,234.56\"", "Given -5 When formatCents is called Then it returns \"-$0.05\"", "Given 0 When formatCents is called Then it returns \"$0.00\"", "Given 100000000 When formatCents is called Then it returns \"$1,000,000.00\""],
+    "symbols": [{ "name": "formatCents", "kind": "function", "params": ["cents: number"], "returns": "string", "status": "new" }],
+    "paths": ["src/money.mjs", "test/money.test.mjs"], "changelog": ["Added", "formatCents shows cents as dollars"] }] }

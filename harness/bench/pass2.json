@@ -1,0 +1,4 @@
+{ "tiers": ["thorough", "core"], "n": 3,
+  "workers": [{ "tier": "sonnet", "effort": "high" }, { "tier": "opus", "effort": "high" }],
+  "testers": [{ "tier": "sonnet", "effort": "medium" }],
+  "reviewers": [{ "tier": "sonnet", "effort": "high" }, { "tier": "opus", "effort": "high" }] }

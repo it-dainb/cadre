@@ -1,0 +1,5 @@
+{ "repo": "strkit", "tier": "light", "epic": "Word truncation", "goal": "Shorten text to a number of words.",
+  "tasks": [{ "key": "a", "title": "Add truncateWords", "type": "feature", "description": "Keep the first n words (split on whitespace, joined with one space); when words were dropped, append \"...\".",
+    "scenarios": ["Given \"the quick brown fox\" When truncateWords is called with n 2 Then it returns \"the quick...\"", "Given \"the quick\" When truncateWords is called with n 5 Then it returns \"the quick\"", "Given \" a  b \" When truncateWords is called with n 2 Then it returns \"a b\"", "Given any text When truncateWords is called with n 0 Then it returns \"...\" unless the text has no words, then \"\""],
+    "symbols": [{ "name": "truncateWords", "kind": "function", "params": ["s: string", "n: number"], "returns": "string", "status": "new" }],
+    "paths": ["src/words.mjs", "test/words.test.mjs"], "changelog": ["Added", "truncateWords shortens text to n words"] }] }
