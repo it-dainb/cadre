@@ -1,5 +1,5 @@
 // Dev-only UI loop (docs/dev/ui-dev.md): draws the REAL ui/ renderers (band + pane + Needs you + timeline) for a scenario in your terminal, hot-reloads on save.
-//   node --experimental-transform-types scripts/ui-dev.mjs [scenario] [--width N] [--tab epic|plan|doctor|settings] [--once] [--all] [--v1] | --dump <scenario> (JSON for harness/tui.sh --scenario)
+//   node --experimental-transform-types scripts/ui-dev.mjs [scenario] [--width N] [--tab epic|plan|doctor|settings] [--once] [--all] [--v1] [--ascii] [--theme dark|light] [--docked] [--rows N] | --dump <scenario> (JSON for harness/tui.sh --scenario)
 // Each frame renders in a fresh child process (clean module cache = hot reload for free; a broken file draws a red frame instead of killing the loop).
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, watch, writeFileSync } from 'node:fs'
@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path'
 const ME = fileURLToPath(import.meta.url), ROOT = join(dirname(ME), '..')
 const WIDTHS = [40, 60, 80, 120, 160], TABS = { 1: 'epic', 7: 'plan', 8: 'doctor', 9: 'settings' }
 const ALLTABS = [...new Set([...Object.values(TABS), 'graph', 'timeline', 'activity'])]   // v2 tabs join as they land; a tab a version does not know draws its default view
-const V1 = process.argv.includes('--v1')
+const V1 = process.argv.includes('--v1'), DOCKED = 24   // --docked: the band is only the transcript column wide beside a docked pane (24 cells at a 120-column terminal, ADR 0008)
 const FLAGS = ['--experimental-transform-types', '--no-warnings']
 
 // ---------- child: render one frame, print JSON ----------
@@ -29,16 +29,16 @@ async function child(req) {
   let idx = req.idx ?? (v.t === null ? n : ring.filter(e => e.at <= v.t).length)
   idx = Math.max(0, Math.min(n, idx))
   v.t = idx >= n ? null : idx === 0 ? (ring[0]?.at ?? v.now) - 1 : ring[idx - 1].at
-  v.ui = { ...v.ui, ...req.ui, ...(req.v1 ? {} : { cfg: { ...v.ui.cfg, v2: true } }) }   // v2 renderers unless --v1
+  v.ui = { ...v.ui, ...req.ui, ...(req.v1 ? {} : { cfg: { ...v.ui.cfg, v2: true, ...(req.ascii ? { ascii: true } : {}), ...(req.theme ? { theme: req.theme } : {}) } }) }   // v2 renderers unless --v1
   v.ui.tab = req.tab ?? v.ui.tab ?? s.tab ?? 'epic'
-  const w = req.w ?? s.width ?? 120, rows = [], patch = {}
+  const w = req.w ?? s.width ?? 120, bw = req.docked ? Math.min(w, DOCKED) : w, rows = [], patch = {}
   const said = []
   const acts = {
     go: t => { patch.tab = t; said.push(`go tab ${t}`) }, pick: id => { patch.sel = id; said.push(`select ${id}`) },
     answer: id => { const d = (v.b.decisions ?? []).find(x => x.id === id); said.push(`dialog: ${d?.title} [${(d?.options ?? []).filter(o => o.run).map(o => o.label).join(' | ')}]`) }, run: c => said.push(`/cadre config ${c}`),
     step: (what, d) => { said.push(`step ${what} ${d}`); if (what === 'tl') patch.tl = v.ui.tl === false },
   }
-  const bandLines = band(v, w, acts), p = pane(v, w, req.rows ?? 40, acts, true)
+  const bandLines = band(v, bw, acts), p = pane(v, w, req.rows ?? s.rows ?? 40, acts, true)
   const flat = [...bandLines, ...p.before, ...p.after]
   // text projection: a Button draws `k: label` like the engine (plain Button), an Input `label: value▏`
   const body = seg => (seg.inp ? `${seg.il ?? 'task id'}: ${seg.iv ?? ''}▏` : seg.hk ? `${seg.hk}: ${seg.t}` : seg.t)
@@ -56,11 +56,11 @@ async function child(req) {
   })() : null
   const tlRows = rows2 ?? (p.tl?.rows ?? []).map(r => ({ a: [...r].map(ch => sgr(RASTER[ch] ? [RASTER[ch]] : [], M.T(v.c, ch))).join(''), p: M.T(v.c, r).trimEnd() }))
   const ev = idx === 0 ? 'before the first event' : `${ring[idx - 1].type}${ring[idx - 1].taskId ? ` ${ring[idx - 1].taskId}` : ''}`
-  const head = `▌ ${req.name} · w${w} · tab ${v.ui.tab} · event ${idx}/${n} ${idx >= n ? '[LIVE]' : `[${ev}]`}`
+  const head = `▌ ${req.name} · w${w}${req.docked ? ` (band ${bw})` : ''}${req.ascii ? ' ascii' : ''}${req.theme ? ` ${req.theme}` : ''} · tab ${v.ui.tab} · event ${idx}/${n} ${idx >= n ? '[LIVE]' : `[${ev}]`}`
   const frame = [{ a: sgr([2], head), p: head }, ...bandLines.map(l => ({ a: paint(l), p: plainOf(l) })), { a: sgr([2], '─'.repeat(w)), p: '─'.repeat(w) },
     ...p.before.map(l => ({ a: paint(l), p: plainOf(l) })), ...tlRows, ...p.after.map(l => ({ a: paint(l), p: plainOf(l) }))]
   // overflow: any drawn line wider than bodyColumns (the header and the dev rule are the harness's, not the plugin's)
-  const over = [...bandLines.map(plainOf), ...p.before.map(plainOf), ...tlRows.map(r => r.p), ...p.after.map(plainOf)].filter(l => width(l) > w).map(l => `${width(l)}>${w}: ${l.trim().slice(0, 70)}`)
+  const over = [...bandLines.map(plainOf).map(l => [l, bw]), ...[...p.before.map(plainOf), ...tlRows.map(r => r.p), ...p.after.map(plainOf)].map(l => [l, w])].filter(([l, m]) => width(l) > m).map(([l, m]) => `${width(l)}>${m}: ${l.trim().slice(0, 70)}`)
   let status = ''
   if (req.press) {
     const hit = flat.flat().find(x => x.hk === req.press && x.p)
@@ -80,16 +80,17 @@ const names = () => readdirSync(join(ROOT, 'scenarios')).filter(f => f.endsWith(
 
 async function main(argv) {
   const opt = (k, d) => { const i = argv.indexOf(k); return i < 0 ? d : argv[i + 1] }
-  const has = k => argv.includes(k), pos = argv.filter((a, i) => !a.startsWith('--') && !['--width', '--tab'].includes(argv[i - 1]))[0]
-  let st = { v1: V1, name: pos ?? 'epic-p3', w: opt('--width') ? Number(opt('--width')) : undefined, tab: opt('--tab'), idx: undefined, ui: {} }
+  const has = k => argv.includes(k), pos = argv.filter((a, i) => !a.startsWith('--') && !['--width', '--tab', '--theme', '--rows'].includes(argv[i - 1]))[0]
+  let st = { v1: V1, name: pos ?? 'epic-p3', w: opt('--width') ? Number(opt('--width')) : undefined, tab: opt('--tab'), idx: undefined, ui: {}, ascii: has("--ascii"), theme: opt('--theme'), docked: has('--docked'), rows: opt('--rows') ? Number(opt('--rows')) : undefined }
   if (argv[0] === '--dump') { const r = await run({ name: argv[1], dump: true }); if (r.error) { console.error(r.error); process.exit(1) } console.log(JSON.stringify(r)); return }
   if (has('--all')) {   // CI: every scenario x tab x width renders, and no line is wider than bodyColumns
     let bad = 0, n = 0
-    const jobs = names().flatMap(name => WIDTHS.flatMap(w => ALLTABS.map(tab => ({ name, w, tab }))))
+    const modes = [{}, { ascii: true }, { docked: true }, { theme: 'light' }]   // the sweep: Unicode, ASCII, the docked band width (24), the light palette
+    const jobs = names().flatMap(name => modes.flatMap(m => WIDTHS.flatMap(w => ALLTABS.map(tab => ({ name, w, tab, ...m })))))
     for (let i = 0; i < jobs.length; i += 8) await Promise.all(jobs.slice(i, i + 8).map(async j => {   // 8 child processes at a time
-      const r = await run({ ...j, v1: V1 }); n++
-      if (r.error) { bad++; console.error(`FAIL ${j.name} ${j.tab} ${j.w}\n${r.error}`) }
-      else if (r.over.length) { bad++; console.error(`OVERFLOW ${j.name} ${j.tab} ${j.w}\n  ${r.over.join('\n  ')}`) }
+      const r = await run({ ...j, v1: V1, rows: st.rows }); n++
+      if (r.error) { bad++; console.error(`FAIL ${j.name} ${j.tab} ${j.w} ${JSON.stringify(j.ascii ?? j.docked ?? j.theme ?? '')}\n${r.error}`) }
+      else if (r.over.length) { bad++; console.error(`OVERFLOW ${j.name} ${j.tab} ${j.w} ${JSON.stringify(j.ascii ?? j.docked ?? j.theme ?? '')}\n  ${r.over.join('\n  ')}`) }
     }))
     console.log(bad ? `${bad} of ${n} frames failed` : `ok: ${n} frames (${names().length} scenarios)`); process.exit(bad ? 1 : 0)
   }

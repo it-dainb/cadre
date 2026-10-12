@@ -4,8 +4,8 @@ import type { Decision, Snapshot } from '../types'
 import { emptySnapshot } from '../core/board'
 import { type View, CFG } from '../ui/model'
 
-export type Scenario = View & { about: string; width?: number; tab?: string }
-export const sc = (about: string, v: View, o: { width?: number; tab?: string } = {}): Scenario => ({ about, ...v, ...o })
+export type Scenario = View & { about: string; width?: number; tab?: string; rows?: number }   // rows: the pane's body height (a short inline pane)
+export const sc = (about: string, v: View, o: { width?: number; tab?: string; rows?: number } = {}): Scenario => ({ about, ...v, ...o })
 export const dec = (id: string, kind: string, title: string, lines: string[], options: Decision['options'], o: Partial<Decision> = {}): Decision => ({ id, kind, title, lines, hash: 'h', options, ...o })
 export function bare(about: string, b: Partial<Snapshot>, o: { ui?: Record<string, unknown>; width?: number; tab?: string } = {}): Scenario {
   const s: Snapshot = { ...emptySnapshot('repo'), seq: 1, ...b }

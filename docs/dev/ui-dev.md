@@ -27,3 +27,6 @@ An empty board (fresh init) draws "no tasks yet · /cadre <goal> to start" on ev
 
 ## See it in the real engine (follow-up)
 `harness/tui.sh start <name> --scenario <scenario>` writes `scenarios/<scenario>.ts` as JSON (`ui-dev.mjs --dump`) into the container's working dir and sets `CADRE_DEV=1 CADRE_DEV_SCENARIO=<file>`. For Claude Code to draw it, `session.start` needs a guarded block (only when `CADRE_DEV` is `1`) that reads that file and seeds the atoms: `board = b`, `events = { seq, epics: { [b.epic ?? '']: ring } }`, `secret = sec`, `ui = ui`. The flag side is in place; the `hooks/register.ts` block is not wired yet.
+
+## Modes (0.9.0)
+`--ascii` draws the ASCII glyph set (BRAND §6); `--docked` draws the band at the docked width (24 cells) over the pane at `--width`; `--theme dark|light` seeds the Raster palette; `--rows N` sets the pane's body height (a scenario can carry `rows`, e.g. `v2-inline-decision`). `--all` sweeps every scenario × tab × width in Unicode, ASCII, docked and light.
