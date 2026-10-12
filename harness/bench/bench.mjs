@@ -86,7 +86,10 @@ function judge(dir) {
   if (tip) rmSync(tip, { recursive: true, force: true })
   const roles = {}; for (const [k, v] of Object.entries(byRole)) { const r = k.split(':')[0]; roles[r] = (roles[r] ?? 0) + v.usd }
   // invalid (not a failure): the run hit its time budget, or the harness broke (no final result from Claude Code)
-  const done = read(join(dir, 'stream.jsonl')).split('\n').some(l => { try { return JSON.parse(l).type === 'result' } catch { return false } }), invalid = m.exit === 124 ? 'budget' : !done ? `harness (exit ${m.exit})` : null
+  const fin = read(join(dir, 'stream.jsonl')).split('\n').map(l => { try { return JSON.parse(l) } catch { return null } }).find(j => j?.type === 'result')
+  // a usage/rate limit anywhere (main's result, or an agent's request) ends the run for reasons outside the cell: invalid, rerun it
+  const limited = /usage_limit_reached|rate_limit_error|"api_error_status":429/.test(read(join(dir, 'stream.jsonl')) + walk(join(dir, 'projects')).map(read).join(''))
+  const invalid = m.exit === 124 ? 'budget' : limited ? 'usage limit' : !fin ? `harness (exit ${m.exit})` : fin.is_error ? `api error ${fin.api_error ?? fin.terminal_reason ?? ''}`.trim() : null
   const res = { cell: m.cell, task: m.task, tier: p.tier, k: m.k, exit: m.exit, invalid, checkedOn: ref ?? null, offPath, secs: Math.round((m.t1 - m.t0) / 1000), tasks, rejections, tokens: byRole,
     usd: { ...Object.fromEntries(Object.entries(roles).map(([k, v]) => [k, +v.toFixed(4)])), total: +Object.values(roles).reduce((a, b) => a + b, 0).toFixed(4) } }
   writeFileSync(join(dir, 'result.json'), JSON.stringify(res, null, 1)); return res

@@ -9,13 +9,16 @@ while [ $# -gt 0 ]; do case $1 in -j) J=$2; shift;; -n) DRY=1;; --go) GO=1;; esa
 RUNS=$(J=$J node "$B/bench.mjs" plan "$G" 2>"$B/.est") || exit 2; EST=$(cat "$B/.est"); rm -f "$B/.est"; echo "$EST"
 [ -n "$DRY" ] && { cut -d'|' -f1 <<<"$RUNS" | sort | uniq -c; exit 0; }
 HI=$(sed -E 's/.*US\$[0-9]+-([0-9]+).*/\1/' <<<"$EST"); [ "$HI" -gt 5 ] && [ -z "$GO" ] && { echo "estimate over \$5: rerun with --go once approved"; exit 3; }
-SRC=${SPIKE:-$(dirname "$H")}; OUTD=$H/out/bench/$(basename "$G" .json)-$(date +%Y%m%d-%H%M%S); mkdir -p "$OUTD"
+SRC=${SPIKE:-$(dirname "$H")}; OUTD=${RESUME:-$H/out/bench/$(basename "$G" .json)-$(date +%Y%m%d-%H%M%S)}; mkdir -p "$OUTD"   # RESUME=<evidence dir>: keep its valid runs, redo the rest
+[ -n "$RESUME" ] && [ "$(cat "$OUTD/plugin-commit" 2>/dev/null)" != "$(git -C "$SRC" rev-parse HEAD)" ] && { echo "RESUME: $OUTD ran plugin $(cat "$OUTD/plugin-commit" 2>/dev/null); check out that commit (or SPIKE=<checkout at it>)"; exit 2; }
 # the plugin snapshot lives outside the repo: `plugin test .` would collect its tests
 PLUG=$(mktemp -d "${TMPDIR:-/tmp}/cadre-bench-plug-XXXX"); git -C "$SRC" archive HEAD | tar -x -C "$PLUG"; git -C "$SRC" rev-parse HEAD >"$OUTD/plugin-commit"
 echo "plugin $(git -C "$SRC" rev-parse --short HEAD) · evidence $OUTD"
 export H B OUTD PLUG CAP=${CAP:-$HI}
 one() {   # <cell>|<task>|<k>|<roles json>
   IFS='|' read -r cell task k roles <<<"$1"; D=$OUTD/$cell/$task-$k
+  [ -f "$D/result.json" ] && node -e "process.exit(require(process.argv[1]).invalid ? 1 : 0)" "$D/result.json" && return   # resumed: a valid run stays
+  rm -rf "$D"
   spent=$(node "$B/bench.mjs" spent "$OUTD"); node -e "process.exit(+process.argv[1] >= +process.argv[2] ? 0 : 1)" "$spent" "$CAP" && { echo "$cell $task#$k skipped: \$$spent spent, cap \$$CAP"; return; }
   mkdir -p "$D/work" "$D/out" "$D/projects"
   (cd "$D/work" && node "$B/scaffold.mjs" "$B/tasks/$task" "$roles" >"$D/scaffold.json" 2>"$D/scaffold.err") || { echo "$cell $task#$k scaffold failed"; return; }
