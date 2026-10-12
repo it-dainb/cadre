@@ -43,13 +43,16 @@ export const problem = (v: View): string | undefined => {
 // drive cell (band line 2 / header). Extra fields arrive with the autonomy modes; absent = auto defaults.
 type Drv = { on: boolean; turns: number; costUsd: number; mode?: string; maxTurns?: number; paused?: string; stopped?: string }
 export type Cell = { kind: 'run' | 'paused' | 'stopped'; mode: string; text: string; key: 'stop' | 'resume'; reason?: string }
+// a plan asked for yolo but the drive runs auto: the agents are not contained
+export const downgraded = (v: View): boolean => v.b.drive.mode === 'auto' && (v.b.plan as { mode?: string } | undefined)?.mode === 'yolo'
 export function driveOf(v: View): Cell | undefined {
   const d = v.b.drive as Drv, p = v.b.plan
   if (!p || p.state === 'done-on-dev' || p.state === 'released' || !(d.on || d.stopped)) return undefined
-  const mode = d.mode ?? (p as { mode?: string }).mode ?? 'auto', max = d.maxTurns ?? v.c.maxTurns
+  const pm = (p as { mode?: string }).mode, mode = d.mode ?? pm ?? 'auto', max = d.maxTurns ?? v.c.maxTurns
+  const label = downgraded(v) ? `${mode} (yolo needs containment)` : mode
   if (d.stopped) return { kind: 'stopped', mode, text: `stopped${SEP}${d.stopped}`, key: 'resume', reason: d.stopped }
-  if (d.paused) return { kind: 'paused', mode, text: `${mode}${SEP}paused${SEP}${d.paused}`, key: 'stop', reason: d.paused }
-  return { kind: 'run', mode, text: `${mode}${SEP}turn ${d.turns}/${max}${SEP}$${d.costUsd.toFixed(2)}`, key: 'stop' }
+  if (d.paused) return { kind: 'paused', mode, text: `${label}${SEP}paused${SEP}${d.paused}`, key: 'stop', reason: d.paused }
+  return { kind: 'run', mode, text: `${label}${SEP}turn ${d.turns}/${max}${SEP}$${d.costUsd.toFixed(2)}`, key: 'stop' }
 }
 // one line, left + right, the widest left segment gives way first
 export function lr(w: number, left: Line, right: Line): Line {

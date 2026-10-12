@@ -3,14 +3,14 @@
 import { type Line, type View, S } from '../model'
 import { clip, elapsed, padL, plain, relTime } from '../layout'
 import { COL, DETAIL, INDENT, SEP, type GlyphK } from '../tokens'
-import { stopK } from '../v2/facts'
+import { downgraded, stopK } from '../v2/facts'
 import { type Renderer, gseg, joinSections, muted, relax, title, ucfg } from './types'
 
 const SP = ' '.repeat(INDENT), usd = (n: number) => `$${n.toFixed(2)}`
 const KIND: Record<string, GlyphK> = { ok: 'done', warn: 'attn', crit: 'fail' }
 
 export function driveRows(v: View, w: number): Line[] {
-  const c = ucfg(v), d = v.b.drive, mode = d.mode ?? v.b.plan?.mode
+  const c = ucfg(v), d = v.b.drive, m0 = d.mode ?? v.b.plan?.mode, mode = m0 && m0 + (downgraded(v) ? ' (yolo needs containment)' : '')
   const of = (k: GlyphK, text: string, fix?: string): Line[] => [[S(SP), gseg(k, c.ascii), S(clip(` ${text}`, w - INDENT - 1))], ...(fix ? [[muted(clip(`${' '.repeat(DETAIL)}fix: ${fix}`, w))]] : [])]
   if (d.stopped) return of(stopK(d.stopped), `drive stopped: ${d.stopped}`, 'check the cause, then press 0 on the band to resume')
   if (!d.on) return of('wait', `drive off${SEP}it starts when you approve a plan`)

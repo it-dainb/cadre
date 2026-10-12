@@ -14,7 +14,7 @@ import { type Acts, S, at, cols, cut, decisions, draw, kindOf, read, t0 } from '
 
 export { ack, syncStatus } from './notify'
 let lastW = 0   // width of the last pane draw: sizes a timeline step (a resize is a redraw), not state
-const later = (h: Host, fn: () => Promise<unknown>) => h.ops?.after(1, () => fn().catch(e => h.toast(`cadre: ${e}`)))
+const later = (h: Host, fn: () => Promise<unknown>) => h.ops?.after(1, () => fn().catch(e => h.toast(`${e}`)))
 
 // Open the pane on a tab (called by /cadre open|approve and by presses). Where nothing draws, the content goes to $.ui.log instead (C3).
 const OPEN = { id: 'cadre', title: 'cadre', columns: 120 }
@@ -32,7 +32,7 @@ export async function openPane(h: Host, tab: string, o: { focus?: boolean; quiet
   await h.ui.update(u => ({ ...u, tab }))
   const r = await opened
   if (!r.isPlaced) {
-    if (!o.quiet) { h.toast(`cadre: pane not shown${r.reason ? ` · ${r.reason.slice(0, 30)}` : ''}`) }
+    if (!o.quiet) { h.toast(`pane not shown${r.reason ? ` · ${r.reason.slice(0, 30)}` : ''}`) }
     if (decisions(v).length) later(h, () => answerDialog(h))   // no pane (VS Code panel, Remote Control) and no band key: the dialog of the oldest decision
   }
   if (!o.quiet) await ack(h)
@@ -88,8 +88,8 @@ export function acts(h: Host): Acts {
   return {
     go: tab => { const pre = h.ops!.open({ ...OPEN, focus: true }); later(h, () => openPane(h, tab, { pre })) },
     pick: id => { const pre = h.ops!.open({ ...OPEN, focus: true }); later(h, async () => { await h.ui.update(u => ({ ...u, sel: id, go: false })); await openPane(h, 'epic', { pre }) }) },
-    run: cmd => later(h, async () => { const r = await configPress(h, cmd); h.toast(`cadre: ${r.text.split('\n')[0].slice(0, 53)}`); h.ops?.invalidate(); await autoAsk(h) }),   // a Settings toggle (a press, not a decision); edit asks its decision
-    drive: what => later(h, async () => { const r = await dispatch(h, { schemaVersion: 1, cmd: 'drive', args: [what], origin: { kind: 'press' } }, ROUTES.drive); h.toast(`cadre: ${r.text.split('\n')[0].slice(0, 53)}`); h.ops?.invalidate() }),   // band `2`: drive stop | resume, as the human's press
+    run: cmd => later(h, async () => { const r = await configPress(h, cmd); h.toast(`${r.text.split('\n')[0].slice(0, 53)}`); h.ops?.invalidate(); await autoAsk(h) }),   // a Settings toggle (a press, not a decision); edit asks its decision
+    drive: what => later(h, async () => { const r = await dispatch(h, { schemaVersion: 1, cmd: 'drive', args: [what], origin: { kind: 'press' } }, ROUTES.drive); h.toast(`${r.text.split('\n')[0].slice(0, 53)}`); h.ops?.invalidate() }),   // band `2`: drive stop | resume, as the human's press
     answer: id => later(h, async () => { await ack(h); await answerDialog(h, id) }),   // `1`: the decision's dialog, again
     step: (what, d) => later(h, async () => {
       const v = await read(h), ts = at(v).tasks, ids = cols(ts).flat().map(t => t.id), cur = v.t ?? v.now

@@ -3,10 +3,14 @@
 import type { CadreEvent, Host } from '../types'
 import { CFG, attention, read } from './model'
 import { clip } from './layout'
+import { holds, yoloOn } from '../core/decide'
 
 export type Level = 0 | 1 | 2 | 3   // silent . · band o · toast * · notify !
-export function levelOf(e: CadreEvent): Level {
+// yolo: main answers blocked questions and the flags drive does not hold on, so those never reach the human (no toast, no "press 1")
+export const quietUnderYolo = (e: CadreEvent): boolean => (e.type === 'flag.raised' && !holds(String(e.data.flag))) || (e.type === 'task.transitioned' && String(e.data.to ?? e.data.state) === 'blocked')
+export function levelOf(e: CadreEvent, yolo = false): Level {
   const d = e.data, st = String(d.state ?? d.to ?? '')
+  if (yolo && quietUnderYolo(e)) return 0
   switch (e.type) {
     case 'approval.pending': case 'flag.raised': return 3
     case 'task.transitioned': return st === 'blocked' ? 3 : st === 'done' || d.from === 'review' && st === 'active' ? 1 : e.severity === 'crit' ? 2 : 0
@@ -27,7 +31,7 @@ export function textOf(e: CadreEvent): { text: string; key: string } | undefined
     case 'task.transitioned': return st === 'blocked' ? { text: `${id} blocked: needs an answer`, key: `q:${id}:${d.hash ?? ''}` } : undefined
     case 'flag.raised': return { text: `${id} flagged ${d.flag} · press 1`, key: `flag:${id}:${d.flag}` }
     case 'sync.state_changed': return st === 'ok' ? { text: `${d.target} reconnected${d.conflicts ? ` · ${d.conflicts} conflict` : ''}`, key: `off:${d.target}` } : { text: `${d.target} ${st} · retrying`, key: `off:${d.target}` }
-    case 'drive.status': if (st === 'stopped') return { text: clip(`cadre: drive stopped${d.reason ? ` · ${d.reason}` : ''} · 0: resume`, 60), key: `drive:stopped:${e.at}` }   // one toast per stop
+    case 'drive.status': if (st === 'stopped') return { text: clip(`drive stopped${d.reason ? ` · ${d.reason}` : ''} · 0: resume`, 60), key: `drive:stopped:${e.at}` }   // one toast per stop
       return st === 'paused' || st === 'finished' ? { text: st === 'paused' ? `Drive paused${d.reason ? `: ${d.reason}` : ''}` : 'Epic landed on dev ✓', key: `drive:${st}` } : undefined
     case 'cost.updated': return d.threshold ? { text: `Drive at ${d.threshold}% of token budget`, key: `cost:${d.threshold}` } : undefined
     case 'init.stage': return st === 'proposed' ? { text: 'Init diff ready · /cadre open init', key: `init:${d.stage}` } : undefined
@@ -68,7 +72,7 @@ export async function syncStatus(h: Host): Promise<void> { const top = attention
 
 // subscribed to core/events: one call per emitted event
 export async function onEvent(h: Host, e: CadreEvent): Promise<void> {
-  const k = CLOSE[e.type]?.(e), lv = levelOf(e), t = textOf(e)
+  const k = CLOSE[e.type]?.(e), lv = levelOf(e, yoloOn((await h.board.read()).drive)), t = textOf(e)
   if (k) await h.ui.update(u => { const { [k]: _x, ...rest } = (u.open as Record<string, number> | undefined) ?? {}; return { ...u, open: rest } })
   if (lv >= 2 && t) {
     let fresh = false
