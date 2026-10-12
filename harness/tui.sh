@@ -1,6 +1,6 @@
 #!/bin/bash
 # Interactive claude 2.1.295 in a container, driven through tmux. See harness/README.md.
-#   tui.sh start <name>      env: NO_GIT_IDENT=1 (no git identity in the container); CADRE_SOURCE=marketplace (install from GitHub, CADRE_REF=<branch|tag>) instead of the local checkout; COLS=120 ROWS=40 MODEL=haiku PERM=bypassPermissions SCAFFOLD=<script> CLAUDE_ARGS="..." SESSION_ARGS (appended)
+#   tui.sh start <name> [--scenario <name>]   (--scenario: seed the board/events/secret/ui atoms from scenarios/<name>.ts; needs the CADRE_DEV session.start block)  env: NO_GIT_IDENT=1 (no git identity in the container); CADRE_SOURCE=marketplace (install from GitHub, CADRE_REF=<branch|tag>) instead of the local checkout; COLS=120 ROWS=40 MODEL=haiku PERM=bypassPermissions SCAFFOLD=<script> CLAUDE_ARGS="..." SESSION_ARGS (appended)
 #   tui.sh send <name> <text...>   types text + Enter;  keys <name> <tmux keys...> (Up, Enter, C-c ...)
 #   tui.sh type <name> <text>      types text, no Enter
 #   tui.sh wait-for <name> <regex> [secs=60] [pane|jsonl|debug]   exit 0 on match (prints the match), 1 on timeout
@@ -14,6 +14,7 @@ case $c in
 start)
   rm -rf "$D"; mkdir -p "$D"/{plug,work,projects,out}; chmod 777 "$D"/{work,projects,out}
   git -C "$R" archive HEAD | tar -x -C "$D/plug"
+  [ "$1" = --scenario ] && { node --experimental-transform-types --no-warnings "$R/scripts/ui-dev.mjs" --dump "$2" >"$D/work/.cadre-dev-scenario.json" || exit 1; EXTRA_ENV="$EXTRA_ENV -e CADRE_DEV=1 -e CADRE_DEV_SCENARIO=/work/run/.cadre-dev-scenario.json"; }   # dev: seed the pane atoms from scenarios/<name>.ts (docs/dev/ui-dev.md)
   [ -n "$SCAFFOLD" ] && (cd "$D/work" && bash "$SCAFFOLD" >"$D/out/scaffold.log" 2>&1 || { cat "$D/out/scaffold.log"; exit 1; })
   git -C "$D/work" config user.email q@x 2>/dev/null
   ID='-e GIT_AUTHOR_NAME=cadre -e GIT_AUTHOR_EMAIL=cadre@localhost -e GIT_COMMITTER_NAME=cadre -e GIT_COMMITTER_EMAIL=cadre@localhost'; [ -n "$NO_GIT_IDENT" ] && ID=   # NO_GIT_IDENT=1: a machine with no git identity

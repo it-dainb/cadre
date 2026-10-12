@@ -136,5 +136,6 @@ From the M0 spike ([ADR 0001](docs/adr/0001-m0-results.md)):
 node scripts/budget.mjs                          # LOC budget: core ≤ 5000, ui ≤ 750, 3 MCP tools, 0 skills
 $CC plugin validate --strict . && $CC plugin test .
 node --experimental-transform-types --test tests/git/*.mjs tests/protocol/*.mjs
+node --experimental-transform-types scripts/ui-dev.mjs [scenario]   # the pane in your terminal, hot reload, step events, press buttons: docs/dev/ui-dev.md
 ```
 Live smokes: [`tests/smoke/`](tests/smoke) (S01–S61). Real-model evals: [`evals/`](evals), run through the harness (`harness/run.sh`), never on the host. Decisions: [`docs/adr/`](docs/adr).
