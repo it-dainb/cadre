@@ -10,7 +10,7 @@ rm -f "${RESUME:-/nonexistent}/LIMIT"
 RUNS=$(J=$J node "$B/bench.mjs" plan "$G" 2>"$B/.est") || exit 2; EST=$(cat "$B/.est"); rm -f "$B/.est"; echo "$EST"
 [ -n "$DRY" ] && { cut -d'|' -f1 <<<"$RUNS" | sort | uniq -c; exit 0; }
 HI=$(sed -E 's/.*US\$[0-9]+-([0-9]+).*/\1/' <<<"$EST"); [ "$HI" -gt 5 ] && [ -z "$GO" ] && { echo "estimate over \$5: rerun with --go once approved"; exit 3; }
-SRC=${SPIKE:-$(dirname "$H")}; OUTD=${RESUME:-$H/out/bench/$(basename "$G" .json)-$(date +%Y%m%d-%H%M%S)}; mkdir -p "$OUTD"   # RESUME=<evidence dir>: keep its valid runs, redo the rest
+SRC=${SPIKE:-$(dirname "$H")}; OUTD=${RESUME:+$(realpath "$RESUME")}; OUTD=${OUTD:-$H/out/bench/$(basename "$G" .json)-$(date +%Y%m%d-%H%M%S)}; mkdir -p "$OUTD"   # RESUME=<evidence dir>: keep its valid runs, redo the rest
 [ -n "$RESUME" ] && [ "$(cat "$OUTD/plugin-commit" 2>/dev/null)" != "$(git -C "$SRC" rev-parse HEAD)" ] && { echo "RESUME: $OUTD ran plugin $(cat "$OUTD/plugin-commit" 2>/dev/null); check out that commit (or SPIKE=<checkout at it>)"; exit 2; }
 # the plugin snapshot lives outside the repo: `plugin test .` would collect its tests
 PLUG=$(mktemp -d "${TMPDIR:-/tmp}/cadre-bench-plug-XXXX"); git -C "$SRC" archive HEAD | tar -x -C "$PLUG"; git -C "$SRC" rev-parse HEAD >"$OUTD/plugin-commit"
@@ -18,7 +18,8 @@ echo "plugin $(git -C "$SRC" rev-parse --short HEAD) · evidence $OUTD"
 export H B OUTD PLUG CAP=${CAP:-$HI}
 one() {   # <cell>|<task>|<k>|<roles json>
   IFS='|' read -r cell task k roles <<<"$1"; D=$OUTD/$cell/$task-$k
-  [ -f "$D/result.json" ] && node -e "process.exit(require(process.argv[1]).invalid ? 1 : 0)" "$D/result.json" && return   # resumed: a valid run stays
+  # resumed: only a run whose result.json says invalid is redone; anything else that exists is kept (never delete evidence we cannot judge)
+  if [ -e "$D" ]; then node -e "process.exit(JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).invalid ? 3 : 0)" "$D/result.json" 2>/dev/null; [ $? = 3 ] || { echo "$cell $task#$k kept"; return; }; fi
   [ -f "$OUTD/LIMIT" ] && { echo "$cell $task#$k skipped: usage limit ($(cat "$OUTD/LIMIT"))"; return; }   # one limit stops the grid: no retry loop
   rm -rf "$D"
   spent=$(node "$B/bench.mjs" spent "$OUTD"); node -e "process.exit(+process.argv[1] >= +process.argv[2] ? 0 : 1)" "$spent" "$CAP" && { echo "$cell $task#$k skipped: \$$spent spent, cap \$$CAP"; return; }
