@@ -9,7 +9,8 @@ import { initItems, restoreIgnore, scoped, type Item } from './init'
 import { setupItems } from './doctor'
 import { LIMIT } from '../policy/guards'
 import { RUN } from '../core/dispatch'
-import { goal as goalBrief, sendBrief } from '../core/lanes'
+import { goal as goalBrief, queueBrief, sendBrief } from '../core/lanes'
+import { draftsOf, storeOf } from '../core/dispatch'
 import { diff as jdiff } from '../policy/settings'
 
 type Kind = 'setup' | 'init'
@@ -91,21 +92,24 @@ export async function recheck(h: Host, turn = false, ended = turn): Promise<stri
 }
 // main's turn.complete (register.ts): works in dormant repos too
 export async function turnEnd(h: Host, e: { agentId?: string; answer?: string }): Promise<void> {
-  if (e.agentId || !(await h.secret.read()).run) return
+  if (e.agentId) return
+  if (!(await h.secret.read()).run) { const now = await h.now(); await h.secret.update(s => (s.goalRun?.on ? { ...s, goalRun: { ...s.goalRun, busy: false, seen: now } } : s)); return }   // a goal run: the watchdog's clock
   const now = await h.now(); await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, busy: false, seen: now, ...(e.answer ? { said: e.answer } : {}) } } : s))
   await recheck(h, true)
 }
 // main's turn.start / tool.call (register.ts): the watchdog's clock, and the tool count the stop check reads
-export async function seen(h: Host, o: { start?: boolean; tool?: boolean } = {}): Promise<void> {
-  if (!(await h.secret.read()).run) return
-  const now = await h.now(); await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, seen: now, ...(o.start ? { busy: true } : {}), ...(o.tool ? { tools: (s.run.tools ?? 0) + 1 } : {}) } } : s))
+export async function seen(h: Host, o: { start?: boolean; tool?: boolean; name?: string } = {}): Promise<void> {   // name: main's tool, before it runs (a goal run)
+  const s0 = await h.secret.read(); if (!s0.run && !s0.goalRun?.on) return
+  const now = await h.now(), busy = o.start ? { busy: true } : {}
+  await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, seen: now, ...busy, ...(o.tool ? { tools: (s.run.tools ?? 0) + 1 } : {}) } }
+    : s.goalRun?.on ? { ...s, goalRun: { ...s.goalRun, seen: now, ...busy, ...(o.name ? { last: o.name, ...(o.name === 'Agent' || o.name === 'Task' ? { spawned: true } : {}) } : {}) } } : s))   // ponytail: any Agent main spawns counts as the ask step; check its prompt if an explore spawn in step 1 slips through
 }
 
 // ---- Claude's stop during a run (classic Stop): while a check Claude owns is red, the stop is refused with the list (at most 3 per run). A second stop with no tool
 // call since the last refusal is Claude saying it cannot go on: it may stop, and its turn end shows the human the dialog. Where classic hooks are off (managed
 // machines) this never runs and the turn end sends the same list as a follow-up instead. ----
 export async function stopCheck(h: Host, e: { last_assistant_message?: string }): Promise<string | null> {
-  const r = (await h.secret.read()).run; if (!r) return null
+  const r = (await h.secret.read()).run; if (!r) return goalStop(h)
   const fails = (await items(h, r.kind)).filter(i => i.st === 'fail')
   await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, stopSeen: true, ...(e.last_assistant_message ? { said: e.last_assistant_message } : {}) } } : s))
   if (!fails.length || r.follow >= LIMIT.follow || (r.follow > 0 && !r.tools)) return null
@@ -123,12 +127,35 @@ export async function redNote(h: Host): Promise<string | null> {
 // with nothing working) still ends in a follow-up or the dialog. Quiet = no turn on for 60 s, or a turn on with no step or tool call for 10 minutes. ----
 export const QUIET = { idle: 60_000, busy: 600_000 }
 export async function watch(h: Host): Promise<void> {
-  const r = (await h.secret.read()).run; if (!r || r.brief) return   // a brief waiting goes out first (pump)
-  const since = (await h.now()) - (r.seen ?? r.at)
+  const sc = await h.secret.read(), r = sc.run ?? sc.goalRun; if (!r || (sc.run ? sc.run.brief : !sc.goalRun?.on || (await h.ui.read()).goal)) return   // a brief waiting goes out first (pump)
+  const since = (await h.now()) - (r.seen ?? (sc.run?.at ?? 0))
   if (since < (r.busy ? QUIET.busy : QUIET.idle)) return
   if (((await h.board.read()).decisions ?? []).some(d => !d.quiet)) return   // the human has something to answer: that is not a stall
+  if (!sc.run) { await h.secret.update(s => (s.goalRun ? { ...s, goalRun: { ...s.goalRun, busy: false } } : s)); await seen(h); const t = await goalStop(h); if (t) await queueBrief(h, t); return }   // a goal run: the refusal goes as the next brief
   await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, busy: false } } : s)); await seen(h)
   await recheck(h, false, true)
+}
+
+// ---- a goal run (core/lanes.goal): main's stop is refused while its lane's step is not done (ask: no Agent spawned; lite/full: no plan with a task; milestone: no
+// roadmap with an epic), at most twice. Live: main chose the lane, said "next is step 2" and stopped, and no plan ever came. A stop right after it asked the
+// user a question (AskUserQuestion) goes through. After the second refusal the band says the plan wasn't drafted. ----
+export const GOAL_FOLLOW = 2
+async function goalMissing(h: Host): Promise<string | null> {
+  const p = (await h.board.read()).plan
+  if (p && p.slug !== 'mission' && p.state !== 'done-on-dev' && p.state !== 'released') {
+    if (p.state !== 'draft' || (await draftsOf(await storeOf(h), p.id)).length) return null   // drafted, or a plan already open (the goal was refused: main tells the user)
+    return p.lane === 'milestone' ? `Roadmap ${p.id} has no epics yet: draft them now, one TaskCreate per epic as the roadmap rules say, then tell the user to approve it in the dialog (key 1 opens it) and stop.`
+      : `Plan ${p.id} has no tasks yet: draft them now, one TaskCreate per task as the plan rules say, then tell the user to approve it in the dialog (key 1 opens it) and stop.`
+  }
+  return 'The goal is not planned yet: draft the plan now. TaskCreate with metadata {"kind": "plan", "lane": "<lite|full|milestone>", "reason": "<one line>"} (lite: that one call is the whole plan; full: then one TaskCreate per task; milestone: then one TaskCreate per epic), then tell the user to approve it in the dialog (key 1 opens it) and stop. For a question (ask), spawn one Agent with it instead, then stop.'
+}
+async function goalStop(h: Host): Promise<string | null> {
+  const g = (await h.secret.read()).goalRun; if (!g?.on || g.last === 'AskUserQuestion') return null   // it asked the user: their answer comes next
+  const miss = g.spawned ? null : await goalMissing(h)
+  if (miss && g.follow < GOAL_FOLLOW) { await h.secret.update(s => (s.goalRun ? { ...s, goalRun: { ...s.goalRun, follow: s.goalRun.follow + 1 } } : s)); return miss }
+  await h.secret.update(({ goalRun: _g, ...s }) => s)
+  if (miss) await h.ui.update(u => ({ ...u, halt: `the plan wasn't drafted · /cadre ${g.text.slice(0, 80)} to try again` }))   // the band (ui/v2/band); the goal's words stay there
+  return null
 }
 // `/cadre setup|init cancel` (core/dispatch): the lease ends and the decision goes
 export async function cancel(h: Host, k: string): Promise<void> { if ((await h.secret.read()).run?.kind === k || (await halted(h))?.kind === k) await end(h, true); await settle(h, `run:${k}`) }
