@@ -60,5 +60,5 @@ test('resume after /clear with the real store: a pointer to an epic it has is re
   assert.equal(await rehydrate(kept), true); assert.equal((await kept.board.read()).plan.id, epic)
 
   const kit = hostAt(join(d, 'kit')), k2 = `cadre:${I.repoKeyOf(join(d, 'kit'))}:board`; await kit.store.set(k2, ptr(epic))   // no store under kit/: not a "not found", nothing is dropped
-  await rehydrate(kit).catch(() => {}); assert.deepEqual((await kit.store.get(k2)).epic, epic)
+  assert.equal(await rehydrate(kit), false); assert.equal((await kit.board.read()).plan, null); assert.equal((await kit.store.get(k2)).epic, epic)   // not resumed, kept for later
 })

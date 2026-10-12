@@ -12,8 +12,8 @@ export interface Pkg { root: string; setup?: string[]; checks: Record<string, st
 
 // Longest segment-aware root prefix of the task's package (10.2.6).
 export const pkgOf = (d: Deps, task: Pick<Task, 'meta'>): Pkg | undefined => {
-  const at = task.meta['cadre.package'] ?? '.'
-  return (d.cfg.packages as Pkg[]).filter(p => p.root === '.' || at === p.root || at.startsWith(`${p.root}/`)).sort((a, b) => b.root.length - a.root.length)[0]
+  const all = d.cfg.packages as Pkg[], at = task.meta['cadre.package'] || (all.length === 1 ? all[0].root : '.')   // no package named: the only one there is (a monorepo with one package in kit/ blocked every unnamed task as "no package", live 0.9.1)
+  return all.filter(p => p.root === '.' || at === p.root || at.startsWith(`${p.root}/`)).sort((a, b) => b.root.length - a.root.length)[0]
 }
 export const rootOf = (p?: Pkg) => (!p || p.root === '.' ? '' : p.root)
 export const modeOf = async (h: Host, d: Deps) => (d.cfg.jail === 'off' ? 'none' as const : G.jailMode(h.run))

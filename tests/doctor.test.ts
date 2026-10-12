@@ -5,7 +5,8 @@ import { BD_BLOCK, scoped } from '../commands/init'
 import { settle } from '../core/decide'
 import { banned } from './fixtures/wording'
 import { fakeHost } from './support'
-import { contain } from '../policy/containment'
+import { contain, heal } from '../policy/containment'
+import { setPolicy } from '../policy/guards'
 import type { Host } from '../types'
 
 type R = { exitCode: number; stdout: string; stderr: string }
@@ -159,5 +160,13 @@ describe('toasts', () => {
   test('degraded containment is one short line that points to doctor', async () => {
     const h = mk(); await contain(h)
     expect(h.toasts).toEqual(['cadre: containment degraded · /cadre doctor']); expect(h.toasts[0].length).toBeLessThanOrEqual(60)
+  })
+  // live 0.9.1: right after the safety confirm the session still read the old settings; the band said degraded until a restart
+  test('the tick moves a degraded band to contained once the session reads the new settings; quietly, and never down', async () => {
+    let s: Record<string, any> = {}; const h = mk(); Object.assign(h, { settings: async () => s }); await setPolicy(h, { repo: '/repo', wtRoot: '/wt/repo', home: HOME })
+    await contain(h); h.toasts.length = 0; await heal(h); expect((await h.board.read()).containment.state).toBe('degraded')
+    s = { sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, filesystem: { allowWrite: ['/wt/repo'], denyWrite: ['/repo'] } } }
+    await heal(h); expect((await h.board.read()).containment.state).toBe('contained'); expect(h.toasts).toEqual([])
+    s = {}; await heal(h); expect((await h.board.read()).containment.state).toBe('contained')   // a real break shows at the next session start and in Doctor
   })
 })

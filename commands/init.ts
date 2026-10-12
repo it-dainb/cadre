@@ -8,7 +8,7 @@ import { settle } from '../core/decide'
 import { load } from '../config'
 import type { Config } from '../config'
 import { diff as jdiff } from '../policy/settings'
-import { assess, contain } from '../policy/containment'
+import { assess } from '../policy/containment'
 import { StoreError } from '../task-management/store'
 import type { TaskStore } from '../task-management/store'
 import { validate as kac } from '../core/changelog'
@@ -117,7 +117,7 @@ export async function confirm(h: Host): Promise<string> {
   if (!good || !pend) return 'init: nothing pending; the card shows the current diff'
   const p = await plan5(c, pend.caches, pend.red); if (p.sig !== pend.sig) return 'init: the settings files changed since you saw them; nothing written'
   for (const [path, text] of p.writes) { const old = await h.readText(path); if (old !== null && old !== text) await h.write(`${path}.bak`, old); if (old !== text) await h.write(path, text) }
-  await setPolicy(h, { repo: p.real, wtRoot: p.wt, home: c.home }); await contain(h).catch(() => {})
+  await setPolicy(h, { repo: p.real, wtRoot: p.wt, home: c.home })   // the band follows on the tick (policy/containment.heal): the session reads the new file a moment later
   await h.ui.update(({ 'init.pending': _p, ...u }) => u); await settle(h, 'init:5')
   await h.board.update(b => ({ ...b, init: [...b.init.filter(i => i.stage !== 5), { stage: 5, state: 'done' }] }))
   await restoreIgnore(h); const sha = await commitSetup(c).catch(() => null)

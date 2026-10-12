@@ -3,6 +3,7 @@ import { DESC, LIFECYCLE, describe as describeHook, planRules } from '../native/
 import { defaults } from '../task-management/registry'
 import { FULL, plan, world } from './fixtures/native/world'
 import { RULES } from './fixtures/briefs-plan/rules'
+import { pkgOf } from '../core/specview'
 
 describe('plan rules + missing line (DESIGN 3.1)', () => {
   test('first plan answer: {result:{task:{id,subject}}} + context [rules, missing]; rules golden, ≤1.5 KB', async () => {
@@ -162,5 +163,15 @@ describe('a new plan over an open one', () => {
     expect(await w.call('TaskCreate', PLAN)).toEqual({ deny: `plan ${p} waits for the human in the dialog: ask them to approve or reject it there (press 1)` })
     await w.text({ cmd: 'approve', args: [p] })
     expect(await w.call('TaskCreate', PLAN)).toEqual({ deny: `plan ${p} is still in progress: finish it first (TaskList shows what is left); a new plan starts after it lands` })
+  })
+})
+
+// live 0.9.1: a monorepo whose one package is kit/; a lite plan's task named no package and its gates found none ("no package")
+describe('a task that names no package', () => {
+  const d = (roots: string[]) => ({ cfg: { packages: roots.map(root => ({ root, checks: { test: ['npm', 'test'] } })) } }) as any
+  test('the only package is its package; with several, the root package or none', async () => {
+    expect(pkgOf(d(['kit']), { meta: {} })?.root).toBe('kit'); expect(pkgOf(d(['kit']), { meta: { 'cadre.package': '' } })?.root).toBe('kit')
+    expect(pkgOf(d(['kit', 'app']), { meta: {} })).toBeUndefined(); expect(pkgOf(d(['.', 'kit']), { meta: {} })?.root).toBe('.')
+    expect(pkgOf(d(['kit', 'app']), { meta: { 'cadre.package': 'app/src' } })?.root).toBe('app')
   })
 })
