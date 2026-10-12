@@ -16,7 +16,8 @@ import { ROUTES } from './dispatch'
 import { queueBrief } from './lanes'
 import { modelText } from './say'
 import { realRoot, setPolicy } from '../policy/guards'
-import { epicBranch, slug, wtRootOf } from './branches'
+import { epicBranch, slug, slug32, wtRootOf } from './branches'
+import { exists } from './git'
 import { contain } from '../policy/containment'
 import { asciiOf } from '../config/index'
 
@@ -72,7 +73,12 @@ async function adopt(h: Host, b0: Snapshot) {
   const e = all.filter(t => t.type === 'epic' && !t.meta['cadre.kind'] && t.category !== 'done' && t.category !== 'cancelled' && all.some(c => c.parent === t.id && c.category !== 'draft')).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))[0]
   const mission = b0.mission ?? (await missionOf(store))
   if (!e && mission) await h.board.update(b => ({ ...b, mission }))
-  return e && { mission, epic: e.id, plan: { id: e.id, slug: slug(e.title), state: 'approved', epicBranch: epicBranch(prefix, e.id, e.title), approvedAt: await h.now() }, drive: b0.drive, bind: {}, session: undefined }
+  return e && { mission, epic: e.id, plan: { id: e.id, slug: slug(e.title), state: 'approved', epicBranch: await epicName(h, prefix, e), approvedAt: await h.now() }, drive: b0.drive, bind: {}, session: undefined }
+}
+// an epic cut before 0.9.1 keeps its longer name
+async function epicName(h: Host, prefix: string, e: { id: string; title: string }) {
+  const now = epicBranch(prefix, e.id, e.title), old = `${prefix}${e.id}-${slug32(e.title)}`
+  return old !== now && !(await exists(h.run, await h.cwd(), now)) && (await exists(h.run, await h.cwd(), old)) ? old : now
 }
 // Decisions live on the board, which a /clear empties: ask again what durable state says is still owed. A pending init/setup/sync proposal is dropped (its code and diff are per session): run the command again.
 async function reask(h: Host, store: TaskStore, plan: Snapshot['plan'] & {}) {

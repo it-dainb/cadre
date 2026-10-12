@@ -2,7 +2,10 @@
 import type { Host } from '../types'
 import { casRef, exists, git, op, tip, worktreeAdd, worktreeRemove } from './git'
 
-export const slug = (title: string): string => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) || 'task'
+const words = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+// ≤ 24 chars, cut at a word boundary (a single longer word is cut hard)
+export const slug = (title: string): string => { const w = words(title); if (w.length <= 24) return w || 'task'; const c = w.slice(0, 25), i = c.lastIndexOf('-'); return i > 0 ? c.slice(0, i) : w.slice(0, 24) }
+export const slug32 = (title: string): string => words(title).slice(0, 32) || 'task'   // names before 0.9.1: still used when such a branch exists
 export const taskBranch = (commitType: string, id: string, title: string) => `${commitType}/${id}-${slug(title)}`
 export const epicBranch = (prefix: string, id: string, title: string) => `${prefix}${id}-${slug(title)}`
 // the configured worktree root, else ${XDG_CACHE_HOME:-$HOME/.cache}/cadre/wt (the one default; config/defaults documents it)

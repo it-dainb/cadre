@@ -135,8 +135,8 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
   if (!spike && !(await G.exists(h.run, d.root, s.plan.epicBranch))) return lostEpic(h, s, t)
   const res = await apply(h, { kind: 'claim', id: t.id, at: await h.now(), actor: 'mod', owner: d.actor }, pipe)   // the CAS reserve: one winner (S2)
   if (!res.ok) return deny(res.error)
-  const step = res.board.tasks.find(x => x.id === t.id)!.step, role = ROLE[step], branch = taskBranch(spec.commit ?? 'wip', t.id, t.title), wt = wtPath(d.wtRoot, d.key, t.id)
-  let claimed = false, created = false
+  const step = res.board.tasks.find(x => x.id === t.id)!.step, role = ROLE[step], wt = wtPath(d.wtRoot, d.key, t.id)
+  let claimed = false, created = false, branch = taskBranch(spec.commit ?? 'wip', t.id, t.title)
   const undo = async () => {
     if (created) await G.op(h, () => G.worktreeRemove(h.run, d.root, wt, branch)).catch(() => {})
     if (claimed) await d.store.release(t.id, d.actor, 'spawn failed').catch(() => {})
@@ -144,6 +144,7 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
   }
   try {
     const task = await d.store.claim(t.id, d.actor); claimed = true
+    branch = task.meta['cadre.branch'] || branch   // a rebind keeps the branch it started on
     let cwd = d.root, meta: Record<string, string> = { 'cadre.step': step }
     if (!spike) {
       const base = await G.tip(h.run, d.root, s.plan.epicBranch)
