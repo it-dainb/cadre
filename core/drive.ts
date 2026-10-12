@@ -62,7 +62,7 @@ const boundOf = (r: DriveRec, dc: any, cost: number, idle: number, now: number):
   r.turns >= dc.maxTurns ? `max turns ${dc.maxTurns}` : cost >= dc.maxCostUsd ? `cost $${cost} ≥ $${dc.maxCostUsd}` : now - r.startedAt > dc.maxWallMinutes * 60_000 ? `max ${dc.maxWallMinutes} min` : idle >= dc.noProgressTurns ? `no progress in ${idle} turns` : null
 
 // a decision drive (or main under yolo) took without the human: a beads decision record linked to the plan + `drive.decided` for Activity and Doctor
-export async function decided(h: Host, kind: 'spec' | 'question' | 'rework' | 'integration' | 'flag', text: string, taskId?: string): Promise<void> {
+export async function decided(h: Host, kind: 'spec' | 'question' | 'rework' | 'integration' | 'flag' | 'rebase', text: string, taskId?: string): Promise<void> {
   const s = await h.board.read(), store = await storeOf(h)
   await store.record('decision', `${s.drive.mode ?? 'auto'}: ${text.slice(0, 80)}`, text, s.plan?.id).catch(e => h.log(`decision record failed: ${e}`))
   await emit(h, 'drive.decided', { kind, text: text.slice(0, 300), ...(taskId ? { taskId } : {}) }, { taskId, actor: kind === 'spec' || kind === 'question' ? 'main' : 'mod' })
@@ -92,11 +92,15 @@ async function gate(h: Host, s: Snapshot, mode: Mode): Promise<Gate> {
   if (s.approval.planId) return { pause: `approve ${s.approval.planId}` }
   const gf = Object.keys((await h.git.read()).flags ?? {}).filter(k => k.startsWith('git:') || k.startsWith('quarantine'))
   if (gf[0]) return hold(`resolve ${gf[0]}`)
+  const stuck = new Set(s.tasks.filter(t => t.state === 'blocked').map(t => t.id))   // a blocked task parks: while other work does not depend on it, the run goes on (ADR 0014 G); it holds once nothing else can move
+  for (let n = -1; n !== stuck.size;) { n = stuck.size; for (const t of s.tasks) if (t.state === 'todo' && t.deps.some(p => stuck.has(p.id))) stuck.add(t.id) }
+  const goes = s.tasks.some(t => ['active', 'review', 'todo'].includes(t.state) && !stuck.has(t.id))
   for (const t of s.tasks.filter(t => t.state === 'blocked')) {
+    if (goes && t.flags.length) continue
     if (!t.flags.length) return s.drive.paused === `blocked ${t.id}` ? { stop: `${t.id} is blocked with no question to answer` } : { pause: `blocked ${t.id}` }   // its flag lands right after the block (a report in flight, live): wait one turn for it, then stop (no endless quiet pause)
     if (!y || !t.flags.some(f => f === 'spec_change' || f === 'blocked')) return hold(`blocked ${t.id}`)   // yolo: main decides those two
   }
-  const f = s.tasks.flatMap(t => t.flags).find(x => BLOCKING.test(x) || x.startsWith('rework:')); if (f) return hold(`resolve ${f}`)
+  const f = s.tasks.filter(t => !(goes && t.state === 'blocked')).flatMap(t => t.flags).find(x => BLOCKING.test(x) || x.startsWith('rework:')); if (f) return hold(`resolve ${f}`)
   if (s.plan?.flags?.length) return hold(`resolve ${s.plan.flags[0]}`)
   if ((await h.ui.read()).loop) return { pause: 'two loop owners: /goal active' }
   return null

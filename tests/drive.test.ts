@@ -10,7 +10,7 @@ import { flagDecision, ask } from '../core/decide'
 import { emit } from '../core/events'
 import { BUDGET } from './fixtures/budget.generated'
 import { world } from './fixtures/native/world'
-import { fakeHost } from './support'
+import { fakeHost, task } from './support'
 import { nextAction } from '../core/render'
 import { modelView } from '../core/board'
 import { defaults } from '../config/index'
@@ -103,6 +103,16 @@ describe('T6.3 gate policy', () => {
     await w.setTask({ state: 'todo' }); await w.h.board.update(b => ({ ...b, plan: { ...b.plan!, flags: ['integration-failed'] } })); await w.turn()
     expect((await w.board()).drive.paused).toBe('resolve integration-failed'); expect(w.submitted.length).toBe(1)
     expect((await w.board()).drive.stopped).toBeUndefined()
+  })
+  test('a task waiting on the human parks: while another task can move, the run goes on; it holds once nothing else can (both modes)', async () => {
+    for (const mode of ['auto', 'yolo'] as const) {
+      const w = await go(mode); await w.h.ui.update(({ goal: _g, ...u }) => u)
+      const other = task('zz', { state: 'todo' }), dep = task('zy', { state: 'todo', deps: [{ id: w.t, type: 'blocks' }] })
+      await w.h.board.update(b => ({ ...b, tasks: [...b.tasks.map(x => (x.id === w.t ? { ...x, state: 'blocked' as const, flags: ['conflict'] } : x)), dep, other] }))
+      await w.turn(); expect([(await w.board()).drive.paused, (await w.board()).drive.stopped]).toEqual([undefined, undefined]); expect(w.submitted.at(-1)).toMatch(/^Continue: .*spawn TASK-zz/)
+      await w.h.board.update(b => ({ ...b, tasks: b.tasks.map(x => (x.id === 'zz' ? { ...x, state: 'done' as const } : x)) })); await w.turn()   // only its dependant is left
+      const d = (await w.board()).drive; expect(mode === 'yolo' ? d.stopped : d.paused).toBe(`blocked ${w.t}`)
+    }
   })
   test('yolo never asks after approval: a spec change and a blocked question go to main; its answers are applied and recorded', async () => {
     const w = await go('yolo'); await w.h.ui.update(({ goal: _g, ...u }) => u); await bindWorker(w)

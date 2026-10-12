@@ -155,19 +155,55 @@ async function movedEpic(file, body) {
   const e = `${w.d}-e`; sh(w.d, 'worktree', 'add', '-q', e, 'epic/p1-x'); writeFileSync(join(e, file), body); sh(e, 'add', '-A'); sh(e, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'other'); sh(w.d, 'worktree', 'remove', '--force', e)
   return { ...w, id, wt, branch: (await w.store.get(id)).meta['cadre.branch'] }
 }
-test('close: a moved epic is verified with the package checks (no check named "verify" needed); red blocks the merge', async () => {
+const { qk } = await import('../../core/session.ts')
+const R = await import('../../core/rebase.ts')
+const queued = async (h, id, agent) => (((await h.store.get(await qk(h))) ?? []).find(x => x.taskId === id && (!agent || x.agentId === agent)) ?? {}).text ?? ''
+test('close: a moved epic is verified with the package checks; red goes back to the same worker (merged tip, checks named), the epic does not move', async () => {
   const w = await movedEpic('other.txt', 'o\n'), old = sh(w.d, 'rev-parse', 'epic/p1-x')
   Object.assign(w.dep.cfg.packages[0], { verify: undefined, checks: { test: ['false'] } })
-  assert.match(String(await C.closeTask(w.h, w.dep, w.id)), /verify \(test\) failed/); assert.equal(sh(w.d, 'rev-parse', 'epic/p1-x'), old)
+  assert.match(String(await C.closeTask(w.h, w.dep, w.id)), /checks fail on the new tip\). Its worker updates it \(round 1\/2\)/); assert.equal(sh(w.d, 'rev-parse', 'epic/p1-x'), old)
+  const t = (await w.h.board.read()).tasks[0]; assert.deepEqual([t.state, t.step], ['active', 'worker'])
+  assert.equal(sh(w.wt, 'merge-base', '--is-ancestor', old, 'HEAD'), ''); assert.equal(readFileSync(join(w.wt, 'other.txt'), 'utf8'), 'o\n'); assert.equal((await w.store.get(w.id)).meta['cadre.base'], old)
+  assert.match(await queued(w.h, w.id), /Its checks fail on the merged tree:\nverify \(test\) failed/)
 })
 test('close: a package with no verify check at all fails a moved-epic merge instead of passing it', async () => {
   const w = await movedEpic('other.txt', 'o\n'); Object.assign(w.dep.cfg.packages[0], { verify: undefined, checks: {} })
-  assert.match(String(await C.closeTask(w.h, w.dep, w.id)), /verify \(.*\) failed/)
+  assert.match(String(await C.closeTask(w.h, w.dep, w.id)), /checks fail on the new tip/)
 })
-test('close: a failed squash (conflict, or merge-red) returns the worker to its branch with its files', async () => {
-  for (const red of [false, true]) {
-    const w = await movedEpic(red ? 'other.txt' : 'b.txt', 'theirs\n'); if (red) Object.assign(w.dep.cfg.packages[0], { verify: ['verify'], checks: { verify: ['false'] } })
-    assert.ok(await C.closeTask(w.h, w.dep, w.id)); assert.equal(sh(w.wt, 'symbolic-ref', 'HEAD'), `refs/heads/${w.branch}`)
-    assert.equal(readFileSync(join(w.wt, 'b.txt'), 'utf8'), 'b\n'); assert.equal(sh(w.wt, 'status', '--porcelain'), ''); assert.equal(sh(w.wt, 'rev-parse', 'HEAD'), (await w.store.get(w.id)).meta['cadre.sourceCommit'])
-  }
+test('conflict: a trial merge finds it; the SAME worker is resumed on the merged tree with the conflict; re-review; then it lands with both changes; recorded', async () => {
+  const w = await movedEpic('b.txt', 'theirs\n'), { h, store, d, id, wt } = w, tip = sh(d, 'rev-parse', 'epic/p1-x')
+  assert.match(String(await C.closeTask(h, w.dep, id)), /conflicts in b\.txt\). Its worker updates it \(round 1\/2\); it comes back for review\. Wait for it/)
+  assert.equal(sh(d, 'rev-parse', 'epic/p1-x'), tip); assert.match(readFileSync(join(wt, 'b.txt'), 'utf8'), /<<<<<<<[\s\S]*theirs/)   // the conflict is left for the worker, in its tree
+  const q = await queued(h, id); assert.match(q, /Resolve the conflicts in: b\.txt/); assert.match(q, /round 1\/2/)
+  const m = (await store.get(id)).meta; assert.equal(m['cadre.rebase'], '1'); assert.equal(m['cadre.review'], ''); assert.equal(m['cadre.base'], tip)
+  assert.ok((await store.list({})).some(x => x.type === 'decision' && /reworked onto the plan tip/.test(x.description ?? x.title)))
+  writeFileSync(join(wt, 'b.txt'), 'b\ntheirs\n'); assert.match(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'merged' }), /report accepted/)   // the worker resolves it
+  const t = (await h.board.read()).tasks[0]; assert.deepEqual([t.state, t.step], ['review', 'reviewer'])   // re-review: the code changed
+  assert.match(await queued(h, id, 'ag2'), /Re-review/); assert.match(await w.rep('ag2', w.pass), /pass@/)
+  assert.equal(await C.closeTask(h, w.dep, id), null); assert.equal(sh(d, 'show', 'epic/p1-x:b.txt'), 'b\ntheirs')
+})
+test('cap: past 2 rounds the task is blocked and asked with both sides; Retry runs one more round', async () => {
+  const w = await movedEpic('b.txt', 'theirs\n'), { h, store, id } = w; await store.setMeta(id, { 'cadre.rebase': '2' }, 'x')
+  const { repoKeyOf } = await import('../../commands/init.ts'); await h.store.set(`cadre:${repoKeyOf(w.d)}:actor`, w.dep.actor)   // the dialog's route resolves its own deps: same claim actor
+  assert.match(String(await C.closeTask(h, w.dep, id)), /still conflicts on the plan after 2 reworks; it waits for the user\. Go on with the other tasks/)
+  const t = (await h.board.read()).tasks[0]; assert.equal(t.state, 'blocked'); assert.ok(t.flags.includes('conflict'))
+  const dd = (await h.board.read()).decisions.find(x => x.id === `flag:${id}:conflict`); assert.match(dd.title, /still conflicts after 2 reworks/); assert.match(dd.lines.join('\n'), /b\.txt/); assert.deepEqual(dd.options.map(o => o.label), ['Retry', 'Cancel task'])
+  assert.match((await ROUTES.resolve(h, { schemaVersion: 1, cmd: 'resolve', args: [id, 'rebase'], origin: { kind: 'dialog' } })).text, /round 2\/2/)
+  assert.deepEqual((({ state, step }) => [state, step])((await h.board.read()).tasks[0]), ['active', 'worker'])
+})
+test('after a squash, a running sibling gets the new tip merged in (its own edits kept); a colliding one only gets a heads-up', async () => {
+  const w = await world(2), { h, store, d } = w, [a, b] = w.ids
+  await w.spawn(a); await w.spawn(b); const wa = (await store.get(a)).meta['cadre.worktree'], wb = (await store.get(b)).meta['cadre.worktree']
+  edit(wa, 'a2.txt', 'from a\n'); writeFileSync(join(wb, 'mine.txt'), 'wip\n')   // b works, uncommitted
+  await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'a' }); await w.spawn(a); await w.rep('ag3', w.pass)
+  assert.equal(await C.closeTask(h, w.dep, a), null); const tip = sh(d, 'rev-parse', 'epic/p1-x')
+  assert.equal(readFileSync(join(wb, 'a2.txt'), 'utf8'), 'from a\n'); assert.equal(readFileSync(join(wb, 'mine.txt'), 'utf8'), 'wip\n'); assert.equal((await store.get(b)).meta['cadre.base'], tip)
+  assert.equal(sh(d, 'merge-base', '--is-ancestor', tip, (await store.get(b)).meta['cadre.branch']), '')
+})
+test('watch: two running workers changing the same file are told once each (uncommitted edits count)', async () => {
+  const w = await world(2), { h, store } = w, [a, b] = w.ids; await w.spawn(a); await w.spawn(b)
+  edit((await store.get(a)).meta['cadre.worktree'], 'a.txt', 'A\n'); edit((await store.get(b)).meta['cadre.worktree'], 'a.txt', 'B\n')
+  const { drainDelta } = await import('../../core/briefs.ts')
+  await R.watch(h, w.dep); assert.match(await drainDelta(h, 'ag1'), /Heads-up: m-3 is changing a\.txt/); assert.match(await drainDelta(h, 'ag2'), /m-2 is changing a\.txt/)
+  await R.watch(h, w.dep); assert.equal(await drainDelta(h, 'ag1'), null)
 })

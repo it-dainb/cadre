@@ -18,7 +18,7 @@ export type Result = { ok: true; board: Snapshot; events: EmitSpec[] } | { ok: f
 
 const FROM: Record<MKind, Category[]> = {   // legal-from table
   approve: ['draft'], amend: ['todo', 'blocked'], claim: ['todo'], advance: ['active'], verdict: ['review'], close: ['review', 'active'],
-  block: ['active', 'review'], unblock: ['blocked'], rewind: ['active', 'blocked'], release: ['active', 'review', 'blocked'], skip: ['todo'],
+  block: ['active', 'review'], unblock: ['blocked'], rewind: ['active', 'blocked', 'review'], release: ['active', 'review', 'blocked'], skip: ['todo'],
   cancel: ['draft', 'todo', 'active', 'review', 'blocked'],
 }
 

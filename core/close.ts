@@ -21,6 +21,7 @@ import * as G from './git'
 import { decided, hardStop, stop } from './drive'
 import { queueBrief } from './lanes'
 import { yoloOn } from './decide'
+import { ROUNDS, capAsk, refresh, rework, trial } from './rebase'
 
 
 export const NUDGE: Record<string, string> = { worker: 'You stopped without calling report. Call it now: {"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"} (or outcome "blocked" with reason).', tester: 'You stopped without calling report. Call it now with role "tester", outcome "done", summary and tests.', reviewer: 'You stopped without calling report. Call it now with role "reviewer", verdict, summary, findings, coverage and contractStatus.', explorer: ASK_NUDGE }
@@ -250,18 +251,24 @@ export async function closeTask(h: Host, d: Deps, id: string): Promise<string | 
   const msg = commitMessage({ type: spec.commit ?? 'chore', scope: task.meta['cadre.scope'] || undefined, breaking: task.meta['cadre.breaking'] === 'true', description: t.title, summary: rep, id, reviewSha: C, checks: task.meta['cadre.checks'] ? [task.meta['cadre.checks']] : [] })
   let sha = '', fail = ''
   const back = () => G.git(h.run, wt, ['checkout', '-q', '-f', task.meta['cadre.branch']]).catch(() => {})   // squash detaches; a failed close returns the worker to its branch, its files intact for the rework
+  const moved = async (why: 'conflict' | 'red', tip: string, files: string[], detail = '') => {   // the plan moved under it: its worker reworks it (core/rebase), past the cap it is blocked and asked
+    const r = await rework(h, d, t, task, tip, why, detail); if (r) return r
+    await blockTask(h, d, t, `still ${why === 'red' ? 'red' : 'conflicting'} after ${ROUNDS} reworks`, why === 'red' ? 'merge-red' : 'conflict', {}); if (why === 'conflict') await capAsk(h, d, t, task, tip, files)
+    return `${id} still ${why === 'red' ? 'fails its checks' : 'conflicts'} on the plan after ${ROUNDS} reworks; it waits for the user. Go on with the other tasks.`
+  }
+  { const tip = await G.tip(h.run, d.root, plan.epicBranch), c = tip === base ? null : await trial(h, d.root, tip, C); if (c?.length) return moved('conflict', tip, c) }   // a trial merge first (git >= 2.38): no squash attempt to undo
   for (let i = 0; i < 2 && !sha; i++) {
     const r = await G.op(h, async () => {
       const epicTip = await G.tip(h.run, d.root, plan.epicBranch)
       let s: string
-      try { s = await G.squash(h.run, wt, epicTip, C, msg) } catch (x) { return { fail: `conflict: ${(x as Error).message}`, flag: 'conflict' } }
+      try { s = await G.squash(h.run, wt, epicTip, C, msg) } catch (x) { return { fail: `conflict: ${(x as Error).message}`, flag: 'conflict', tip: epicTip } }
       if (epicTip !== base) {   // the package's own verify checks (as the green gate runs them); a missing check is a failure, not a pass
         const pkg = pkgOf(d, task)
-        for (const n of pkg ? verifyOf(pkg) : ['verify']) { const c = await runCheck(h, d, task, wt, n); if (!c.found || !c.ok) return { fail: `verify (${n}) failed on the squash commit:\n${c.text.slice(0, 1200)}`, flag: 'merge-red' } }
+        for (const n of pkg ? verifyOf(pkg) : ['verify']) { const c = await runCheck(h, d, task, wt, n); if (!c.found || !c.ok) return { fail: `verify (${n}) failed on the squash commit:\n${c.text.slice(0, 1200)}`, flag: 'merge-red', tip: epicTip } }
       }
       return (await G.casRef(h.run, d.root, `refs/heads/${plan.epicBranch}`, s, epicTip)) ? { s } : { retry: true }
-    }) as { s?: string; fail?: string; flag?: string; retry?: boolean }
-    if (r.s) sha = r.s; else if (r.fail) { await back(); await blockTask(h, d, t, r.fail, r.flag!, {}); return r.fail } else fail = 'the epic moved twice while squashing'
+    }) as { s?: string; fail?: string; flag?: string; tip?: string; retry?: boolean }
+    if (r.s) sha = r.s; else if (r.fail) { await back(); return moved(r.flag === 'merge-red' ? 'red' : 'conflict', r.tip!, [], r.flag === 'merge-red' ? r.fail : '') } else fail = 'the epic moved twice while squashing'
   }
   if (!sha) { await back(); await blockTask(h, d, t, fail, 'conflict', {}); return fail }
   const at = await h.now(), m = await apply(h, { kind: 'close', id, at, actor: 'main' }, pipe(d)); if (!m.ok) return m.error
@@ -269,7 +276,9 @@ export async function closeTask(h: Host, d: Deps, id: string): Promise<string | 
   await record(h, d, id, 'close', 'mod', { squash: sha, epic: plan.epicBranch, reviewed: C })
   const next = await lastNext(h, plan.id, 'wait')
   await patch(h, id, x => ({ ...x, card: card({ id, title: t.title, role: 'main', to: 'done', commit: sha, flags: [], next }) }))
-  await cleanup(h, d, id, task); return null
+  await cleanup(h, d, id, task)
+  await refresh(h, d, sha, id).catch(e => h.log(`refresh after ${id}: ${e}`))   // running siblings get the new tip now (core/rebase)
+  return null
 }
 
 // ---- release / cancel / decision (TaskUpdate pending|deleted, metadata.decision) ----
@@ -354,6 +363,11 @@ ROUTES.resolve = async (h, c) => {
     return { text: `${a}: plan flags cleared; call TaskUpdate completed on the epic again` }
   }
   const t = s0.tasks.find(x => x.id === a)
+  if (t && b === 'rebase' && t.state === 'blocked') {   // the cap dialog's Retry (core/rebase.capAsk): one more round by the same worker
+    const task = await d.store.get(a), tip = await G.tip(h.run, d.root, s0.plan?.epicBranch ?? '')
+    await d.store.setMeta(a, { 'cadre.rebase': String(ROUNDS - 1), 'cadre.blocked': '' }, d.actor); await clear(h, a, 'conflict'); await clear(h, a, 'merge-red')
+    return { text: (await rework(h, d, (await h.board.read()).tasks.find(x => x.id === a)!, { ...task, meta: { ...task.meta, 'cadre.rebase': String(ROUNDS - 1) } }, tip, 'conflict')) ?? `${a}: not reworked` }
+  }
   if (!t || !['keep', 'accept', 'reject', 'cancel'].includes(b)) return { text: 'usage: /cadre resolve <taskId> keep|accept|reject|cancel · /cadre resolve git keep|restore' }
   const out = async (e: Promise<string | null>) => ({ text: (await e) ?? `${a}: ${b} done` })
   if (b === 'cancel' || (b === 'reject' && t.flags.some(x => x.startsWith('rework:')))) return out(cancelTask(h, d, a, 'ended by the human'))
