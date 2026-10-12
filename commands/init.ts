@@ -126,9 +126,12 @@ export async function confirm(h: Host): Promise<string> {
 
 // The setup files (config, changelog) must be committed: a clone and dev need them (a release refuses without the changelog on dev). cadre commits them after the
 // safety confirm, under git.op (its own ref move is not a flag); the other branch of main/dev follows when it is an ancestor (a fresh repo), else it is left alone.
+const BD_IGNORE = /\n?# Beads \/ Dolt files \(added by bd init\)\n\.dolt\/\n\*\.db\n\.beads-credential-key\n\.beads\/proxieddb\/\n\*\.gate\.lock\*\n?/   // bd 1.3.1's block, verbatim
 export async function commitSetup(c: Pick<Ctx, 'h' | 'root' | 'cfg'>): Promise<string | null> {
   const ex = await excludeFile(c.h, c.root); if (!ex.have.includes('.cadre/tmp/')) await c.h.write(ex.path, `${ex.have.join('\n').replace(/\n*$/, '\n')}.cadre/tmp/\n`.replace(/^\n/, ''))   // cadre's logs and scratch (core/close): never a change to commit
-  const files = (await git(c as Ctx, 'status', '--porcelain', '--', '.cadre/config.json', c.cfg.changelog.path, '.gitignore')).stdout.split('\n').filter(Boolean).map(l => l.slice(3))   // bd writes the root .gitignore
+  const gi = `${c.root}/.gitignore`, was = await c.h.readText(gi), cut = was?.replace(BD_IGNORE, '')   // bd init appends this block to the root .gitignore (creating it if absent); the store lives under .cadre (excluded), and `*.db` would hide the user's own files
+  if (was != null && cut !== was) { if (cut!.trim() || (await git(c as Ctx, 'ls-files', '--error-unmatch', '.gitignore')).exitCode === 0) await c.h.write(gi, cut!); else await c.h.run(['rm', '-f', gi]) }   // only bd's lines go; the user's own stay
+  const files = (await git(c as Ctx, 'status', '--porcelain', '--', '.cadre/config.json', c.cfg.changelog.path)).stdout.split('\n').filter(Boolean).map(l => l.slice(3))
   if (!files.length) return null
   const cur = (await git(c as Ctx, 'symbolic-ref', '--short', '-q', 'HEAD')).stdout.trim(), { main, dev } = c.cfg.branches, other = cur === main ? dev : cur === dev ? main : ''
   if (!other) return null
