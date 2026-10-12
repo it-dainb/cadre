@@ -30,6 +30,10 @@ describe('briefs: goldens per role (4.2), static header first, variable task dat
     expect(brief('reviewer', { ...base, paths })).toContain('a change outside these files is a finding, not a fail on its own')
     expect(brief('worker', { ...base, paths: [] })).not.toContain('Files:')
   })
+  test('no role is sent to find or write the changelog entry: it is written when the task merges', async () => {
+    expect(brief('reviewer', { ...base, ...extra.reviewer })).toContain("The changelog entry is written when the task merges; do not look for it in the diff.")
+    expect(brief('worker', { ...base, ...extra.worker })).toContain('Do not edit CHANGELOG.md: its entry is written when the task merges.')
+  })
   test('caps: notes 500, spec 4 KB, context 3 KB, diff 3 KB; empty sections are dropped', async () => {
     const w = brief('worker', { ...base, notes: 'n'.repeat(900), description: 'd'.repeat(9000), findings: ['f'.repeat(9000)] })
     expect(w.split('## Notes\n')[1].length).toBeLessThanOrEqual(500)

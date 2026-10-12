@@ -21,8 +21,8 @@ export function idsIn(text: string, known: Iterable<string>): string[] {
 // ---- role briefs ----
 const HEAD: Record<Role, string> = {
   tester: 'Tester brief. Write black-box tests for the task below, under the test paths named. Finish with report{role:"tester"}.',
-  worker: 'Worker brief. Do exactly the task below in your working directory. Conform to the contract; locked tests stay as they are; your changes are committed for you. Finish with report{role:"worker"}.',
-  reviewer: 'Reviewer brief. Disprove the claim that the commit below satisfies its scenarios and contract. Read-only. Finish with report{role:"reviewer"}.',
+  worker: 'Worker brief. Do exactly the task below in your working directory. Conform to the contract; locked tests stay as they are; your changes are committed for you. Do not edit CHANGELOG.md: its entry is written when the task merges. Finish with report{role:"worker"}.',
+  reviewer: 'Reviewer brief. Disprove the claim that the commit below satisfies its scenarios and contract. Read-only. The changelog entry is written when the task merges; do not look for it in the diff. Finish with report{role:"reviewer"}.',
   explorer: 'Explorer brief. Read-only. Answer with citations. Finish with report{role:"explorer"}.',
 }
 export interface BriefIn {
@@ -53,7 +53,7 @@ export function brief(role: Role, b: BriefIn): string {
   if (role === 'reviewer')
     return join([head, `# REVIEW TASK-${b.id}${files(' (a change outside these files is a finding, not a fail on its own)')}`, sec('Source commit', b.sourceCommit), sec('Diff', [b.diffStat ?? '', cap(b.diff ?? '', 3072)]),
       spec([sec('Scenarios', b.scenarios), contract, sec('Spec tests', b.locked)]),
-      ctx([sec('Red/green cards', [b.redCard ?? '', b.greenCard ?? '']), sec('Tester audit', b.audit), sec('Worker report', b.report), sec('Check', b.focus), sec('Changelog and commit header', b.changelog), sec('Flags', b.flags)]), notes])
+      ctx([sec('Red/green cards', [b.redCard ?? '', b.greenCard ?? '']), sec('Tester audit', b.audit), sec('Worker report', b.report), sec('Check', b.focus), sec('Changelog entry (context, written at merge) and commit header', b.changelog), sec('Flags', b.flags)]), notes])
   return join([head, `# TASK-${b.id} ${b.title} (${b.type})${files(' (make your changes there)')}`, spec([sec('Description', b.description), sec('Scenarios', b.scenarios), contract]),
     ctx([sec('Locked spec tests', [...(b.locked ?? []), b.redCard ?? '']), sec('Direct dependencies', (b.deps ?? []).map(d => `- ${d.id} ${d.title}${d.out ? `: ${d.out}` : ''}`)),
       sec('Findings / checks', [...(b.findings ?? []), b.greenCard ?? '']), sec('Decisions', b.decisions), sec('Handoff', b.handoff),
