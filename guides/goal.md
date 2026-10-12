@@ -23,5 +23,8 @@ That one call creates the plan and its task. Then tell the user to approve it on
 
 Done when the agent is spawned (ask) or the plan is drafted (lite, full). Then stop.
 
+## After the user approves
+When asked to run the plan, spawn each ready task's Agent and follow the "next:" lines. When every task is done, complete the plan itself (TaskUpdate on the plan id, status "completed") so it lands on dev; until then a new plan is refused.
+
 ## If a step is refused
 Read the refusal; it names what to fix. If a plan is still open, tell the user to finish or reject it first and stop.
