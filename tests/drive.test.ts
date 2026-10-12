@@ -227,8 +227,9 @@ describe('hard stops (both modes), bounds, stop/resume', () => {
     expect((await w.board()).drive.stopped).toBeUndefined(); expect((await w.h.ui.read()).goal).toBe(`Continue: spawn TASK-${w.t}`)
   })
   test('the plan landed: drive finishes; yolo says the release is the human\'s', async () => {
-    const w = await go('yolo'); await w.h.board.update(b => ({ ...b, plan: { ...b.plan!, state: 'done-on-dev', landed: { dev: 'dev', sha: 's', at: 1 } } })); await w.turn()
-    expect((await w.board()).drive.on).toBe(false); expect(w.submitted).toEqual([]); expect(w.h.toasts.join()).toContain('the release is yours')
+    const w = await go('yolo'); await w.store.record('decision', `yolo: ${w.t}: spec change rejected: tests match`, 'r', w.id); await w.store.record('decision', 'yolo: elsewhere', 'r', 'zz')
+    await w.h.board.update(b => ({ ...b, plan: { ...b.plan!, state: 'done-on-dev', landed: { dev: 'dev', sha: 's', at: 1 } } })); await w.turn()
+    expect((await w.board()).drive.on).toBe(false); expect(w.submitted).toEqual([]); expect(w.h.toasts.join()).toContain('drive finished · 1 decision taken for you (Doctor lists them) · the release is yours')   // what was decided without the human, counted from the records
     expect((await w.board()).decisions ?? []).toEqual([])
   })
 })

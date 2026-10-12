@@ -106,9 +106,11 @@ export async function drive(h: Host, cfg: any, usd: number | undefined) {
   if (!d.on || d.stopped || !s.epic || !s.plan) return
   const mode: Mode = d.mode ?? 'auto'
   if (s.plan.landed || s.plan.state === 'done-on-dev' || s.plan.state === 'released') {   // computed done: integration landed it on dev with its changelog (3.9, plan.landed)
-    await h.board.update(x => ({ ...x, drive: { ...x.drive, on: false, paused: undefined } })); await driveEvent(h, 'finished', mode === 'yolo' ? 'landed on dev; the release is yours' : undefined)
-    await casDrive(h, await storeOf(h), r => r && { ...r, on: false, lease: { session: '', until: 0 } })
-    return void h.toast(`epic ${s.plan.id} landed on dev; drive finished${mode === 'yolo' ? ' · the release is yours' : ''}`)   // the /clear hint is the drain's (7)
+    const store = await storeOf(h), n = (await store.list({}).catch(() => [])).filter(t => t.type === 'decision' && t.meta.link === s.plan!.id && /^(auto|yolo): /.test(t.title)).length   // the beads records outlive the event ring
+    const took = n ? ` · ${n} decision${n === 1 ? '' : 's'} taken for you (Doctor lists them)` : ''
+    await h.board.update(x => ({ ...x, drive: { ...x.drive, on: false, paused: undefined } })); await driveEvent(h, 'finished', `landed on dev${took}${mode === 'yolo' ? '; the release is yours' : ''}`)
+    await casDrive(h, store, r => r && { ...r, on: false, lease: { session: '', until: 0 } })
+    return void h.toast(`epic ${s.plan.id} landed on dev; drive finished${took}${mode === 'yolo' ? ' · the release is yours' : ''}`)   // the /clear hint is the drain's (7)
   }
   const store = await storeOf(h), me = await sessionOf(h), now = await h.now(), dc = cfg.drive
   const rec = await casDrive(h, store, () => undefined)
