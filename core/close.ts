@@ -201,8 +201,8 @@ export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
   await release(h, d, t, b, e.agentId, String(e.reason ?? 'stopped'))
 }
 export async function observeWith(h: Host, d: Deps, e: any, next: (e: any) => any): Promise<any> {
-  await sweep(h).catch(x => h.log(`cadre: sweep failed: ${x}`))
-  if (e.agentId) await ((await askOf(h, e.agentId)) ? askStopped(h, e) : stopped(h, d, e)).catch(x => h.log(`cadre: observe failed: ${x}`))
+  await sweep(h).catch(x => h.log(`sweep failed: ${x}`))
+  if (e.agentId) await ((await askOf(h, e.agentId)) ? askStopped(h, e) : stopped(h, d, e)).catch(x => h.log(`observe failed: ${x}`))
   return next(e)
 }
 export const observe: Hook = async (h, e, next) => observeWith(h, await resolveDeps(h), e, next)

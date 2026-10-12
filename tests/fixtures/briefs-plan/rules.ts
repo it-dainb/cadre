@@ -5,5 +5,5 @@ export const RULES = [
   '- Task metadata: type, scope?, breaking?, package, scenarios ["S1: Given <state> When <action> Then <outcome>"], changelog {"category":"Added","entry":"…"} or {"none":true,"reason":"…"}, interface {"symbols":[{"name","kind","params":[…],"returns","status":"new|changed|unchanged"}]} or {"none":true,"reason":"…"}.',
   '- Types and pipelines: feature tester>red>worker>green>reviewer>merge; bug tester>red>worker>green>reviewer>merge; refactor worker>green>reviewer>merge; docs worker>reviewer>merge; test tester>reviewer>merge; spike explorer>report.',
   '- A draft may be incomplete: the "missing:" line says what approval still needs.',
-  '- Only the human approves, on the card. Approved tasks are frozen: set metadata.amend:true to edit one. Never set owner, in_progress or cadre*.',
+  '- Only the human approves, in the dialog. Approved tasks are frozen: set metadata.amend:true to edit one. Never set owner, in_progress or cadre*.',
 ].join('\n')

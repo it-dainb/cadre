@@ -24,7 +24,7 @@ const end = (h: Host) => h.secret.update(({ run: _r, ...s }) => s)
 const send = (h: Host, brief: string) => h.secret.update(s => (s.run ? { ...s, run: { ...s.run, brief } } : s))
 export async function pump(h: Host): Promise<void> {
   let text: string | undefined; await h.secret.update(s => { text = s.run?.brief; return text ? { ...s, run: { ...s.run!, brief: undefined } } : s })
-  if (text) await h.submit?.(modelText('brief', text)).catch((e: Error) => h.log(`cadre: could not hand the step to Claude: ${e.message.slice(0, 120)}`))
+  if (text) await h.submit?.(modelText('brief', text)).catch((e: Error) => h.log(`could not hand the step to Claude: ${e.message.slice(0, 120)}`))
   await sendBrief(h)   // a `/cadre <goal>` brief (core/lanes)
 }
 
@@ -84,7 +84,7 @@ async function moved(h: Host, r: NonNullable<Secret['run']>): Promise<boolean> {
   const home = await h.home(), cwd = await h.cwd(), rel = (p: string) => p.replace(`${home}/`, '~/').replace(`${cwd}/`, '')
   await end(h); await h.secret.update(s => ({ ...s, hold: { kind: r.kind, files: Object.fromEntries(changed.map(([p, was]) => [p, was])) } }))
   const lines = ['A settings file changed outside cadre during the run. The run stopped.', ...changed.flatMap(([p, was, now]) => [`${rel(p)}:`, ...jdiff(parse(was), parse(now)).slice(0, 10).map(l => `  ${l}`)]), 'Restore puts back the bytes from before (the changed file is kept as .cadre-changed).']
-  await settle(h, `run:${r.kind}`); h.log(`cadre: settings-changed: ${changed.map(c => rel(c[0])).join(', ')}`)
+  await settle(h, `run:${r.kind}`); h.log(`settings-changed: ${changed.map(c => rel(c[0])).join(', ')}`)
   await ask(h, { id: 'run:settings', kind: 'flag', title: `settings-changed · ${r.kind} stopped`, short: 'settings changed', lines, hash: fnv1a64(lines.join('\n')), tab: 'epic', crit: true,
     options: [{ key: 'r', label: 'Restore', verb: 'restore', run: `${r.kind} restore` }, { key: 'k', label: 'Keep', verb: 'keep', run: `${r.kind} keep` }] })
   return true

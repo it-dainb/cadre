@@ -102,7 +102,7 @@ export async function audit(h: Host, caller: string | null): Promise<void> {
 // #6 tool.call wrap: L3 window + audit for writers; then the delta drain (4.3), the foreground result card (S39), the tester call log (3.5.2).
 export const wrap: Hook = async (h, e, next) => {
   const r = await (writes(e.tool) ? audited(h, e, next) : next(e))
-  try { return await after(h, e, r) } catch (x) { h.log(`cadre: wrap after-call failed: ${x}`); return r }
+  try { return await after(h, e, r) } catch (x) { h.log(`wrap after-call failed: ${x}`); return r }
 }
 async function after(h: Host, e: any, r: any): Promise<any> {
   if (!e.agentId) {   // main's foreground Agent call: the task's card replaces the hand-back text (r.result.content[0].text, S39)
@@ -126,7 +126,7 @@ async function audited(h: Host, e: any, next: (e: any) => any) {
   await h.git.update(g => ({ ...g, win: { loops: [...new Set([...(g.win?.loops ?? []), loop])], open: { ...g.win?.open, [id]: loop } } }))
   try { return await next(e) } finally {
     await h.git.update(g => { const { [id]: _d, ...open } = g.win?.open ?? {}; return { ...g, win: { loops: g.win?.loops ?? [], open } } })   // this call is over, but stays in the window it is about to be audited in
-    await audit(h, loop).catch(x => h.log(`cadre: effect audit failed: ${x}`))
+    await audit(h, loop).catch(x => h.log(`effect audit failed: ${x}`))
   }
 }
 

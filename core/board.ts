@@ -51,7 +51,7 @@ export const agentsOf = (t: Record<string, Binding>, taskId: string): string[] =
 
 // ui/ hooks register here at load (core never imports ui/, DESIGN 2.3): register.ts sets them.
 export const UI: { mapCard?: (h: Host, toolUseId: string, taskId: string) => Promise<unknown>; banner?: (h: Host, o: { decisions?: number; next?: string; stale?: number }) => Promise<void> } = {}
-export const safe = async <T>(h: Host, what: string, f: () => Promise<T>) => { try { return await f() } catch (x) { h.log(`cadre: ${what} failed: ${x}`) } }
+export const safe = async <T>(h: Host, what: string, f: () => Promise<T>) => { try { return await f() } catch (x) { h.log(`${what} failed: ${x}`) } }
 // session = this process's random id (secret atom); a lease is live while leaseUntil is in the future
 export const leaseLive = (t: Pick<Task, 'leaseUntil'>, now: number) => !!t.leaseUntil && Date.parse(t.leaseUntil) > now
 export async function sessionOf(h: Host): Promise<string> {

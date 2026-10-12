@@ -122,7 +122,7 @@ export const guard: Hook = async (h, e, next) => {
   const tb = e.agentId && (await h.bind.read())[e.agentId]
   if (tb && tb.role === 'tester') await logCall(h, e.agentId, { tool: e.tool, path: inputPath(e.tool, e.input ?? e, tb.worktree), outcome: why })   // the view audit counts refusals too (3.5.2)
   if (await strict(h)) return { deny: modelText('deny', why) }
-  h.log(`cadre advisory: ${why}`); return next(e)
+  h.log(`advisory: ${why}`); return next(e)
 }
 
 // #4 tool.check allow mirrors fence rule 2 (tester) and rule 3 (owner); anything else is the engine's call. Fail-closed answer is {decision:'deny'}.

@@ -50,8 +50,8 @@ export async function emit(h: Host, type: EventType, data: Record<string, unknow
     const tid = String(data.taskId ?? ''), fl = String(data.flag ?? '')
     if (type === 'flag.raised' && !(b0.decisions ?? []).some(d => d.id === `flag:${tid}:${fl}`)) { const d = flagDecision(tid, fl, b0.tasks.find(t => t.id === tid)?.title); if (d) await ask(h, d) }
     if (type === 'flag.resolved') await settle(h, ...fl.split(',').map(f => `flag:${tid}:${f}`))
-  } catch (e) { h.log(`cadre: decision update failed: ${e}`) }
-  for (const s of subs) try { await s(h, ev) } catch (e) { h.log(`cadre: subscriber failed on ${type}: ${e}`) }
+  } catch (e) { h.log(`decision update failed: ${e}`) }
+  for (const s of subs) try { await s(h, ev) } catch (e) { h.log(`subscriber failed on ${type}: ${e}`) }
   return ev
 }
 

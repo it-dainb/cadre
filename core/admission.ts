@@ -211,7 +211,7 @@ export async function beat(h: Host, d: Deps, every = 120_000): Promise<void> {
     if (a.startsWith('~') || b.sessionId !== d.session) continue
     const k = `cadre:${d.key}:hb:${b.taskId}`
     if (now - (((await h.store.get(k)) as number | undefined) ?? 0) < every) continue
-    await d.store.heartbeat(b.taskId).catch(err => h.log(`cadre: heartbeat ${b.taskId} failed: ${err}`)); await h.store.set(k, now)
+    await d.store.heartbeat(b.taskId).catch(err => h.log(`heartbeat ${b.taskId} failed: ${err}`)); await h.store.set(k, now)
   }
 }
 

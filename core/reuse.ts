@@ -20,7 +20,7 @@ const counted = (h: Host, q: Entry[], me: string) => h.board.update(s => ({ ...s
 // ---- resume queue (4.4): anything may queue; only drain sends. One entry per agentId; a later text is appended. ----
 export async function queueResume(h: Host, r: { agentId: string; taskId: string; text: string }): Promise<void> {
   const b = (await h.bind.read())[r.agentId]
-  if (b && b.taskId !== r.taskId) return void h.log(`cadre: resume to ${r.agentId} refused: it works on ${b.taskId}, not ${r.taskId}`)
+  if (b && b.taskId !== r.taskId) return void h.log(`resume to ${r.agentId} refused: it works on ${b.taskId}, not ${r.taskId}`)
   const me = await sessionOf(h), k = await qk(h), q = ((await h.store.get(k)) as Entry[] | undefined) ?? [], old = q.find(x => x.agentId === r.agentId)
   const text = old && old.text !== r.text ? `${old.text}\n\n${r.text}` : r.text
   const next = [...q.filter(x => x.agentId !== r.agentId), { sessionId: b?.sessionId ?? me, agentId: r.agentId, taskId: r.taskId, text }]
@@ -44,7 +44,7 @@ async function sendMine(h: Host, store: TaskStore | undefined, cfg: any) {
     const ask = r.taskId.startsWith('ask-') && (await askOf(h, r.agentId))   // a marker-less explorer's nudge (core/asks): no task, no lease
     if (!ask && store && !leaseLive(await store.get(r.taskId), now)) continue   // stale lease: that agent is gone; the rebind handoff replaces it (8.4)
     if (!ask && (!b || b.retired)) continue
-    if (ask) { const res = await h.sendTo!(r.agentId, modelText('nudge', r.text)); if (!res.isDelivered) h.log(`cadre: ${ask.id} could not be resumed: ${res.reason ?? 'not delivered'}`); continue }
+    if (ask) { const res = await h.sendTo!(r.agentId, modelText('nudge', r.text)); if (!res.isDelivered) h.log(`${ask.id} could not be resumed: ${res.reason ?? 'not delivered'}`); continue }
     if (stale(b, now, cfg)) { await retire(h, r.agentId, b, `context ${ctxPct(b)}%`); continue }
     const delta = await drainDelta(h, r.agentId)
     await h.ui.update(u => ({ ...u, drainTo: r.agentId }))   // marks cadre's own send so policy/guards.send does not isolate it (reviewer findings quote other ids)

@@ -47,7 +47,7 @@ export async function buildView(h: Host, d: Deps, task: Task, wt: string): Promi
     const tab = rec.indexOf('\t'), mode = rec.slice(0, 6), path = rec.slice(tab + 1)
     if (root && !path.startsWith(`${root}/`)) continue
     if (!matches(want, root ? path.slice(root.length + 1) : path)) continue
-    if (mode === '100644' || mode === '100755') take.push(path); else h.log(`cadre: view ${task.id}: skipped ${path} (mode ${mode}, not a regular file)`)
+    if (mode === '100644' || mode === '100755') take.push(path); else h.log(`view ${task.id}: skipped ${path} (mode ${mode}, not a regular file)`)
   }
   if (take.length) {
     await G.git(h.run, wt, ['archive', '--format=tar', '-o', `${scratch}/v.tar`, src, '--', ...take]); await must(h, ['tar', '-xf', `${scratch}/v.tar`, '-C', `${scratch}/x`])
@@ -65,7 +65,7 @@ export async function buildView(h: Host, d: Deps, task: Task, wt: string): Promi
     if (r.exitCode) throw new StoreError('Invalid', `${task.id}: stubs failed: ${r.stderr.slice(-200)}`)
     await must(h, ['cp', '-a', `${scratch}/stubs/.`, view])
   }
-  for (const l of await list(h, view, 'l')) { await sh(h, ['rm', '-f', `${view}/${l}`]); h.log(`cadre: view ${task.id}: dropped symlink ${l}`) }
+  for (const l of await list(h, view, 'l')) { await sh(h, ['rm', '-f', `${view}/${l}`]); h.log(`view ${task.id}: dropped symlink ${l}`) }
   await d.store.setMeta(task.id, { 'cadre.view': JSON.stringify(await hashes(h, view)) }, d.actor)
   await sh(h, ['rm', '-rf', scratch])
   return view

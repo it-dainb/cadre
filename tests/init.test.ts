@@ -209,7 +209,7 @@ describe('settings watch (ADR 0010): a settings file changed outside cadre durin
     await turnEnd(h, {}); await tick()
     expect((await h.secret.read()).run).toBeUndefined(); expect(sent).toEqual([]); expect(await card(h)).toBeUndefined()
     const d = (await card(h, 'run:settings'))!; expect(d.crit).toBe(true); expect(d.title).toBe('settings-changed · init stopped'); expect(d.lines.join('\n')).toContain('~/.claude/settings.json:'); expect(d.lines.join('\n')).toContain('permissions.allow')
-    expect(d.options.map(o => o.label)).toEqual(['Restore', 'Keep']); expect(h.logs.some(l => l.startsWith('cadre: settings-changed'))).toBe(true)
+    expect(d.options.map(o => o.label)).toEqual(['Restore', 'Keep']); expect(h.logs.some(l => l.startsWith('settings-changed'))).toBe(true)
     expect((await decide(h, d.id, 'r', d.hash)).text).toBe('init: settings restored · run /cadre init to go on')
     expect(files[USR]).toBe('{"env":{}}'); expect(files[`${USR}.cadre-changed`]).toContain('Bash(*)'); expect(await card(h, 'run:settings')).toBeUndefined()
   })

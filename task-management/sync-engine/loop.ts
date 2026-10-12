@@ -42,7 +42,7 @@ const rtOf = async (h: Host, k: string) => ((await h.store.get(k)) as RT | undef
 async function failed(h: Host, k: string, now: number, e: unknown): Promise<'offline' | 'auth' | 'conflict'> {
   const code = e instanceof AdapterError ? e.code : '', rt = await rtOf(h, k)
   const backoff = code === 'Auth' ? MAX_BACKOFF : Math.min(MAX_BACKOFF, Math.max(EVERY, rt.backoff * 2))
-  await h.store.set(k, { next: now + (e instanceof AdapterError && e.retryAfterMs ? e.retryAfterMs : backoff), backoff }); h.log(`cadre sync: ${(e as Error).message}`)
+  await h.store.set(k, { next: now + (e instanceof AdapterError && e.retryAfterMs ? e.retryAfterMs : backoff), backoff }); h.log(`sync: ${(e as Error).message}`)
   return code === 'Auth' ? 'auth' : code === 'Conflict' ? 'conflict' : 'offline'
 }
 
