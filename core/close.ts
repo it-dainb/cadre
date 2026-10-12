@@ -293,10 +293,14 @@ async function decide(h: Host, d: Deps, id: string, text: string): Promise<strin
   if (t?.state !== 'blocked') return `${id} is not blocked; nothing to decide`
   const y = yoloOn((await h.board.read()).drive), why = y ? await hardStop(h) : null
   if (why) { await stop(h, why); return `${id}: the run stopped (${why}); the user decides this task in the cadre dialog now. Stop and wait.` }   // a hard stop mid-turn: main's decision is not applied
-  if ((await d.store.get(id)).meta['cadre.blocked'] === 'spec_change') {   // yolo: main accepts or rejects it, through the same path as the dialog (recorded)
+  const meta = (await d.store.get(id)).meta
+  if (meta['cadre.blocked'] === 'spec_change') {   // yolo: main accepts or rejects it, through the same path as the dialog (recorded)
     if (!y) return `${id} awaits a spec change decision: the human accepts or rejects it in the cadre dialog`
     const m = /^\s*(accept|reject)\s*:\s*(\S[\s\S]*)$/i.exec(text); if (!m) return `${id}: metadata.decision must be "accept: <reason>" or "reject: <reason>"`   // the exact word and a colon: "acceptable… reject: …" must never read as accept
-    const how = m[1].toLowerCase(), r = await resolveSpec(h, id, how, 'main'); if (!/accepted|rejected/.test(r.text)) return r.text
+    const how = m[1].toLowerCase(), n = Number(meta['cadre.specAccepts'] || 0)
+    if (how === 'accept' && n >= 2) { const w = `${id} asked to change its locked spec ${n + 1} times`; await stop(h, w); return `${id}: the run stopped (${w}); the user decides this task in the cadre dialog now. Stop and wait.` }   // accept, rewind, accept… never counts as no progress: cap it
+    const r = await resolveSpec(h, id, how, 'main'); if (!/accepted|rejected/.test(r.text)) return r.text
+    if (how === 'accept') await d.store.setMeta(id, { 'cadre.specAccepts': String(n + 1) }, d.actor)
     await clear(h, id, 'spec_change'); await decided(h, 'spec', `${id}: spec change ${how}ed: ${m[2].trim()}`, id); return null
   }
   const e = await unblock(h, d, id, y ? `Decision: ${text}` : `Decision from the human: ${text}`, 'blocked')

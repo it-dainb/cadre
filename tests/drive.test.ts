@@ -124,6 +124,13 @@ describe('T6.3 gate policy', () => {
     expect((await w.evs()).filter(e => e.type === 'drive.decided').map(e => [e.data.kind, e.actor])).toEqual([['spec', 'main'], ['question', 'main']])
     expect((await w.store.list({})).filter(x => x.title.startsWith('yolo: ')).map(x => x.title)).toEqual([`yolo: ${w.t}: spec change rejected: the tests match the API docs`, `yolo: ${w.t}: 50, because the API caps pages at 50`])
   })
+  test('yolo accepts a spec change of one task at most twice; the third ask stops the run and goes to the human', async () => {
+    const w = await go('yolo'); await w.h.ui.update(({ goal: _g, ...u }) => u); await bindWorker(w)
+    await w.store.setMeta(w.t, { 'cadre.specAccepts': '2' }, 'x')   // two accepts already applied (a lite task has no tester to rewind to, so they are set here)
+    await report(w.h, await resolveDeps(w.h), 'ag1', { role: 'worker', outcome: 'spec_change', reason: 'pages start at 1' })
+    expect((await w.call('TaskUpdate', { taskId: w.t, metadata: { decision: 'accept: pages start at 1' } })).result.error).toContain(`the run stopped (${w.t} asked to change its locked spec 3 times)`)
+    expect((await w.board()).tasks[0].state).toBe('blocked'); expect((await w.board()).decisions!.map(d => d.id)).toEqual([`flag:${w.t}:spec_change`])
+  })
   test('yolo: a flag drive does not hold on (a worker that stopped without reporting) is never a dialog; it is recorded; a stop hands it to the human', async () => {
     const w = await go('yolo'); await w.h.ui.update(({ goal: _g, ...u }) => u)
     await w.setTask({ flags: ['auto-reported'] }); await emit(w.h, 'flag.raised', { taskId: w.t, flag: 'auto-reported' }, { taskId: w.t })
