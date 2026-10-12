@@ -10,6 +10,7 @@ import { skeleton } from '../core/changelog'
 import { BUDGET } from './fixtures/budget.generated'
 import type { Host } from '../types'
 import { banned } from './fixtures/wording'
+import { answer as taskCall } from '../native/tasks'
 
 type R = { exitCode: number; stdout?: string; stderr?: string }
 const ROOT = '/repo', HOME = '/hm/u', RK = repoKeyOf(ROOT), PLUG = '/plug', CFG = `${ROOT}/.cadre/config.json`
@@ -27,6 +28,7 @@ const jailed = (red: string[] = []) => (argv: string[]): R | undefined => {
 function mk(o: { repo?: boolean; branches?: string[]; files?: Record<string, string>; extra?: (argv: string[]) => R | undefined; mission?: boolean; journal?: boolean } = {}) {
   const files: Record<string, string> = { ...o.files }, g = { repo: o.repo ?? true, branches: new Set(o.branches ?? ['main', 'dev']) }, calls: string[][] = [], sent: string[] = []
   const h = fakeHost({ files }) as Host & { logs: string[]; toasts: string[] }
+  void h.store.set('cadre:prefs', { at: 0 })   // preferences chosen (tests/prefs.test.ts)
   let n = 0
   Object.assign(h, {
     rand: () => `n${++n}`.padEnd(16, '0'), cwd: async () => ROOT, home: async () => HOME, root: async () => PLUG, submit: async (t: string) => { sent.push(t) },
@@ -265,4 +267,59 @@ describe('guides', () => {
 test('rootFor: an agent cwd (worktree or view) maps back to the repo root recorded at session start; unknown paths stay', () => {
   const roots = { [RK]: ROOT }
   expect(rootFor(roots, `/c/wt/${RK}/bd-1`)).toBe(ROOT); expect(rootFor(roots, `/c/wt/${RK}.views/bd-1/x`)).toBe(ROOT); expect(rootFor(roots, '/else')).toBe('/else')
+})
+
+// ADR 0014: init folded into the first goal. Typing a goal in a repo cadre is not set up in is the opt-in; three dialogs in all (Set up, safety, mission + plan)
+describe('onboarding: /cadre <goal> in a repo cadre is not set up in', () => {
+  const { [CFG]: _cfg, ...BARE } = READY
+  const boot = (o: { setUp?: boolean } = {}) => {
+    const w = mk({ files: { ...BARE, [`${PLUG}/guides/goal.md`]: (BUDGET.guides as Record<string, string>).goal }, mission: false })
+    Object.assign(w.h, { taskStore: async () => w.s }); void w.h.secret.update(() => ({})); if (o.setUp !== false) void w.h.store.set('cadre:setup', { at: 0 })
+    const asked = new Set<string>(), seen = async () => { for (const d of (await w.h.board.read()).decisions ?? []) if (!d.quiet) asked.add(d.id) }
+    return { ...w, asked, seen }
+  }
+  const goal = (h: Host, args: string) => cadreRun(h, { args, origin: { kind: 'composer' } }, () => ({})) as Promise<{ text: string }>
+  test('Set up: one dialog, the visible init run without the mission round, the safety confirm, then the goal goes to Claude with a mission to draft into the plan', async () => {
+    const { h, files, sent, tick, asked, seen, s } = boot()
+    expect((await goal(h, 'fix the login bug')).text).toBe('cadre is not set up here yet · answer the dialog (press 1)'); await seen()
+    const d = (await card(h, 'init:goal'))!; expect(d.title).toBe("cadre isn't set up here. Set it up and plan this goal?"); expect(d.options.map(o => o.label)).toEqual(['Set up', 'Not now'])
+    expect((await decide(h, d.id, 's', d.hash)).text).toBe('init: Claude is on it · progress in the cadre pane · then your goal'); await tick()
+    expect(sent[0]).toBe(`Set up cadre in this project, then plan the user's goal (it comes next). Follow ${PLUG}/guides/init.md step by step. Skip the mission question: you draft the mission together with the plan.`)
+    expect((await card(h))!.lines).toContain('✓ mission: you approve it with the plan'); expect(await card(h, 'init:goal')).toBeUndefined()
+    files[CFG] = READY[CFG]; await turnEnd(h, {}); await tick(); await seen()   // Claude wrote the config (phase 1, 4); the rest already holds
+    expect((await card(h))!.quiet).toBe(true)   // the checklist never pops in a goal run: only the safety card does
+    const c = (await card(h, 'init:5'))!; expect((await decide(h, c.id, 'a', c.hash)).text).toBe('init: safety settings written · init: all done · Claude plans your goal')
+    expect(await card(h)).toBeUndefined(); expect((await h.secret.read()).run).toBeUndefined(); await tick()
+    expect(sent.at(-1)).toMatch(/^Goal from the user: fix the login bug\nThere is no mission yet\.\n\n# Work on a goal/)
+    expect((await wake(h))).toBe(true)
+    const call = (input: Record<string, unknown>) => taskCall(h, { tool: 'TaskCreate', tool_use_id: 'u', ...input }, async () => 'NEXT') as Promise<any>
+    const mission = 'Goal: login works for every user\nConstraints: no new deps\nNon-goals: SSO'
+    const r = await call({ subject: 'Fix login', description: 'the session cookie is dropped', metadata: { kind: 'plan', lane: 'lite', reason: 'one small fix', type: 'bug', changelog: { category: 'Fixed', entry: 'Login keeps the session' }, mission } })
+    const id = r.result.task.id as string; await seen()
+    const p = (await card(h, `plan:${id}`))!; expect(p.title).toBe(`approve the mission and plan ${id}`); expect(p.lines[0]).toBe('mission: login works for every user')
+    expect([...asked]).toEqual(['init:goal', 'init:5', `plan:${id}`])   // three dialogs in all
+    expect((await decide(h, p.id, 'a', p.hash)).text).toMatch(new RegExp(`^Plan ${id} approved`))
+    expect((await h.board.read()).mission).toBe('login works for every user'); expect((await s.list({})).some(t => t.type === 'milestone' && t.description === mission)).toBe(true)
+  })
+  test('Not now: the dialog goes and nothing else changes', async () => {
+    const { h, files, sent, tick } = boot(), before = JSON.stringify(files)
+    await goal(h, 'fix the login bug'); const d = (await card(h, 'init:goal'))!
+    expect((await decide(h, d.id, 'x', d.hash)).text).toBe('init: cancelled'); await tick()
+    expect((await h.board.read()).decisions ?? []).toEqual([]); expect((await h.secret.read()).run).toBeUndefined(); expect(sent).toEqual([]); expect(JSON.stringify(files)).toBe(before); expect(await wake(h)).toBe(false)
+  })
+  test('yolo: the mode rides through the init run onto the goal; a machine without setup gets the welcome line instead of the dialog', async () => {
+    const { h, files, tick } = boot()
+    await goal(h, 'yolo fix the login bug'); const d = (await card(h, 'init:goal'))!; await decide(h, d.id, 's', d.hash)
+    expect((await h.secret.read()).run?.goal).toEqual({ text: 'fix the login bug', mode: 'yolo' })
+    files[CFG] = READY[CFG]; await turnEnd(h, {}); const c = (await card(h, 'init:5'))!
+    expect((await decide(h, c.id, 'a', c.hash)).text).toBe('init: safety settings written · init: all done · Claude plans your goal'); await tick()
+    expect((await h.ui.read()).mode).toBe('yolo')
+    const n = boot({ setUp: false }); expect((await goal(n.h, 'fix it')).text).toBe('Welcome to cadre · run /cadre setup once on this machine'); expect((await n.h.board.read()).decisions ?? []).toEqual([])
+  })
+  test('a repo already set up is unaffected: the goal goes straight to Claude, no dialog', async () => {
+    const { h, tick, sent } = boot(); h.board.update(b => ({ ...b, mission: 'ship it' }))
+    const w = mk({ files: { ...READY, [`${PLUG}/guides/goal.md`]: (BUDGET.guides as Record<string, string>).goal } }); void w.h.store.set('cadre:setup', { at: 0 })
+    expect((await goal(w.h, 'fix it')).text).toBe('goal: Claude is on it · the plan comes up for approval'); await w.tick()
+    expect((await w.h.board.read()).decisions ?? []).toEqual([]); expect(w.sent[0]).toMatch(/^Goal from the user: fix it\n\n# Work on a goal/); void tick; void sent
+  })
 })

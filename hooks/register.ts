@@ -26,6 +26,7 @@ import { tick } from '../task-management/sync-engine/loop'
 import { autoAsk, onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapCard, resumeBanner } from '../ui/index'
 import { load } from '../config/index'
 import { wire, repoKeyOf, rootFor } from '../commands/init'
+import { prefsCall } from '../commands/prefs'
 import { BdStore } from '../task-management/adapters/beads/store'
 import { dirOf } from '../task-management/adapters/beads/layout'
 import { MemoryStore } from '../task-management/adapters/memory/store'
@@ -155,7 +156,7 @@ export const register: Register = (on, opts) => {
   // 4. tool.check allow
   on('tool.check', async ($, e, next) => { if (!(await wake(host($)))) return next(e); await warm(host($)); return check(host($), e, next) }).catch(denyCheck)
   // 5. guards (L1, fence, Task* answers, MCP pre-checks): guards judge first, then main's Task* answers
-  on('tool.call', { tool: /./ }, async ($, e, next) => { const h = host($); if (!(await wake(h))) return (await h.secret.read()).run ? settingsOnly(h, e, next) : next(e); await warm(h); return guard(h, e, e2 => answer(host($), e2, next)) }).catch(denyCall)
+  on('tool.call', { tool: /./ }, async ($, e, next) => { const h = host($); const pr = await prefsCall(h, e); if (pr) return pr; if (!(await wake(h))) return (await h.secret.read()).run ? settingsOnly(h, e, next) : next(e); await warm(h); return guard(h, e, e2 => answer(host($), e2, next)) }).catch(denyCall)
   // 6. wrap (L3 per-call fingerprint, delta drain, result card, tester log); then our own MCP tools answer innermost
   on('tool.call', { tool: /^/ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return wrap(host($), e, next) }).catch(denyCall)
   on('tool.call', { tool: /^mcp__cadre__/ }, ($, e, next) => handle(host($), e, next)).catch(denyCall)

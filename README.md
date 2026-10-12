@@ -28,15 +28,14 @@ claude plugin install cadre@cadre
 
 Then, inside Claude Code:
 
-1. `/cadre setup`: once per machine. Claude checks your tools and fixes what it can, in the open; you confirm the settings in a dialog.
-2. `/cadre init`: once per repo. Claude sets up the task store, your build and test commands, and a changelog; you approve the mission and the safety settings, each in a dialog.
-3. **Start work:** `/cadre <goal in plain words>`, e.g. `/cadre fix the off-by-one in src/page.ts`. Claude picks a lane and says why:
+1. `/cadre setup`: once per machine. Claude checks your tools and fixes what it can, in the open, and asks your default mode and limits; you confirm the settings in a dialog.
+2. **Start work:** `/cadre <goal in plain words>`, e.g. `/cadre fix the off-by-one in src/page.ts`. In a repo cadre hasn't seen, one dialog asks to set it up first: Claude prepares the task store, your build and test commands and a changelog in the open, you confirm the safety settings, and then the plan comes up with its mission for one approval. Claude picks a lane and says why:
    - **ask**: a question or investigation. An explorer answers it; nothing changes.
    - **lite**: one small, clear change. One task, drafted for you; choose **Approve** once and Claude runs it to the end: worker → review → merge (a bug a test can reproduce gets the failing test first).
    - **full**: a feature, several tasks, or a public API change. The full plan with scenarios and contracts.
    The lane shows in the approval dialog, with an option to change it; type something instead to ask Claude for a change. Breaking, security, public contract changes and plans of 3+ tasks are always full.
 
-4. **After you approve, it runs by itself.** Two modes:
+3. **After you approve, it runs by itself.** Two modes:
    - **auto** (`/cadre <goal>`): Claude carries the plan until it lands on dev and asks you only at the critical points: a change to the agreed spec, a question only you can answer, an integration that fails twice, a protected branch moved outside cadre, and the release.
    - **yolo** (`/cadre yolo <goal>`): after the approval nothing is asked. Claude decides spec changes and blocked questions itself and each decision is recorded (Activity, Doctor) for you to review. It stops, never releases, when the plan lands on dev.
    To make yolo your default, set **Drive → mode** to `yolo` in Settings (`9`); a repo's committed config can only force `auto`.
@@ -66,7 +65,8 @@ More: [the loop in detail](docs/commands.md#the-loop-in-detail).
 | Type this | What it does |
 |---|---|
 | `/cadre setup` | One-time machine setup. [Details](docs/setup-details.md) |
-| `/cadre init` | One-time repo setup. Turns cadre on in the repo. |
+| `/cadre` | One line: where things stand and what to type next; opens the pane. |
+| `/cadre init` | Re-run the repo setup on purpose (a first `/cadre <goal>` does it for you). |
 | `/cadre doctor` | Read-only health check. Safe any time. |
 | `/cadre <goal>` · `/cadre yolo <goal>` | Start work; after approval it runs to dev, asking at the critical points (auto) or not at all (yolo). |
 | `/cadre open` · `/cadre status` | Open the board pane · print the board as text. |
@@ -84,7 +84,7 @@ Every decision is a dialog (`1` opens it). The typed fallbacks, config keys and 
 ## Troubleshooting
 
 - **Run `/cadre doctor` first.** It lists every failing check and how to fix it. The full report is in the pane's Doctor tab.
-- **"cadre is off in this repo"**: run `/cadre init`.
+- **"Ready when you are"**: cadre isn't set up in this repo yet; `/cadre <goal>` sets it up and plans the goal.
 - **Ubuntu 24.04+ blocks bwrap (AppArmor).** cadre never runs root commands for you. It writes a fix script to `~/.cache/cadre/fix/`. Read it, then run the line Claude shows you, e.g. `sudo sh ~/.cache/cadre/fix/bwrap-apparmor.sh`.
 - Known limits: [docs/limitations.md](docs/limitations.md).
 

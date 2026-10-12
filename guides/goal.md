@@ -19,6 +19,8 @@ Done when you have the lane and the reason.
 - For a bug that a test can reproduce, add `"repro": true`: a test that fails first is written before the fix.
 That one call creates the plan and its task. Then tell the user to approve it in the dialog (key 1 opens it).
 
+**If the goal says "There is no mission yet"** (lite and full): also put `"mission": "Goal: …\nConstraints: …\nNon-goals: …"` in the plan's metadata. Draft it from the goal and what you read in the project; do not ask the user. They approve the mission together with the plan.
+
 **full**: TaskCreate with metadata `{"kind": "plan", "lane": "full", "reason": "<one line>"}`, then one TaskCreate per task, as the plan rules in its answer say (scenarios, interface, changelog, package). Fill what the "missing:" line names. Then tell the user to approve the plan in the dialog (key 1 opens it).
 
 Done when the agent is spawned (ask) or the plan is drafted (lite, full). Then stop.

@@ -56,6 +56,7 @@ async function mission(c: Ctx): Promise<Item> {
   if (b.mission !== null) return { name: 'mission', st: 'ok' }
   const m = await wire.store(c.h, c.cfg, c.root).then(missionOf).catch(() => null)   // a new session: the board is cold, the recorded mission lives in the store
   if (m) { await c.h.board.update(x => ({ ...x, mission: m })); return { name: 'mission', st: 'ok' } }
+  if ((await c.h.secret.read()).run?.goal) return { name: 'mission', st: 'ok', why: 'you approve it with the plan' }   // a goal run (ADR 0014): main drafts it into the plan, one dialog for both
   return b.plan?.slug === 'mission' ? { name: 'mission', st: 'wait', why: 'approve it on its card' } : { name: 'mission', st: 'fail', why: 'no mission yet' }
 }
 const packages = (c: Ctx): string | null => {

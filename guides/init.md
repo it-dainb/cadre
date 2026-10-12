@@ -26,7 +26,8 @@ BEADS_DIR="$PWD/.cadre/store" bd config set events-journal true
 Done when `BEADS_DIR="$PWD/.cadre/store" bd config get events-journal` prints `true`.
 
 ## Phase 3: mission
-Ask the user with AskUserQuestion, in one round: the goal in one line, the constraints, the non-goals. Then draft it with TaskCreate: subject = the goal, description = `Goal: …\nConstraints: …\nNon-goals: …`, metadata `{"kind": "mission"}`.
+If your brief says the user's goal comes next, skip this phase: you draft the mission together with the plan.
+Otherwise ask the user with AskUserQuestion, in one round: the goal in one line, the constraints, the non-goals. Then draft it with TaskCreate: subject = the goal, description = `Goal: …\nConstraints: …\nNon-goals: …`, metadata `{"kind": "mission"}`.
 Tell the user to approve the mission in the cadre dialog (key 1 opens it). Do not wait for it: go on with phase 4.
 
 ## Phase 4: build and test commands
@@ -58,4 +59,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 If it exists and a message names a line, fix only that heading.
 
 ## Phase 6: stop
-Say in two or three lines what you set up. Tell the user that two things wait for them in the cadre dialog (key 1 opens it): the mission (if not approved yet) and the safety settings, which cadre writes once everything else passes and they confirm. Then stop. cadre checks everything again on its own; if something is still open you get a message naming it.
+Say in two or three lines what you set up. Tell the user what waits for them in the cadre dialog (key 1 opens it): the safety settings, which cadre writes once everything else passes and they confirm, and the mission if you drafted it in phase 3. Then stop. If the user's goal comes next, cadre sends it to you once the checks pass. cadre checks everything again on its own; if something is still open you get a message naming it.

@@ -4,7 +4,7 @@ import { modelText } from './say'
 import type { DecisionOption, Host, Plan } from '../types'
 import type { Task, TaskStore } from '../task-management/store'
 import { defaults, kindOf, type TypeRegistry } from '../task-management/registry'
-import { cfgOf, draftsOf, touched } from './dispatch'
+import { cfgOf, draftsOf, missionOf, storeOf, touched } from './dispatch'
 import { plural, settleIf } from './decide'
 
 export type Lane = 'ask' | 'lite' | 'full'
@@ -87,6 +87,7 @@ export async function goal(h: Host, text: string, mode: 'auto' | 'yolo' = 'auto'
   const g = await h.readText(`${(await h.root?.()) ?? '.'}/guides/goal.md`)
   if (!g) return 'the goal guide is missing from the plugin; ask the human to reinstall it'
   const at = await h.now(); await h.ui.update(u => ({ ...u, mode, modeAt: at }))   // relane stamps it on the plan this goal drafts (within MODE_TTL)
-  await queueBrief(h, `Goal from the user: ${text.slice(0, 1000)}\n\n${g}`)
+  const none = !(await h.board.read()).mission && !(await Promise.resolve().then(() => storeOf(h)).then(missionOf).catch(() => 'unknown'))   // no recorded mission (a repo set up for this goal): main drafts it into the plan (ADR 0014)
+  await queueBrief(h, `Goal from the user: ${text.slice(0, 1000)}${none ? '\nThere is no mission yet.' : ''}\n\n${g}`)
   return `goal${mode === 'yolo' ? ' (yolo)' : ''}: Claude is on it · the plan comes up for approval${mode === 'yolo' ? ' · after that nothing is asked until it lands on dev' : ''}`
 }

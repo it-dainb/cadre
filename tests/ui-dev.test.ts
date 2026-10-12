@@ -22,7 +22,7 @@ describe('ui-dev scenarios', () => {
 test('regression: an empty board (fresh init) draws every tab at 60 and 120 and says what to do', () => {
   const s = SCENARIOS['empty-dormant']
   for (const w of [60, 120]) {
-    expect(txt(pane({ ...s, ui: { tab: 'board' } }, w, 40, NOOP).before).join('\n')).toContain('/cadre init')
+    expect(txt(pane({ ...s, ui: { tab: 'board' } }, w, 40, NOOP).before).join('\n')).toContain('/cadre <goal> to start')
     for (const tab of ['graph', 'timeline', 'activity', 'doctor', 'settings']) expect(txt(pane({ ...s, ui: { tab } }, w, 40, NOOP).before).length > 1).toBe(true)
   }
 })

@@ -59,6 +59,9 @@ const pick = (t: Task) => ({ id: t.id, title: t.title, description: t.descriptio
 export const planHash = (drafts: Task[], m?: Task | null, lane?: string | null): string => fnv1a64(canon(drafts.map(pick)) + (m ? m.title + m.description : '') + (lane ?? ''))
 const gateHash = (g: Task): string => fnv1a64(g.title + (g.description ?? ''))
 const missionOf_ = (store: TaskStore, s: { plan: { id: string; slug: string } | null }) => (s.plan?.slug === 'mission' ? store.get(s.plan.id).catch(() => null) : Promise.resolve(null))
+// a mission drafted with the plan (ADR 0014: a goal in a repo set up on the way): shown and hashed with it, recorded at its approval
+const withMission = async (store: TaskStore, s: { plan: { id: string; slug: string } | null }): Promise<string> => (s.plan && s.plan.slug !== 'mission' ? ((await store.get(s.plan.id).catch(() => null))?.meta['cadre.mission'] ?? '') : '')
+const goalOf = (mission: string) => (mission.split('\n')[0] ?? '').replace(/^goal:\s*/i, '')
 
 // re-ask over the current drafts (every draft change AND every refused approve); board.approval gets the missing list. Returns it.
 export async function redraw(h: Host, store: TaskStore, reg: TypeRegistry): Promise<string[]> {
@@ -69,9 +72,9 @@ export async function redraw(h: Host, store: TaskStore, reg: TypeRegistry): Prom
   if (!planId || missing.length) await settleIf(h, 'plan:')   // nothing to approve yet
   else {
     const sc = (t: Task) => (t.acceptance ?? '').split('\n').filter(Boolean).length, m = await missionOf_(store, s), ll = laneLine(s.plan, drafts, reg), lo = laneOption(s.plan, drafts, reg)   // a mission card shows the mission itself
-    const all = drafts.reduce((n, t) => n + sc(t), 0), k = drafts.length > 5 ? 4 : 5   // body <= 6 lines, each fact once (BRAND P2): the count on the lane line, scenarios per task, none when 0
-    await ask(h, { id: `plan:${planId}`, kind: 'plan', title: m ? `approve the mission · ${m.title}` : `approve plan ${planId}`, short: m ? 'approve the mission' : `approve ${planId}`, tab: m ? 'epic' : 'plan', hash: planHash(drafts, m, ll), change: `Change ${planId}: `,
-      lines: m ? (m.description || m.title).split('\n').filter(Boolean).slice(0, 6) : [ll ?? [plural(drafts.length, 'task'), ...(all ? [plural(all, 'scenario')] : [])].join(' · '), ...drafts.slice(0, k).map(t => `  ${t.id} ${t.type} ${t.title}${sc(t) ? ` · ${plural(sc(t), 'scenario')}` : ''}`), ...(drafts.length > k ? [`  +${drafts.length - k} more on the Plan tab`] : [])],
+    const mis = await withMission(store, s), all = drafts.reduce((n, t) => n + sc(t), 0), k = (drafts.length > 5 ? 4 : 5) - (mis ? 1 : 0)   // body <= 6 lines, each fact once (BRAND P2): the count on the lane line, scenarios per task, none when 0
+    await ask(h, { id: `plan:${planId}`, kind: 'plan', title: m ? `approve the mission · ${m.title}` : mis ? `approve the mission and plan ${planId}` : `approve plan ${planId}`, short: m ? 'approve the mission' : mis ? `approve mission + ${planId}` : `approve ${planId}`, tab: m ? 'epic' : 'plan', hash: planHash(drafts, m, (ll ?? '') + mis), change: `Change ${planId}: `,
+      lines: m ? (m.description || m.title).split('\n').filter(Boolean).slice(0, 6) : [...(mis ? [`mission: ${goalOf(mis)}`] : []), ll ?? [plural(drafts.length, 'task'), ...(all ? [plural(all, 'scenario')] : [])].join(' · '), ...drafts.slice(0, k).map(t => `  ${t.id} ${t.type} ${t.title}${sc(t) ? ` · ${plural(sc(t), 'scenario')}` : ''}`), ...(drafts.length > k ? [`  +${drafts.length - k} more on the Plan tab`] : [])],
       options: [{ key: 'a', label: 'Approve', verb: 'approve', run: `approve ${planId}` }, { key: 'x', label: 'Reject', verb: 'reject', run: `reject ${planId} rejected in the dialog` }, ...(lo ? [lo] : [])] })
   }
   return missing
@@ -141,7 +144,7 @@ async function approve(h: Host, c: Command): Promise<Out> {
   const gate = (await h.board.read()).plan?.id === planId ? null : await gateOf(store, planId); if (gate) return approveGate(h, store, reg, gate)
   const s = await h.board.read(), drafts = await draftsOf(store, s.epic)
   const mission = s.plan?.slug === 'mission', missing = !s.plan || s.plan.id !== planId || mission ? [] : missingList(drafts, reg)   // incomplete is reported before a changed card (an incomplete plan has no card)
-  const why = !s.plan || s.plan.id !== planId ? `no draft plan ${planId}` : !missing.length && (s.decisions ?? []).find(d => d.id === `plan:${planId}`)?.hash !== planHash(drafts, await missionOf_(store, s), laneLine(s.plan, drafts, reg)) ? 'it changed; review again' : ''
+  const mis = await withMission(store, s), why = !s.plan || s.plan.id !== planId ? `no draft plan ${planId}` : !missing.length && (s.decisions ?? []).find(d => d.id === `plan:${planId}`)?.hash !== planHash(drafts, await missionOf_(store, s), (laneLine(s.plan, drafts, reg) ?? '') + mis) ? 'it changed; review again' : ''
   if (why || missing.length) { await redraw(h, store, reg); return refuse(why || `incomplete, missing: ${missing.join('; ')}`) }   // a refusal redraws the card
   const plan = s.plan!, epic = await store.get(plan.id), at = await h.now()
   if (mission) {
@@ -152,6 +155,7 @@ async function approve(h: Host, c: Command): Promise<Out> {
     return { text: `Mission "${epic.title}" approved and recorded${more || '.'}` }
   }
   const ids = drafts.map(t => t.id), first = !plan.approvedAt
+  if (mis && first) { await store.record('mission', goalOf(mis), mis); await store.setMeta(plan.id, { 'cadre.mission': '' }, 'human'); await h.board.update(b => ({ ...b, mission: goalOf(mis) })) }   // the mission approved with its first plan
   await store.approve(ids)
   for (const t of drafts) if (t.meta['cadre.amended']) await store.setMeta(t.id, { 'cadre.amended': '' }, 'human')
   await mirror(h, store, reg)   // tasks the board lost (after /clear) come back as drafts; the machine then approves them

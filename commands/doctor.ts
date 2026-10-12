@@ -13,6 +13,7 @@ import { apply as mapply, plan as mplan } from '../policy/settings'
 import { call } from '../task-management/protocol'
 import { openPane } from '../ui/index'
 import { progress, type Item } from './init'
+import { prefsItem, prefsRow } from './prefs'
 import { BdStore } from '../task-management/adapters/beads/store'
 import { dirOf, moveStore } from '../task-management/adapters/beads/layout'
 
@@ -109,7 +110,7 @@ export async function setupItems(h: Host): Promise<Item[]> {
   if (!m.rows.some(r => r[0] === 'crit')) await h.store.set(STAMP, { cc: m.facts.cc, bd: m.facts.bd, bwrap: m.facts.bwrap ?? '', jail: m.facts.jail, at: await h.now() })
   if (need) await proposeUser(h, p.lines, fnv1a64(p.lines.join('\n') + (p.old ?? '')))
   const home = await h.home()
-  return m.rows.map(([l, t, f]) => ({ name: t.replaceAll(`${home}/`, '~/'), st: need && /^user settings lack/.test(t) ? 'wait' : l === 'crit' ? 'fail' : l === 'warn' ? 'warn' : 'ok', why: l === 'ok' ? undefined : f?.replace(/^! /, '').replaceAll(`${home}/`, '~/') }))
+  return [...m.rows.map(([l, t, f]) => ({ name: t.replaceAll(`${home}/`, '~/'), st: need && /^user settings lack/.test(t) ? 'wait' : l === 'crit' ? 'fail' : l === 'warn' ? 'warn' : 'ok', why: l === 'ok' ? undefined : f?.replace(/^! /, '').replaceAll(`${home}/`, '~/') })), await prefsItem(h)]
 }
 // The user settings are never edited by a model (ADR 0010): cadre shows the merge on a card (init:91) and writes it after Confirm (.bak, re-read), like init's safety settings.
 async function proposeUser(h: Host, lines: string[], sig: string): Promise<void> {
@@ -143,7 +144,7 @@ export async function nudge(h: Host): Promise<void> {
 // ---- doctor: machine rows + project rows; no writes ----
 async function project(h: Host, cfg: Config): Promise<Row[]> {
   const root = await h.cwd(), rows: Row[] = [], safe = async <T>(f: () => Promise<T>, d: T) => f().catch(() => d)
-  if (!(await h.secret.read()).active && !(await h.readText(`${root}/.cadre/config.json`))) return [['warn', 'project: cadre off here (no .cadre/config.json)', '/cadre init']]
+  if (!(await h.secret.read()).active && !(await h.readText(`${root}/.cadre/config.json`))) return [['warn', 'project: not set up here (no .cadre/config.json)', '/cadre <goal> sets it up']]
   if (!(await gitOk(h.run, root, ['rev-parse', '--git-dir']))) return [['crit', 'not inside a git repo', '/cadre init']]
   const miss = (await progress(h)).filter(s => !s.done)
   rows.push(miss.length ? ['warn', `init incomplete: ${miss.map(s => s.name).join(', ')}`, '/cadre init'] : ['ok', 'init complete'])
@@ -175,5 +176,5 @@ export async function doctor(h: Host): Promise<string> {
   const cfg = await cfgOf(h)
   const m = await machine(h, cfg)   // read-only: a fix line only when its script already exists (setup writes them)
   for (const x of m.scripts) if (x.run && (await h.readText(x.path)) === null) for (const r of m.rows) if (r[2] === `! ${x.run}`) r[2] = 'run /cadre setup to prepare the fix'
-  return report(h, 'doctor', [...m.rows, ...(await project(h, cfg))])
+  return report(h, 'doctor', [...m.rows, await prefsRow(h), ...(await project(h, cfg))])
 }

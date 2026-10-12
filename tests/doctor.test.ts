@@ -13,6 +13,7 @@ const HOME = '/hm/u', USER = `${HOME}/.claude/settings.json`
 function mk(o: { shadow?: string; npmFails?: boolean; tools?: Record<string, string>; os?: string; repo?: boolean; jail?: 'overlay' | 'copy' | 'none'; cc?: string; files?: Record<string, string>; noIdent?: { on: boolean } } = {}) {
   let installed = false, moved = false; const files = { ...o.files }, calls: string[][] = [], writes: string[] = [], tools = o.tools ?? { git: 'git version 2.43.0', bd: 'bd version 1.3.1', bwrap: 'bubblewrap 0.11.0', socat: 'socat version 1.8' }
   const h = fakeHost({ files }) as Host & { toasts: string[] }
+  void h.store.set('cadre:prefs', { at: 0 })   // preferences chosen (tests/prefs.test.ts covers that row)
   const rand = (() => { let n = 0; return () => `n${++n}`.padEnd(16, '0') })()
   Object.assign(h, {
     rand, cwd: async () => '/repo', home: async () => HOME, version: async () => o.cc ?? '2.1.295', write: async (p: string, t: string) => { writes.push(p); files[p] = t },
@@ -139,7 +140,7 @@ describe('doctor', () => {
   })
   test('a dormant repo: one warn row for the project, no other project rows', async () => {
     const h = mk({ repo: true }); await h.secret.update(x => ({ ...x, active: false })); await doctor(h)
-    const rows = JSON.stringify((await h.ui.read())['doctor.rows']); expect(rows).toContain('project: cadre off here'); expect(rows).not.toContain('init incomplete')
+    const rows = JSON.stringify((await h.ui.read())['doctor.rows']); expect(rows).toContain('project: not set up here'); expect(rows).toContain('your preferences: the defaults (mode auto, limits 100/$20/240m)'); expect(rows).not.toContain('init incomplete')
   })
   test('inside a repo: init, containment, beads and branch rows each point at /cadre init', async () => {
     const h = mk({ repo: true }); await doctor(h); const log = ((await h.ui.read())['doctor.rows'] as any[]).map(r => `${r[1]} fix: ${r[2] ?? ''}`).join('\n')

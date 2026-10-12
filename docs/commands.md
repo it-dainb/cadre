@@ -41,8 +41,8 @@ Native tools main uses: `TaskCreate/Update/List/Get`, `Agent`. Agents use three 
 
 Types (`feature`, `bug`, `refactor`, `docs`, `test`, `spike`) and their pipelines come from the registry (config `types`).
 
-## Per project: `/cadre init`
-Claude follows the init guide; the checklist has these items:
+## Per project: the first `/cadre <goal>` (or `/cadre init`)
+The first goal in a repo cadre hasn't seen asks once to set it up; then Claude follows the init guide, you confirm the safety settings, and the plan comes up with its mission for one approval. `/cadre init` re-runs the setup on purpose. The checklist has these items:
 
 | Item | Done when |
 |---|---|

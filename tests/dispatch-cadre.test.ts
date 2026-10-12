@@ -14,7 +14,7 @@ const withOps = async () => { const w = await world(); (w.h as any).ops = ops; r
 describe('/cadre (ADR 0011): typed forms; the rest are presses', () => {
   test('bare /cadre opens the pane on the epic tab (Needs you on top when a decision waits)', async () => {
     const w = await withOps(); opened.length = 0
-    expect(await typed(w, '')).toEqual({ text: 'Opened the cadre pane.' }); expect((await w.h.ui.read()).tab).toBe('epic')
+    expect(await typed(w, '')).toEqual({ text: 'No plan yet · /cadre <goal> to start' }); expect((await w.h.ui.read()).tab).toBe('epic')
     await plan(w); await w.h.board.update(b => ({ ...b, decisions: [{ id: 'd1', kind: 'x', title: 't', lines: [], hash: 'h', options: [] }] }))
     await typed(w, ''); expect((await w.h.ui.read()).tab).toBe('epic'); expect(opened).toHaveLength(2)
   })

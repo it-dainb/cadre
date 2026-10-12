@@ -45,7 +45,7 @@ describe('T6.1 /cadre yolo <goal>: the mode rides on the plan', () => {
   })
   test('dormant refused; composer only; the brief is the goal guide; the mode waits for the plan', async () => {
     const off = fakeHost(); await off.secret.update(() => ({}))
-    expect((await run(off, { args: 'yolo fix it', origin: { kind: 'composer' } }, () => ({}))).text).toBe('cadre is off in this repo · run /cadre init')
+    expect((await run(off, { args: 'yolo fix it', origin: { kind: 'composer' } }, () => ({}))).text).toBe('Welcome to cadre · run /cadre setup once on this machine')
     const h = Object.assign(fakeHost({ files: { '/plug/guides/goal.md': (BUDGET.guides as Record<string, string>).goal } }), { root: async () => '/plug' })
     expect((await run(h, { args: 'yolo fix it', origin: { kind: 'sdk' } }, () => ({}))).text).toContain('refused')
     expect((await run(h, { args: 'yolo fix it', origin: { kind: 'composer' } }, () => ({}))).text).toBe('goal (yolo): Claude is on it · the plan comes up for approval · after that nothing is asked until it lands on dev')

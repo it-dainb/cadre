@@ -9,7 +9,7 @@ import { initItems, type Item } from './init'
 import { setupItems } from './doctor'
 import { LIMIT } from '../policy/guards'
 import { RUN } from '../core/dispatch'
-import { sendBrief } from '../core/lanes'
+import { goal as goalBrief, sendBrief } from '../core/lanes'
 import { diff as jdiff } from '../policy/settings'
 
 type Kind = 'setup' | 'init'
@@ -32,7 +32,7 @@ async function draw(h: Host, k: Kind, its: Item[], state: 'on' | 'stopped' | 'do
   const n = its.filter(i => i.st === 'ok' || i.st === 'warn').length, human = !its.some(i => i.st === 'fail') && its.some(i => i.st === 'wait')
   const title = state === 'done' ? `${k} · all done` : state === 'stopped' ? `${k} · stopped · ${its.length - n} left` : `${k} · ${n}/${its.length} done · ${human ? 'needs you' : 'Claude is on it'}`
   const lines = [...(note ? [note] : []), ...its.map(i => `${G[i.st]} ${i.name}${i.why ? `: ${i.why}` : ''}`)]
-  await ask(h, { id: `run:${k}`, kind: 'init', title, short: title, lines, hash: fnv1a64(title + lines.join('\n')), tab: 'epic', ...(state === 'on' && !human ? { quiet: true as const } : {}),
+  await ask(h, { id: `run:${k}`, kind: 'init', title, short: title, lines, hash: fnv1a64(title + lines.join('\n')), tab: 'epic', ...(state === 'on' && (!human || (await h.secret.read()).run?.goal) ? { quiet: true as const } : {}),   // a goal run: the human's cards (safety, then mission + plan) pop themselves; the checklist never does
     options: [...(state === 'stopped' ? [{ key: 'r', label: 'Retry', verb: 'change', run: k }] : []), { key: 'x', label: state === 'done' ? 'Close' : 'Cancel', verb: 'reject', run: `${k} cancel` }] })
 }
 const followUp = async (h: Host, k: Kind, fails: Item[], guide: string) => [
@@ -41,20 +41,24 @@ const followUp = async (h: Host, k: Kind, fails: Item[], guide: string) => [
 ].join('\n').replaceAll(`${await h.home()}/`, '~/')
 
 // `/cadre setup` | `/cadre init` (human origin only: core/dispatch). Nothing open: done at once. Else the lease starts and main gets the brief.
-export async function start(h: Host, k: Kind): Promise<string> {
+// `goal` (the onboarding dialog's Set up, commands/cadre): init skips the mission question (drafted with the plan) and the goal flow follows once every check passes (ADR 0014)
+export async function start(h: Host, k: Kind, goal?: { text: string; mode: 'auto' | 'yolo' }): Promise<string> {
+  if (goal) await settle(h, 'init:goal')
+  const at = await h.now(); await h.secret.update(s => ({ ...s, run: { kind: k, at, turns: 0, follow: 0, guide: '', snap: {}, ...(goal ? { goal } : {}) } }))   // before the checks: mission waits for the plan in a goal run
   const its = await items(h, k)
-  if (finished(its)) { await end(h); await settle(h, `run:${k}`); return `${k}: all done` }
+  if (finished(its)) { await end(h); await settle(h, `run:${k}`); if (goal) { await goalBrief(h, goal.text, goal.mode); return `${k}: all done · ${goal.mode === 'yolo' ? 'yolo · ' : ''}Claude plans your goal` } return `${k}: all done` }
   const guide = `${(await h.root?.()) ?? '.'}/guides/${k}.md`
-  const at = await h.now(); await h.secret.update(s => ({ ...s, run: { kind: k, at, turns: 0, follow: 0, guide, snap: {} } })); await resnap(h)
+  await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, guide } } : s)); await resnap(h)
   await draw(h, k, its, 'on')
-  await send(h, `${WHAT[k]}. Follow ${guide} step by step.`)
-  return `${k}: Claude is on it · progress in the cadre pane`
+  await send(h, goal ? `${WHAT[k]}, then plan the user's goal (it comes next). Follow ${guide} step by step. Skip the mission question: you draft the mission together with the plan.` : `${WHAT[k]}. Follow ${guide} step by step.`)
+  return `${k}: Claude is on it · progress in the cadre pane${goal ? ' · then your goal' : ''}`
 }
 // re-check now (a main turn ended, or the human answered a gate in the dialog): done ends the run; a failure Claude owns gets a follow-up; the limits stop it
 export async function recheck(h: Host, turn = false): Promise<string> {
   const r = (await h.secret.read()).run; if (!r) return ''
   if (await moved(h, r)) return `${r.kind}: stopped · a settings file changed · press 1`
   const k = r.kind, its = await items(h, k), fails = its.filter(i => i.st === 'fail'), turns = r.turns + (turn ? 1 : 0)
+  if (finished(its) && r.goal) { await end(h); await settle(h, `run:${k}`); await goalBrief(h, r.goal.text, r.goal.mode); h.toast('init done · Claude plans your goal'); return `${k}: all done · Claude plans your goal` }   // no "all done" dialog: the plan's dialog is next
   if (finished(its)) { await end(h); await draw(h, k, its, 'done'); h.toast(`cadre: ${k} done`); return `${k}: all done` }
   const out = turns >= LIMIT.turns || (await h.now()) - r.at >= LIMIT.ms
   if (out || (fails.length && r.follow >= LIMIT.follow)) { await end(h); await draw(h, k, its, 'stopped', out ? 'the time or turn limit was reached' : 'Claude stopped with steps still open'); return `${k}: stopped · press 1` }

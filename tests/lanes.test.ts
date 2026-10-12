@@ -28,7 +28,7 @@ describe('the typed surface (ADR 0011): five forms only', () => {
   })
   test('a goal: dormant repo refused; only the composer starts one; the brief waits for the timer and carries the guide', async () => {
     const off = fakeHost(); await off.secret.update(() => ({}))
-    expect(await run(off, { args: 'fix the bug', origin: { kind: 'composer' } }, () => ({}))).toEqual({ text: 'cadre is off in this repo · run /cadre init' })
+    expect(await run(off, { args: 'fix the bug', origin: { kind: 'composer' } }, () => ({}))).toEqual({ text: 'Welcome to cadre · run /cadre setup once on this machine' })   // a machine without setup: the welcome line (tests/onboard.test.ts: the setup dialog)
     const g = (BUDGET.guides as Record<string, string>).goal, sent: string[] = []
     const h = Object.assign(fakeHost({ files: { '/plug/guides/goal.md': g } }), { root: async () => '/plug', submit: async (t: string) => { sent.push(t) } })
     expect((await run(h, { args: 'fix the bug', origin: { kind: 'sdk' } }, () => ({}))).text).toContain('refused')

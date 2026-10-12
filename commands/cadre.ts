@@ -3,24 +3,30 @@ import type { Hook, Host } from '../types'
 import type { Command, Out } from '../core/dispatch'
 import { ROUTES, answer, cfgOf, dispatch, isHuman, registryOf, resolveEpic, restore, storeOf } from '../core/dispatch'
 import { changeLane, goal } from '../core/lanes'
-import { wake } from '../core/session'
+import { wake, warm } from '../core/session'
+import { ask } from '../core/decide'
+import { fnv1a64 } from '../core/board'
+import { modelText } from '../core/say'
 import { autoAsk, openPane } from '../ui/index'
+import { stepName } from '../ui/v2/facts'
 import { confirm as initConfirm } from './init'
 import { confirmUser, doctor } from './doctor'
 import { recheck, resnap, settingsAnswer, start } from './agentrun'
+import { confirmPrefs } from './prefs'
 import { defaults } from '../config/index'
 
 export async function route(h: Host, c: Command): Promise<Out> {   // every dispatcher command (dialog answers, Settings presses; tests)
   const [a] = c.args
-  if (!['setup', 'doctor', 'init', 'open'].includes(c.cmd) && !(await wake(h))) return { text: 'cadre is off in this repo · run /cadre init' }   // per-repo opt-in (ADR 0007)
+  if (!['setup', 'doctor', 'init', 'open'].includes(c.cmd) && !(await wake(h))) return (c.cmd === 'goal' || c.cmd === 'yolo') && c.origin.kind === 'composer' ? onboard(h, a ?? '', c.cmd === 'yolo') : { text: await status(h) }   // per-repo opt-in: typing a goal here is the opt-in (ADR 0014)
   switch (c.cmd) {
     case 'open': await openPane(h, a ?? 'epic'); return { text: `Opened the cadre pane (${a ?? 'epic'}).` }
     case 'resolve': if (a && a === (await h.board.read()).plan?.id) return resolveEpic(h, a, c.args[1] ?? ''); break
     case 'restore': return restore(h, a)
     case 'init': case 'setup': {   // Claude does the work (ADR 0010); the checklist and the containment confirm are decisions (ADR 0012)
+      const conf = a === 'prefs' && c.args[1] === 'confirm' ? confirmPrefs : a === 'confirm' ? (c.cmd === 'init' ? initConfirm : confirmUser) : undefined
       const text = a === 'restore' || a === 'keep' ? await settingsAnswer(h, a)
-        : a === 'confirm' ? [await (c.cmd === 'init' ? initConfirm : confirmUser)(h), await resnap(h).then(() => recheck(h))].filter(Boolean).join(' · ')   // cadre's own confirmed write is not a change from outside
-        : await start(h, c.cmd)
+        : conf ? [await conf(h), await resnap(h).then(() => recheck(h))].filter(Boolean).join(' · ')   // cadre's own confirmed write is not a change from outside
+        : await start(h, c.cmd, c.cmd === 'init' && a === 'goal' ? ((await h.ui.read()).onboard as { text: string; mode: 'auto' | 'yolo' } | undefined) : undefined)   // `init goal`: the "Set up" answer of the onboarding dialog
       await autoAsk(h).catch(() => {})   // a new decision pops once
       return { text }
     }
@@ -30,7 +36,36 @@ export async function route(h: Host, c: Command): Promise<Out> {   // every disp
     case 'config': if (!a || a === 'show') return { text: configText(await cfgOf(h), c.args[1]) }
   }
   const r = ROUTES[c.cmd]
+  if (!r && c.cmd === 'continue') return { text: modelText('context', 'nothing to continue · /cadre <goal> to start') }   // ROUTES.continue (core/session) owns it
   return r ? r(h, c) : { text: `unknown /cadre subcommand "${c.cmd}". Try: status, open, approve <id>, reject, resolve, release, restore, init, setup, doctor, sync, config, drive (decisions are answered in the dialog: press 1)` }
+}
+
+// ---- the one message state machine (ADR 0014): bare `/cadre`, and every typed command that does not apply here. The band shows only the last two states (ui/v2/band). ----
+export const WELCOME = 'Welcome to cadre · run /cadre setup once on this machine'
+export const READY = 'Ready when you are · /cadre <goal> to start · /cadre yolo <goal> to run it without questions'
+export const NO_PLAN = 'No plan yet · /cadre <goal> to start'
+const setUp = async (h: Host) => !!(await h.store.get('cadre:setup'))   // commands/doctor stamps it when setup finds nothing critical
+export async function status(h: Host): Promise<string> {
+  if (!(await wake(h))) return modelText('context', (await setUp(h)) ? READY : WELCOME)   // a set-up repo implies a set-up machine: no welcome there
+  await warm(h)
+  const b = await h.board.read(), p = b.plan, needs = (b.decisions ?? []).length, ts = b.tasks, n = `${ts.filter(t => t.state === 'done').length}/${ts.length}`
+  const live = Object.entries(await h.bind.read()).some(([k]) => !k.startsWith('~'))
+  const text = needs ? `${p?.id ?? 'cadre'} · ${needs} needs you · press 1 to answer`
+    : !p || p.slug === 'mission' || p.state === 'done-on-dev' || p.state === 'released' ? NO_PLAN
+    : p.state !== 'draft' && !b.drive.on && !live ? `Unfinished plan ${p.id} ${p.slug} (${n}) · /cadre continue to pick it up`   // approved, nothing driving it, no agent at work: an earlier session left it
+    : [p.id + ' ' + p.slug, `${n} done`, ...ts.filter(t => t.state === 'active' || t.state === 'review').slice(0, 1).map(t => `running ${t.id} ${stepName(t.step)}`), '/cadre to open'].join(' · ')
+  return modelText('context', text)
+}
+// `/cadre <goal>` · `/cadre yolo <goal>` in a repo cadre is not set up in: ONE dialog, Set up (init run, then this goal) or Not now (nothing changes)
+async function onboard(h: Host, text: string, yolo: boolean): Promise<Out> {
+  if (!(await setUp(h))) return { text: modelText('context', WELCOME) }
+  const mode = yolo || (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto'
+  await h.ui.update(u => ({ ...u, onboard: { text, mode } }))
+  await ask(h, { id: 'init:goal', kind: 'init', title: "cadre isn't set up here. Set it up and plan this goal?", short: 'set up cadre here', hash: fnv1a64(`${mode}\n${text}`), tab: 'epic',
+    lines: [text.slice(0, 160), 'Claude sets up the project (you see every step), then drafts the plan with its mission for you to approve.'],
+    options: [{ key: 's', label: 'Set up', verb: 'approve', run: 'init goal' }, { key: 'x', label: 'Not now', verb: 'reject', run: 'init cancel' }] })
+  await autoAsk(h).catch(() => {})
+  return { text: modelText('context', 'cadre is not set up here yet · answer the dialog (press 1)') }
 }
 
 // command.run {command:'cadre'}
@@ -42,14 +77,14 @@ export const configText = (cfg: unknown, prefix?: string): string => {
 }
 // words; `k="a b"` is one argv element `k=a b` (a field value with spaces, ADR 0009). argv only: nothing reaches a shell
 export const argsOf = (t: string): string[] => (t.match(/\w+="[^"]*"|\S+/g) ?? []).map(a => a.replace(/^(\w+)="([^"]*)"$/, '$1=$2'))
-// The typed surface (ADR 0011, 0013): `/cadre` (the pane) · `/cadre setup|init|doctor` · `/cadre <goal>` · `/cadre yolo <goal>`. An old subcommand word gets a one-line hint, so a typo never starts a plan;
+// The typed surface (ADR 0011, 0013, 0014): `/cadre` (status + the pane) · `/cadre setup|init|doctor|continue` · `/cadre <goal>` · `/cadre yolo <goal>`. An old subcommand word gets a one-line hint, so a typo never starts a plan;
 // the other dispatcher commands are reached only by the dialog's answers (and the Settings tab's presses).
 export const OLD = ['approve', 'reject', 'resolve', 'restore', 'release', 'drive', 'config', 'sync', 'adapter', 'status', 'open', 'confirm', 'cancel', 'resume', 'lane', 'goal', 'setup', 'init', 'doctor']
 export const HINT = "that's answered in the dialog now: press 1 on the band or run /cadre"
 export function parse(text: string): { cmd: string; args: string[] } | { hint: string } {
   const t = text.trim(), [w = '', ...rest] = argsOf(t)
   if (!t) return { cmd: 'pane', args: [] }
-  if (['setup', 'init', 'doctor'].includes(w) && !rest.length) return { cmd: w, args: [] }
+  if (['setup', 'init', 'doctor', 'continue'].includes(w) && !rest.length) return { cmd: w, args: [] }
   if (w === 'yolo') return rest.length ? { cmd: 'yolo', args: [t.slice(4).trim()] } : { hint: 'usage: /cadre yolo <goal> · after you approve the plan, nothing is asked until it lands on dev' }   // ADR 0013
   return OLD.includes(w) ? { hint: HINT } : { cmd: 'goal', args: [t] }
 }
@@ -57,7 +92,7 @@ export const run: Hook = async (h, e) => {
   const p = parse(String(e.args ?? '')); if ('hint' in p) return { text: p.hint }
   const kind = e.origin?.kind === 'press' ? 'unclassified' : e.origin?.kind ?? 'unclassified'   // 'press' is ours alone
   try {
-    if (p.cmd === 'pane') { await openPane(h, 'epic'); return { text: 'Opened the cadre pane.' } }   // Needs you is on top of the epic tab
+    if (p.cmd === 'pane') { await openPane(h, 'epic').catch(() => {}); return { text: await status(h) } }   // the one-line status; Needs you is on top of the epic tab
     return await dispatch(h, { schemaVersion: 1, ...p, origin: { kind, name: e.origin?.name } }, route)
   } catch (x) { return { text: `cadre: ${(x as Error).message}` } }
 }

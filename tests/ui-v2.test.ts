@@ -38,7 +38,7 @@ describe('frame + board', () => {
     expect(flat('v2-big-epic', 60).join('\n')).not.toContain('ctx ')
   })
   test('states: dormant, no plan, run checklist', () => {
-    expect(flat('v2-dormant', 80).join('\n')).toContain('cadre is off in this repo · /cadre init')
+    expect(flat('v2-dormant', 80).join('\n')).toContain('Ready when you are · /cadre <goal> to start')
     expect(flat('v2-no-plan', 80).join('\n')).toContain('no tasks yet · /cadre <goal> to start')
     expect(flat('v2-run', 80).join('\n')).toContain('init is running')
   })
