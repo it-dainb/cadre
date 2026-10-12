@@ -64,17 +64,37 @@ export const envLayer = (e: Record<string, string | undefined>): Record<string, 
   ...(e.CADRE_DISABLE !== undefined ? { disable: bool(e.CADRE_DISABLE) } : {}),
 })
 
-// Read every layer through the Host. `repoKey` selects the per-repo section of the home file; `root` = main checkout.
-export async function load(h: Host, o: { home: string; root: string; repoKey: string }): Promise<{ config: Config; diagnostics: string[] }> {
+// Every layer through the Host, lowest first. `repoKey` selects the per-repo section of the home file; `root` = main checkout.
+export async function layersOf(h: Host, o: { home: string; root: string; repoKey: string }): Promise<Layer[]> {
   const homeRaw = parse('cadre.json', await h.readText(`${o.home}/.claude/cadre.json`)) as Record<string, any> | undefined
   const { repos, ...home } = plain(homeRaw) ? homeRaw : ({} as Record<string, any>)
-  return resolve([
+  return [
     { name: 'userConfig', trust: 'user', value: h.options.strictness ? { strictness: h.options.strictness } : {} },
     { name: '~/.claude/cadre.json', trust: 'user', value: plain(homeRaw) ? home : homeRaw },
     { name: `~/.claude/cadre.json[${o.repoKey}]`, trust: 'user', value: plain(repos) ? repos[o.repoKey] : undefined },
     { name: '.cadre/config.json', trust: 'repo', value: parse('config.json', await h.readText(`${o.root}/.cadre/config.json`)) },
     { name: 'env', trust: 'user', value: envLayer(await h.env()) },
-  ])
+  ]
+}
+export const load = async (h: Host, o: { home: string; root: string; repoKey: string }) => resolve(await layersOf(h, o))
+
+// Settings tab rows (DESIGN 12): every non-free-form key with its class, default, effective value and the layer that set it. Source = the last layer whose
+// cumulative result differs from the one before it, so a repo value that was refused (tighten-only) is not the source. ponytail: a layer that sets a key to its default reads as [default].
+export type Src = 'default' | 'user' | 'repo' | 'env'
+export interface Row { key: string; cls: Cls; value: unknown; def: unknown; src: Src; kind: 'bool' | 'enum' | 'number' | 'text' | 'list'; opts?: string[] }
+const ENUM: [RegExp, string[]][] = [[/^ui\.glyphs$/, ['unicode', 'ascii']], [/^roles\.\w+\.tier$/, ['fast', 'standard', 'deep']]]
+export const optsOf = (key: string): string[] | undefined => (TIGHTEN[key]?.[0] === 'enum' ? (TIGHTEN[key] as string[]).slice(1) : ENUM.find(([r, o]) => o.length && r.test(key))?.[1])
+const leaves = (o: unknown, p = ''): [string, unknown][] => (plain(o) && !isOpen(p) ? Object.entries(o).flatMap(([k, v]) => leaves(v, p ? `${p}.${k}` : k)) : isOpen(p) ? [] : [[p, o]])
+const at = (o: unknown, path: string) => path.split('.').reduce((a: any, k) => a?.[k], o)
+const srcOf = (n: string): Src => (n === 'env' ? 'env' : n === '.cadre/config.json' ? 'repo' : 'user')
+export function rows(layers: Layer[]): Row[] {
+  const steps = layers.map((_, i) => resolve(layers.slice(0, i + 1)).config)
+  return leaves(defaults()).filter(([k]) => k).map(([key, def]) => {
+    let src: Src = 'default', prev: unknown = def
+    steps.forEach((c, i) => { const v = at(c, key); if (JSON.stringify(v) !== JSON.stringify(prev)) src = srcOf(layers[i].name); prev = v })
+    const opts = optsOf(key)
+    return { key, cls: classOf(key), value: prev, def, src, kind: typeof def === 'boolean' ? 'bool' : opts ? 'enum' : typeof def === 'number' ? 'number' : Array.isArray(def) ? 'list' : 'text', ...(opts ? { opts } : {}) }
+  })
 }
 
 // Strictness as resolved from every layer (userConfig, ~/.claude/cadre.json, repo, env); hosts without a wired config fall back to env/userConfig.

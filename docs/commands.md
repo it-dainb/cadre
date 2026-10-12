@@ -14,7 +14,7 @@ Everything beyond the four commands you normally type (`/cadre setup`, `init`, `
 | `init [cancel \| confirm <code>]` | human | project setup, done by Claude, checked by cadre; `confirm` = the safety settings card |
 | `sync add <adapter>` · `sync [now]` | human · anyone | external tracker setup · wake sync |
 | `adapter token` | human | new adapter session token (toast only) |
-| `config [show\|set <k> <v>]` | `set`: human | show/change config |
+| `config [show]` | anyone | print the settings that differ from the defaults. Changing one: press `9` in the pane (Settings tab) |
 | `drive on\|off\|status` | `on`/`off`: human | autonomy: cadre's own bounded goal |
 | `status` | anyone | text board and cost line |
 | `open [epic\|plan\|task <id>\|sync\|cost\|release\|init]` | anyone | open the `cadre` pane tab |
@@ -50,7 +50,9 @@ Claude follows the init guide; the checklist has these items:
 Sync with an external tracker is separate and optional: `/cadre sync add <adapter>`.
 
 ## Config
-Layers, low → high: built-in defaults → plugin `userConfig` → `~/.claude/cadre.json` (with per-repo sections) → repo `.cadre/config.json` (main checkout) → env (`CADRE_STRICTNESS`, `CADRE_STORE`, `CADRE_ALLOW_SDK_APPROVAL`, `CADRE_DISABLE`) → `/cadre config set`. **S** keys: a repo file may only tighten them. **U**: user-level only. **O**: ordinary.
+Layers, low → high: built-in defaults → plugin `userConfig` → `~/.claude/cadre.json` (with per-repo sections) → repo `.cadre/config.json` (main checkout) → env (`CADRE_STRICTNESS`, `CADRE_STORE`, `CADRE_ALLOW_SDK_APPROVAL`, `CADRE_DISABLE`) → the Settings tab. **S** keys: a repo file may only tighten them. **U**: user-level only. **O**: ordinary.
+
+**Settings tab** (pane, hotkey `9`): groups Workflow, Agents & models, Drive, Cost, Sync, UI, Security; one row per key with its value, its source (`[default]` `[user]` `[repo]` `[env]`) and, for S keys, "tighten-only from repo", for U keys "user-level only". `n`/`p` move, `e` acts on the selected row (a bool toggles, an enum cycles, a number, text or list opens a card with a field; a bad value is refused on the card). Only a human press writes, and cadre writes the file, never Claude: `~/.claude/cadre.json` ("save for me", the default; a key already set in this repo's section stays there), or for O keys also the committed `.cadre/config.json` ("save to repo"). Every write keeps a `.bak` and is read back. S and U keys never go to the repo file; `strictness` cannot change while tasks run.
 
 | Key | Class | Default |
 |---|---|---|

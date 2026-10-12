@@ -1,5 +1,5 @@
 // Dev-only UI loop (docs/dev/ui-dev.md): draws the REAL ui/ renderers (band + pane + card + timeline) for a scenario in your terminal, hot-reloads on save.
-//   node --experimental-transform-types scripts/ui-dev.mjs [scenario] [--width N] [--tab epic|plan|doctor|card] [--once] [--all] | --dump <scenario> (JSON for harness/tui.sh --scenario)
+//   node --experimental-transform-types scripts/ui-dev.mjs [scenario] [--width N] [--tab epic|plan|doctor|settings|card] [--once] [--all] | --dump <scenario> (JSON for harness/tui.sh --scenario)
 // Each frame renders in a fresh child process (clean module cache = hot reload for free; a broken file draws a red frame instead of killing the loop).
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, watch, writeFileSync } from 'node:fs'
@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const ME = fileURLToPath(import.meta.url), ROOT = join(dirname(ME), '..')
-const WIDTHS = [60, 120, 160], TABS = { 1: 'epic', 7: 'plan', 8: 'doctor', 0: 'card' }
+const WIDTHS = [60, 120, 160], TABS = { 1: 'epic', 7: 'plan', 8: 'doctor', 9: 'settings', 0: 'card' }
 const FLAGS = ['--experimental-transform-types', '--no-warnings']
 
 // ---------- child: render one frame, print JSON ----------
@@ -34,7 +34,7 @@ async function child(req) {
   const dc = (id, key) => { const d = (v.b.decisions ?? []).find(x => x.id === id), o = d?.options.find(x => x.key === key); return o ? (o.fill ? `prefill composer: ${o.fill}` : `/cadre ${(o.run ?? '').replace('{code}', v.sec.dcode?.[id] ?? '<code>')}`) : `press ${id} ${key}` }
   const acts = {
     go: t => { patch.tab = t; said.push(`go tab ${t}`) }, pick: id => { patch.sel = id; said.push(`select ${id}`) }, fill: c => said.push(`prefill composer: ${c}`),
-    press: (id, k) => said.push(dc(id, k)), input: (id, k, x) => said.push(`field ${id}.${k} = ${x}`),
+    press: (id, k) => said.push(dc(id, k)), run: c => said.push(`/cadre config ${c}`), input: (id, k, x) => said.push(`field ${id}.${k} = ${x}`),
     step: (what, d) => { said.push(`step ${what} ${d}`); if (what === 'dec') patch.di = Math.max(0, Math.min(decisions(v).length - 1, Number(v.ui.di ?? 0) + d)); if (what === 'tl') patch.tl = v.ui.tl === false },
   }
   const bandLines = band(v, w, acts), p = pane(v, w, req.rows ?? 40, acts, true)
@@ -72,7 +72,7 @@ async function main(argv) {
   if (argv[0] === '--dump') { const r = await run({ name: argv[1], dump: true }); if (r.error) { console.error(r.error); process.exit(1) } console.log(JSON.stringify(r)); return }
   if (has('--all')) {   // CI: every scenario x tab x {60,120} renders
     let bad = 0
-    for (const name of names()) for (const w of [60, 120]) for (const tab of ['epic', 'plan', 'doctor', 'card']) {
+    for (const name of names()) for (const w of [60, 120]) for (const tab of ['epic', 'plan', 'doctor', 'settings', 'card']) {
       const r = await run({ name, w, tab }); if (r.error) { bad++; console.error(`FAIL ${name} ${tab} ${w}\n${r.error}`) }
     }
     console.log(bad ? `${bad} failed` : `ok: ${names().length} scenarios`); process.exit(bad ? 1 : 0)
@@ -109,11 +109,10 @@ async function main(argv) {
     else if (k === '\x1b[H' || k === '\x1b[1~') st.idx = 0
     else if (k === '\x1b[F' || k === '\x1b[4~') st.idx = last?.n ?? 0
     else if (k in TABS) st.tab = TABS[k]
-    else if (k === '9') status = '9 is reserved'
     else if (k === 'w') st.w = WIDTHS[(WIDTHS.indexOf(st.w) + 1) % WIDTHS.length]
     else if (k === 's' && last) {
       const f = join(ROOT, 'tests/fixtures/ui/dev', `${st.name}-${st.w}.txt`); mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, last.plain.join('\n') + '\n'); status = `saved ${f.slice(ROOT.length + 1)}`
-    } else if (/^[axcyrknp]$/.test(k)) await press(k)
+    } else if (/^[axcyrknpe]$/.test(k)) await press(k)
     await draw()
   })
   process.stdout.on('resize', kick)

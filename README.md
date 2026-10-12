@@ -59,6 +59,7 @@ More: [the loop in detail](docs/commands.md#the-loop-in-detail).
 | `/cadre init` | One-time repo setup. Turns cadre on in the repo. |
 | `/cadre doctor` | Read-only health check. Safe any time. |
 | `/cadre open` · `/cadre status` | Open the board pane · print the board as text. |
+| Settings | Press `9` in the pane: every setting, where its value comes from, and buttons to change it. |
 
 Everything else is a button on the card. The typed fallbacks, config keys and the extension protocol are in [docs/commands.md](docs/commands.md).
 
