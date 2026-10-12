@@ -26,6 +26,9 @@ A goal of several features (or more than ~7 tasks) made one plan too big for one
 
 **Continue.** `/cadre continue` needed no change beyond the board: the rebuilt board holds the tasks of every epic, so every in-flight task of every running epic is picked up; a cold repo adopts a milestone with its lane and branch.
 
+## Live (ADR 0005)
+sonnet, auto, three small features: one roadmap dialog after the critic's review; two epics in parallel within maxEpics 2, the third after the first landed; all three landed on the milestone branch, the milestone on dev about 6 minutes after Approve; release once, named for the milestone. A first run where main picked full led to the guide's "two or more separate features" rule.
+
 ## Seams for wave 2
 - Epic-level conflict path: `integrate.landed` is where running epics would get the new milestone tip (today they merge onto it at their own landing); `integrate.integrateEpic`'s `fail(..., true, false)` for a merge conflict is where a `resolve-conflict` task would be created instead of `stopEpic`; promote-to-core mid-run would add a core epic through `planEpic`'s path.
 - UI: `plan.epics` (roadmap + states + `why`) and `SnapTask.epic` are on the human view for the header, tab 5 and the band; `plan.landed` carries `on` (Activity says `landed on milestone/…`).

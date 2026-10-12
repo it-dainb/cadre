@@ -110,7 +110,7 @@ async function update(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
     }
     if (draft) return out(false, [], `${life} does not apply to a draft: the human approves it in the dialog`)
     const why = await LIFECYCLE[life]!(h, id, e)
-    const card = !why && life === 'completed' ? (await h.board.read()).tasks.find(x => x.id === id)?.card : undefined   // the close card: main sees that the squash landed
+    const b = await h.board.read(), card = !why && life === 'completed' ? b.tasks.find(x => x.id === id)?.card ?? (b.plan?.landed ? `${b.plan.id} landed on dev: nothing is left to do; tell the user` : undefined) : undefined   // the close card: main sees that the squash landed (the last epic of a milestone lands the milestone too, live)
     return out(!why, why ? [] : [life === 'decision' ? 'metadata.decision' : 'status'], why ?? undefined, card ? [card] : undefined)
   }
   const { kind: _k, amend, ...plan } = m
