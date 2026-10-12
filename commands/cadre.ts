@@ -17,6 +17,7 @@ import { defaults } from '../config/index'
 
 export async function route(h: Host, c: Command): Promise<Out> {   // every dispatcher command (dialog answers, Settings presses; tests)
   const [a] = c.args
+  if ((c.cmd === 'goal' || c.cmd === 'yolo') && c.origin.kind === 'composer' && (await settingUp(h))) return later(h, a ?? '', c.cmd === 'yolo')
   if (!['setup', 'doctor', 'init', 'open'].includes(c.cmd) && !(await wake(h))) return (c.cmd === 'goal' || c.cmd === 'yolo') && c.origin.kind === 'composer' ? onboard(h, a ?? '', c.cmd === 'yolo') : { text: await status(h) }   // per-repo opt-in: typing a goal here is the opt-in (ADR 0014)
   switch (c.cmd) {
     case 'open': await openPane(h, a ?? 'epic'); return { text: `Opened the cadre pane (${a ?? 'epic'}).` }
@@ -55,6 +56,16 @@ export async function status(h: Host): Promise<string> {
     : left ? `Unfinished plan ${left.id} ${left.slug} (${left.done}/${left.total}) · /cadre continue to pick it up`   // core/session.unfinished: the same test as continue and the band
     : [p.id + ' ' + p.slug, `${n} done`, ...ts.filter(t => t.state === 'active' || t.state === 'review').slice(0, 1).map(t => `running ${t.id} ${stepName(t.step)}`), '/cadre to open'].join(' · ')
   return modelText('context', text)
+}
+// A goal typed while this project is being set up (the onboarding dialog is up, or the init run is on) waits for it, once: the newest text replaces the queued one.
+// Without this a second goal started its own plan mid-init, live 0.9.1.
+export const SETTING_UP = 'setting up · answer the dialog (press 1)'
+const settingUp = async (h: Host) => (await h.secret.read()).run?.kind === 'init' || ((await h.board.read()).decisions ?? []).some(d => d.id === 'init:goal')
+async function later(h: Host, text: string, yolo: boolean): Promise<Out> {
+  if (!(await h.secret.read()).run) { await onboard(h, text, yolo); return { text: modelText('context', SETTING_UP) } }   // the dialog shows the new text
+  const goal = { text, mode: (yolo || (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto') as 'auto' | 'yolo' }
+  await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, goal } } : s))
+  return { text: modelText('context', SETTING_UP) }
 }
 // `/cadre <goal>` · `/cadre yolo <goal>` in a repo cadre is not set up in: ONE dialog, Set up (init run, then this goal) or Not now (nothing changes)
 async function onboard(h: Host, text: string, yolo: boolean): Promise<Out> {

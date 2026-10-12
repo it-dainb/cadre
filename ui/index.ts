@@ -128,7 +128,7 @@ export async function renderCard(h: Host, e: any, next: (e: any) => any) {
 export async function resumeBanner(h: Host, o: { decisions?: number; next?: string; stale?: number } = {}): Promise<void> {
   const v = await read(h), ts = v.b.tasks, n = ts.filter(t => kindOf(t, ts) === 'run').length, q = v.b.resumesQueued, ac = readCfg(v.ui).ascii
   if (v.ui.cont) return h.log(`${glyph('wait', ac)} unfinished plan ${v.b.plan?.id} (${prog(ts)} done) · nothing runs it now · /cadre continue or 0 picks it up`)   // an earlier session left it (core/session.rehydrate)
-  h.log(`${glyph('done', ac)} resumed · mission "${v.b.mission}" · epic ${v.b.plan?.id} · ${n} running (re-adopted)${o.stale ? ` · ${o.stale} stale → rebind` : ''}${q ? ` · ${q} queued` : ''}${o.next ? ` · next: ${o.next}` : ''}`)
+  h.log(`${glyph('done', ac)} resumed${v.b.mission ? ` · mission "${v.b.mission}"` : ''}${v.b.plan ? ` · epic ${v.b.plan.id}` : ''} · ${n} running (re-adopted)${o.stale ? ` · ${o.stale} stale → rebind` : ''}${q ? ` · ${q} queued` : ''}${o.next ? ` · next: ${o.next}` : ''}`)
 }
 // the render hook cannot read env/config, so the tick keeps the resolved strictness (M10) in the ui atom for it
 export async function tickUi(h: Host): Promise<void> {

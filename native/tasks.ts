@@ -2,14 +2,16 @@
 // drafts through TaskStore, field mapping, deps, frozen approved fields, TaskList/TaskGet from the model view. Main only; subagents never see Task*.
 import { modelData, modelText } from '../core/say'
 import { askById, askTask } from '../core/asks'
-import type { Hook, Host } from '../types'
+import type { Hook, Host, Snapshot } from '../types'
 import type { Task, TaskStore } from '../task-management/store'
 import { StoreError } from '../task-management/store'
 import type { TypeRegistry } from '../task-management/registry'
 import { canon, modelView } from '../core/board'
 import { apply } from '../core/machine'
 import { pipeOf } from '../task-management/registry'
-import { DRIVE, cfgOf, mirror, registryOf, storeOf } from '../core/dispatch'
+import { DRIVE, cfgOf, draftsOf, mirror, registryOf, storeOf } from '../core/dispatch'
+import { settleIf } from '../core/decide'
+import { scoped } from '../commands/init'
 import { retouch, roadmapRules } from '../core/lanes'
 import { MS, epicOf, isMs, planEpic } from '../core/milestone'
 import { epicBranch, slug } from '../core/branches'
@@ -58,6 +60,19 @@ function fieldsOf(m: Record<string, any>): { patch: Parameters<TaskStore['update
 }
 const fail = (e: unknown): string => (e instanceof StoreError ? `${e.code}: ${e.message}` : String((e as Error)?.message ?? e))
 
+// An open plan blocks a new one only when someone can act on it (live 0.9.1: a draft with no store record and no dialog blocked every plan, and the refusal named a dialog
+// that did not exist). Not in the store: the board pointer goes. A draft whose dialog is up: the human answers it. An incomplete draft never reached the human: it is
+// discarded. An approved plan: finish it. Returns 'dropped' (go on) or the refusal.
+async function stale(h: Host, store: TaskStore, p: NonNullable<Snapshot['plan']>): Promise<string> {
+  const t = await store.get(p.id).catch(x => (x instanceof StoreError && x.code === 'NotFound' ? null : Promise.reject(x)))
+  if (t && p.state !== 'draft') return `plan ${p.id} is still in progress: finish it first (TaskList shows what is left); a new plan starts after it lands`
+  if (t && ((await h.board.read()).decisions ?? []).some(d => d.id === `plan:${p.id}`)) return `plan ${p.id} waits for the human in the dialog: ask them to approve or reject it there (press 1)`
+  if (t && isMs(p)) return `plan ${p.id} is an unfinished roadmap: add what its missing line names so the human can approve it`   // its epics hold drafts of their own: never discarded wholesale
+  if (t) await store.dropDrafts([...(await draftsOf(store, p.id)).map(x => x.id), p.id])
+  await h.board.update(b => ({ ...b, plan: null, epic: null, tasks: [], approval: { planId: null, missing: [] }, sheet: [] }) as typeof b)
+  await settleIf(h, 'plan:'); await h.store.del(await scoped(h, 'board'))
+  return 'dropped'
+}
 async function create(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
   const m = e.metadata ?? {}, key = `create:${e.subject}`
   if (!str(e.subject) || typeof e.description !== 'string') return { deny: modelText('deny', 'TaskCreate needs a subject and a description (strings); fields go in metadata') }
@@ -68,7 +83,8 @@ async function create(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
   const s = await h.board.read()
   if (m.kind === 'mission' && (await h.secret.read()).run?.goal) return { deny: modelText('deny', 'not now: the user\'s goal comes next, and its plan carries the mission (metadata.mission). Go on with the next setup step.') }   // ADR 0014: one dialog for mission + plan
   if (m.kind) {
-    if (s.plan && !['done-on-dev', 'released'].includes(s.plan.state)) return { deny: modelText('deny', `plan ${s.plan.id} is still ${s.plan.state}: ask the human to approve or reject it first`) }
+    const was = s.plan && !['done-on-dev', 'released'].includes(s.plan.state) ? await stale(h, store, s.plan) : null
+    if (was && was !== 'dropped') return { deny: modelText('deny', was) }
     const prefix = m.lane === 'milestone' ? MS : (await cfgOf(h)).branches.epicPrefix, id = await store.createEpic(e.subject, e.description), mission = m.kind === 'mission', name = mission ? 'mission' : slug(e.subject)
     if (mission) await store.setMeta(id, { 'cadre.kind': 'mission' }, 'main')
     else if (m.lane || m.mission || m.notes) await store.setMeta(id, { ...(m.lane ? { 'cadre.lane': m.lane } : {}), ...(m.reason ? { 'cadre.laneReason': m.reason } : {}), ...(m.mission ? { 'cadre.mission': m.mission.trim() } : {}), ...(m.notes ? { 'cadre.notes': m.notes.trim() } : {}) }, 'main')   // lanes (ADR 0011): core/lanes.relane reads them; a mission drafted with the plan (ADR 0014): core/dispatch shows and records it
@@ -76,7 +92,7 @@ async function create(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
     const lite = !mission && m.lane === 'lite', f = fieldsOf(m)   // a lite plan is one call: the plan and its one task
     if (lite) await store.createDraft({ title: e.subject, description: e.description, acceptance: f.patch.acceptance, design: f.patch.design, type: m.type ?? 'feature', parent: id, meta: f.meta })
     const missing = await retouch(h, store, reg)
-    return withCtx({ task: { id, subject: e.subject } }, mission || lite ? '' : m.lane === 'milestone' ? roadmapRules(id) : planRules(reg), missingLine(missing))
+    return withCtx({ task: { id, subject: e.subject } }, was ? `The unfinished draft ${s.plan!.id} was discarded: the human never saw it.` : '', mission || lite ? '' : m.lane === 'milestone' ? roadmapRules(id) : planRules(reg), missingLine(missing))
   }
   if (!s.epic || !s.plan) return { deny: modelText('deny', 'no plan yet: first TaskCreate with metadata {"kind":"plan"}') }
   if (s.plan.slug === 'mission') return { deny: modelText('deny', 'a mission draft takes no tasks; once it is approved, start a plan') }

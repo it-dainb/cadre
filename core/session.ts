@@ -1,6 +1,7 @@
 // Session lifecycle (DESIGN 8.2, 13.4, 13.5): lazy rehydrate after /clear, /resume or a new session, the board pointer, the resume card, session.start policy, store hygiene.
 import type { Binding, Host, Snapshot } from '../types'
 import type { TaskStore } from '../task-management/store'
+import { StoreError } from '../task-management/store'
 import { resetDelivery } from '../task-management/sync-engine/loop'
 import { repoKeyOf, scoped } from '../commands/init'
 import { cfgOf, gateDraw, mirror, missionOf, redraw, registryOf, storeOf } from './dispatch'
@@ -96,6 +97,7 @@ async function reask(h: Host, store: TaskStore, plan: Snapshot['plan'] & {}) {
   for (const f of Object.keys((await h.git.read()).flags ?? {})) { const d = flagDecision('', f); if (d) await ask(h, d) }
   if (plan.state === 'done-on-dev' && !y) await propose(h, await h.cwd(), (await cfgOf(h)).branches.dev)
 }
+const noRecord = async (h: Host, id: string) => (await storeOf(h)).get(id).then(() => false, x => x instanceof StoreError && x.code === 'NotFound')   // only a definite NotFound: a store that does not answer keeps the pointer
 // one at a time: a rehydrate takes seconds of store calls, and a hook arriving meanwhile (a reviewer's report right after a /clear, live) must see the finished board, not a half-built one
 let flight: Promise<boolean> | undefined
 export const rehydrate = (h: Host): Promise<boolean> => (flight ??= hydrate(h).finally(() => { flight = undefined }))
@@ -104,6 +106,7 @@ async function hydrate(h: Host): Promise<boolean> {
   if (!isCold(b0) || b0.epic) return false
   const p = ((await h.store.get(await pk(h))) as any) ?? (await adopt(h, b0))
   if (!p?.epic) return false
+  if (await noRecord(h, p.epic)) { await h.store.del(await pk(h)); return false }   // a pointer to an epic the store does not have (another store, a deleted draft): a phantom draft on the board blocked every new plan with no dialog to answer, live 0.9.1
   const store = await storeOf(h), now = await h.now(), me = await sessionOf(h), same = !!p.proc && p.proc === procOf(h)   // this process's pointer (a /clear): its agents and drive go on. Another process's: they stopped with it; /cadre continue picks them up
   await h.board.update(s => ({ ...s, mission: p.mission, epic: p.epic, plan: p.plan, drive: { ...p.drive, on: false, paused: undefined, ...(same ? {} : { stopped: undefined }) } }))
   await mirror(h, store, await registryOf(h))

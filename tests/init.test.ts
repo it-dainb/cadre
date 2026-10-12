@@ -2,9 +2,9 @@ import { describe, expect, test } from 'claude-code/testing'
 import { clearKnownRed, confirm, initItems, repoKeyOf, rootFor, wire } from '../commands/init'
 import { load } from '../config/index'
 import { pump, recheck, start, turnEnd } from '../commands/agentrun'
-import { decide, run as cadreRun } from '../commands/cadre'
+import { SETTING_UP, decide, run as cadreRun } from '../commands/cadre'
 import { guard, policyOf, setPolicy, settingsOnly, LIMIT } from '../policy/guards'
-import { wake } from '../core/session'
+import { wake, warm } from '../core/session'
 import { fakeHost } from './support'
 import { MemoryStore } from '../task-management/adapters/memory/store'
 import { skeleton } from '../core/changelog'
@@ -316,6 +316,27 @@ describe('onboarding: /cadre <goal> in a repo cadre is not set up in', () => {
     expect((await decide(h, c.id, 'a', c.hash)).text).toBe('init: safety settings written · init: all done · Claude plans your goal'); await tick()
     expect((await h.ui.read()).mode).toBe('yolo')
     const n = boot({ setUp: false }); expect((await goal(n.h, 'fix it')).text).toBe('Welcome to cadre · run /cadre setup once on this machine'); expect((await n.h.board.read()).decisions ?? []).toEqual([])
+  })
+  // live 0.9.1 (dgtx-frek): /clear, a goal, Set up; a pointer left by an earlier session named a draft the store did not have; the goal was typed again mid-init
+  test('a second goal while setting up waits, once (the newest text); a stale draft pointer never blocks; still exactly 3 dialogs and the plan is approvable', async () => {
+    const { h, files, sent, tick, asked, seen } = boot()
+    await h.store.set(`cadre:${RK}:board`, { mission: null, epic: 'dgtx-frek-32t', plan: { id: 'dgtx-frek-32t', slug: 'homepage', state: 'draft', epicBranch: '' }, drive: { on: false }, bind: {} })
+    await goal(h, 'fix the login bug'); await seen()
+    expect((await goal(h, 'fix the login bug!')).text).toBe(SETTING_UP)   // the dialog is up: it shows the newest text
+    expect((await card(h, 'init:goal'))!.lines[0]).toBe('fix the login bug!')
+    const d = (await card(h, 'init:goal'))!; await decide(h, d.id, 's', d.hash); await tick()
+    expect((await goal(h, 'fix the login bug, and the logout')).text).toBe(SETTING_UP)   // the init run is on: folded into it, no second goal run
+    expect((await h.secret.read()).run?.goal).toEqual({ text: 'fix the login bug, and the logout', mode: 'auto' }); await tick()
+    expect(sent.filter(t => t.startsWith('Goal from the user'))).toEqual([])
+    files[CFG] = READY[CFG]; await warm(h); await turnEnd(h, {}); await tick(); await seen()   // any hook warms the board once the repo is on
+    expect((await h.board.read()).plan).toBeNull()   // the pointer named a draft the store does not have: dropped, not resumed
+    expect(await h.store.get(`cadre:${RK}:board`)).toBeUndefined(); expect(h.logs.join('\n')).not.toContain('resumed')
+    const c = (await card(h, 'init:5'))!; await decide(h, c.id, 'a', c.hash); await tick()
+    expect(sent.filter(t => t.startsWith('Goal from the user'))).toEqual([expect.stringMatching(/^Goal from the user: fix the login bug, and the logout\n/)])
+    const r = await taskCall(h, { tool: 'TaskCreate', tool_use_id: 'u', subject: 'Fix login', description: 'cookie', metadata: { kind: 'plan', lane: 'lite', reason: 'one fix', type: 'bug', changelog: { category: 'Fixed', entry: 'Login keeps the session' }, mission: 'Goal: login works' } }, async () => 'NEXT') as any
+    const id = r.result.task.id as string; await seen()
+    expect([...asked]).toEqual(['init:goal', 'init:5', `plan:${id}`])
+    const p = (await card(h, `plan:${id}`))!; expect((await decide(h, p.id, 'a', p.hash)).text).toMatch(new RegExp(`^Plan ${id} approved`))
   })
   test('a repo already set up is unaffected: the goal goes straight to Claude, no dialog', async () => {
     const { h, tick, sent } = boot(); h.board.update(b => ({ ...b, mission: 'ship it' }))

@@ -142,3 +142,25 @@ describe('TaskList / TaskGet from the model view, tool.describe', () => {
     expect((await w.call('TaskList', {})).deny).toContain('task board unavailable')
   })
 })
+
+// live 0.9.1: an open plan blocks a new one only when someone can act on it; every refusal names that action
+describe('a new plan over an open one', () => {
+  const PLAN = { subject: 'Homepage', description: 'goal', metadata: { kind: 'plan' } }
+  test('a draft the store does not have (a stale pointer): the board lets go and the new plan starts', async () => {
+    const w = await world()
+    await w.h.board.update(b => ({ ...b, epic: 'dgtx-frek-32t', plan: { id: 'dgtx-frek-32t', slug: 'homepage', state: 'draft', epicBranch: '' } }))
+    const r = await w.call('TaskCreate', PLAN); expect(r.result.task.id).toBe('m-1'); expect((await w.h.board.read()).plan!.id).toBe('m-1')
+  })
+  test('an incomplete draft (no dialog: the human never saw it): discarded, and Claude is told', async () => {
+    const w = await world(); await w.call('TaskCreate', { subject: 'Old', description: '', metadata: { kind: 'plan' } }); await w.call('TaskCreate', { subject: 'Half', description: 'x', metadata: { type: 'feature' } })
+    const r = await w.call('TaskCreate', PLAN)
+    expect(r.result.task.id).toBe('m-3'); expect(r.context[0]).toBe('The unfinished draft m-1 was discarded: the human never saw it.')
+    expect((await w.store.list({})).map(t => t.id)).toEqual(['m-3'])
+  })
+  test('a complete draft waits in the dialog: the refusal says so; an approved plan: finish it first', async () => {
+    const w = await world(), { plan: p } = await plan(w)
+    expect(await w.call('TaskCreate', PLAN)).toEqual({ deny: `plan ${p} waits for the human in the dialog: ask them to approve or reject it there (press 1)` })
+    await w.text({ cmd: 'approve', args: [p] })
+    expect(await w.call('TaskCreate', PLAN)).toEqual({ deny: `plan ${p} is still in progress: finish it first (TaskList shows what is left); a new plan starts after it lands` })
+  })
+})

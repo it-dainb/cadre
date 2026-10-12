@@ -188,6 +188,10 @@ describe('render hooks, handlers, fallbacks', () => {
     const a = mk(); await seed(a.h, view(62, { board: { resumesQueued: 1, drive: { on: false, level: 'epic', epicId: null, turns: 0, costUsd: 0, startedAt: null } } })); await resumeBanner(a.h, { decisions: 5, next: 'complete a5', stale: 1 })
     expect((a.h as any).logs[0]).toBe('✓ resumed · mission "Auth v2" · epic p3 · 1 running (re-adopted) · 1 stale → rebind · 1 queued · next: complete a5')
   })
+  test('resume banner with no recorded mission: no "null" in the line', async () => {
+    const a = mk(); await seed(a.h, view(62, { board: { mission: null, resumesQueued: 0 } })); await resumeBanner(a.h, {})
+    expect((a.h as any).logs[0]).not.toContain('null'); expect((a.h as any).logs[0]).toMatch(/^✓ resumed · epic p3 · /)
+  })
 })
 
 

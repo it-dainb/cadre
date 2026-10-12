@@ -47,7 +47,7 @@ test('dialog through the engine: pops once, `1` re-opens it, Approve approves th
   Object.assign(store, { secret: { active: true } })
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['engine'] })); on('ui.open', () => ({ value: { isPlaced: true } })); on('ui.panes', () => ({ value: [] }))
   on('ui.toast', () => ({ value: undefined })); on('ui.status', () => ({ value: undefined })); on('ui.notify', () => ({ value: { isSent: false } })); on('ui.log', () => ({ value: undefined })); on('ui.invalidate', () => ({ value: undefined }))
-  on('env.get', (_$, e) => ({ value: e.name === 'CADRE_STORE' ? 'memory' : undefined })); on('session.cwd', () => ({ value: '/work' })); on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined }))
+  on('env.get', (_$, e) => ({ value: e.name === 'CADRE_STORE' ? 'memory' : undefined })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined }))
   on('fs.read', () => ({ value: '{}' })); on('fs.stat', () => ({ value: undefined })); on('prompt.read', () => ({ value: { text: '' } })); on('tool.check', () => ({ decision: 'allow' }))
   const meta = { type: 'feature', package: '.', scenarios: ['S1: Given a user When they log in Then a session exists'], changelog: { category: 'Added', entry: 'Login' }, interface: { symbols: [{ name: 'login', kind: 'function', params: ['email: string'], returns: 'Session', status: 'new' }] } }
   await $.tool.call({ tool: 'TaskCreate', subject: 'Auth login', description: 'goal', metadata: { kind: 'plan' } }); await $.tool.call({ tool: 'TaskCreate', subject: 'Add login', description: 'impl', metadata: meta })

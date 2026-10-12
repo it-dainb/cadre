@@ -85,7 +85,7 @@ function host($): Host {
       } finally { void it.return?.(undefined) }
     },
     write: async (p, t) => { await $.fs.write(p, t) },
-    cwd: async () => (await read($, secret)).root ?? rootFor(((await $.store.get('cadre:roots')) ?? undefined) as Record<string, string> | undefined, await $.session.cwd()), home: async () => String((await $.env.get('HOME')) ?? ''),
+    cwd: async () => (await read($, secret)).root ?? rootFor(((await $.store.get('cadre:roots')) ?? undefined) as Record<string, string> | undefined, await $.session.root()), home: async () => String((await $.env.get('HOME')) ?? ''),
     ops: {   // ui/ side effects; a press's own work and every timer run through after()
       els: e => $.ui.resolve(e), open: a => $.ui.open(a), focused: async () => (await $.ui.panes()).some(p => p.id === 'cadre' && p.isFocused),
       toast: (t, o) => { void $.ui.toast(t, o) }, status: t => { void $.ui.status(t) }, invalidate: () => { void $.ui.invalidate('ui.render') }, blit: a => $.ui.blit(a),
@@ -135,7 +135,7 @@ export const register: Register = (on, opts) => {
   // session.start: agents, command, tools env, the one tick. Awaited before turn one (L7).
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'cadre', description: 'cadre: plan, approve, status, resolve, release, drive, init, setup, doctor', argumentHint: '<sub> [args]', immediate: true })
-    const root = await $.session.cwd(); await update($, secret, x => ({ ...x, root })); await $.store.set('cadre:roots', { ...(((await $.store.get('cadre:roots')) ?? {}) as object), [repoKeyOf(root)]: root })   // the repo root for every hook: in a subagent hook $.session.cwd() is the agent's own view/worktree
+    const root = await $.session.root(); await update($, secret, x => ({ ...x, root })); await $.store.set('cadre:roots', { ...(((await $.store.get('cadre:roots')) ?? {}) as object), [repoKeyOf(root)]: root })   // the repo root for every hook. Never $.session.cwd(): it follows a Bash `cd` (main in a package folder read its checks and store there after a /clear, live 0.9.1) and in a subagent hook it is the agent's view/worktree
     await seed($).catch(x => $.ui.log(`dev scenario not seeded: ${x}`))   // dev only: CADRE_DEV=1 + CADRE_DEV_SCENARIO (harness/tui.sh --scenario)
     await $.env.set('CLAUDE_CODE_ENABLE_TODO_TOOLS', '1')
     await $.env.set('ENABLE_TOOL_SEARCH', 'false')   // S13: isDeferred:false alone does not stop deferral
