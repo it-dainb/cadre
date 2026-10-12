@@ -92,11 +92,11 @@ test('integration refreshes a dev checkout that has human edits: unrelated edits
 // ---- drive (ADR 0013): release is never automatic under yolo; integration red gets one fix task, then auto asks and yolo stops ----
 const { MemoryStore } = await import('../../task-management/adapters/memory/store.ts')
 const { defaults: types } = await import('../../task-management/registry.ts')
-async function driven(mode, check) {
+async function driven(mode, check, extra = {}) {
   const w = await world(check), store = new MemoryStore(() => 1000); await store.init({ types: types(), journal: false })
   const epic = await store.createEpic('auth', 'g'); store.comment = async () => {}
   Object.assign(w.h, { taskStore: async () => store })
-  await w.h.board.update(b => ({ ...b, epic, plan: { ...b.plan, id: epic }, tasks: [], drive: { ...b.drive, on: true, mode } }))
+  await w.h.board.update(b => ({ ...b, epic, plan: { ...b.plan, id: epic }, tasks: [], drive: { ...b.drive, on: true, mode, epicId: epic, ...extra } }))
   return { ...w, store, epic }
 }
 test('yolo: the plan lands on dev and no release is proposed; auto proposes it (a dialog)', async () => {
@@ -105,6 +105,11 @@ test('yolo: the plan lands on dev and no release is proposed; auto proposes it (
   assert.equal(((await y.h.board.read()).decisions ?? []).length, 0)
   const a = await driven('auto'); assert.equal(await integrateEpic(a.h, a.epic), null)
   assert.deepEqual(((await a.h.board.read()).decisions ?? []).map(d => d.kind), ['release'])
+
+  for (const extra of [{ stopped: 'stopped by you' }, { epicId: 'other' }]) {   // a stopped yolo run (the human finishes it) or another epic's mode: the release is proposed
+    const x = await driven('yolo', undefined, extra); assert.equal(await integrateEpic(x.h, x.epic), null)
+    assert.deepEqual(((await x.h.board.read()).decisions ?? []).map(d => d.kind), ['release'])
+  }
 })
 test('integration red while driving: ONE fix task (approved, recorded), no flag; the 2nd red stops yolo, asks in auto', async () => {
   for (const mode of ['yolo', 'auto']) {

@@ -3,7 +3,7 @@
 import type { Host } from '../types'
 import { ROUTES, cfgOf, storeOf } from './dispatch'
 import { emit } from './events'
-import { ask, settleIf } from './decide'
+import { ask, settleIf, yoloOn } from './decide'
 import { BLOCKING, epicNext } from './machine'
 import { cut, insert } from './changelog'
 import { casRef, checkRun, exists, git, jailMode, op, tip, worktreeRemove, writableJail } from './git'
@@ -95,7 +95,7 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
     const at = await h.now()
     await setPlan(h, 'land', { landed: { dev, sha, at }, flags: (p.flags ?? []).filter(f => f !== 'integration-failed') })
     await emit(h, 'plan.landed', { planId: epicId, sha })
-    if (cfg.release.onEpicDone === 'propose' && (await h.board.read()).drive.mode !== 'yolo') await propose(h, root, dev)   // yolo stops at landed on dev: the release stays the human's
+    const dr = (await h.board.read()).drive; if (cfg.release.onEpicDone === 'propose' && !(yoloOn(dr) && dr.epicId === epicId)) await propose(h, root, dev)   // a running yolo run of this plan stops at landed on dev (drive's toast); a stopped one, or another epic's mode, gets the proposal
     return null
   } catch (e) { return await fail(`integration error: ${(e as Error).message}`, false) }
 }
