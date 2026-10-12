@@ -1,6 +1,6 @@
 # ADR 0009: `/cadre init` flow (one-line text, auto-advance, agentic stages)
 
-Status: accepted (0.6.0). Refines DESIGN §10.1 and §10.2 step 2. The confirm discipline is unchanged: nonce-salted code, burned on every attempt, re-read before writing, `.bak`.
+Status: accepted (0.6.0). Refines DESIGN §10.1 and §10.2 step 2. The confirm discipline is unchanged: nonce-salted code, burned on every attempt, re-read before writing, `.bak`. The staged flow, hand-offs and resume for init superseded by ADR 0010 (Claude follows guides/init.md; cadre checks).
 
 ## The bug that started it (real machine, a project folder with no git repo)
 `/cadre init`, then pressing `a: Confirm` on the stage 1 card, seemed to do nothing. `.cadre/config.json` was never written, and a second `/cadre init` showed the diff without the `git init` line.

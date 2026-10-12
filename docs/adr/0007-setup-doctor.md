@@ -1,6 +1,6 @@
 # ADR 0007 — `/cadre setup` and `/cadre doctor`
 
-Status: accepted (user request, post-v1). Adds two subcommands to DESIGN §5.3.
+Status: accepted (user request, post-v1). Adds two subcommands to DESIGN §5.3. Setup actions, confirm and copy superseded by ADR 0010 (Claude does the fixing; cadre checks).
 
 ## Why separate from `/cadre init`
 `init` is per project (repo, store, discovery, containment); it assumes the machine is fit. `setup` verifies the machine and user once: Claude Code build, `git`, `bd` >= 1.3.0, `bwrap` (overlay needs >= 0.11) with a working user namespace, `socat` (the Claude sandbox needs it on Linux), a writable worktree root, and the user-level env cadre relies on (`CLAUDE_CODE_ENABLE_TODO_TOOLS`). Results (ADR 0001): bd 1.3.1 lacks `--if-revision`, bwrap < 0.11 means copy-jail, macOS has no bwrap.
