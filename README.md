@@ -69,10 +69,19 @@ More: [the loop in detail](docs/commands.md#the-loop-in-detail).
 | `/cadre init` | Re-run the repo setup on purpose (a first `/cadre <goal>` does it for you). |
 | `/cadre doctor` | Read-only health check. Safe any time. |
 | `/cadre <goal>` · `/cadre yolo <goal>` | Start work; after approval it runs to dev, asking at the critical points (auto) or not at all (yolo). |
+| `/cadre continue` | Pick up a plan an earlier session left (also `0` on the band). |
 | `/cadre open` · `/cadre status` | Open the board pane · print the board as text. |
 | Settings | Press `9` in the pane: every setting, where its value comes from, and buttons to change it. |
 
 Every decision is a dialog (`1` opens it). The typed fallbacks, config keys and the extension protocol are in [docs/commands.md](docs/commands.md).
+
+## Stopping and continuing
+
+- **Stop the run:** press `0` on the band (`0: stop`); `0: resume` starts it again with a fresh budget.
+- **`/clear` or compaction:** nothing to do. Running agents keep working and the run goes on.
+- **Quit, crash, or `claude --continue` later:** the new session shows `Unfinished plan … · /cadre continue to pick it up` and `0: continue` on the band. Nothing restarts by itself. `/cadre continue` (or `0`) re-arms the run in its mode (auto or yolo) and respawns each task that was in flight. Each new agent starts from a checkpoint commit of the old one's worktree, with the diff and the last failing check, so nothing is redone. No waiting for old claims to expire.
+- **What a quit can lose:** only work that was not on disk yet (the agent's unwritten next step). Every file it had written is kept.
+- **Two sessions on one repo:** a session that is still running keeps its plan and its tasks; `/cadre continue` elsewhere says so and takes nothing.
 
 ## Requirements
 

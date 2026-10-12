@@ -160,7 +160,7 @@ export async function continueRun(h: Host): Promise<string> {
   if (steps.length) await queueBrief(h, `Continue plan ${p.id}: ${steps.join('; ')}.`)
   await savePointer(h)
   const n = `${s.tasks.filter(t => t.state === 'done').length}/${s.tasks.length} done`
-  return [`${p.id} ${p.slug}`, n, took.length ? `picking up ${took.join(', ')}` : 'nothing was in flight', drv, ...(other.length ? [`${other.join(', ')} stay with another session`] : [])].join(' · ') + more
+  return [took.length ? `Picking up ${took.join(', ')}` : 'Nothing was in flight', drv, `${p.id} ${p.slug} ${n}`, ...(other.length ? [`${other.join(', ')} stay with another session`] : [])].join(' · ') + more   // the action first: the band press shows it as a short toast
 }
 ROUTES.continue = async h => ({ text: modelText('context', await continueRun(h)) })
 

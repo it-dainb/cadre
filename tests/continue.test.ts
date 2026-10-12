@@ -103,7 +103,7 @@ describe('continue after exit', () => {
     const m = await running('yolo'), h2 = await after(m, 40_000)
     expect(leaseLive(await m.store.get(m.a), m.clock.now)).toBe(true)   // no waiting for the 5-minute claim
     const line = await continueRun(h2)
-    expect(line).toBe(`${m.epic} auth · 0/3 done · picking up ${m.a} worker, ${m.b} reviewer · drive yolo`)
+    expect(line).toBe(`Picking up ${m.a} worker, ${m.b} reviewer · drive yolo · ${m.epic} auth 0/3 done`)
     expect((await h2.board.read()).drive).toMatchObject({ on: true, mode: 'yolo', stopped: undefined })
     const rec = await casDrive(h2, m.store, () => undefined); expect(rec).toMatchObject({ on: true, mode: 'yolo', lease: { session: 'S2' } })
     const brief = String((await h2.ui.read()).goal)
@@ -132,7 +132,7 @@ describe('continue after exit', () => {
     expect(await continueRun(h2)).toBe(`${m.epic} is running in another session · continue it there, or quit that one first`)
     await casDrive(h2, m.store, r => r && { ...r, on: false })   // even with nothing driving it, its tasks stay with it
     const line = await continueRun(h2)
-    expect(line).toContain(`${m.a}, ${m.b} stay with another session`); expect(line).toContain('nothing was in flight')
+    expect(line).toContain(`${m.a}, ${m.b} stay with another session`); expect(line).toContain('Nothing was in flight')
     expect(String((await h2.ui.read()).goal ?? '')).not.toContain(`TASK-${m.a} (it starts`)
     const w = spawned(), out = await admit(h2, { prompt: `TASK-${m.a}`, description: 'd', subagentType: 'general-purpose', background: true, fork: false }, w.next)
     expect(out.deny).toContain('being worked on from another session'); expect(w.seen).toEqual([])
@@ -149,7 +149,7 @@ describe('continue after exit', () => {
   test('the band press (drive continue) is the same command; nothing open: the one line', async () => {
     const m = await running('auto'), h2 = await after(m, 40_000)
     const r = await ROUTES.drive!(h2, { schemaVersion: 1, cmd: 'drive', args: ['continue'], origin: { kind: 'press' } } as any)
-    expect(r.text).toContain(`picking up ${m.a} worker`)
+    expect(r.text).toMatch(new RegExp(`^Picking up ${m.a} worker`))
     const bare = fakeHost() as any, empty = new MemoryStore(() => T0); await empty.init({ types: types(), journal: false })
     Object.assign(bare, { taskStore: async () => empty, config: async () => defaults() })
     expect(await continueRun(bare)).toBe(NOTHING)
