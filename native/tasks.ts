@@ -9,7 +9,7 @@ import type { TypeRegistry } from '../task-management/registry'
 import { canon, modelView } from '../core/board'
 import { apply } from '../core/machine'
 import { pipeOf } from '../task-management/registry'
-import { cfgOf, mirror, registryOf, storeOf } from '../core/dispatch'
+import { DRIVE, cfgOf, mirror, registryOf, storeOf } from '../core/dispatch'
 import { retouch, roadmapRules } from '../core/lanes'
 import { MS, epicOf, isMs, planEpic } from '../core/milestone'
 import { epicBranch, slug } from '../core/branches'
@@ -81,6 +81,11 @@ async function create(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
   if (!s.epic || !s.plan) return { deny: modelText('deny', 'no plan yet: first TaskCreate with metadata {"kind":"plan"}') }
   if (s.plan.slug === 'mission') return { deny: modelText('deny', 'a mission draft takes no tasks; once it is approved, start a plan') }
   const f = fieldsOf(m), ms = isMs(s.plan), road = ms && s.plan.state === 'draft', ep = epicOf(s, m.epic)   // a milestone: a roadmap draft takes epics; an approved one takes the tasks of the epic it names (ADR 0015)
+  if (ms && !road && m.core === true && m.epic === undefined) {   // a shared need found while running: a core-patch epic, approved now (recorded), planned and landed like any epic; the running epics then take it (ADR 0015 wave 2)
+    const c = await store.createDraft({ title: e.subject, description: e.description, type: 'epic', parent: s.epic, meta: { ...f.meta, 'cadre.size': '1' } })
+    await store.approve([c.id]); await mirror(h, store, reg); await DRIVE.decided?.(h, 'plan', `core patch epic ${c.id} added to milestone ${s.plan.id}: ${e.subject}`)
+    return withCtx({ task: { id: c.id, subject: e.subject } }, `${c.id} is a core-patch epic of the milestone: plan it when the next: line names it; the running epics take it when it lands`)
+  }
   if (ms && !road && !['ready', 'planning'].includes(ep?.state ?? '')) return { deny: modelText('deny', `name the epic these tasks plan in metadata.epic; ready to plan: ${(s.plan.epics ?? []).filter(x => x.state === 'ready' || x.state === 'planning').map(x => x.id).join(', ') || 'none (wait for the next: line)'}`) }
   if (!ms && m.epic !== undefined) return { deny: modelText('deny', 'metadata.epic: only in a milestone; omit it') }
   const t = await store.createDraft({ title: e.subject, description: e.description, acceptance: f.patch.acceptance, design: f.patch.design, type: road ? 'epic' : m.type ?? 'feature', parent: ep?.id ?? s.epic, meta: f.meta })

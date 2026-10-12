@@ -65,7 +65,7 @@ const boundOf = (r: DriveRec, dc: any, cost: number, idle: number, now: number):
   r.turns >= dc.maxTurns ? `max turns ${dc.maxTurns}` : cost >= dc.maxCostUsd ? `cost $${cost} ≥ $${dc.maxCostUsd}` : now - r.startedAt > dc.maxWallMinutes * 60_000 ? `max ${dc.maxWallMinutes} min` : idle >= dc.noProgressTurns ? `no progress in ${idle} turns` : null
 
 // a decision drive (or main under yolo) took without the human: a beads decision record linked to the plan + `drive.decided` for Activity and Doctor
-export async function decided(h: Host, kind: 'spec' | 'question' | 'rework' | 'integration' | 'flag' | 'rebase' | 'plan', text: string, taskId?: string): Promise<void> {
+export async function decided(h: Host, kind: 'spec' | 'question' | 'rework' | 'integration' | 'flag' | 'rebase' | 'resolve' | 'plan', text: string, taskId?: string): Promise<void> {
   const s = await h.board.read(), store = await storeOf(h)
   await store.record('decision', `${s.drive.mode ?? 'auto'}: ${text.slice(0, 80)}`, text, s.plan?.id).catch(e => h.log(`decision record failed: ${e}`))
   await emit(h, 'drive.decided', { kind, text: text.slice(0, 300), ...(taskId ? { taskId } : {}) }, { taskId, actor: kind === 'spec' || kind === 'question' ? 'main' : 'mod' })

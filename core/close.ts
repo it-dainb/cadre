@@ -43,6 +43,10 @@ async function record(h: Host, d: Deps, id: string, kind: string, actor: string,
   await d.store.setMeta(id, { [`cadre.rec.${kind}`]: text.slice(0, 1800) }, d.actor); await d.store.comment(id, text, d.actor)
 }
 const pipe = (d: Deps) => pipeOf(d.reg)
+// a resolve task (core/rebase.resolveTask) takes the other side's protected files (its changelog) as they are: those are not its edits
+// a resolve task's commit is a merge with the other side: squashing it would drop that parent and the landing would conflict again, so it goes in as a merge
+const keep = async (h: Host, wt: string, tip: string, C: string, msg: string) => { await G.git(h.run, wt, ['checkout', '-q', '--detach', tip]); if ((await h.run(['git', '-C', wt, 'merge', '--no-ff', '--no-verify', '-m', msg, C])).exitCode) { await h.run(['git', '-C', wt, 'merge', '--abort']); throw new Error(`conflict merging ${C.slice(0, 7)}`) } return G.tip(h.run, wt, 'HEAD') }
+const ours = async (h: Host, wt: string, onto?: string, rev?: string) => { if (!onto) return () => false; const diff = new Set((await G.git(h.run, wt, ['diff', '--name-only', onto, ...(rev ? [rev] : [])])).split('\n')); return (p: string) => !diff.has(p) }
 const ownerOf = (bind: Record<string, Binding>, id: string, role: string) => agentsOf(bind, id).find(a => !a.startsWith('~') && bind[a].role === role)
 
 // ---- checks in the jail (3.10): the named argv of the task's package, overlay jail on the tree; result = header + capped body + log path ----
@@ -85,7 +89,7 @@ async function numstat(h: Host, wt: string, range: string) {
 async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any, auto = false): Promise<string> {
   const task = await d.store.get(t.id), wt = b.worktree, base = task.meta['cadre.base'], pol = await policyOf(h)
   const dirty = (await G.git(h.run, wt, ['status', '--porcelain'])).split('\n').filter(Boolean).flatMap(l => l.slice(3).split(' -> ')), changed = new Set([...dirty, ...(await G.git(h.run, wt, ['diff', '--name-only', `${task.meta['cadre.specCommit'] ?? base}..HEAD`])).split('\n').filter(Boolean)])   // since the red commit: the spec files it added are the worker's baseline, not its edits
-  const locked = pol.locks?.[t.id] ?? [], bad = [...changed].filter(p => G.isProt(p, d.cfg.changelog.path) || locked.includes(`${wt}/${p}`))
+  const theirs = await ours(h, wt, task.meta['cadre.resolve']), locked = pol.locks?.[t.id] ?? [], bad = [...changed].filter(p => (G.isProt(p, d.cfg.changelog.path) && !theirs(p)) || locked.includes(`${wt}/${p}`))
   if (bad.length) throw new Error(`protected or locked paths changed: ${bad.join(', ')}. Restore them (git checkout ${sha7(base)} -- <path>) and report again`)
   const core = pol.core?.[t.id] ?? [], mine = [...dirty, ...(await G.git(h.run, wt, ['diff', '--name-only', `${base}..HEAD`])).split('\n')].filter(p => core.includes(`${wt}/${p}`))   // since the last plan tip merged in: the core's own landing is not this task's edit
   if (mine.length) throw new Error(`shared core files changed: ${mine.join(', ')}. Restore them (git checkout ${sha7(base)} -- <path>); report outcome "blocked" with the change you need in the core`)
@@ -249,7 +253,7 @@ export async function closeTask(h: Host, d: Deps, id: string): Promise<string | 
   if (await G.git(h.run, wt, ['status', '--porcelain'])) return `${id}: the worktree has uncommitted changes`
   if (!task.meta['cadre.changelog']) return `${id}: no changelog decision`
   const files = (await G.git(h.run, wt, ['diff', '--name-only', `${base}..${C}`])).split('\n').filter(Boolean), spc = task.meta['cadre.specCommit']
-  const bad = [...files.filter(p => G.isProt(p, d.cfg.changelog.path)), ...(spc ? await lockedViolations(h.run, wt, spc, JSON.parse(task.meta['cadre.locked'] ?? '[]'), C) : [])]; if (bad.length) return `${id}: protected or locked paths differ: ${bad.join(', ')}`
+  const theirs = await ours(h, wt, task.meta['cadre.resolve'], C), bad = [...files.filter(p => G.isProt(p, d.cfg.changelog.path) && !theirs(p)), ...(spc ? await lockedViolations(h.run, wt, spc, JSON.parse(task.meta['cadre.locked'] ?? '[]'), C) : [])]; if (bad.length) return `${id}: protected or locked paths differ: ${bad.join(', ')}`
   const rep = task.meta['cadre.report'] ? JSON.parse(task.meta['cadre.report']).summary : undefined
   const msg = commitMessage({ type: spec.commit ?? 'chore', scope: task.meta['cadre.scope'] || undefined, breaking: task.meta['cadre.breaking'] === 'true', description: t.title, summary: rep, id, reviewSha: C, checks: task.meta['cadre.checks'] ? [task.meta['cadre.checks']] : [] })
   let sha = '', fail = ''
@@ -264,7 +268,7 @@ export async function closeTask(h: Host, d: Deps, id: string): Promise<string | 
     const r = await G.op(h, async () => {
       const epicTip = await G.tip(h.run, d.root, br)
       let s: string
-      try { s = await G.squash(h.run, wt, epicTip, C, msg) } catch (x) { return { fail: `conflict: ${(x as Error).message}`, flag: 'conflict', tip: epicTip } }
+      try { s = task.meta['cadre.resolve'] ? await keep(h, wt, epicTip, C, msg) : await G.squash(h.run, wt, epicTip, C, msg) } catch (x) { return { fail: `conflict: ${(x as Error).message}`, flag: 'conflict', tip: epicTip } }
       if (epicTip !== base) {   // the package's own verify checks (as the green gate runs them); a missing check is a failure, not a pass
         const pkg = pkgOf(d, task)
         for (const n of pkg ? verifyOf(pkg) : ['verify']) { const c = await runCheck(h, d, task, wt, n); if (!c.found || !c.ok) return { fail: `verify (${n}) failed on the squash commit:\n${c.text.slice(0, 1200)}`, flag: 'merge-red', tip: epicTip } }

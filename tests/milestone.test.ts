@@ -155,6 +155,14 @@ describe('one approval, then epics plan themselves', () => {
   })
 })
 
+describe('promote to core mid-run', () => {
+  test('a shared need found while running: TaskCreate core:true without an epic adds an approved core-patch epic to the roadmap, recorded', async () => {
+    const w = await approved(2, false), r = await w.call('TaskCreate', { subject: 'Shared user model', description: 'both epics need it', metadata: { core: true, paths: ['src/user.ts'] } })
+    const id = r.result.task.id, e = (await w.board()).plan!.epics!.find(x => x.id === id)!
+    expect(e.core).toBe(true); expect(e.state).not.toBe('draft'); expect(r.context[0]).toContain('core-patch epic')
+    expect((await w.store.list({})).some(t => t.type === 'decision' && /core patch epic/.test(t.title + t.description))).toBe(true)
+  })
+})
 describe('stops and bounds', () => {
   test('a stopped epic stops its dependants; auto pauses for the human, the Retry clears it', async () => {
     const w = await approved(); await planIt(w, w.c)

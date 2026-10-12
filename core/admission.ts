@@ -103,7 +103,7 @@ async function plan(d: Deps, s: Snapshot, t: SnapTask): Promise<Partial<BriefIn>
   const ep = s.epic ? await d.store.get(s.epic).catch(() => null) : null, run = s.tasks.filter(x => x.id !== t.id && (x.state === 'active' || x.state === 'review'))
   return { shared: ep?.meta['cadre.notes'], others: (await Promise.all(run.map(async x => { const p = pathsOf(await d.store.get(x.id).catch(() => undefined)); return p.length ? `- ${x.id}: ${p.join(', ')}` : '' }))).filter(Boolean) }
 }
-async function setup(h: Host, d: Deps, task: Task, wt: string) {   // packages[] are hand-written until M5; `setup` runs in the writable jail (network on)
+export async function setup(h: Host, d: Deps, task: Task, wt: string) {   // packages[] are hand-written until M5; `setup` runs in the writable jail (network on)
   const pkg = pkgOf(d, task) as any
   const pkgRoot = !pkg || pkg.root === '.' || !pkg.root ? wt : `${wt}/${pkg.root}`, scratch = `${d.wtRoot}/${d.key}.scratch/${task.id}`
   for (const argv of pkg?.setup?.length ? [pkg.setup as string[]] : []) {   // Pkg.setup is one argv (discover.ts)

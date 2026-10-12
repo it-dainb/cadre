@@ -207,3 +207,15 @@ test('watch: two running workers changing the same file are told once each (unco
   await R.watch(h, w.dep); assert.match(await drainDelta(h, 'ag1'), /Heads-up: m-3 is changing a\.txt/); assert.match(await drainDelta(h, 'ag2'), /m-2 is changing a\.txt/)
   await R.watch(h, w.dep); assert.equal(await drainDelta(h, 'ag1'), null)
 })
+test('a resolve task: claimed in the worktree that holds the merge; the worker resolves it; green, review and squash land it on the plan branch, the other side\'s changelog included', async () => {
+  const w = await world(0), { h, d, store } = w, epic = (await h.board.read()).epic
+  const side = (br, body, cl) => { const e = `${d}-${br.replace('/', '-')}`; sh(d, 'worktree', 'add', '-q', e, br); writeFileSync(join(e, 'a.txt'), body); if (cl) writeFileSync(join(e, 'CHANGELOG.md'), cl); sh(e, 'add', '-A'); sh(e, 'commit', '-qm', `on ${br}`); sh(d, 'worktree', 'remove', '--force', e) }
+  side('epic/p1-x', 'ours\n'); side('dev', 'theirs\n', '# Changelog\n\n## [Unreleased]\n\n### Added\n\n- other (x-1)\n')
+  const text = await R.resolveTask(h, w.dep, epic, 'epic/p1-x', 'dev', ['a.txt']); assert.match(text, /Resolve task (\S+) was added .* \(attempt 1\/2\)/)
+  const id = (await h.board.read()).tasks.find(t => t.type === 'refactor').id, wt = (await store.get(id)).meta['cadre.worktree']
+  assert.match(readFileSync(join(wt, 'a.txt'), 'utf8'), /<<<<<<</); const a = await w.spawn(id); assert.equal(a.agentId, 'ag1'); assert.match(readFileSync(join(wt, 'a.txt'), 'utf8'), /<<<<<<</)   // the claim keeps that tree
+  writeFileSync(join(wt, 'a.txt'), 'ours\ntheirs\n'); assert.match(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'merged both' }), /report accepted/)   // the changelog from dev is not its edit
+  await w.spawn(id); assert.match(await w.rep('ag2', { ...w.pass, coverage: [], contractStatus: [] }), /pass@/)
+  assert.equal(await C.closeTask(h, w.dep, id), null); assert.equal(sh(d, 'show', 'epic/p1-x:a.txt'), 'ours\ntheirs'); assert.match(sh(d, 'show', 'epic/p1-x:CHANGELOG.md'), /other \(x-1\)/)
+  assert.equal(sh(d, 'merge-tree', '--write-tree', '--name-only', 'dev', 'epic/p1-x').split('\n').length, 1)   // the landing merges cleanly now
+})

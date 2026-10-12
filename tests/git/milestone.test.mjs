@@ -80,9 +80,21 @@ test('red on the merged result while driving: one fix task in that epic; the 2nd
   assert.deepEqual(await states(h), ['stopped', 'running']); assert.ok((await h.board.read()).decisions.some(x => x.id === `flag:${ep[0]}:stopped`))
   assert.equal(await integrateEpic(h, ep[1]), null); assert.deepEqual(await states(h), ['stopped', 'landed']); assert.equal((await h.board.read()).plan.state, 'approved')
 })
-test('a merge conflict with the milestone stops the epic (no fix task)', async () => {
+test('a merge conflict with the milestone: a resolve task in that epic holds the merge (markers), recorded; once resolved the epic lands; past 2 attempts the epic stops', async () => {
   const { d, h, store, ms, ep } = await world(['true'], true)
   sh(d, 'checkout', '-q', ms); commit(d, 'a.txt', 'other\n', 'feat: other'); sh(d, 'checkout', '-q', 'main')
-  assert.match(await integrateEpic(h, ep[0]), /merge of epic\/signup into milestone\/.* failed/)
-  assert.deepEqual(await states(h), ['stopped', 'running']); assert.equal((await store.list({ parent: ep[0] })).filter(t => t.type === 'bug').length, 0)
+  assert.match(await integrateEpic(h, ep[0]), /does not merge into milestone\/.* \(conflicts in a\.txt\)\. Resolve task (\S+) was added to .* \(attempt 1\/2\)/)
+  const t = (await store.list({ parent: ep[0] })).find(x => x.meta['cadre.resolve']); assert.equal(t.type, 'refactor'); assert.equal(t.meta['cadre.lane'], 'lite'); assert.equal(t.category, 'todo')
+  const wt = t.meta['cadre.worktree']; assert.match(readFileSync(join(wt, 'a.txt'), 'utf8'), /<<<<<<<[\s\S]*signup[\s\S]*other|<<<<<<<[\s\S]*other[\s\S]*signup/); assert.match(t.description, /This side: signup/)
+  assert.deepEqual(await states(h), ['running', 'running']); assert.equal((await store.get(ep[0])).meta['cadre.resolves'], '1'); assert.ok((await store.list({})).some(x => x.type === 'decision' && /resolve task/.test(x.title + x.description)))
+  writeFileSync(join(wt, 'a.txt'), 'signup\nother\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'merge resolved'); sh(d, 'update-ref', 'refs/heads/epic/signup', sh(wt, 'rev-parse', 'HEAD'))   // what the task's gates and squash do
+  await store.claim(t.id, 'a'); await store.close(t.id, { outcome: 'done' }); await h.board.update(b => ({ ...b, tasks: b.tasks.map(x => (x.id === t.id ? { ...x, state: 'done' } : x)) }))
+  assert.equal(await integrateEpic(h, ep[0]), null); assert.equal(sh(d, 'show', `${ms}:a.txt`), 'signup\nother')
+  const w2 = await world(['true'], true); sh(w2.d, 'checkout', '-q', w2.ms); commit(w2.d, 'a.txt', 'other\n', 'feat: other'); sh(w2.d, 'checkout', '-q', 'main'); await w2.store.setMeta(w2.ep[0], { 'cadre.resolves': '2' }, 'x')
+  assert.match(await integrateEpic(w2.h, w2.ep[0]), /merge of epic\/signup into milestone\/.* failed: conflicts in a\.txt/); assert.deepEqual(await states(w2.h), ['stopped', 'running'])
+})
+test('after an epic lands, the other running epic takes the new milestone tip', async () => {
+  const { d, h, ms, ep } = await world()
+  assert.equal(await integrateEpic(h, ep[1]), null)
+  assert.equal(sh(d, 'merge-base', '--is-ancestor', ms, 'epic/signup'), ''); assert.equal(sh(d, 'show', 'epic/signup:b.txt'), 'login')
 })

@@ -111,9 +111,12 @@ test('yolo: the plan lands on dev and no release is proposed; auto proposes it (
     assert.deepEqual(((await x.h.board.read()).decisions ?? []).map(d => d.kind), ['release'])
   }
 })
-test('a merge conflict with dev while driving: no fix task, the flag asks the human', async () => {
-  const { d, h, epic } = await driven('auto')
-  sh(d, 'checkout', '-q', 'dev'); commit(d, 'c.txt', 'other\n', 'feat: other'); sh(d, 'checkout', '-q', 'main')
+test('a merge conflict with dev: a resolve task in the plan (no flag); past 2 attempts the flag asks the human', async () => {
+  const w = await driven('auto'); sh(w.d, 'checkout', '-q', 'dev'); commit(w.d, 'c.txt', 'other\n', 'feat: other'); sh(w.d, 'checkout', '-q', 'main')
+  assert.match(await integrateEpic(w.h, w.epic), /does not merge into dev \(conflicts in c\.txt\)\. Resolve task \S+ was added/); assert.deepEqual((await w.h.board.read()).plan.flags ?? [], [])
+  assert.ok((await w.h.board.read()).tasks.some(t => t.type === 'refactor' && t.state === 'todo')); assert.equal((await w.h.board.read()).plan.state, 'approved')
+  const { d, h, epic, store } = await driven('auto')
+  sh(d, 'checkout', '-q', 'dev'); commit(d, 'c.txt', 'other\n', 'feat: other'); sh(d, 'checkout', '-q', 'main'); await store.setMeta(epic, { 'cadre.resolves': '2' }, 'x')
   assert.match(await integrateEpic(h, epic), /merge of epic\/p3-auth into dev failed/)
   const b = await h.board.read(); assert.deepEqual(b.plan.flags, ['integration-failed']); assert.equal(b.tasks.filter(t => t.type === 'bug').length, 0)
   assert.deepEqual((b.decisions ?? []).map(x => x.id), [`flag:${epic}:integration-failed`])

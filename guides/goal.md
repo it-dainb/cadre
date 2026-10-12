@@ -24,7 +24,7 @@ That one call creates the plan and its task. Then tell the user to approve it in
 
 **full**: TaskCreate with metadata `{"kind": "plan", "lane": "full", "reason": "<one line>"}`, then one TaskCreate per task, as the plan rules in its answer say (scenarios, interface, changelog, package). Fill what the "missing:" line names. Then tell the user to approve the plan in the dialog (key 1 opens it).
 
-**milestone**: TaskCreate with metadata `{"kind": "plan", "lane": "milestone", "reason": "<one line>"}`, then one TaskCreate per epic, as the roadmap rules in its answer say. Fill what the "missing:" line names (last: the critic review). Then tell the user to approve the roadmap in the dialog (key 1 opens it). After that, each epic's tasks are planned when the "next:" line names the epic; cadre approves them itself. Complete each epic when its tasks are done; the milestone lands on dev by itself with its last epic.
+**milestone**: TaskCreate with metadata `{"kind": "plan", "lane": "milestone", "reason": "<one line>"}`, then one TaskCreate per epic, as the roadmap rules in its answer say. Fill what the "missing:" line names (last: the critic review). Then tell the user to approve the roadmap in the dialog (key 1 opens it). After that, each epic's tasks are planned when the "next:" line names the epic; cadre approves them itself. Complete each epic when its tasks are done; the milestone lands on dev with its last epic. Shared code found mid-run: TaskCreate `{"core": true}`, no epic.
 
 Done when the agent is spawned (ask) or the plan or roadmap is drafted (lite, full, milestone). Then stop.
 

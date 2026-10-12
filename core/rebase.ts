@@ -10,6 +10,9 @@ import { agentsOf } from './board'
 import { apply } from './machine'
 import { pipeOf } from '../task-management/registry'
 import { idsIn, pushDelta } from './briefs'
+import { mirror } from './dispatch'
+import { setup } from './admission'
+import { taskBranch, wtPath } from './branches'
 import { queueResume } from './reuse'
 import { decided } from './drive'
 import { ask } from './decide'
@@ -67,8 +70,8 @@ export async function capAsk(h: Host, d: Deps, t: SnapTask, task: Task, tip: str
 
 // after a squash into the plan branch: merge the new tip into every running worker's branch (a throwaway worktree, then the branch ref and the live tree move);
 // a sibling that would conflict is told now and reworked at its own merge
-export async function refresh(h: Host, d: Deps, tip: string, from: string): Promise<void> {
-  const all = (await h.board.read()).tasks, ep = all.find(x => x.id === from)?.epic   // a milestone: only the same epic's workers (another epic's branch gets the milestone tip at its own landing)
+export async function refresh(h: Host, d: Deps, tip: string, from: string, only?: string): Promise<void> {
+  const all = (await h.board.read()).tasks, ep = only ?? all.find(x => x.id === from)?.epic   // a milestone: only the same epic's workers (another epic's branch gets the milestone tip at its own landing)
   for (const x of all.filter(x => x.id !== from && x.epic === ep && x.state === 'active' && x.step === 'worker')) {
     const task = await d.store.get(x.id).catch(() => null), wt = task?.meta['cadre.worktree'], br = task?.meta['cadre.branch']
     if (!task || !wt || !br || !(await h.stat(wt))) continue
@@ -94,7 +97,7 @@ export async function refresh(h: Host, d: Deps, tip: string, from: string): Prom
 // tick (every 60 s): a trial merge of every pair of running workers' trees (uncommitted edits included, via stash create); on a collision both are told once.
 // Without merge-tree (git < 2.38) the declared paths (metadata.paths) are compared instead.
 export async function watch(h: Host, d: Deps): Promise<void> {
-  const run = (await h.board.read()).tasks.filter(x => x.state === 'active' && x.step === 'worker'); if (run.length < 2) return
+  const s = await h.board.read(), run = s.tasks.filter(x => x.state === 'active' && x.step === 'worker'), eps = (s.plan?.epics ?? []).filter(e => e.state === 'running'); if (run.length < 2 && eps.length < 2) return
   const seen = ((await h.store.get(`cadre:${d.key}:collide`)) as string[] | undefined) ?? [], tips: Record<string, string> = {}, meta: Record<string, Task> = {}
   for (const x of run) {
     const task = await d.store.get(x.id).catch(() => null), wt = task?.meta['cadre.worktree']; if (!task || !wt || !(await h.stat(wt))) continue
@@ -108,6 +111,11 @@ export async function watch(h: Host, d: Deps): Promise<void> {
     if (!files?.length) continue
     add.push(key)
     for (const [me, other] of [[a, b], [b, a]]) { const w = await worker(h, me); if (w) await pushDelta(h, w, modelText('context', `Heads-up: ${other} is changing ${files.slice(0, 5).join(', ')} at the same time. Keep your edits there small; whoever merges second updates onto the other.`)) }
+  }
+  for (let i = 0; i < eps.length; i++) for (const b of eps.slice(i + 1)) {   // two running epics of a milestone: their branches (what landed in each so far)
+    const a = eps[i], key = `${a.id}|${b.id}`, files = seen.includes(key) ? null : await trial(h, d.root, a.branch, b.branch); if (!files?.length) continue
+    add.push(key)
+    for (const [me, other] of [[a, b], [b, a]]) for (const t of s.tasks.filter(t => t.epic === me.id)) { const w = await worker(h, t.id); if (w) await pushDelta(h, w, modelText('context', `Heads-up: the parallel epic ${other.id} (${other.title}) also changes ${files.slice(0, 5).join(', ')}. Keep your edits there small; the later landing merges onto the other.`)) }
   }
   if (add.length) await h.store.set(`cadre:${d.key}:collide`, [...seen, ...add].slice(-50))
 }
@@ -123,4 +131,34 @@ export async function lockCore(h: Host, d: Deps, only?: string): Promise<void> {
   const core = { ...(await policyOf(h)).core }
   for (const x of s.tasks.filter(x => (!only || x.id === only) && x.state !== 'done' && x.state !== 'cancelled')) { const wt = (await d.store.get(x.id).catch(() => null))?.meta['cadre.worktree']; if (wt) core[x.id] = files.map(f => `${wt}/${f}`) }
   await setPolicy(h, { core })
+}
+
+// ---- between epics of a milestone (ADR 0015 wave 2) ----
+// an epic landed on the milestone: every other running epic takes the new tip (a throwaway worktree, CAS on its branch), then its running workers do;
+// one that would conflict is left as it is: its own landing turns the conflict into a resolve task
+export async function refreshEpics(h: Host, d: Deps, msTip: string, landedId: string): Promise<void> {
+  for (const e of ((await h.board.read()).plan?.epics ?? []).filter(e => e.state === 'running' && e.id !== landedId)) {
+    const head = await G.tip(h.run, d.root, e.branch).catch(() => ''); if (!head || (await trial(h, d.root, head, msTip)) !== null || (await G.ok(h.run, d.root, ['merge-base', '--is-ancestor', msTip, head]))) continue
+    const tmp = `${d.wtRoot}/${d.key}.scratch/refresh-${e.id}`, next = await G.op(h, async () => {
+      await h.run(['git', '-C', d.root, 'worktree', 'add', '-f', '--detach', tmp, head])
+      try { if ((await h.run(['git', '-C', tmp, 'merge', '--no-ff', '--no-edit', '-m', `merge the milestone tip ${sha7(msTip)} into ${e.id}`, msTip])).exitCode) return ''; const n = await G.tip(h.run, tmp, 'HEAD'); return (await G.casRef(h.run, d.root, `refs/heads/${e.branch}`, n, head)) ? n : '' }
+      finally { await h.run(['git', '-C', d.root, 'worktree', 'remove', '--force', tmp]) }
+    })
+    if (next) await refresh(h, d, next, '', e.id)
+  }
+}
+// an epic (or a single plan) does not merge into its target: ONE refactor task in that epic whose tree holds the merge in progress (both sides, conflict markers);
+// green, review and the squash land the resolution on the epic branch, then main completes the epic again. At most ROUNDS per epic; null = past the cap
+export async function resolveTask(h: Host, d: Deps, epicId: string, from: string, onto: string, files: string[]): Promise<string | null> {
+  const e = await d.store.get(epicId), n = num(e.meta['cadre.resolves']) + 1, s = await h.board.read(); if (n > ROUNDS) return null
+  const title = `Resolve the merge conflict with ${onto}`, landed = (s.plan?.epics ?? []).filter(x => x.state === 'landed').map(x => `- ${x.id} ${x.title}`)
+  const t = await d.store.createDraft({ title, type: 'refactor', parent: epicId, meta: { 'cadre.lane': 'lite', 'cadre.resolve': onto, 'cadre.changelog': JSON.stringify({ none: true, reason: 'merge resolution' }) },
+    description: [`Your working tree holds an unfinished merge of ${onto} into this branch${files.length ? `; the conflicts are marked in ${files.join(', ')}` : ''}. Resolve it so that both sides keep working, and keep every test green.`, `This side: ${e.title}\n${e.description.slice(0, 600)}`, ...(landed.length ? [`The other side (already on ${onto}):\n${landed.join('\n')}`] : [])].join('\n\n') })
+  const wt = wtPath(d.wtRoot, d.key, t.id), br = taskBranch(d.reg.refactor?.commit ?? 'refactor', t.id, title), base = await G.tip(h.run, d.root, from)
+  await G.op(h, async () => { await G.worktreeAdd(h.run, d.root, wt, br, base); await h.run(['git', '-C', wt, 'merge', '--no-ff', '--no-edit', onto]) })   // the conflict is left in its tree
+  await setup(h, d, t, wt).catch(x => h.log(`resolve setup: ${x}`))
+  await d.store.setMeta(t.id, { 'cadre.worktree': wt, 'cadre.branch': br, 'cadre.base': base }, d.actor); await d.store.setMeta(epicId, { 'cadre.resolves': String(n) }, d.actor)
+  await d.store.approve([t.id]); await mirror(h, d.store, d.reg); await apply(h, { kind: 'approve', id: t.id, at: await h.now(), actor: 'mod' }, pipeOf(d.reg))
+  await decided(h, 'resolve', `${epicId}: merge with ${onto} conflicts${files.length ? ` on ${files.slice(0, 4).join(', ')}` : ''}; resolve task ${t.id} (attempt ${n}/${ROUNDS})`, t.id)
+  return `${from} does not merge into ${onto}${files.length ? ` (conflicts in ${files.join(', ')})` : ''}. Resolve task ${t.id} was added to ${epicId} (attempt ${n}/${ROUNDS}): spawn TASK-${t.id}; when it is done, complete ${epicId} again.`
 }
