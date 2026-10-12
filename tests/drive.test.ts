@@ -1,7 +1,7 @@
 // Autonomy modes (ADR 0013): `/cadre yolo <goal>`, drive armed at approval (never before, never answers a dialog), the gate policy per mode, hard stops, stop/resume.
 import { describe, expect, test } from 'claude-code/testing'
 import { decide, parse, route, run } from '../commands/cadre'
-import { arm } from '../core/drive'
+import { arm, kick } from '../core/drive'
 import { report } from '../core/close'
 import { drain } from '../core/reuse'
 import { resolveDeps } from '../core/admission'
@@ -20,6 +20,7 @@ const SET = '/hm/u/.claude/settings.json'
 async function go(mode: 'auto' | 'yolo', approve = true) {
   const w = await world(), submitted: string[] = [], answered: string[] = [], files: Record<string, string> = { [SET]: '{}' }
   Object.assign(w.h, { sendTo: async () => ({ isDelivered: true }), submit: async (t: string) => { submitted.push(t) }, usage: async () => ({ cost: { usd: 1 } }), readText: async (p: string) => files[p] ?? null })
+  if (mode === 'yolo') await w.h.board.update(b => ({ ...b, containment: { state: 'contained', unsandboxed: 0 } }))   // yolo runs contained only
   await w.h.ui.update(u => ({ ...u, mode }))   // what `/cadre yolo <goal>` leaves for the plan it drafts
   await w.call('TaskCreate', { subject: 'Fix paging', description: 'off-by-one in src/page.ts', metadata: LITE })
   const s = await w.h.board.read(), id = s.plan!.id, t = s.tasks[0].id
@@ -148,19 +149,49 @@ describe('T6.3 gate policy', () => {
 describe('hard stops (both modes), bounds, stop/resume', () => {
   test('a settings file changed, containment broke, an agent moved a protected branch: stop in both modes; a human ref move stops yolo only', async () => {
     for (const mode of ['auto', 'yolo'] as const) {
-      const w = await go(mode); await w.h.ui.update(({ goal: _g, ...u }) => u)
+      const w = await go(mode), press = (a: string) => dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: [a], origin: { kind: 'press' } }, route).then(r => r.text)
+      await w.h.ui.update(({ goal: _g, ...u }) => u)
       w.files[SET] = '{"permissions":{}}'; await w.turn(); expect((await w.board()).drive.stopped).toBe('a settings file changed during the run'); expect(w.submitted).toEqual([])
-      expect((await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['resume'], origin: { kind: 'press' } }, route)).text).toBe('drive resumed')
-      await w.h.board.update(b => ({ ...b, containment: { state: 'contained', unsandboxed: 0 } }))   // a resume records containment as it is now
-      await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['stop'], origin: { kind: 'press' } }, route); await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['resume'], origin: { kind: 'press' } }, route)
+      if (mode === 'yolo') { expect(await press('resume')).toBe('drive could not resume: a settings file changed during the run; undo it first, or finish the plan yourself'); w.files[SET] = '{}' }   // yolo keeps the baseline taken at approval
+      expect(await press('resume')).toBe('drive resumed')
+      await w.h.board.update(b => ({ ...b, containment: { state: 'contained', unsandboxed: 0 } }))   // auto: a resume records containment as it is now
+      await press('stop'); await press('resume')
       await w.h.board.update(b => ({ ...b, containment: { state: 'degraded', unsandboxed: 0 } })); await w.h.ui.update(({ goal: _g, ...u }) => u); await w.turn()
       expect((await w.board()).drive.stopped).toBe('containment broke during the run')
-      await w.h.board.update(b => ({ ...b, containment: { state: 'contained', unsandboxed: 0 } })); await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['resume'], origin: { kind: 'press' } }, route); await w.h.ui.update(({ goal: _g, ...u }) => u)
+      if (mode === 'yolo') expect(await press('resume')).toContain('could not resume: containment broke')
+      await w.h.board.update(b => ({ ...b, containment: { state: 'contained', unsandboxed: 0 } })); expect(await press('resume')).toBe('drive resumed'); await w.h.ui.update(({ goal: _g, ...u }) => u)
       await w.h.git.update(g => ({ ...g, flags: { 'git:dev:agent': {} } as any })); await w.turn(); expect((await w.board()).drive.stopped).toBe('an agent moved dev')
-      await w.h.git.update(g => ({ ...g, flags: { 'git:dev': {} } as any })); await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['resume'], origin: { kind: 'press' } }, route); await w.turn()
+      await w.h.git.update(g => ({ ...g, flags: { 'git:dev': {} } as any })); await press('resume'); await w.turn()
       expect([(await w.board()).drive.stopped, (await w.board()).drive.paused]).toEqual(mode === 'yolo' ? ['resolve git:dev', undefined] : [undefined, 'resolve git:dev'])
       expect(w.submitted).toEqual([]); expect(w.answered).toEqual([])
     }
+  })
+  test('yolo never runs uncontained: approval arms auto and says why; a landed plan is never armed again', async () => {
+    const w = await go('yolo', false); await w.h.board.update(b => ({ ...b, containment: { state: 'degraded', unsandboxed: 0 } }))
+    const d = (await w.board()).decisions!.find(x => x.kind === 'plan')!
+    expect((await decide(w.h, d.id, 'a', d.hash)).text).toContain('drive auto on · yolo needs contained agents (containment degraded: /cadre doctor)')
+    expect((await w.board()).drive.mode).toBe('auto')
+    await w.h.board.update(b => ({ ...b, drive: { ...b.drive, on: false }, plan: { ...b.plan!, state: 'done-on-dev', landed: { dev: 'dev', sha: 's', at: 1 } } }))
+    expect((await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['resume'], origin: { kind: 'press' } }, route)).text).toBe('the plan already landed on dev; nothing to drive')
+    expect((await w.board()).drive.on).toBe(false)
+  })
+  test('a hard stop mid-turn holds: main\'s yolo decision is not applied; a kick stops instead of pushing; an agent\'s branch move beats a pending approval', async () => {
+    const w = await go('yolo'); await w.h.ui.update(({ goal: _g, ...u }) => u); await bindWorker(w)
+    await report(w.h, await resolveDeps(w.h), 'ag1', { role: 'worker', outcome: 'spec_change', reason: 'pages start at 1' })
+    await w.h.git.update(g => ({ ...g, flags: { 'git:dev:agent': {} } as any }))   // inside main's turn, before its decision
+    expect((await w.call('TaskUpdate', { taskId: w.t, metadata: { decision: 'accept: pages start at 1' } })).result.error).toContain('the run stopped (an agent moved dev)')
+    const b = await w.board(); expect(b.drive.stopped).toBe('an agent moved dev'); expect(b.tasks[0].state).toBe('blocked'); expect(b.decisions!.map(x => x.id)).toContain(`flag:${w.t}:spec_change`)
+    const k = await go('auto'); await k.h.ui.update(({ goal: _g, ...u }) => u)
+    await k.h.board.update(x => ({ ...x, approval: { planId: 'p9', missing: [] } })); await k.h.git.update(g => ({ ...g, flags: { 'git:main:agent': {} } as any })); await k.turn()
+    expect((await k.board()).drive.stopped).toBe('an agent moved main')
+  })
+  test('a kick with a gate still standing says so (pause/stop with its reason); a kick is a turn the bounds count', async () => {
+    const w = await go('auto'); await w.h.ui.update(({ goal: _g, ...u }) => u)
+    await w.h.git.update(g => ({ ...g, flags: { 'git:dev': {} } as any })); await w.turn(); expect((await w.board()).drive.paused).toBe('resolve git:dev')
+    await w.h.git.update(g => ({ ...g, flags: { 'quarantine:x': {} } as any })); await kick(w.h); expect((await w.board()).drive.paused).toBe('resolve quarantine:x')
+    await w.h.git.update(g => ({ ...g, flags: {} })); await kick(w.h); expect((await w.board()).drive).toMatchObject({ paused: undefined, turns: 1 }); expect((await w.h.ui.read()).goal).toBe(`Continue: spawn TASK-${w.t}`)
+    const c = defaults(); c.drive.maxTurns = 1; (w.h as any).config = async () => c; await w.h.ui.update(({ goal: _g, ...u }) => u)
+    await kick(w.h, true); expect((await w.board()).drive.stopped).toBe('max turns 1'); expect((await w.h.ui.read()).goal).toBeUndefined()
   })
   test('bounds hold: max turns stops the run; a resume is a fresh budget', async () => {
     const w = await go('auto'); const c = defaults(); c.drive.maxTurns = 2; (w.h as any).config = async () => c
@@ -168,7 +199,7 @@ describe('hard stops (both modes), bounds, stop/resume', () => {
     for (let i = 0; i < 4; i++) await w.turn()
     expect(w.submitted.length).toBe(2); expect((await w.board()).drive.stopped).toBe('max turns 2')
     expect((await w.evs()).some(e => e.type === 'drive.status' && e.data.state === 'stopped' && e.data.reason === 'max turns 2')).toBe(true)
-    await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['resume'], origin: { kind: 'press' } }, route); expect((await w.board()).drive.turns).toBe(0)
+    await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['resume'], origin: { kind: 'press' } }, route); expect((await w.board()).drive.turns).toBe(1)   // a fresh budget; the resume's own push is its first turn
   })
   test('stop/resume: dialog or press only; stopped drive submits nothing; yolo hands its quiet decisions to the human on stop; resume hands main the next step', async () => {
     const w = await go('yolo'); await w.h.ui.update(({ goal: _g, ...u }) => u)

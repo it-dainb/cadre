@@ -18,7 +18,7 @@ import { integrateEpic } from './integrate'
 import { green as tddGreen, lockedViolations, verifyOf, resolveSpec, specChange, testerDone } from './tdd'
 import { modeOf, pkgOf } from './specview'
 import * as G from './git'
-import { decided, stop } from './drive'
+import { decided, hardStop, stop } from './drive'
 import { queueBrief } from './lanes'
 import { yoloOn } from './decide'
 
@@ -290,7 +290,8 @@ async function cancelTask(h: Host, d: Deps, id: string, why: string): Promise<st
 async function decide(h: Host, d: Deps, id: string, text: string): Promise<string | null> {
   const t = (await h.board.read()).tasks.find(x => x.id === id)
   if (t?.state !== 'blocked') return `${id} is not blocked; nothing to decide`
-  const y = yoloOn((await h.board.read()).drive)
+  const y = yoloOn((await h.board.read()).drive), why = y ? await hardStop(h) : null
+  if (why) { await stop(h, why); return `${id}: the run stopped (${why}); the user decides this task in the cadre dialog now. Stop and wait.` }   // a hard stop mid-turn: main's decision is not applied
   if ((await d.store.get(id)).meta['cadre.blocked'] === 'spec_change') {   // yolo: main accepts or rejects it, through the same path as the dialog (recorded)
     if (!y) return `${id} awaits a spec change decision: the human accepts or rejects it in the cadre dialog`
     const m = /^\s*(accept|reject)\s*:\s*(\S[\s\S]*)$/i.exec(text); if (!m) return `${id}: metadata.decision must be "accept: <reason>" or "reject: <reason>"`   // the exact word and a colon: "acceptable… reject: …" must never read as accept

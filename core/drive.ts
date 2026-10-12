@@ -36,6 +36,17 @@ async function pause(h: Host, why: string) {
 // the settings files a run must not see changed (ADR 0010 watches the same during setup/init), as one hash
 const settingsHash = async (h: Host) => { const c = await h.cwd(); return fnv1a64((await Promise.all([`${await h.home()}/.claude/settings.json`, `${c}/.claude/settings.json`, `${c}/.claude/settings.local.json`].map(p => h.readText(p)))).map(t => t ?? '').join('\0')) }
 
+// the hard stops (both modes), against the record taken at arm: at each turn end, before main's yolo decision is applied (core/close.decide) and before a kick (review 0.9: a stop
+// that fired mid-turn must hold where it matters). An agent moving a protected branch comes first: a pending approval must not hide it.
+export async function hardStop(h: Host, rec?: DriveRec): Promise<string | null> {
+  rec ??= await casDrive(h, await storeOf(h), () => undefined); if (!rec?.on) return null
+  const ag = Object.keys((await h.git.read()).flags ?? {}).find(k => (k.startsWith('git:') || k.startsWith('quarantine')) && k.endsWith(':agent')); if (ag) return `an agent moved ${ag.split(':')[1]}`
+  if (rec.set && rec.set !== (await settingsHash(h))) return 'a settings file changed during the run'
+  return rec.cont === 'contained' && (await h.board.read()).containment.state !== 'contained' ? 'containment broke during the run' : null
+}
+const boundOf = (r: DriveRec, dc: any, cost: number, idle: number, now: number): string | null =>
+  r.turns >= dc.maxTurns ? `max turns ${dc.maxTurns}` : cost >= dc.maxCostUsd ? `cost $${cost} ≥ $${dc.maxCostUsd}` : now - r.startedAt > dc.maxWallMinutes * 60_000 ? `max ${dc.maxWallMinutes} min` : idle >= dc.noProgressTurns ? `no progress in ${idle} turns` : null
+
 // a decision drive (or main under yolo) took without the human: a beads decision record linked to the plan + `drive.decided` for Activity and Doctor
 export async function decided(h: Host, kind: 'spec' | 'question' | 'rework' | 'integration', text: string, taskId?: string): Promise<void> {
   const s = await h.board.read(), store = await storeOf(h)
@@ -58,7 +69,6 @@ async function gate(h: Host, s: Snapshot, mode: Mode): Promise<Gate> {
   const y = mode === 'yolo', hold = (why: string): Gate => (y ? { stop: why } : { pause: why })
   if (s.approval.planId) return { pause: `approve ${s.approval.planId}` }
   const gf = Object.keys((await h.git.read()).flags ?? {}).filter(k => k.startsWith('git:') || k.startsWith('quarantine'))
-  const ag = gf.find(k => k.endsWith(':agent')); if (ag) return { stop: `an agent moved ${ag.split(':')[1]}` }
   if (gf[0]) return hold(`resolve ${gf[0]}`)
   for (const t of s.tasks.filter(t => t.state === 'blocked')) {
     if (!t.flags.length) return { pause: `blocked ${t.id}` }   // its flag lands right after the block (a report in flight, live): wait for it, never stop on it
@@ -94,8 +104,7 @@ export async function drive(h: Host, cfg: any, usd: number | undefined) {
   if (!rec?.on || rec.epicId !== s.epic) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, on: false } })))
   if (held(rec, me, now)) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, heldBy: rec.lease.session } })))
   if (rec.stopped) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: rec.stopped } })))
-  const hard = rec.set && rec.set !== (await settingsHash(h)) ? 'a settings file changed during the run' : rec.cont === 'contained' && s.containment.state !== 'contained' ? 'containment broke during the run' : null
-  if (hard) return stop(h, hard)
+  const hard = await hardStop(h, rec); if (hard) return stop(h, hard)
   const g = await gate(h, s, mode)
   if (g?.stop) return stop(h, g.stop)
   if (g?.pause) return pause(h, g.pause)
@@ -109,7 +118,7 @@ export async function drive(h: Host, cfg: any, usd: number | undefined) {
     const idle = seq > r.lastSeq || !r.turns ? 0 : r.idle + 1
     const last = r.last ?? usd ?? 0, delta = usd === undefined || r.sess !== me ? 0 : usd >= last ? usd - last : usd   // a new session starts at its own baseline; a usage that went down was reset: count it from 0
     o.cost = +((r.cost ?? 0) + delta).toFixed(2)
-    o.bound = r.turns >= dc.maxTurns ? `max turns ${dc.maxTurns}` : o.cost >= dc.maxCostUsd ? `cost $${o.cost} ≥ $${dc.maxCostUsd}` : now - r.startedAt > dc.maxWallMinutes * 60_000 ? `max ${dc.maxWallMinutes} min` : idle >= dc.noProgressTurns ? `no progress in ${idle} turns` : null
+    o.bound = boundOf(r, dc, o.cost, idle, now)
     o.go = !o.bound && !!text; o.turns = r.turns + (o.go ? 1 : 0)
     return { ...r, cost: o.cost, last: usd ?? last, sess: me, turns: o.turns, lastSeq: seq, idle: o.go ? idle : r.idle, lease: { session: me, until: now + LEASE } }
   })
@@ -122,26 +131,34 @@ export async function drive(h: Host, cfg: any, usd: number | undefined) {
 // arm at approval (core/dispatch.approve, both modes). Submits nothing: the approval brief starts main, drive continues at each turn.complete.
 export async function arm(h: Host, mode: Mode): Promise<string> {
   const s = await h.board.read(); if (!s.epic || !s.plan || s.plan.state === 'draft' || s.plan.slug === 'mission') return 'drive needs an approved plan'
+  if (s.plan.landed || s.plan.state === 'done-on-dev' || s.plan.state === 'released') return 'the plan already landed on dev; nothing to drive'
+  const why = mode === 'yolo' && s.containment.state !== 'contained' ? ` · yolo needs contained agents (containment ${s.containment.state}: /cadre doctor)` : ''; if (why) mode = 'auto'   // yolo never runs uncontained: no human would see what an unsandboxed worker does
   const store = await storeOf(h), me = await sessionOf(h), now = await h.now(), dc = (await cfgOf(h)).drive, usd = (await h.usage?.().catch(() => undefined))?.cost?.usd ?? 0
   const fresh: DriveRec = { on: true, level: 'epic', epicId: s.epic, mode, turns: 0, cost: 0, last: usd, sess: me, startedAt: now, lastSeq: 0, idle: 0, set: await settingsHash(h), cont: s.containment.state, lease: { session: me, until: now + LEASE } }
   const r = await casDrive(h, store, x => (x?.on && (x.epicId === s.epic || held(x, me, now)) ? undefined : fresh))
   if (r !== fresh) return held(r, me, now) ? `drive is held by ${r!.lease.session}` : 'drive already runs this plan'   // an amendment's approval keeps the run as it is
   await h.board.update(x => ({ ...x, drive: { on: true, level: 'epic', epicId: s.epic, mode, turns: 0, costUsd: 0, startedAt: now, maxTurns: dc.maxTurns, maxUsd: dc.maxCostUsd, maxMinutes: dc.maxWallMinutes } }))
-  await driveEvent(h, 'armed', mode); return `drive ${mode} on`
+  await driveEvent(h, 'armed', mode); return `drive ${mode} on${why}`
 }
 // after the human answered a dialog (core/dispatch.answer) or resumed: a drive that waited on a gate hands main the next step (main may be idle: nothing else would)
 export async function kick(h: Host, force = false): Promise<void> {
   const s = await h.board.read(), d = s.drive
   if (!d.on || d.stopped || (!d.paused && !force) || !s.plan || s.plan.state !== 'approved') return
-  const g = await gate(h, s, d.mode ?? 'auto'); if (g) return
+  const store = await storeOf(h), rec = await casDrive(h, store, () => undefined)
+  const why = (await hardStop(h, rec)) ?? (rec ? boundOf(rec, (await cfgOf(h)).drive, rec.cost ?? 0, rec.idle, await h.now()) : null); if (why) return stop(h, why)
+  const g = await gate(h, s, d.mode ?? 'auto'); if (g?.stop) return stop(h, g.stop); if (g?.pause) return pause(h, g.pause)   // the gate still stands: say so (a resume that stalls quietly reads as running)
   if (d.paused) { await h.board.update(x => ({ ...x, drive: { ...x.drive, paused: undefined } })); await driveEvent(h, 'running') }
-  const nx = nextAction(modelView(s)); if (nx !== 'wait' && !(await h.ui.read()).goal) await queueBrief(h, `Continue: ${nx}`)
+  const nx = nextAction(modelView(s)); if (nx === 'wait' || (await h.ui.read()).goal) return
+  const n = await casDrive(h, store, r => r && { ...r, turns: r.turns + 1 }); await h.board.update(x => ({ ...x, drive: { ...x.drive, turns: n?.turns ?? x.drive.turns } }))   // a push is a turn: the bound counts it
+  await queueBrief(h, `Continue: ${nx}`)
 }
 export async function resume(h: Host): Promise<string> {
   const s = await h.board.read(), d = s.drive
   if (!d.on || !d.stopped) { if (d.on) return 'drive is running'; const t = await arm(h, s.plan?.mode ?? 'auto'); if (t.startsWith('drive ')) await kick(h, true); return t }   // off (finished, or approved before): arm it again
   const store = await storeOf(h), me = await sessionOf(h), now = await h.now(), usd = (await h.usage?.().catch(() => undefined))?.cost?.usd ?? 0, set = await settingsHash(h)
-  const r = await casDrive(h, store, x => (x?.on && x.epicId === s.epic && x.stopped && !held(x, me, now) ? { ...x, stopped: undefined, turns: 0, idle: 0, cost: 0, last: usd, sess: me, startedAt: now, set, cont: s.containment.state, lease: { session: me, until: now + LEASE } } : undefined))
+  const old = await casDrive(h, store, () => undefined), keep = old?.mode === 'yolo'   // yolo keeps the baseline taken at approval: a resume never blesses a changed setting or a broken sandbox
+  const hard = keep ? await hardStop(h, old) : null; if (hard) return `drive could not resume: ${hard}; undo it first, or finish the plan yourself`
+  const r = await casDrive(h, store, x => (x?.on && x.epicId === s.epic && x.stopped && !held(x, me, now) ? { ...x, stopped: undefined, turns: 0, idle: 0, cost: 0, last: usd, sess: me, startedAt: now, set: keep ? x.set : set, cont: keep ? x.cont : s.containment.state, lease: { session: me, until: now + LEASE } } : undefined))
   if (!r || r.stopped) return 'drive could not resume: another session holds it'
   await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: undefined, paused: undefined, turns: 0, costUsd: 0, startedAt: now } }))   // a resume is a fresh budget: the human chose to go on
   await driveEvent(h, 'resumed'); await kick(h, true); return 'drive resumed'
