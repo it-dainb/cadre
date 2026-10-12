@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { NOTHING, continueRun, proc, prune, rehydrate, savePointer, stampAlive } from '../core/session'
+import { NOTHING, continueRun, proc, prune, unfinished, rehydrate, savePointer, stampAlive } from '../core/session'
 import { drain, queueResume } from '../core/reuse'
 import { admit } from '../core/admission'
 import { arm, casDrive } from '../core/drive'
@@ -72,6 +72,7 @@ describe('continue after exit', () => {
     expect(s.plan).toMatchObject({ id: m.epic, state: 'approved' }); expect(s.tasks.map((t: any) => t.id)).toEqual([m.a, m.b, m.c])
     expect(s.drive.on).toBe(false); expect(await h2.bind.read()).toEqual({})   // the old agents ended with their process: not adopted, not heartbeaten
     expect((await h2.ui.read()).cont).toBe(m.epic)
+    expect(await unfinished(h2)).toEqual({ id: m.epic, slug: 'auth', done: 0, total: 3 })   // the status line's test: the same one continue and the band use
     const v = { b: s, ring: [], sec: {}, ui: await h2.ui.read(), c: { maxTurns: 100 }, now: m.clock.now, sx: 'strict', t: null } as any
     expect(driveOf(v)).toMatchObject({ key: 'continue', text: expect.stringContaining('unfinished plan') })
     const band = txt(band2(v, 140, { go() {}, pick() {}, answer() {}, step() {} })).join('\n')
@@ -87,6 +88,7 @@ describe('continue after exit', () => {
     const second = (async () => { while (!(await h2.board.read()).epic) await Promise.resolve(); await rehydrate(h2); return Object.keys(await h2.bind.read()).sort() })()   // a hook arriving mid-rehydrate (a reviewer's report right after the /clear)
     await rehydrate(h2); expect(await second).toEqual(['r1', 'w1'])
     expect((await h2.board.read()).drive).toMatchObject({ on: true, mode: 'yolo' }); expect(Object.keys(await h2.bind.read()).sort()).toEqual(['r1', 'w1'])
+    expect(await unfinished(h2)).toBeNull()
     expect((await h2.ui.read()).cont).toBeUndefined()
   })
 

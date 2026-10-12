@@ -129,6 +129,13 @@ export const warm = (h: Host) => safe(h, 'rehydrate', () => rehydrate(h))
 // gone (at once: no waiting for the 5-minute claim to lapse; never one another live session holds), and have main respawn their agents: admission's rebind gives each the
 // computed handoff (checkpoint, diff, failing check, decisions), so nothing is redone. Pending decisions come back with the rehydrate (reask). Returns one line.
 export const NOTHING = 'nothing to continue · /cadre <goal> to start'
+// the one test for "an earlier session left this plan" (the status line, the band, continue agree): approved, not landed, nothing drives it, no agent of this session at work
+export async function unfinished(h: Host): Promise<{ id: string; slug: string; done: number; total: number } | null> {
+  const b = await h.board.read(), p = b.plan
+  if (!p || p.slug === 'mission' || p.state === 'draft' || p.landed || p.state === 'done-on-dev' || p.state === 'released' || b.drive.on) return null
+  if (Object.keys(await h.bind.read()).some(a => !a.startsWith('~'))) return null
+  return { id: p.id, slug: p.slug, done: b.tasks.filter(t => t.state === 'done').length, total: b.tasks.length }
+}
 export async function continueRun(h: Host): Promise<string> {
   await rehydrate(h)
   const s = await h.board.read(), p = s.plan, needs = (s.decisions ?? []).length, more = needs ? ` · ${needs} needs you · press 1 to answer` : ''

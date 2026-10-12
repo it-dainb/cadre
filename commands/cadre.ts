@@ -3,7 +3,7 @@ import type { Hook, Host } from '../types'
 import type { Command, Out } from '../core/dispatch'
 import { ROUTES, answer, cfgOf, dispatch, isHuman, registryOf, resolveEpic, restore, storeOf } from '../core/dispatch'
 import { changeLane, goal } from '../core/lanes'
-import { wake, warm } from '../core/session'
+import { unfinished, wake, warm } from '../core/session'
 import { ask } from '../core/decide'
 import { fnv1a64 } from '../core/board'
 import { modelText } from '../core/say'
@@ -49,10 +49,10 @@ export async function status(h: Host): Promise<string> {
   if (!(await wake(h))) return modelText('context', (await setUp(h)) ? READY : WELCOME)   // a set-up repo implies a set-up machine: no welcome there
   await warm(h)
   const b = await h.board.read(), p = b.plan, needs = (b.decisions ?? []).length, ts = b.tasks, n = `${ts.filter(t => t.state === 'done').length}/${ts.length}`
-  const live = Object.entries(await h.bind.read()).some(([k]) => !k.startsWith('~'))
+  const left = await unfinished(h)
   const text = needs ? `${p?.id ?? 'cadre'} · ${needs} needs you · press 1 to answer`
     : !p || p.slug === 'mission' || p.state === 'done-on-dev' || p.state === 'released' ? NO_PLAN
-    : p.state !== 'draft' && !b.drive.on && !live ? `Unfinished plan ${p.id} ${p.slug} (${n}) · /cadre continue to pick it up`   // approved, nothing driving it, no agent at work: an earlier session left it
+    : left ? `Unfinished plan ${left.id} ${left.slug} (${left.done}/${left.total}) · /cadre continue to pick it up`   // core/session.unfinished: the same test as continue and the band
     : [p.id + ' ' + p.slug, `${n} done`, ...ts.filter(t => t.state === 'active' || t.state === 'review').slice(0, 1).map(t => `running ${t.id} ${stepName(t.step)}`), '/cadre to open'].join(' · ')
   return modelText('context', text)
 }
