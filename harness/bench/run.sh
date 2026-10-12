@@ -6,6 +6,7 @@
 H=$(cd "$(dirname "$0")/.." && pwd); B=$H/bench; G=$1; shift; J=4; DRY=; GO=
 while [ $# -gt 0 ]; do case $1 in -j) J=$2; shift;; -n) DRY=1;; --go) GO=1;; esac; shift; done
 [ -f "$G" ] || { echo "usage: run.sh <grid.json> [-j N] [-n] [--go]"; exit 2; }
+rm -f "${RESUME:-/nonexistent}/LIMIT"
 RUNS=$(J=$J node "$B/bench.mjs" plan "$G" 2>"$B/.est") || exit 2; EST=$(cat "$B/.est"); rm -f "$B/.est"; echo "$EST"
 [ -n "$DRY" ] && { cut -d'|' -f1 <<<"$RUNS" | sort | uniq -c; exit 0; }
 HI=$(sed -E 's/.*US\$[0-9]+-([0-9]+).*/\1/' <<<"$EST"); [ "$HI" -gt 5 ] && [ -z "$GO" ] && { echo "estimate over \$5: rerun with --go once approved"; exit 3; }
@@ -18,6 +19,7 @@ export H B OUTD PLUG CAP=${CAP:-$HI}
 one() {   # <cell>|<task>|<k>|<roles json>
   IFS='|' read -r cell task k roles <<<"$1"; D=$OUTD/$cell/$task-$k
   [ -f "$D/result.json" ] && node -e "process.exit(require(process.argv[1]).invalid ? 1 : 0)" "$D/result.json" && return   # resumed: a valid run stays
+  [ -f "$OUTD/LIMIT" ] && { echo "$cell $task#$k skipped: usage limit ($(cat "$OUTD/LIMIT"))"; return; }   # one limit stops the grid: no retry loop
   rm -rf "$D"
   spent=$(node "$B/bench.mjs" spent "$OUTD"); node -e "process.exit(+process.argv[1] >= +process.argv[2] ? 0 : 1)" "$spent" "$CAP" && { echo "$cell $task#$k skipped: \$$spent spent, cap \$$CAP"; return; }
   mkdir -p "$D/work" "$D/out" "$D/projects"
@@ -30,6 +32,7 @@ one() {   # <cell>|<task>|<k>|<roles json>
   [ $ex = 124 ] && docker kill "$name" >/dev/null 2>&1
   printf '{"cell":"%s","task":"%s","k":%s,"t0":%s,"t1":%s,"exit":%s}\n' "$cell" "$task" "$k" "$t0" "$(date +%s%3N)" "$ex" >"$D/meta.json"
   node "$B/bench.mjs" judge "$D" 2>>"$D/judge.err" || echo "$cell $task#$k judge failed"
+  grep -q '"invalid": "usage limit"' "$D/result.json" 2>/dev/null && grep -ho 'resets [^"]*' "$D/stream.jsonl" | head -1 >"$OUTD/LIMIT"
 }
 export -f one
 xargs -P "$J" -d '\n' -I{} bash -c 'one "$1"' _ {} <<<"$RUNS"
