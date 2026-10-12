@@ -6,6 +6,9 @@ import { ROUTES } from '../core/dispatch'
 import '../core/close'
 import { leaseLive } from '../core/board'
 import { driveOf } from '../ui/v2/facts'
+import { band2 } from '../ui/v2/band'
+import { txt } from '../ui/model'
+import { resumeBanner } from '../ui/index'
 import { defaults } from '../config/index'
 import { MemoryStore } from '../task-management/adapters/memory/store'
 import { defaults as types } from '../task-management/registry'
@@ -70,6 +73,9 @@ describe('continue after exit', () => {
     expect((await h2.ui.read()).cont).toBe(m.epic)
     const v = { b: s, ring: [], sec: {}, ui: await h2.ui.read(), c: { maxTurns: 100 }, now: m.clock.now, sx: 'strict', t: null } as any
     expect(driveOf(v)).toMatchObject({ key: 'continue', text: expect.stringContaining('unfinished plan') })
+    const band = txt(band2(v, 140, { go() {}, pick() {}, answer() {}, step() {} })).join('\n')
+    expect(band).toContain('0: continue'); expect(band).not.toMatch(/\d+h\d\d/)   // no counter since 1970: the rebuilt board has no start time
+    await resumeBanner(h2); expect(h2.logs.at(-1)).toContain('/cadre continue or 0 picks it up')
     expect(driveOf({ ...v, b: { ...s, drive: { ...s.drive, on: true, turns: 1, costUsd: 0 } } })?.key).toBe('stop')   // one key, one meaning per state
     expect(driveOf({ ...v, b: { ...s, drive: { ...s.drive, on: true, stopped: 'max turns 100', turns: 1, costUsd: 0 } } })?.key).toBe('resume')
   })

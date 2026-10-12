@@ -3,7 +3,7 @@
 import type { Decision, Host } from '../types'
 import { band as bandOf } from './band'
 import { pane } from './pane'
-import { selId } from './v2/facts'
+import { prog, selId } from './v2/facts'
 import { ack, onEvent as notifyEvent } from './notify'
 import { queueBrief } from '../core/lanes'
 import { ROUTES, dispatch } from '../core/dispatch'
@@ -127,6 +127,7 @@ export async function renderCard(h: Host, e: any, next: (e: any) => any) {
 // transcript line after /clear rehydrate (6.7); the band says the rest (drive: `2: resume`)
 export async function resumeBanner(h: Host, o: { decisions?: number; next?: string; stale?: number } = {}): Promise<void> {
   const v = await read(h), ts = v.b.tasks, n = ts.filter(t => kindOf(t, ts) === 'run').length, q = v.b.resumesQueued, ac = readCfg(v.ui).ascii
+  if (v.ui.cont) return h.log(`${glyph('wait', ac)} unfinished plan ${v.b.plan?.id} (${prog(ts)} done) · nothing runs it now · /cadre continue or 0 picks it up`)   // an earlier session left it (core/session.rehydrate)
   h.log(`${glyph('done', ac)} resumed · mission "${v.b.mission}" · epic ${v.b.plan?.id} · ${n} running (re-adopted)${o.stale ? ` · ${o.stale} stale → rebind` : ''}${q ? ` · ${q} queued` : ''}${o.next ? ` · next: ${o.next}` : ''}`)
 }
 // the render hook cannot read env/config, so the tick keeps the resolved strictness (M10) in the ui atom for it

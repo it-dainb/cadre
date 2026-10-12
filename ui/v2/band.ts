@@ -25,7 +25,7 @@ function lines(v: View, w: number, a: Acts): Line[] {
     if (bad) l1 = lr(w, [g(v, 'fail'), S(' '), S(bad, color('danger'))], right.filter(s => s.t || s.hk))
     else if (landed) l1 = lr(w, [g(v, 'done'), S(` ${p.id} landed on dev`)], right.filter(s => s.t || s.hk))
     else if (top) {
-      const more = run.length > 1 ? `${SEP}+${run.length - 1} running` : `${SEP}${stepName(top.step)}${SEP}${lapse(v, top)}`
+      const more = run.length > 1 ? `${SEP}+${run.length - 1} running` : `${SEP}${stepName(top.step)}${lapse(v, top) && `${SEP}${lapse(v, top)}`}`
       const left: Line = tight ? [g(v, 'run'), S(` ${top.id}${SEP}${prog(ts)}`)] : [g(v, 'run'), S(` ${top.id} `), S(top.title, undefined, { b: false }), muted(more)]
       l1 = lr(w, left, tight ? bothCell.filter(s => s.hk) : right.filter(s => s.t || s.hk))
     } else l1 = lr(w, [g(v, 'wait'), muted(` ${p.id} ${prog(ts)}`)], bothCell.filter(s => s.hk || s.t))

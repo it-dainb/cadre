@@ -18,7 +18,7 @@ export const glyphOf = (t: SnapTask, all: SnapTask[]): GlyphK => ({ crit: 'fail'
 export const running = (ts: SnapTask[]) => ts.filter(t => kindOf(t, ts) === 'run').sort((a, b) => b.phaseSince - a.phaseSince)
 export const prog = (ts: SnapTask[]) => `${ts.filter(t => t.state === 'done').length}/${ts.length}`
 export const since = (v: View, t: SnapTask) => v.ring.find(e => e.type === 'agent.bound' && e.data.taskId === t.id && e.data.role === t.owner?.split(' ')[0])?.at ?? t.phaseSince
-export const lapse = (v: View, t: SnapTask) => elapsed(v.now - since(v, t))
+export const lapse = (v: View, t: SnapTask) => { const s = since(v, t); return s ? elapsed(v.now - s) : '' }   // a board rebuilt in a new session has no start time: no counter rather than one since 1970
 export const selId = (v: View, ts: SnapTask[]) => { const u = v.ui.sel as string | undefined; return u && ts.some(t => t.id === u) ? u : running(ts)[0]?.id ?? ts[0]?.id ?? '' }
 export const why = (t: SnapTask, all: SnapTask[]) => {
   const c = t.deps.find(d => d.type === 'conditional-blocks')
