@@ -60,7 +60,10 @@ async function gate(h: Host, s: Snapshot, mode: Mode): Promise<Gate> {
   const gf = Object.keys((await h.git.read()).flags ?? {}).filter(k => k.startsWith('git:') || k.startsWith('quarantine'))
   const ag = gf.find(k => k.endsWith(':agent')); if (ag) return { stop: `an agent moved ${ag.split(':')[1]}` }
   if (gf[0]) return hold(`resolve ${gf[0]}`)
-  for (const t of s.tasks.filter(t => t.state === 'blocked')) if (!y || !t.flags.some(f => f === 'spec_change' || f === 'blocked')) return hold(`blocked ${t.id}`)   // yolo: main decides those two
+  for (const t of s.tasks.filter(t => t.state === 'blocked')) {
+    if (!t.flags.length) return { pause: `blocked ${t.id}` }   // its flag lands right after the block (a report in flight, live): wait for it, never stop on it
+    if (!y || !t.flags.some(f => f === 'spec_change' || f === 'blocked')) return hold(`blocked ${t.id}`)   // yolo: main decides those two
+  }
   const f = s.tasks.flatMap(t => t.flags).find(x => BLOCKING.test(x) || x.startsWith('rework:')); if (f) return hold(`resolve ${f}`)
   if (s.plan?.flags?.length) return hold(`resolve ${s.plan.flags[0]}`)
   if ((await h.ui.read()).loop) return { pause: 'two loop owners: /goal active' }

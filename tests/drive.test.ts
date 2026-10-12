@@ -113,6 +113,8 @@ describe('T6.3 gate policy', () => {
     expect((await w.call('TaskUpdate', { taskId: w.t, metadata: { decision: '50, because the API caps pages at 50' } })).result.success).toBe(true)
     t = (await w.board()).tasks[0]; expect([t.state, t.flags]).toEqual(['active', []])
     expect((await w.board()).decisions ?? []).toEqual([]); expect(w.answered).toEqual([])
+    await w.setTask({ state: 'blocked', flags: [] }); await w.turn(); expect([(await w.board()).drive.paused, (await w.board()).drive.stopped]).toEqual([`blocked ${w.t}`, undefined])   // blocked, its flag not raised yet: wait, never stop
+    await w.setTask({ state: 'active' })
     expect((await w.evs()).filter(e => e.type === 'drive.decided').map(e => [e.data.kind, e.actor])).toEqual([['spec', 'main'], ['question', 'main']])
     expect((await w.store.list({})).filter(x => x.title.startsWith('yolo: ')).map(x => x.title)).toEqual([`yolo: ${w.t}: spec change rejected: the tests match the API docs`, `yolo: ${w.t}: 50, because the API caps pages at 50`])
   })
