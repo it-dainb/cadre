@@ -20,6 +20,8 @@ import { checkpoint } from './effect'
 import { warm } from './session'
 import { buildView, pkgOf } from './specview'
 import { realRoot } from '../policy/guards'
+import { lockCore, watch } from './rebase'
+import { pathsOf } from './validate'
 
 export interface Deps {
   store: TaskStore; cfg: Config; reg: TypeRegistry; root: string; home: string; wtRoot: string; key: string; actor: string; session: string
@@ -93,6 +95,11 @@ const briefOf = (s: Snapshot, t: SnapTask, task: Task, e: any, d: Deps, role: Ro
   id: t.id, title: t.title, type: t.type, description: task.description, scenarios: task.acceptance, contract: task.design, notes: e.prompt, protectedPaths: [...G.PROTECTED, ...(d.cfg.changelog.path !== 'CHANGELOG.md' ? [d.cfg.changelog.path] : [])],
   deps: t.deps.filter(x => x.type !== 'conditional-blocks').map(x => ({ id: x.id, title: s.tasks.find(y => y.id === x.id)?.title ?? '' })), ...extra })
 
+// what the plan shares with every task brief (ADR 0014 G): the explorer's notes on the plan, and the paths other running tasks declared
+async function plan(d: Deps, s: Snapshot, t: SnapTask): Promise<Partial<BriefIn>> {
+  const ep = s.epic ? await d.store.get(s.epic).catch(() => null) : null, run = s.tasks.filter(x => x.id !== t.id && (x.state === 'active' || x.state === 'review'))
+  return { shared: ep?.meta['cadre.notes'], others: (await Promise.all(run.map(async x => { const p = pathsOf(await d.store.get(x.id).catch(() => undefined)); return p.length ? `- ${x.id}: ${p.join(', ')}` : '' }))).filter(Boolean) }
+}
 async function setup(h: Host, d: Deps, task: Task, wt: string) {   // packages[] are hand-written until M5; `setup` runs in the writable jail (network on)
   const pkg = pkgOf(d, task) as any
   const pkgRoot = !pkg || pkg.root === '.' || !pkg.root ? wt : `${wt}/${pkg.root}`, scratch = `${d.wtRoot}/${d.key}.scratch/${task.id}`
@@ -144,8 +151,8 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
       cwd = viewed(d, role) ? await d.view!(h, d, task, wt) : wt
       meta = { ...meta, 'cadre.base': task.meta['cadre.base'] ?? base, 'cadre.branch': branch, 'cadre.worktree': wt }
     }
-    await d.store.setMeta(t.id, meta, d.actor)
-    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role)), cwd, step, spike ? '' : cwd, undo, task)
+    await d.store.setMeta(t.id, meta, d.actor); if (!spike) await lockCore(h, d, t.id)   // a core that already landed is locked for this task
+    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, await plan(d, s, t))), cwd, step, spike ? '' : cwd, undo, task)
   } catch (err) {
     await undo()
     if (err instanceof StoreError) return deny(`${err.code}: ${err.message}`)
@@ -188,7 +195,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
       handoff = [`checkpoint ${cp}: the work so far is committed in your tree; continue from it, do not redo it`, await G.diffStat(h.run, wt, `${hb}..${cp}`), await G.diffPatch(h.run, wt, `${hb}..${cp}`), task.meta['cadre.lastCheck'] ? `last check: ${task.meta['cadre.lastCheck']}` : '', task.meta['cadre.report'] ?? ''].filter(Boolean).join('\n')
     }
     const cwd = spike ? d.root : viewed(d, role) ? await d.view!(h, d, task, wt) : wt
-    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, { handoff, decisions: task.meta['cadre.decision'] ? [task.meta['cadre.decision']] : undefined })), cwd, t.step, spike ? '' : cwd, undo, task)
+    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, { ...(await plan(d, s, t)), handoff, decisions: task.meta['cadre.decision'] ? [task.meta['cadre.decision']] : undefined })), cwd, t.step, spike ? '' : cwd, undo, task)
   } catch (err) { await undo(); throw err }
 }
 
@@ -221,5 +228,7 @@ export async function beat(h: Host, d: Deps, every = 120_000): Promise<void> {
 // ---- tick (5 s): heartbeat this session's bound tasks; nothing else, never a send (G6) ----
 export async function tick(h: Host): Promise<void> {
   await warm(h); await stampAlive(h)   // other sessions tell a live session from a gone one by it (core/session.held)
-  if (Object.keys(await h.bind.read()).some(a => !a.startsWith('~'))) await beat(h, await resolveDeps(h))
+  if (!Object.keys(await h.bind.read()).some(a => !a.startsWith('~'))) return
+  const d = await resolveDeps(h), now = await h.now(); await beat(h, d)
+  if (now - Number((await h.ui.read()).watchAt ?? 0) >= 60_000) { await h.ui.update(u => ({ ...u, watchAt: now })); await safe(h, 'collision watch', () => watch(h, d)) }   // two running workers on one file: told early (core/rebase)
 }

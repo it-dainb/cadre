@@ -52,9 +52,9 @@ describe('approve: bound to the decision hash, completeness (DESIGN 3.1, ADR 001
     await w.call('TaskCreate', { subject: 'A', description: '', metadata: { type: 'feature', package: '.' } })
     await w.call('TaskCreate', { subject: 'B', description: '', metadata: { type: 'docs', scenarios: FULL.scenarios, package: '.' } })
     await w.call('TaskCreate', { subject: 'S', description: '', metadata: { type: 'spike' } })   // spikes need nothing
-    expect(await w.text({ cmd: 'approve', args: [p] })).toEqual({ text: 'refused: incomplete, missing: m-2: scenarios, changelog, interface; m-3: changelog' })
+    expect(await w.text({ cmd: 'approve', args: [p] })).toEqual({ text: 'refused: incomplete, missing: m-2: scenarios, changelog, interface, paths; m-3: changelog, paths' })
     expect((await w.store.list({ parent: p })).every(t => t.category === 'draft')).toBe(true)
-    expect((await w.h.board.read()).approval.missing).toEqual(['m-2: scenarios, changelog, interface', 'm-3: changelog'])
+    expect((await w.h.board.read()).approval.missing).toEqual(['m-2: scenarios, changelog, interface, paths', 'm-3: changelog, paths'])   // two code tasks: each declares its paths
   })
   test('an empty plan is not approvable (missing: tasks); a wrong plan id is refused', async () => {
     const w = await world(); const p = (await w.call('TaskCreate', { subject: 'P', description: '', metadata: { kind: 'plan' } })).result.task.id

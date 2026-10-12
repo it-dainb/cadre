@@ -21,7 +21,7 @@ import * as G from './git'
 import { decided, hardStop, stop } from './drive'
 import { queueBrief } from './lanes'
 import { yoloOn } from './decide'
-import { ROUNDS, capAsk, refresh, rework, trial } from './rebase'
+import { ROUNDS, capAsk, coreLanded, refresh, rework, trial } from './rebase'
 
 
 export const NUDGE: Record<string, string> = { worker: 'You stopped without calling report. Call it now: {"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"} (or outcome "blocked" with reason).', tester: 'You stopped without calling report. Call it now with role "tester", outcome "done", summary and tests.', reviewer: 'You stopped without calling report. Call it now with role "reviewer", verdict, summary, findings, coverage and contractStatus.', explorer: ASK_NUDGE }
@@ -86,6 +86,8 @@ async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any, aut
   const dirty = (await G.git(h.run, wt, ['status', '--porcelain'])).split('\n').filter(Boolean).flatMap(l => l.slice(3).split(' -> ')), changed = new Set([...dirty, ...(await G.git(h.run, wt, ['diff', '--name-only', `${task.meta['cadre.specCommit'] ?? base}..HEAD`])).split('\n').filter(Boolean)])   // since the red commit: the spec files it added are the worker's baseline, not its edits
   const locked = pol.locks?.[t.id] ?? [], bad = [...changed].filter(p => G.isProt(p, d.cfg.changelog.path) || locked.includes(`${wt}/${p}`))
   if (bad.length) throw new Error(`protected or locked paths changed: ${bad.join(', ')}. Restore them (git checkout ${sha7(base)} -- <path>) and report again`)
+  const core = pol.core?.[t.id] ?? [], mine = [...dirty, ...(await G.git(h.run, wt, ['diff', '--name-only', `${base}..HEAD`])).split('\n')].filter(p => core.includes(`${wt}/${p}`))   // since the last plan tip merged in: the core's own landing is not this task's edit
+  if (mine.length) throw new Error(`shared core files changed: ${mine.join(', ')}. Restore them (git checkout ${sha7(base)} -- <path>); report outcome "blocked" with the change you need in the core`)
   const sum = String(r.summary ?? '').split('\n')[0].slice(0, 60)
   const C = (await G.op(h, () => G.commitAll(h.run, wt, `wip(${t.id}): ${sum || 'work'}`))) ?? (await G.tip(h.run, wt, 'HEAD'))
   if (C === base) throw new Error('nothing changed since the task base; make the change, then report')
@@ -277,6 +279,7 @@ export async function closeTask(h: Host, d: Deps, id: string): Promise<string | 
   const next = await lastNext(h, plan.id, 'wait')
   await patch(h, id, x => ({ ...x, card: card({ id, title: t.title, role: 'main', to: 'done', commit: sha, flags: [], next }) }))
   await cleanup(h, d, id, task)
+  if (task.meta['cadre.core'] === 'true') await coreLanded(h, d, files).catch(e => h.log(`core lock: ${e}`))   // its files are locked for the other tasks of the plan
   await refresh(h, d, sha, id).catch(e => h.log(`refresh after ${id}: ${e}`))   // running siblings get the new tip now (core/rebase)
   return null
 }

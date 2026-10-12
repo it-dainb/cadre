@@ -14,8 +14,8 @@ import { queueResume } from './reuse'
 import { decided } from './drive'
 import { ask } from './decide'
 import { card } from './render'
-import { policyOf } from '../policy/guards'
-import { matches } from './specview'
+import { policyOf, setPolicy } from '../policy/guards'
+import { overlap, pathsOf } from './validate'
 import * as G from './git'
 
 export const ROUNDS = 2
@@ -111,7 +111,15 @@ export async function watch(h: Host, d: Deps): Promise<void> {
   if (add.length) await h.store.set(`cadre:${d.key}:collide`, [...seen, ...add].slice(-50))
 }
 
-// declared paths (metadata.paths -> cadre.paths) and their overlap: equal, a folder of the other, or a glob that matches it
-export const pathsOf = (t?: Pick<Task, 'meta'>): string[] => { try { return JSON.parse(t?.meta['cadre.paths'] || '[]') } catch { return [] } }
-const dir = (p: string) => p.replace(/\/\*\*?$/, '').replace(/\/$/, '')
-export const overlap = (a: string, b: string): boolean => a === b || dir(a) === dir(b) || b.startsWith(`${dir(a)}/`) || a.startsWith(`${dir(b)}/`) || matches([a], b) || matches([b], a)
+// the core task landed: its files are locked for every other task of the plan (write jail); a needed change comes back as a blocked report, then a core-patch task
+export async function coreLanded(h: Host, d: Deps, files: string[]): Promise<void> {
+  const epic = (await h.board.read()).epic; if (!epic) return
+  const all = [...new Set([...pathsOf({ meta: { 'cadre.paths': (await d.store.get(epic)).meta['cadre.corePaths'] ?? '' } }), ...files])]
+  await d.store.setMeta(epic, { 'cadre.corePaths': JSON.stringify(all) }, d.actor); await lockCore(h, d)
+}
+export async function lockCore(h: Host, d: Deps, only?: string): Promise<void> {
+  const s = await h.board.read(), files = s.epic ? pathsOf({ meta: { 'cadre.paths': (await d.store.get(s.epic)).meta['cadre.corePaths'] ?? '' } }) : []; if (!files.length) return
+  const core = { ...(await policyOf(h)).core }
+  for (const x of s.tasks.filter(x => (!only || x.id === only) && x.state !== 'done' && x.state !== 'cancelled')) { const wt = (await d.store.get(x.id).catch(() => null))?.meta['cadre.worktree']; if (wt) core[x.id] = files.map(f => `${wt}/${f}`) }
+  await setPolicy(h, { core })
+}

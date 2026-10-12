@@ -21,6 +21,9 @@ export const planRules = (reg: TypeRegistry): string => [
   '- Start a plan with TaskCreate metadata {"kind":"plan","lane":"full","reason":"…"}; every later TaskCreate is a task of that plan. Order tasks with TaskUpdate addBlockedBy.',
   '- Task metadata: type, scope?, breaking?, package, scenarios ["S1: Given <state> When <action> Then <outcome>"], changelog {"category":"Added","entry":"…"} or {"none":true,"reason":"…"}, interface {"symbols":[{"name","kind","params":[…],"returns","status":"new|changed|unchanged"}]} or {"none":true,"reason":"…"}.',
   `- Types and pipelines: ${Object.entries(reg).map(([t, s]) => `${t} ${s.pipeline.join('>')}`).join('; ')}.`,
+  '- Each task is a vertical slice: shown working on its own, fits one fresh context, has its wiring and one smoke assertion.',
+  '- With 2+ tasks: metadata.paths per task (files or folders it changes). Code 2+ tasks need: ONE thin core task first (metadata.core:true; interfaces, minimal code, contract tests) that blocks the others. Two tasks on one path need a blocks dependency.',
+  '- Exploration 2+ tasks need: one Agent (no task id) before the plan; put its findings in the plan\'s metadata.notes.',
   '- A draft may be incomplete: the "missing:" line says what approval still needs.',
   '- Only the human approves, in the dialog. Approved tasks are frozen: set metadata.amend:true to edit one. Never set owner, in_progress or cadre*.',
 ].join('\n')
@@ -46,6 +49,8 @@ function fieldsOf(m: Record<string, any>): { patch: Parameters<TaskStore['update
   if (has('breaking')) { meta['cadre.breaking'] = String(m.breaking ?? false); names.push('metadata.breaking') }
   if (has('changelog')) { meta['cadre.changelog'] = m.changelog === null ? '' : canon(m.changelog); names.push('metadata.changelog') }
   if (has('repro')) { meta['cadre.repro'] = m.repro ? 'true' : ''; names.push('metadata.repro') }
+  if (has('paths')) { meta['cadre.paths'] = m.paths === null ? '' : JSON.stringify(m.paths); names.push('metadata.paths') }
+  if (has('core')) { meta['cadre.core'] = m.core ? 'true' : ''; names.push('metadata.core') }
   return { patch, meta, names }
 }
 const fail = (e: unknown): string => (e instanceof StoreError ? `${e.code}: ${e.message}` : String((e as Error)?.message ?? e))
@@ -63,7 +68,7 @@ async function create(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
     if (s.plan && !['done-on-dev', 'released'].includes(s.plan.state)) return { deny: modelText('deny', `plan ${s.plan.id} is still ${s.plan.state}: ask the human to approve or reject it first`) }
     const prefix = (await cfgOf(h)).branches.epicPrefix, id = await store.createEpic(e.subject, e.description), mission = m.kind === 'mission', name = mission ? 'mission' : slug(e.subject)
     if (mission) await store.setMeta(id, { 'cadre.kind': 'mission' }, 'main')
-    else if (m.lane || m.mission) await store.setMeta(id, { ...(m.lane ? { 'cadre.lane': m.lane } : {}), ...(m.reason ? { 'cadre.laneReason': m.reason } : {}), ...(m.mission ? { 'cadre.mission': m.mission.trim() } : {}) }, 'main')   // lanes (ADR 0011): core/lanes.relane reads them; a mission drafted with the plan (ADR 0014): core/dispatch shows and records it
+    else if (m.lane || m.mission || m.notes) await store.setMeta(id, { ...(m.lane ? { 'cadre.lane': m.lane } : {}), ...(m.reason ? { 'cadre.laneReason': m.reason } : {}), ...(m.mission ? { 'cadre.mission': m.mission.trim() } : {}), ...(m.notes ? { 'cadre.notes': m.notes.trim() } : {}) }, 'main')   // lanes (ADR 0011): core/lanes.relane reads them; a mission drafted with the plan (ADR 0014): core/dispatch shows and records it
     await h.board.update(b => ({ ...b, epic: id, tasks: [], plan: { id, slug: name, state: 'draft', epicBranch: mission ? '' : epicBranch(prefix, id, e.subject) }, approval: { planId: id, missing: [] } }))
     const lite = !mission && m.lane === 'lite', f = fieldsOf(m)   // a lite plan is one call: the plan and its one task
     if (lite) await store.createDraft({ title: e.subject, description: e.description, acceptance: f.patch.acceptance, design: f.patch.design, type: m.type ?? 'feature', parent: id, meta: f.meta })

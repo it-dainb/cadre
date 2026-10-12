@@ -8,7 +8,7 @@ import { answer } from '../../../native/tasks'
 
 export const SCEN = ['S1: Given a user When they log in Then a session exists']
 export const CONTRACT = { symbols: [{ name: 'login', kind: 'function', params: ['email: string'], returns: 'Session', status: 'new' }] }
-export const FULL = { type: 'feature', package: '.', scenarios: SCEN, changelog: { category: 'Added', entry: 'Login' }, interface: CONTRACT }
+export const FULL = { type: 'feature', package: '.', scenarios: SCEN, changelog: { category: 'Added', entry: 'Login' }, interface: CONTRACT, paths: ['src/login.ts'] }
 
 export async function world(o: { env?: Record<string, string>; config?: unknown } = {}) {
   const store = new MemoryStore(() => 1_700_000_000_000); await store.init({ types: defaults(), journal: false })

@@ -28,7 +28,7 @@ const HEAD: Record<Role, string> = {
 export interface BriefIn {
   id: string; title: string; type: string; description?: string; scenarios?: string; contract?: string; notes?: string
   testPaths?: string[]; locked?: string[]; redCard?: string; greenCard?: string; deps?: { id: string; title: string; out?: string }[]
-  findings?: string[]; decisions?: string[]; handoff?: string; others?: string[]; protectedPaths?: string[]
+  findings?: string[]; decisions?: string[]; handoff?: string; others?: string[]; protectedPaths?: string[]; shared?: string
   sourceCommit?: string; diffStat?: string; diff?: string; audit?: string; report?: string; changelog?: string; flags?: string[]; question?: string
 }
 // contract JSON ({symbols:[{name,kind,params,returns,errors?,doc?,status}]} | {none,reason}) -> compact lines
@@ -49,7 +49,7 @@ export function brief(role: Role, b: BriefIn): string {
   const contract = sec('Contract', renderContract(b.contract))
   if (role === 'explorer') return join([head, `# ${b.question !== undefined ? 'QUESTION' : `TASK-${b.id}`}\n${b.question ?? b.title}`, sec('Scope', 'read-only; no edits, no shell'), notes])
   if (role === 'tester')
-    return join([head, `# SPEC TASK-${b.id}`, spec([sec('Scenarios', b.scenarios), contract]), sec('Test paths', b.testPaths), sec('Folder', 'tests only; read FILES.md first: it lists what you can see (you cannot list directories)'), notes])
+    return join([head, `# SPEC TASK-${b.id}`, spec([sec('Scenarios', b.scenarios), contract]), sec('Test paths', b.testPaths), sec('Shared notes', cap(b.shared ?? '', 1000)), sec('Folder', 'tests only; read FILES.md first: it lists what you can see (you cannot list directories)'), notes])
   if (role === 'reviewer')
     return join([head, `# REVIEW TASK-${b.id}`, sec('Source commit', b.sourceCommit), sec('Diff', [b.diffStat ?? '', cap(b.diff ?? '', 3072)]),
       spec([sec('Scenarios', b.scenarios), contract, sec('Spec tests', b.locked)]),
@@ -57,7 +57,7 @@ export function brief(role: Role, b: BriefIn): string {
   return join([head, `# TASK-${b.id} ${b.title} (${b.type})`, spec([sec('Description', b.description), sec('Scenarios', b.scenarios), contract]),
     ctx([sec('Locked spec tests', [...(b.locked ?? []), b.redCard ?? '']), sec('Direct dependencies', (b.deps ?? []).map(d => `- ${d.id} ${d.title}${d.out ? `: ${d.out}` : ''}`)),
       sec('Findings / checks', [...(b.findings ?? []), b.greenCard ?? '']), sec('Decisions', b.decisions), sec('Handoff', b.handoff),
-      sec('Paths of other active tasks', (b.others ?? []).slice(0, 10)), sec('Protected paths', b.protectedPaths)]), notes])
+      sec('Paths of other active tasks', (b.others ?? []).slice(0, 10)), sec('Protected paths', b.protectedPaths), sec('Shared notes', cap(b.shared ?? '', 1000))]), notes])
 }
 // ---- deltas (4.3): <= 1 KB per bound agentId, drained by the tool.call wrap into context, or by a queued resume ----
 const dk = (h: Host, agentId: string) => scoped(h, `deltas:${agentId}`)
