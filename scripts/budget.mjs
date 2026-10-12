@@ -27,7 +27,7 @@ const memoryStore = sum(Object.fromEntries(walk(join(root, 'task-management/adap
 const agents = Object.fromEntries(readdirSync(join(root, 'agents')).filter(n => n.endsWith('.md')).sort().map(n => [n.slice(0, -3), readFileSync(join(root, 'agents', n), 'utf8')]))   // plugin agent files, pinned to agents/index.file()
 const guides = Object.fromEntries(readdirSync(join(root, 'guides')).filter(n => n.endsWith('.md')).sort().map(n => [n.slice(0, -3), readFileSync(join(root, 'guides', n), 'utf8')]))   // agent-run setup/init guides (ADR 0010): the wording lint reads them here
 // Model-visible exits (AGENTS.md): every line that hands text to a model must route it through core/say modelText()/modelData(). New sites are caught here.
-const EXIT = [/\b(h|\$\.prompt)\.submit\??\.?\(/, /\bsendTo\??!?\(|session\.send\(/, /\{ ?deny: /, /(decision: '(deny|allow)'|isDelivered: false), reason: /, /\{ result: (?!string)/, /\bcontext: \[/, /\bmessages: \[/, /\bprompt: (?!string)/, /h\.write\(`\$\{view\}/, /next\(\{ \.\.\.e, (text|instructions):/]
+const EXIT = [/\b(h|\$\.prompt)\.submit[?!]?\.?\(/, /\bsendTo\??!?\(|session\.send\(/, /\{ ?deny: /, /(decision: '(deny|allow)'|isDelivered: false), reason: /, /\{ result: (?!string)/, /\bcontext: \[/, /\bmessages: \[/, /\bprompt: (?!string)/, /h\.write\(`\$\{view\}/, /next\(\{ \.\.\.e, (text|instructions):/]
 const PASS = /modelText\(|modelData\(/, code = l => l.replace(/\/\/ .*$/, '').trim()
 const modelExits = Object.keys(modules).filter(f => !/^core\/say\.ts$|^types\//.test(f)).flatMap(f => readFileSync(join(root, f), 'utf8').split('\n').map((l, i) => [`${f}:${i + 1}`, code(l)]))
   .filter(([, l]) => l && !l.startsWith('*') && EXIT.some(r => r.test(l)) && !PASS.test(l)).map(([w, l]) => `${w}: ${l.slice(0, 120)}`)
