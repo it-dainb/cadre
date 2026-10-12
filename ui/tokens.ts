@@ -58,10 +58,3 @@ export const readCfg = (u: Record<string, any> | undefined): UiCfg => {
 }
 export const flashOn = (u: Record<string, any> | undefined): boolean => readCfg(u).flash
 export const densityOf = (u: Record<string, any> | undefined): Density => readCfg(u).density
-
-// graph edges (TUI-DESIGN 4.3), Raster cell characters and the timeline cursor; each has an ASCII form
-export const edge = (k: 'blocks' | 'cond', ascii: boolean): string => (k === 'blocks' ? (ascii ? '->' : '─→') : ascii ? '..>' : '┄→')
-const BLOCK: Record<Cell, [string, string]> = { work: ['█', '#'], review: ['▓', '='], offline: ['░', ':'], attention: ['▒', '%'], failure: ['█', 'X'] }
-export const block = (c: Cell, ascii: boolean): string => BLOCK[c][ascii ? 1 : 0]
-export const cursor = (ascii: boolean): string => (ascii ? '|' : '│')
-ALLOWED.add('┄')
