@@ -4,7 +4,7 @@ import type { TaskStore } from '../task-management/store'
 import { resetDelivery } from '../task-management/sync-engine/loop'
 import { repoKeyOf, scoped } from '../commands/init'
 import { cfgOf, gateDraw, mirror, missionOf, redraw, registryOf, storeOf } from './dispatch'
-import { ask, flagDecision } from './decide'
+import { ask, flagDecision, holds } from './decide'
 import { specAsk } from './tdd'
 import { propose } from './integrate'
 import { UI, isCold, leaseLive, modelView, safe, sessionOf, stamp } from './board'
@@ -53,7 +53,12 @@ async function reask(h: Host, store: TaskStore, plan: Snapshot['plan'] & {}) {
   if (gate) await gateDraw(h, gate)   // a gate and a plan share the one approval slot: the gate blocks the work, so it goes first
   else if (plan.state === 'draft' || kids.some(t => t.category === 'draft' && t.type !== 'gate')) await redraw(h, store, await registryOf(h))
   const r = await casDrive(h, store, () => undefined).catch(() => undefined), y = !!r?.on && r.epicId === plan.id && !r.stopped && r.mode === 'yolo'   // yolo: main decides spec changes, release is the human's later
-  for (const t of kids) if (t.meta['cadre.blocked'] === 'spec_change') { await h.board.update(s => ({ ...s, tasks: s.tasks.map(x => (x.id === t.id && !x.flags.includes('spec_change') ? { ...x, flags: [...x.flags, 'spec_change'] } : x)) })); if (!y) await specAsk(h, t.id, t.meta['cadre.specChange'] ?? '') }
+  for (const t of kids) {   // a blocked task gets its flag back (the mirror rebuilds tasks without flags: drive would wait on it for good); yolo asks only what drive holds on
+    const f = t.meta['cadre.blocked'] === 'spec_change' ? 'spec_change' : t.category === 'blocked' ? t.meta['cadre.blocked'] || (t.meta['cadre.question'] ? 'blocked' : '') : ''
+    if (!f) continue
+    await h.board.update(s => ({ ...s, tasks: s.tasks.map(x => (x.id === t.id && !x.flags.includes(f) ? { ...x, flags: [...x.flags, f] } : x)) }))
+    if (f === 'spec_change') { if (!y) await specAsk(h, t.id, t.meta['cadre.specChange'] ?? '') } else if (!y || holds(f)) { const d = flagDecision(t.id, f, t.title); if (d) await ask(h, d) }
+  }
   for (const f of plan.flags ?? []) { const d = flagDecision(plan.id, f); if (d) await ask(h, d) }
   for (const f of Object.keys((await h.git.read()).flags ?? {})) { const d = flagDecision('', f); if (d) await ask(h, d) }
   if (plan.state === 'done-on-dev' && !y) await propose(h, await h.cwd(), (await cfgOf(h)).branches.dev)

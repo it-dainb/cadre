@@ -26,6 +26,12 @@ describe('rehydrate re-asks pending decisions', () => {
     expect(now[0].title).toBe(was.title); expect(now[1].lines.join(' ')).toContain('the API changed under the tests')
     expect((await f.board.read()).tasks.find(t => t.id === task)!.flags).toContain('spec_change')
   })
+  test('a task blocked on a question gets its flag back after /clear and its decision (drive no longer waits on it for good)', async () => {
+    const w = await world(), { plan: p, task } = await plan(w); await w.text({ cmd: 'approve', args: [p] })
+    await w.store.claim(task, 'x'); await w.store.move(task, 'blocked', 'x'); await w.store.setMeta(task, { 'cadre.blocked': 'blocked', 'cadre.question': 'which page size?' }, 'mod')
+    const f = await cleared(w); await rehydrate(f)
+    expect((await f.board.read()).tasks.find(t => t.id === task)!.flags).toEqual(['blocked']); expect(await ids(f)).toEqual([`flag:${task}:blocked`])
+  })
   test('an open gate comes back and goes first (it shares the approval slot with the plan)', async () => {
     const w = await world(), { plan: p } = await plan(w), g = await w.store.createDraft({ title: 'Sign off', description: 'ship it', type: 'gate', parent: (await w.h.board.read()).epic! })
     const f = await cleared(w); await rehydrate(f)

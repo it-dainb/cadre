@@ -116,7 +116,8 @@ export async function followups(d: Deps, from: string, fs: unknown) {
 }
 async function blockTask(h: Host, d: Deps, t: SnapTask, why: string, flag: string, claimed: Record<string, unknown>) {
   const m = await apply(h, { kind: 'block', id: t.id, at: await h.now(), actor: 'mod' }, pipe(d)); if (!m.ok) throw new Error(m.error)
-  await d.store.move(t.id, 'blocked', d.actor); await record(h, d, t.id, 'blocked', t.step, { why }, claimed); await raise(h, t.id, flag)
+  await d.store.move(t.id, 'blocked', d.actor); await d.store.setMeta(t.id, { 'cadre.blocked': flag }, d.actor)   // the flag survives /clear (core/session.reask)
+  await record(h, d, t.id, 'blocked', t.step, { why }, claimed); await raise(h, t.id, flag)
 }
 
 // ---- reviewer verdict ----
@@ -304,7 +305,7 @@ async function decide(h: Host, d: Deps, id: string, text: string): Promise<strin
 }
 async function unblock(h: Host, d: Deps, id: string, text: string, flag: string): Promise<string | null> {
   const m = await apply(h, { kind: 'unblock', id, at: await h.now(), actor: 'main' }, pipe(d)); if (!m.ok) return m.error
-  await d.store.resume(id, d.actor); await d.store.setMeta(id, { 'cadre.decision': text.slice(0, 1000) }, d.actor)
+  await d.store.resume(id, d.actor); await d.store.setMeta(id, { 'cadre.decision': text.slice(0, 1000), 'cadre.blocked': '' }, d.actor)
   await d.store.record('decision', `${id}: ${text.slice(0, 60)}`, text, id); await clear(h, id, flag)
   const w = ownerOf(await h.bind.read(), id, 'worker'); if (w) await queueResume(h, { agentId: w, taskId: id, text })
   return null

@@ -81,7 +81,7 @@ async function gate(h: Host, s: Snapshot, mode: Mode): Promise<Gate> {
   const gf = Object.keys((await h.git.read()).flags ?? {}).filter(k => k.startsWith('git:') || k.startsWith('quarantine'))
   if (gf[0]) return hold(`resolve ${gf[0]}`)
   for (const t of s.tasks.filter(t => t.state === 'blocked')) {
-    if (!t.flags.length) return { pause: `blocked ${t.id}` }   // its flag lands right after the block (a report in flight, live): wait for it, never stop on it
+    if (!t.flags.length) return s.drive.paused === `blocked ${t.id}` ? { stop: `${t.id} is blocked with no question to answer` } : { pause: `blocked ${t.id}` }   // its flag lands right after the block (a report in flight, live): wait one turn for it, then stop (no endless quiet pause)
     if (!y || !t.flags.some(f => f === 'spec_change' || f === 'blocked')) return hold(`blocked ${t.id}`)   // yolo: main decides those two
   }
   const f = s.tasks.flatMap(t => t.flags).find(x => BLOCKING.test(x) || x.startsWith('rework:')); if (f) return hold(`resolve ${f}`)
