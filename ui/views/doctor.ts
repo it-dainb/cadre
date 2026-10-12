@@ -4,6 +4,7 @@ import { type Line, type View, S } from '../model'
 import { clip, elapsed, padL, plain, relTime } from '../layout'
 import { COL, DETAIL, INDENT, SEP, type GlyphK } from '../tokens'
 import { downgraded, stopK } from '../v2/facts'
+import { ringOf, say } from './activity'
 import { type Renderer, gseg, joinSections, muted, relax, title, ucfg } from './types'
 
 const SP = ' '.repeat(INDENT), usd = (n: number) => `$${n.toFixed(2)}`
@@ -18,8 +19,9 @@ export function driveRows(v: View, w: number): Line[] {
   return of(d.paused ? 'attn' : 'run', [d.paused ? `drive paused: ${d.paused}` : 'drive running', ...(mode ? [mode] : []), ...bounds].join(SEP))
 }
 export function decisionRows(v: View, w: number, max = 5): Line[] {
-  const ds = v.ring.filter(e => String(e.type) === 'drive.decided' && e.at <= (v.t ?? v.now)).reverse()
-  return [...ds.slice(0, max).map((e): Line => [muted(`${SP}${padL(relTime((v.t ?? v.now) - e.at), COL.actTime)}  `), S(clip(String(e.data.text), Math.max(1, w - INDENT - COL.actTime - 2)))]), ...(ds.length > max ? [[muted(`${SP}+${ds.length - max} older`)]] : [])]
+  const kinds = v.b.plan?.lane === 'milestone' ? ['drive.decided', 'plan.approved', 'plan.landed'] : ['drive.decided']   // a milestone: its roadmap approval and each landing too
+  const ds = ringOf(v).filter(e => kinds.includes(String(e.type)) && e.at <= (v.t ?? v.now)).reverse()
+  return [...ds.slice(0, max).map((e): Line => [muted(`${SP}${padL(relTime((v.t ?? v.now) - e.at), COL.actTime)}  `), S(clip(say(e, v)?.text ?? '', Math.max(1, w - INDENT - COL.actTime - 2)))]), ...(ds.length > max ? [[muted(`${SP}+${ds.length - max} older`)]] : [])]
 }
 
 export const doctor: Renderer = (v, w, rows) => {

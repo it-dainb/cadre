@@ -5,6 +5,7 @@ import { clip, relTime, width } from '../layout'
 import { activity } from '../views/activity'
 import { doctor } from '../views/doctor'
 import { graph } from '../views/graph'
+import { milestone } from '../views/milestone'
 import { settings } from '../views/settings'
 import { timeline } from '../views/timeline'
 import { type Renderer, type VOut, keyLine } from '../views/types'
@@ -16,19 +17,20 @@ export type Raster = NonNullable<VOut['raster']>
 export type P2 = { before: Line[]; raster?: Raster; after: Line[] }
 const TABS: [id: string, hk: string, long: string, short: string, one: string, view: Renderer][] = [
   ['board', '1', 'Board', 'Brd', 'B', boardView], ['graph', '2', 'Graph', 'Gph', 'G', graph], ['timeline', '3', 'Timeline', 'Tml', 'T', timeline],
-  ['activity', '4', 'Activity', 'Act', 'A', activity], ['doctor', '8', 'Doctor', 'Doc', 'D', doctor], ['settings', '9', 'Settings', 'Set', 'S', settings],
+  ['activity', '4', 'Activity', 'Act', 'A', activity], ['milestone', '5', 'Milestone', 'Mst', 'M', milestone], ['doctor', '8', 'Doctor', 'Doc', 'D', doctor], ['settings', '9', 'Settings', 'Set', 'S', settings],
 ]
-export const tabOf = (v: View): string => { const t = v.ui.tab as string | undefined; return TABS.some(x => x[0] === t) ? t! : 'board' }   // v1 names (epic, plan) land on the Board
+const tabsOf = (v: View) => TABS.filter(x => x[0] !== 'milestone' || v.b.plan?.lane === 'milestone')   // tab 5 only while a milestone is the plan
+export const tabOf = (v: View): string => { const t = v.ui.tab as string | undefined; return tabsOf(v).some(x => x[0] === t) ? t! : 'board' }   // v1 names (epic, plan) land on the Board
 
 function tabRow(v: View, w: number, a: Acts, cur: string, owed: boolean): Line {
   // the widest label set that fits the row (gap 2, then 1); the current tab is spelled out and drawn inverse (it reads without colour), short only when even that cannot fit
   const mark = (owed ? 2 : 0) + (problem(v) ? 2 : 0)
-  const labels = (set: 2 | 3 | 4, cl: 2 | 3 | 4) => TABS.map(x => (x[0] === cur ? x[cl] : x[set]))
+  const tabs = tabsOf(v), labels = (set: 2 | 3 | 4, cl: 2 | 3 | 4) => tabs.map(x => (x[0] === cur ? x[cl] : x[set]))
   const need = (ls: string[], gap: number) => ls.reduce((n, l, i) => n + 3 + width(l) + (i ? gap : 0), 0) + mark
   const pick = ([[2, 2, 2], [3, 2, 2], [4, 2, 2], [4, 2, 1], [4, 3, 1], [4, 4, 1]] as const).find(([s, c, g]) => need(labels(s, c), g) <= w) ?? [4, 4, 1] as const
   const ls = labels(pick[0], pick[1]), gap = ' '.repeat(pick[2])
   const out: Line = []
-  TABS.forEach(([id, hk], i) => {
+  tabs.forEach(([id, hk], i) => {
     const on = id === cur, label = ls[i]
     if (out.length) out.push(S(gap))
     // `1` answers while a decision waits (the Needs-you button owns the key): the tab is plain text then
@@ -39,13 +41,13 @@ function tabRow(v: View, w: number, a: Acts, cur: string, owed: boolean): Line {
 }
 function header(v: View, w: number): Line {
   const p = v.b.plan   // the drive's state belongs to the band (and Doctor): not repeated here
-  const left = p ? [`${p.id} ${p.slug}`, ...(w >= 100 && p.epicBranch ? [p.epicBranch] : [])].join(`${SEP}`) : 'no plan yet'
+  const es = p?.epics ?? [], run = es.filter(e => e.state === 'running').map(e => e.id)   // a milestone: its epics' progress here, its branch on tab 5
+  const left = !p ? 'no plan yet' : [`${p.id} ${p.slug}`, ...(p.lane === 'milestone' ? [`epics ${es.filter(e => e.state === 'landed').length}/${es.length} landed`, w >= 60 && run.length ? `${run.join(' ')} running` : ''] : [w >= 100 && p.epicBranch]).filter(Boolean)].join(SEP)
   const right: Seg = v.t === null ? S('live', color('muted')) : S(`replay${SEP}${relTime(v.now - v.t)}`, color('attention'), { i: true })
   return lr(w, [S(left, color('muted'))], [right])
 }
-const SHEET: [string, string][] = [['1 2 3 4 8 9', 'switch view (1 answers while a decision waits)'], ['k', 'this list'], ['esc', 'back to the prompt']]
-const keySheet = (vo: VOut, w: number): Line[] => [
-  [S('Keys', undefined, { b: true })], ...SHEET.map(([k, t]) => [S(clip(`  ${k.padEnd(12)}${t}`, w))]),
+const keySheet = (v: View, vo: VOut, w: number): Line[] => [
+  [S('Keys', undefined, { b: true })], ...([[tabsOf(v).map(x => x[1]).join(' '), 'switch view (1 answers while a decision waits)'], ['k', 'this list'], ['esc', 'back to the prompt']] as const).map(([k, t]) => [S(clip(`  ${k.padEnd(14)}${t}`, w))]),
   ...(vo.keys.length ? [[S(' ')], [S('This view', undefined, { b: true })], [S('  '), ...vo.keys.map(s => ({ ...s, hk: undefined, k: undefined, p: undefined, t: (s.hk ? `${s.hk}: ` : '') + s.t }))]] as Line[] : []),
 ]
 
@@ -67,7 +69,7 @@ function frame(v: View, w: number, rows: number, a: Acts, canRaster: boolean): P
     vo = cur === 'board' && dormant(v) ? { lines: dormantBody(w), keys: [] } : TABS.find(x => x[0] === cur)![5](v, w, Math.max(4, rows - used), a)
   } catch { vo = { lines: errorBody(w), keys: [] } }
   const sheet = v.ui.ks === true
-  const body = sheet ? keySheet(vo, w) : vo.lines, ras = sheet || !canRaster ? undefined : vo.raster
+  const body = sheet ? keySheet(v, vo, w) : vo.lines, ras = sheet || !canRaster ? undefined : vo.raster
   const fk = lw(vo.keys) + 14 > w ? [] : vo.keys   // a footer that does not fit drops the view's keys, never overflows
   const foot: Line = [...fk, ...(fk.length ? [S('  ')] : []), ...keyLine([['k', sheet ? 'close' : 'keys', () => a.step('keys', 0)]])]
   const top = [...head, ...(needs.length ? [...gap, ...needs] : []), ...gap]

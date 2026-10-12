@@ -119,3 +119,37 @@ describe('should-fix', () => {
     for (const n of Object.keys(SC)) expect([n, flat(n, 120).join('\n').match(/git:\w+:\w+|spec_change|\bpm\b|agent\(s\)/)]).toEqual([n, null])
   })
 })
+
+// 0.10.0 milestone (ADR 0015): header, tab 5 roadmap, band line 1, Activity/Doctor rows
+describe('milestone', () => {
+  test('header and band: the epics, not the tasks; tab 5 only for a milestone', () => {
+    const f = flat('v2-milestone-parallel', 120)
+    expect(f[0]).toBe('1: Board  2: Graph  3: Timeline  4: Activity  5: Milestone  8: Doctor  9: Settings')
+    expect(f[1]).toMatch(/^m1 user-accounts · epics 1\/4 landed · e2 e4 running +live$/)
+    expect(txt(band(SC['v2-milestone-parallel'], 120, A))[0]).toMatch(/^› e2\.2 Email verification · \+1 running +m1 user-accounts$/)
+    expect(flat('v2-driving-yolo', 120)[0]).not.toContain('Milestone')
+    expect(flat('v2-driving-yolo', 120, 'milestone')[0]).toContain('1: Board')   // no milestone: tab 5 falls back to the Board
+  })
+  test('tab 5: the roadmap DAG with each epic\'s progress or why it waits, the branch at wide widths, the approvals', () => {
+    const t = flat('v2-milestone-parallel', 120, 'milestone').join('\n')
+    expect(t).toMatch(/✓ e1 +Account model +landed · core · ─→ e2 e4/)
+    expect(t).toMatch(/› e2 +Signup +1\/3 · ─→ e3/)
+    expect(t).toMatch(/· e3 +Login +after e2/)
+    expect(t).toContain('milestone/m1-user-accounts')
+    expect(t).toContain('roadmap m1 approved by you · 4 epics')
+    expect(t).toContain('plan e2 approved automatically for milestone m1')
+    expect(flat('v2-milestone-parallel', 60, 'milestone').join('\n')).not.toContain('milestone/m1')
+    expect(flat('v2-milestone-blocked', 120, 'milestone').join('\n')).toMatch(/✗ e3 +Login +stopped: waits on e2, which stopped/)
+    expect(flat('v2-milestone-draft', 120, 'milestone').join('\n')).toMatch(/· e2 +Signup +about 3 tasks/)
+  })
+  test('Activity and Doctor: roadmap approval, automatic plan approvals, epic landings, the milestone landing', () => {
+    const a = flat('v2-milestone-landed', 120, 'activity').join('\n'), d = flat('v2-milestone-landed', 120, 'doctor').join('\n')
+    for (const x of ['epic e3 landed on milestone/m1-user-accounts', 'milestone m1 landed on dev', 'plan e3 approved automatically']) { expect(a).toContain(x); expect(d).toContain(x) }
+    expect(a).toContain('roadmap m1 approved by you')
+    expect(flat('v2-milestone-landed', 120, 'activity').join('\n')).not.toContain('plan e1 landed')
+  })
+  test('key sheet lists 5 only for a milestone', () => {
+    const v = { ...SC['v2-milestone-parallel'], ui: { ...SC['v2-milestone-parallel'].ui, ks: true } }
+    expect(txt(pane(v, 80, 40, A).before).join('\n')).toContain('1 2 3 4 5 8 9')
+  })
+})

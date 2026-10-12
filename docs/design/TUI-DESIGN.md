@@ -73,7 +73,8 @@ p3 auth-login · 4/7 done · epic/p3-auth-login                      live
   - ≥80 columns: full names.
   - 50–79: `1 Brd 2 Gph 3 Tml 4 Act 8 Doc 9 Set`, with the current tab spelled out.
   - <50: `1 2 3 4 8 9 · Board`.
-- **Header** (row 2): plan id and slug · progress · epic branch (≥100 only) · `live` or `replay · 14m ago` (replay in `attention` + inverse).
+- **Header** (row 2): plan id and slug · progress · epic branch (≥100 only) · `live` or `replay · 14m ago` (replay in `attention` + inverse). A milestone (§4.7): `m1 user-accounts · epics 1/4 landed · e2 e4 running`; the running ids drop below 60, the rest truncates; its branch lives on tab 5.
+- **Tab 5 Milestone** exists only while the plan is a milestone (`1 2 3 4 5 8 9`); otherwise the row, the key sheet and `5` are as above.
 - When a decision is pending, the **Needs you** section (§5.1) sits directly under the header, above the view: the full list on `1 Board`, the one-line form on every other view. It is read-only; `1` opens the dialog for the oldest decision (so the Board tab is reached by click while one is pending). There is no box.
 
 ### 4.2 `1 Board` (default view)
@@ -139,6 +140,32 @@ Newest first, one row per event that a human would care about (level ≥ band in
 ```
 
 The time column is 7 cells, right-aligned. Silent events (heartbeats, phase ticks without a change a human cares about) are not listed.
+
+### 4.7 `5 Milestone` (ADR 0015)
+
+The roadmap of a milestone, drawn with the Graph idiom (§4.3: frameless, depth as indent, `─→` to the epics it unblocks, the depth list below 80 columns):
+
+```text
+  milestone/m1-user-accounts
+  ✓ e1   Account model                             landed · core · ─→ e2 e4
+
+    › e2   Signup                                            1/3 · ─→ e3
+    › e4   Password reset                                            0/2
+
+      · e3   Login                                              after e2
+
+Plan approvals
+  18m ago    plan e4 approved automatically for milestone m1
+  19m ago    plan e2 approved automatically for milestone m1
+  43m ago  ✓ roadmap m1 approved by you · 4 epics
+```
+
+- **One row per epic:** glyph by state (draft/waiting `·`, ready `○`, planning/running `›`, landed `✓`, stopped `✗`) and one fact: `d/n` tasks done while it runs, `after e2` (or `waits for a free slot` at `milestone.maxEpics`), `about 3 tasks` in a draft, `planning`, `ready`, `landed`, `stopped: <why>`; `core` marks the core epic. Edges are dropped first.
+- **Milestone branch** on the first line at ≥100 columns only (the header does not repeat it).
+- **Plan approvals:** the roadmap's (by you, at approval) and each epic's automatic approval, newest first.
+- No keys of its own; rows are not selectable (the tasks are on `1 Board`).
+- **Band** (§3) during a milestone: line 1 is the most recent running task and, on the right, the milestone (`m1 user-accounts`; `m1` below 100). The epic count is the pane header's (P2). Line 2 and `0`/`1` are unchanged.
+- **Activity** adds `roadmap m1 approved by you · 4 epics`, `plan e2 approved automatically …`, `epic e2 landed on milestone/…` and `milestone m1 landed on dev`. **Doctor**'s Decisions lists the same rows during a milestone.
 
 ### 4.6 `8 Doctor` and `9 Settings`
 
@@ -220,7 +247,7 @@ A row whose state changed draws in `accent` + bold for 1.5 s. It then shows `· 
 | Where | Keys |
 |---|---|
 | band (empty composer) | `1` answer the oldest decision (opens the dialog) · `0` stop / resume the drive (no confirm; resume undoes stop) |
-| pane, any view | `1 2 3 4 8 9` views (`1` answers instead while a decision is pending) · `k` key sheet · `esc` back to the prompt (engine) |
+| pane, any view | `1 2 3 4 8 9` views (`5` too during a milestone) (`1` answers instead while a decision is pending) · `k` key sheet · `esc` back to the prompt (engine) |
 | dialog (engine) | `↑↓` choose · `enter` answer · `esc` not now |
 | board | `↑↓` select (the engine's focus ring) · `c` collapse done |
 | graph | `n` next · `p` prev · `o` open |
@@ -264,4 +291,5 @@ As in BRAND §10. In addition:
 ## 13. Decision log
 
 - 2026-10-12: colour Claude-native; state = glyph + colour; frameless (card is the only box); spacing standard + airy sections; safe check/arrow glyphs; UPPERCASE only for NEEDS YOU / FAILED; motion still + live counters + quiet row flash; band = now + needs-you ≤2 lines; main view Board (list by state); agents in their own section; timeline as its own view with a 1-line summary; numbered tab row with short forms below 80 columns.
+- 2026-10-12 (0.10.0, ADR 0015): tab 5 Milestone (roadmap DAG reusing the Graph idiom, per-epic progress, plan approvals), shown only during a milestone; header owns the epic count, the band names the milestone.
 - 2026-10-12 (0.8.0, ADR 0012): decisions are answered only in the native dialog. The decision card, its buttons and its fields are gone; the pane has a read-only Needs you section and `1: answer` (band and pane) re-opens the dialog. A dialog opens by itself at most once per decision. No box anywhere (BRAND §8).

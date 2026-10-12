@@ -2,8 +2,8 @@
 // The same rows sit under the timeline lanes, up to the cursor (activityRows).
 import type { CadreEvent } from '../../types'
 import { type Line, type View, S } from '../model'
-import { clip, padL, plain, relTime } from '../layout'
-import { COL, type GlyphK, INDENT, color, glyph, glyphRole } from '../tokens'
+import { clip, padL, plain, plural, relTime } from '../layout'
+import { COL, type GlyphK, INDENT, SEP, color, glyph, glyphRole } from '../tokens'
 import { type Renderer, muted, relax, ucfg } from './types'
 
 type Say = { text: string; k?: GlyphK }
@@ -23,7 +23,8 @@ export function say(e: CadreEvent, v: View): Say | undefined {
     case 'flag.resolved': return { text: `${id} decision answered` }
     case 'approval.pending': return { text: `plan ${d.planId} is ready for approval`, k: 'attn' }
     case 'sync.state_changed': return to === 'ok' ? { text: `${d.target} is back online` } : { text: `${d.target} went offline`, k: 'fail' }
-    case 'plan.landed': return { text: `plan ${d.planId} landed on dev`, k: 'done' }
+    case 'plan.approved': return { text: `roadmap ${d.planId} approved by you${SEP}${plural(Number(d.n), 'epic')}`, k: 'done' }
+    case 'plan.landed': return { text: `${v.b.plan?.epics?.some(x => x.id === d.planId) ? 'epic' : v.b.plan?.lane === 'milestone' ? 'milestone' : 'plan'} ${d.planId} landed on ${d.on ?? 'dev'}`, k: 'done' }
     case 'plan.released': return { text: `released ${d.version}`, k: 'done' }
     case 'release.proposed': return { text: `release ${d.version} is ready`, k: 'attn' }
     case 'init.stage': return to === 'proposed' ? { text: 'init changes are ready to review', k: 'attn' } : undefined
@@ -37,10 +38,12 @@ export function say(e: CadreEvent, v: View): Say | undefined {
   }
 }
 
-// newest first, up to `cursor` (default: now or the replay moment); relative to the cursor
-export function activityRows(v: View, w: number, cursor = v.t ?? v.now): Line[] {
+// a milestone's roadmap approval has no event of its own: a row at approvedAt (the epics' automatic approvals are `drive.decided`)
+export const ringOf = (v: View): CadreEvent[] => { const p = v.b.plan; return p?.lane === 'milestone' && p.approvedAt ? [...v.ring, { at: p.approvedAt, type: 'plan.approved', data: { planId: p.id, n: p.epics?.length ?? 0 } } as unknown as CadreEvent].sort((x, y) => x.at - y.at) : v.ring }
+// newest first, up to `cursor` (default: now or the replay moment); relative to the cursor; `only` narrows the events (the Milestone tab's approvals)
+export function activityRows(v: View, w: number, cursor = v.t ?? v.now, only: (e: CadreEvent) => boolean = () => true): Line[] {
   const c = ucfg(v)
-  return v.ring.filter(e => e.at <= cursor).flatMap(e => {
+  return ringOf(v).filter(e => e.at <= cursor && only(e)).flatMap(e => {
     const s = say(e, v); if (!s) return []
     const head = `${' '.repeat(INDENT)}${padL(relTime(cursor - e.at), COL.actTime)}  `, g = s.k ? glyph(s.k, c.ascii) : ' '
     return [[S(head, color('muted')), S(g, s.k ? color(glyphRole(s.k)) : undefined), S(clip(` ${plain(s.text)}`, Math.max(1, w - head.length - 1)))]]

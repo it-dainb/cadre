@@ -1,5 +1,5 @@
 // Dev-only UI loop (docs/dev/ui-dev.md): draws the REAL ui/ renderers (band + pane + Needs you + timeline) for a scenario in your terminal, hot-reloads on save.
-//   node --experimental-transform-types scripts/ui-dev.mjs [scenario] [--width N] [--tab epic|plan|doctor|settings] [--once] [--all] [--v1] [--ascii] [--theme dark|light] [--docked] [--rows N] | --dump <scenario> (JSON for harness/tui.sh --scenario)
+//   node --experimental-transform-types scripts/ui-dev.mjs [scenario] [--width N] [--tab epic|plan|milestone|doctor|settings] [--once] [--all] [--v1] [--ascii] [--theme dark|light] [--docked] [--rows N] | --dump <scenario> (JSON for harness/tui.sh --scenario)
 // Each frame renders in a fresh child process (clean module cache = hot reload for free; a broken file draws a red frame instead of killing the loop).
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, watch, writeFileSync } from 'node:fs'
@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const ME = fileURLToPath(import.meta.url), ROOT = join(dirname(ME), '..')
-const WIDTHS = [40, 60, 80, 120, 160], TABS = { 1: 'epic', 7: 'plan', 8: 'doctor', 9: 'settings' }
+const WIDTHS = [40, 60, 80, 120, 160], TABS = { 1: 'epic', 5: 'milestone', 7: 'plan', 8: 'doctor', 9: 'settings' }
 const ALLTABS = [...new Set([...Object.values(TABS), 'graph', 'timeline', 'activity'])]   // v2 tabs join as they land; a tab a version does not know draws its default view
 const V1 = process.argv.includes('--v1'), DOCKED = 20   // --docked: the band is only the transcript column wide beside a docked pane (24 cells at a 120-column terminal, ADR 0008; live: about 20 usable beside the host's collapse handle)
 const FLAGS = ['--experimental-transform-types', '--no-warnings']
@@ -100,7 +100,7 @@ async function main(argv) {
     console.log((process.stdout.isTTY && !process.env.NO_COLOR ? r.ansi : r.plain).join('\n')); return
   }
   const out = x => process.stdout.write(x)
-  let last = null, status = 'q quit · ←/→ events · 7/8/9 tabs · w width · s save golden · 1 answer · n p buttons', busy = false, again = false, errs = ''
+  let last = null, status = 'q quit · ←/→ events · 5/7/8/9 tabs · w width · s save golden · 1 answer · n p buttons', busy = false, again = false, errs = ''
   const draw = async () => {
     if (busy) { again = true; return } busy = true
     do {

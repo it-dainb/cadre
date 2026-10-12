@@ -8,7 +8,7 @@ import { ALLOWED } from '../ui/tokens'
 import { width } from '../ui/layout'
 import { NOOP } from './fixtures/ui/epic'
 
-const WIDTHS = [40, 60, 80, 120, 160], TABS = ['board', 'graph', 'timeline', 'activity', 'doctor', 'settings']
+const WIDTHS = [40, 60, 80, 120, 160], TABS = ['board', 'graph', 'timeline', 'activity', 'milestone', 'doctor', 'settings']
 
 export const overflow = (lines: string[], w: number) => lines.filter(l => width(l) > w)
 // a progress count (4/7) or a ctx % shows at most once per frame; an elapsed time (23m, 1h05) at most once in the pane (the band's now-line names the same

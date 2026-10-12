@@ -11,7 +11,7 @@ describe('ui-dev scenarios', () => {
     expect(s.about.length > 0).toBe(true)
     for (const w of [60, 120]) {
       txt(band(s, w, NOOP))
-      for (const tab of ['board', 'graph', 'timeline', 'activity', 'doctor', 'settings']) {
+      for (const tab of ['board', 'graph', 'timeline', 'activity', 'milestone', 'doctor', 'settings']) {
         const p = pane({ ...s, ui: { ...s.ui, tab } }, w, 40, NOOP)
         expect(txt([...p.before, ...p.after]).length > 0).toBe(true)
       }

@@ -20,15 +20,15 @@ function lines(v: View, w: number, a: Acts): Line[] {
   // line 1
   let l1: Line = []
   if (p) {
-    const head = `${p.id}${wide ? ` ${p.slug}` : ''}`, pr = prog(ts)
-    const right: Line = bothCell.length ? [muted(wide ? `${head}${SEP}${pr}${SEP}` : ''), ...bothCell] : [muted(tight ? '' : wide ? `${head}${SEP}${pr}` : pr)]
+    const head = `${p.id}${wide ? ` ${p.slug}` : ''}`, pr = p.lane === 'milestone' ? '' : prog(ts), hp = [head, pr].filter(Boolean).join(SEP)   // a milestone: the pane header owns the epic count (P2)
+    const right: Line = bothCell.length ? [muted(wide ? `${hp}${SEP}` : ''), ...bothCell] : [muted(tight ? '' : wide ? hp : pr || head)]
     if (bad) l1 = lr(w, [g(v, 'fail'), S(' '), S(bad, color('danger'))], right.filter(s => s.t || s.hk))
     else if (landed) l1 = lr(w, [g(v, 'done'), S(` ${p.id} landed on dev`)], right.filter(s => s.t || s.hk))
     else if (top) {
       const more = run.length > 1 ? `${SEP}+${run.length - 1} running` : `${SEP}${stepName(top.step)}${lapse(v, top) && `${SEP}${lapse(v, top)}`}`
-      const left: Line = tight ? [g(v, 'run'), S(` ${top.id}${SEP}${prog(ts)}`)] : [g(v, 'run'), S(` ${top.id} `), S(top.title, undefined, { b: false }), muted(more)]
+      const left: Line = tight ? [g(v, 'run'), S(` ${top.id}${SEP}${pr || p.id}`)] : [g(v, 'run'), S(` ${top.id} `), S(top.title, undefined, { b: false }), muted(more)]
       l1 = lr(w, left, tight ? bothCell.filter(s => s.hk) : right.filter(s => s.t || s.hk))
-    } else l1 = lr(w, [g(v, 'wait'), muted(` ${p.id} ${prog(ts)}`)], bothCell.filter(s => s.hk || s.t))
+    } else l1 = lr(w, [g(v, 'wait'), muted(` ${[p.id, pr].filter(Boolean).join(' ')}`)], bothCell.filter(s => s.hk || s.t))
   } else if (job) l1 = [g(v, 'run'), S(clip(` ${job.id.slice(4)} is running${tight ? '' : `${SEP}Claude is on it`}`, w - 2))]   // init/setup: progress, no key
   // line 2
   let l2: Line | undefined
