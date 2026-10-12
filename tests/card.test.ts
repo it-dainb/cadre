@@ -97,7 +97,7 @@ describe('core: ask / settle / events', () => {
   })
   test('a plan asks when approvable (bound to its content hash) and settles on approve and on reject', async () => {
     const w = await world(), { plan: p } = await plan(w), b = await w.h.board.read()
-    expect(b.decisions!.map(d => d.id)).toEqual([`plan:${p}`]); expect(b.decisions![0].options.map(o => o.run)).toEqual([`approve ${p}`, expect.stringContaining('reject'), undefined])
+    expect(b.decisions!.map(d => d.id)).toEqual([`plan:${p}`]); expect(b.decisions![0].options.map(o => o.run)).toEqual([`approve ${p}`, expect.stringContaining('reject'), undefined, `lane ${p}`])
     await w.text({ cmd: 'approve', args: [p] }); expect((await w.h.board.read()).decisions).toEqual([])
     const w2 = await world(), r = await plan(w2); await w2.text({ cmd: 'reject', args: [r.plan] }); expect((await w2.h.board.read()).decisions).toEqual([])
   })
@@ -189,7 +189,7 @@ describe('no pane can draw (VS Code panel, Remote Control): the same Decision as
   test('the dialog offers the runnable options; the chosen label runs that option as origin dialog', async () => {
     const w = await world(), { task } = await plan(w), u = await ui(w, { placed: false }), asked = await dlg(w, ls => ls[0])
     await openPane(w.h, 'card'); await u.drain()
-    expect(asked).toHaveLength(1); expect(asked[0].labels).toEqual(['Approve', 'Reject']); expect(asked[0].q).toContain('approve plan'); expect((await w.store.get(task)).category).toBe('todo')   // `Change` is a composer fill: not offered
+    expect(asked).toHaveLength(1); expect(asked[0].labels).toEqual(['Approve', 'Reject', 'Lane → ask']); expect(asked[0].q).toContain('approve plan'); expect((await w.store.get(task)).category).toBe('todo')   // `Change` is a composer fill: not offered
     expect((w.h as any).logs.at(-1)).toContain('approved')
   })
   test('Reject answers the same way', async () => {

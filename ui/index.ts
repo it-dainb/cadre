@@ -10,6 +10,7 @@ import { ack, levelOf, onEvent as notifyEvent } from './notify'
 import { cur as curDec, decisions, defaultTab } from './card'
 export { defaultTab }
 import { strictOf } from '../config/index'
+import { configPress, refreshSettings } from '../config/route'
 import { type Acts, S, at, cols, draw, gl, kindOf, read, t0, tg, txt, col, REDO } from './model'
 
 export { ack, syncStatus } from './notify'
@@ -27,6 +28,7 @@ export async function prefill(h: Host, cmd: string): Promise<void> {
 const OPEN = { id: 'cadre', title: 'cadre', columns: 120 }
 // The open call is the first thing a command or press does: only there does the engine count it as asked (any width); inside after() it is "unasked" (>= 144 columns, live capture ADR 0008)
 export async function openPane(h: Host, tab: string, o: { focus?: boolean; quiet?: boolean; pre?: ReturnType<NonNullable<Host['ops']>['open']> } = {}): Promise<void> {
+  if (tab === 'settings') await refreshSettings(h)
   const opened = o.pre ?? h.ops!.open({ ...OPEN, ...(o.focus === false ? {} : { focus: true as const }) })   // `focus: false` is refused by the engine: leave it out
   const v = await read(h)
   await h.ui.update(u => ({ ...u, tab, ...(tab === 'plan' || tab === 'card' ? { seen: { hash: (v.b.decisions ?? []).find(d => d.id === `plan:${v.b.plan?.id}`)?.hash ?? '', sig: sheetSig(v) } } : {}) }))
@@ -66,6 +68,7 @@ export function acts(h: Host): Acts {
   return {
     go: tab => { const pre = h.ops!.open({ ...OPEN, focus: true }); later(h, () => openPane(h, tab, { pre })) },
     pick: id => { const pre = h.ops!.open({ ...OPEN, focus: true }); later(h, async () => { await h.ui.update(u => ({ ...u, sel: id, go: false })); await openPane(h, 'epic', { pre }) }) },
+    run: cmd => later(h, async () => { const r = await configPress(h, cmd); h.toast(`cadre: ${r.text.split('\n')[0].slice(0, 53)}`); h.ops?.invalidate() }),
     fill: cmd => later(h, async () => { await prefill(h, cmd); await ack(h) }),
     // a press: the option's command as the human's origin (ADR 0008). A refusal means the card went stale (its hash moved): say so and redraw it.
     press: (id, key, hash) => later(h, async () => {
