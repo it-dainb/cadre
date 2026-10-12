@@ -32,7 +32,7 @@ function tabRow(v: View, w: number, a: Acts, cur: string, owed: boolean): Line {
 }
 function header(v: View, w: number): Line {
   const p = v.b.plan, dr = driveOf(v), ts = v.b.tasks
-  const left = p ? [`${p.id} ${p.slug}`, `${prog(ts)} done`, ...(w >= 100 && p.epicBranch ? [p.epicBranch] : []), ...(dr && dr.kind !== 'run' ? [`${dr.kind === 'stopped' ? 'drive stopped' : 'drive paused'}: ${dr.reason}`] : [])].join(`${SEP}`) : 'no plan yet'
+  const left = p ? [`${p.id} ${p.slug}`, ...(w >= 100 && p.epicBranch ? [p.epicBranch] : []), ...(dr && dr.kind !== 'run' ? [`${dr.kind === 'stopped' ? 'drive stopped' : 'drive paused'}: ${dr.reason}`] : [])].join(`${SEP}`) : 'no plan yet'
   const right: Seg = v.t === null ? S('live', color('muted')) : S(`replay${SEP}${relTime(v.now - v.t)}`, color('attention'), { i: true })
   return lr(w, [S(left, color('muted'))], [right])
 }
