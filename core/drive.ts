@@ -202,12 +202,13 @@ export async function redFix(h: Host, epicId: string, why: string): Promise<bool
   await decided(h, 'integration', `integration failed; fix task ${t.id} added: ${why.split('\n')[0].slice(0, 160)}`, t.id); return true
 }
 
-// `drive stop|resume|status` (dialog or press only, core/dispatch; the band's key 0)
+// `drive stop|resume|continue|status` (dialog or press only, core/dispatch; the band's key 0)
 ROUTES.drive = async (h, c) => {
   const d = (await h.board.read()).drive, sub = c.args[0] ?? 'status'
   if (sub === 'status') return { text: d.on ? `drive ${d.mode ?? 'auto'} · ${d.turns} turns · ${d.costUnknown ? 'cost unknown' : `$${d.costUsd}`}${d.stopped ? ` · stopped: ${d.stopped}` : d.paused ? ` · paused: ${d.paused}` : ''}${d.heldBy ? ` · held by ${d.heldBy}` : ''}` : 'drive off' }
   if (sub === 'stop') { if (!d.on || d.stopped) return { text: 'drive is not running' }; await stop(h, 'stopped by you'); return { text: 'Drive stopped.' } }
   if (sub === 'resume') return { text: await resume(h) }
+  if (sub === 'continue' && ROUTES.continue) return ROUTES.continue(h, c)   // the band's 0 on a plan an earlier session left (core/session.continueRun)
   return { text: 'usage: drive stop|resume|status' }
 }
 // /goal observer (9, S48): command.run {command:'goal'} and prompt.submit text '/goal …'. Never rewritten; pauses drive until /goal clear. (`ui.loop`: `ui.goal` is the queued brief)

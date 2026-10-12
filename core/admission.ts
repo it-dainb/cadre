@@ -8,7 +8,7 @@ import { kindOf, pipeOf, type TypeRegistry } from '../task-management/registry'
 import { repoKeyOf } from '../commands/init'
 import { cfgOf, storeOf } from './dispatch'
 import { agentsOf, bindAgent, commit, leaseLive, safe, sessionOf, unbindAgent } from './board'
-import { savePointer } from './session'
+import { held, ownerOf, savePointer, stampAlive } from './session'
 import { BLOCKING, apply, epicNext } from './machine'
 import { emit } from './events'
 import { flagName } from './render'
@@ -75,6 +75,7 @@ async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTa
   if (r?.agentId) {
     await bindAgent(h, r.agentId, { taskId: t.id, role, step, worktree: wt, sessionId: d.session, ctxTokens: 0, startedAt: await h.now() })
     await emit(h, 'agent.bound', { agentId: r.agentId, taskId: t.id, role }, { agentId: r.agentId, taskId: t.id, actor: 'mod' })
+    await h.store.set(`cadre:${d.key}:hb:${t.id}`, { s: d.session, at: 0 })   // the owner session (core/session.ownerOf): another session judges the claim by it; at 0: the next tick renews the claim
     await safe(h, 'pointer', () => savePointer(h))   // S22: a /clear before main's next turn.complete must still find this binding (the pointer was saved only there)
   }
   return r
@@ -158,7 +159,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
   if (!role || (role === 'tester' && !d.view)) return deny(`${t.id}: step ${t.step || '?'} runs without an agent; wait and call TaskList`)
   if (mine.some(a => a.startsWith('~'))) return deny(`${t.id} is already being spawned; wait`)
   if (role === 'worker' && stepsOf(d)(t.type, t.lane).includes('red') && !task.meta['cadre.specCommit']) return deny(`${t.id}: its spec tests are not recorded yet; the tester step must finish first`)
-  const live = leaseLive(task, now)
+  const live = leaseLive(task, now) && (await held(h, await ownerOf(h, t.id))) === 'other'   // a claim of a gone session (quit) or of this process (/clear) does not wait for the lease to lapse
   if (live && !mine.length) return deny(`${t.id} is being worked on from another session; leave it`)
   if (live && mine.some(a => bind[a].role === role && !bind[a].retired)) return deny(`${t.id} is running; wait for its result (TaskList)`)   // retired (core/reuse: context or TTL over) = rebind fresh
   if (t.state === 'blocked' && task.meta['cadre.decision'] === undefined) return deny(`${t.id} is blocked; ask the human to decide (they answer it in the cadre dialog)`)
@@ -184,7 +185,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
       const cp = (await checkpoint(h, d.store, d.actor, t.id, wt)) ?? (await G.tip(h.run, wt, 'HEAD')),   // locked-dirty refuses the commit (8.4)
          hb = (pipeOf(d.reg)(t.type, t.lane).includes('red') && task.meta['cadre.specCommit']) || task.meta['cadre.base'] || cp
       await d.store.setMeta(t.id, { 'cadre.checkpoint': cp }, d.actor)
-      handoff = [`checkpoint ${cp}`, await G.diffStat(h.run, wt, `${hb}..${cp}`), await G.diffPatch(h.run, wt, `${hb}..${cp}`), task.meta['cadre.report'] ?? ''].filter(Boolean).join('\n')
+      handoff = [`checkpoint ${cp}: the work so far is committed in your tree; continue from it, do not redo it`, await G.diffStat(h.run, wt, `${hb}..${cp}`), await G.diffPatch(h.run, wt, `${hb}..${cp}`), task.meta['cadre.lastCheck'] ? `last check: ${task.meta['cadre.lastCheck']}` : '', task.meta['cadre.report'] ?? ''].filter(Boolean).join('\n')
     }
     const cwd = spike ? d.root : viewed(d, role) ? await d.view!(h, d, task, wt) : wt
     return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, { handoff, decisions: task.meta['cadre.decision'] ? [task.meta['cadre.decision']] : undefined })), cwd, t.step, spike ? '' : cwd, undo, task)
@@ -211,14 +212,14 @@ export async function beat(h: Host, d: Deps, every = 120_000): Promise<void> {
   const [bind, now] = [await h.bind.read(), await h.now()]
   for (const [a, b] of Object.entries(bind)) {
     if (a.startsWith('~') || b.sessionId !== d.session || (await h.board.read()).tasks.find(t => t.id === b.taskId)?.state !== 'active') continue   // only a claimed (in progress) task has a lease to renew; review/blocked/done are refused every tick
-    const k = `cadre:${d.key}:hb:${b.taskId}`
-    if (now - (((await h.store.get(k)) as number | undefined) ?? 0) < every) continue
-    await d.store.heartbeat(b.taskId).catch(err => h.log(`heartbeat ${b.taskId} failed: ${err}`)); await h.store.set(k, now)
+    const k = `cadre:${d.key}:hb:${b.taskId}`, v = (await h.store.get(k)) as { s?: string; at: number } | number | undefined
+    if (now - ((typeof v === 'number' ? v : v?.at) ?? 0) < every) continue
+    await d.store.heartbeat(b.taskId).catch(err => h.log(`heartbeat ${b.taskId} failed: ${err}`)); await h.store.set(k, { s: d.session, at: now })
   }
 }
 
 // ---- tick (5 s): heartbeat this session's bound tasks; nothing else, never a send (G6) ----
 export async function tick(h: Host): Promise<void> {
-  await warm(h)
+  await warm(h); await stampAlive(h)   // other sessions tell a live session from a gone one by it (core/session.held)
   if (Object.keys(await h.bind.read()).some(a => !a.startsWith('~'))) await beat(h, await resolveDeps(h))
 }

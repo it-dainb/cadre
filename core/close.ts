@@ -53,6 +53,7 @@ export async function runCheck(h: Host, d: Deps, task: Task, wt: string, name: s
   const secs = Math.round(((await h.now()) - t0) / 1000), out = r.stdout + r.stderr, cut = out.length > 16384, path = `${d.root}/.cadre/tmp/logs/${task.id}-${name}-${t0}.log`
   await h.write(path, out).catch(() => {})
   await emit(h, 'check.ran', { taskId: task.id, name, ok: r.exitCode === 0, secs, ...(task.meta['cadre.step'] ? { phase: task.meta['cadre.step'] } : {}) }, { taskId: task.id })
+  if (r.exitCode || task.meta['cadre.lastCheck']) await d.store.setMeta(task.id, { 'cadre.lastCheck': r.exitCode ? `${name} failed (exit ${r.exitCode}):\n${out.slice(-1200).replaceAll(`${wt}/`, '')}` : '' }, d.actor).catch(() => {})   // the failing tests a respawned agent starts from (admission's handoff)
   return { found: true, ok: r.exitCode === 0, secs, text: `exit=${r.exitCode} · ${secs}s · truncated=${cut ? 'yes' : 'no'}\n${cut ? out.slice(-4096) : out}` }
 }
 

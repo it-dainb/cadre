@@ -42,11 +42,12 @@ export const problem = (v: View): string | undefined => {
 
 // drive cell (band line 2 / header). Extra fields arrive with the autonomy modes; absent = auto defaults.
 type Drv = { on: boolean; turns: number; costUsd: number; mode?: string; maxTurns?: number; paused?: string; stopped?: string }
-export type Cell = { kind: 'run' | 'paused' | 'stopped'; mode: string; text: string; key: 'stop' | 'resume'; reason?: string }
+export type Cell = { kind: 'run' | 'paused' | 'stopped' | 'unfinished'; mode: string; text: string; key: 'stop' | 'resume' | 'continue'; reason?: string }
 // a plan asked for yolo but the drive runs auto: the agents are not contained
 export const downgraded = (v: View): boolean => v.b.drive.mode === 'auto' && (v.b.plan as { mode?: string } | undefined)?.mode === 'yolo'
 export function driveOf(v: View): Cell | undefined {
   const d = v.b.drive as Drv, p = v.b.plan
+  if (p && !d.on && !d.stopped && v.ui.cont === p.id && p.state === 'approved') return { kind: 'unfinished', mode: (p as { mode?: string }).mode ?? 'auto', text: `unfinished plan${SEP}${prog(v.b.tasks)}`, key: 'continue' }   // an earlier session left it (core/session.rehydrate): one key, 0, means continue while nothing drives it
   if (!p || p.state === 'done-on-dev' || p.state === 'released' || !(d.on || d.stopped)) return undefined
   const pm = (p as { mode?: string }).mode, mode = d.mode ?? pm ?? 'auto', max = d.maxTurns ?? v.c.maxTurns
   const label = downgraded(v) ? `${mode} (yolo needs containment)` : mode
