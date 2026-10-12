@@ -20,7 +20,7 @@ const under = (p: string, root?: string) => !!root && (p === root || p.startsWit
 const join = (cwd: string, p: string) => (p.startsWith('/') ? p : `${cwd.replace(/\/$/, '')}/${p}`)
 const modOwned = (real: string, home?: string, changelog?: string) => {
   const seg = real.split('/')
-  return (!!changelog && (real === changelog || real.endsWith(`/${changelog}`))) || seg.some(s => MOD_DIRS.includes(s)) || MOD_FILES.includes(seg[seg.length - 1]) || (!!home && /^cadre\.json$|^settings.*\.json$/.test(seg[seg.length - 1]) && under(real, home + '/.claude'))
+  return (!!changelog && (real === changelog || real.endsWith(`/${changelog}`))) || seg.some(s => MOD_DIRS.includes(s)) || MOD_FILES.includes(seg[seg.length - 1]) || (!!home && /^cadre\.json$|^settings.*\.json$/.test(seg[seg.length - 1]) && under(real, home + '/.claude')) || (!!home && real === `${home}/.claude.json`)   // the engine's own file: its project mcpServers/allowedTools widen what runs
 }
 
 // Step 0 of the fence: the path a file tool will touch, per tool (input fields). Glob with an absolute pattern: its non-glob base dir.

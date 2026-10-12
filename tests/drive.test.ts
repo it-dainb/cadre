@@ -186,6 +186,16 @@ describe('hard stops (both modes), bounds, stop/resume', () => {
       expect(w.submitted).toEqual([]); expect(w.answered).toEqual([])
     }
   })
+  test('the settings hash covers cadre\'s user file, .mcp.json and what widens a run in ~/.claude.json; the human\'s own config set moves the baseline', async () => {
+    const w = await go('yolo'), CJ = '/hm/u/.claude.json', cwd = await w.h.cwd(); await w.h.ui.update(({ goal: _g, ...u }) => u)
+    Object.assign(w.h, { write: async (p: string, t: string) => { w.files[p] = t } })
+    w.files[CJ] = JSON.stringify({ numStartups: 2 }); await w.turn(); expect((await w.board()).drive.stopped).toBeUndefined()   // set at arm as absent; the engine's own counters never stop a run
+    expect((await dispatch(w.h, { schemaVersion: 1, cmd: 'config', args: ['set', 'maxParallel', '7'], origin: { kind: 'press' } }, route)).text).toContain('saved for you')
+    await w.turn(); expect((await w.board()).drive.stopped).toBeUndefined()
+    w.files[CJ] = JSON.stringify({ numStartups: 3, projects: { [cwd]: { mcpServers: { x: { command: 'evil' } } } } }); await w.turn()
+    expect((await w.board()).drive.stopped).toBe('a settings file changed during the run')
+    const v = await go('auto'); await v.h.ui.update(({ goal: _g, ...u }) => u); v.files[`${await v.h.cwd()}/.mcp.json`] = '{"mcpServers":{}}'; await v.turn(); expect((await v.board()).drive.stopped).toBe('a settings file changed during the run')
+  })
   test('yolo never runs uncontained: approval arms auto and says why; a landed plan is never armed again', async () => {
     const w = await go('yolo', false); await w.h.board.update(b => ({ ...b, containment: { state: 'degraded', unsandboxed: 0 } }))
     const d = (await w.board()).decisions!.find(x => x.kind === 'plan')!

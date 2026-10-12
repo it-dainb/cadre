@@ -35,8 +35,20 @@ async function pause(h: Host, why: string) {
   if ((await h.board.read()).drive.paused === why) return
   await h.board.update(s => ({ ...s, drive: { ...s.drive, paused: why } })); await driveEvent(h, 'paused', why)
 }
-// the settings files a run must not see changed (ADR 0010 watches the same during setup/init), as one hash
-const settingsHash = async (h: Host) => { const c = await h.cwd(); return fnv1a64((await Promise.all([`${await h.home()}/.claude/settings.json`, `${c}/.claude/settings.json`, `${c}/.claude/settings.local.json`].map(p => h.readText(p)))).map(t => t ?? '').join('\0')) }
+// the settings a run must not see changed, as one hash: the settings files (ADR 0010 watches the same during setup/init), cadre's own user file (strictness, mcpAllow, bounds),
+// the project's .mcp.json, and of ~/.claude.json only what widens a run (MCP servers, allowed tools): the engine rewrites the rest of that file all the time
+const settingsHash = async (h: Host) => {
+  const c = await h.cwd(), home = await h.home(), files = await Promise.all([`${home}/.claude/settings.json`, `${c}/.claude/settings.json`, `${c}/.claude/settings.local.json`, `${home}/.claude/cadre.json`, `${c}/.mcp.json`].map(p => h.readText(p)))
+  let j: any; try { j = JSON.parse((await h.readText(`${home}/.claude.json`)) ?? 'null') } catch { j = 'unreadable' }
+  const p = j?.projects?.[c]; return fnv1a64([...files.map(t => t ?? ''), JSON.stringify([j?.mcpServers, p?.mcpServers, p?.allowedTools, p?.enabledMcpjsonServers, p?.disabledMcpjsonServers])].join('\0'))
+}
+// a settings write by the human (the gated config route) moves the baseline with it: only a change nobody approved stops the run
+export async function humanWrite<T>(h: Host, fn: () => Promise<T>): Promise<T> {
+  if (!(await h.board.read()).drive.on) return fn()
+  const pre = await settingsHash(h), r = await fn(), post = await settingsHash(h)
+  if (post !== pre) await casDrive(h, await storeOf(h), x => (x?.on && x.set === pre ? { ...x, set: post } : undefined)).catch(e => h.log(`drive baseline not moved: ${e}`))
+  return r
+}
 
 // the hard stops (both modes), against the record taken at arm: at each turn end, before main's yolo decision is applied (core/close.decide) and before a kick (review 0.9: a stop
 // that fired mid-turn must hold where it matters). An agent moving a protected branch comes first: a pending approval must not hide it.
@@ -176,7 +188,7 @@ export async function resume(h: Host): Promise<string> {
   await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: undefined, paused: undefined, turns: 0, costUsd: 0, startedAt: now } }))   // a resume is a fresh budget: the human chose to go on
   await driveEvent(h, 'resumed'); await kick(h, true); return 'drive resumed'
 }
-DRIVE.arm = arm; DRIVE.kick = h => kick(h)
+DRIVE.arm = arm; DRIVE.kick = h => kick(h); DRIVE.humanWrite = humanWrite
 
 // integration red (core/integrate, both modes while driving): the first failure gets ONE fix task, approved by drive (recorded); the second one stops yolo and asks in auto
 export async function redFix(h: Host, epicId: string, why: string): Promise<boolean> {

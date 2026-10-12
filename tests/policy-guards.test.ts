@@ -27,6 +27,7 @@ describe('L1 capability (13.1)', () => {
     expect(denied(await call(h, { tool: 'Edit', file_path: '/x/repo/a.ts' }))).toBe(true)
     expect(JSON.stringify(await call(h, { tool: 'Edit', file_path: '/x/repo/a.ts' }))).toContain('TaskCreate')   // the deny names main's next action
     expect(denied(await call(h, { tool: 'CronCreate' }))).toBe(true)
+    expect((await call(h, { tool: 'Edit', file_path: '/hm/u/.claude.json' })).deny).toBe('that path is managed for you and cannot be edited; leave it alone')   // its project mcpServers/allowedTools widen what runs
     expect(await call(h, { tool: 'Read', file_path: '/x/repo/a.ts' })).toEqual({ ok: 'Read' })
   })
   test('shell only for a bound worker in the worker step', async () => {

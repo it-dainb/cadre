@@ -1,7 +1,7 @@
 // Internal `config` command the Settings tab buttons call (DESIGN 12, ADR 0007): the MOD writes the settings file after the human's press, never Claude.
 //   set <key> <value> -> ~/.claude/cadre.json (or the repo's section there, when the key already lives in it) · repo <key> <value> -> .cadre/config.json (O keys only)
 //   edit <key> -> a Decision with one field (asked in the dialog) · cancel <key> · sel <+1|-1> · refresh. Every write: .bak of the old bytes, write, re-read.
-import { ROUTES, dispatch, isHuman } from '../core/dispatch'
+import { DRIVE, ROUTES, dispatch, isHuman } from '../core/dispatch'
 import { ask, settle } from '../core/decide'
 import { start } from '../core/session'
 import { repoKeyOf } from '../commands/init'
@@ -53,7 +53,7 @@ async function save(h: any, scope: 'user' | 'repo', key: string, raw: string): P
   if (bad.length) return no(bad.join('; '))
   const text = `${JSON.stringify(cur, null, 2)}\n`, old = await h.readText(path)
   if (old !== null && old !== text) await h.write(`${path}.bak`, old)
-  await h.write(path, text)
+  if (DRIVE.humanWrite) await DRIVE.humanWrite(h, () => h.write(path, text)); else await h.write(path, text)   // the human's own change: a running drive takes it as its new baseline
   if ((await h.readText(path)) !== text) return no('the file could not be written')
   await start(h); await refreshSettings(h)
   if (((await h.board.read()).decisions ?? []).some((d: any) => d.id === ID(key))) await back(h, key)
