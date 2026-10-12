@@ -59,6 +59,8 @@ describe('file fence (13.2)', () => {
     expect(denied(await call(h, { tool: 'Write', agentId: 'w1', file_path: '/x/bd-a1/CHANGELOG.md' }))).toBe(true)
     expect(denied(await call(h, { tool: 'Edit', agentId: 'w1', file_path: '/x/bd-a1/src/a.ts' }))).toBe(true)
     expect(denied(await call(h, { tool: 'Write', agentId: 'w1', file_path: '/x/bd-a1/src/../../bd-a2/x.ts' }))).toBe(true)
+    await h.board.update((b: any) => ({ ...b, tasks: b.tasks.map((t: any) => (t.id === 'bd-a1' ? { ...t, state: 'blocked' } : t)) }))   // reported spec_change / blocked: told to wait, not to look elsewhere
+    expect((await call(h, { tool: 'Edit', agentId: 'w1', file_path: '/x/bd-a1/src/b.ts' })).deny).toBe('your task waits for a decision; stop now: you are resumed with the answer')
   })
   test('tester: /x/bd-a1 is not under /x/bd-a1.view; Glob /etc/* denied; Glob **/*.ts in the view allowed (call + check)', async () => {
     const h = await mk()
