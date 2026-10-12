@@ -1,4 +1,5 @@
 // L1 capability allowlist, file fence (DESIGN 13.1-13.2), tool.check allow, session.send isolation (4.6), config.set guard. Slots #4, #5, #7, config.set.
+import { modelText } from '../core/say'
 import type { Binding, Host, Hook } from '../types'
 import { MAIN_TOOLS, allowlist } from '../agents/index'
 import { repoKeyOf } from '../commands/init'
@@ -94,7 +95,7 @@ async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, 
 const escape = (e: any) => (e?.dangerouslyDisableSandbox === true || e?.input?.dangerouslyDisableSandbox === true ? 'running unrestricted is not allowed; run the command normally' : undefined)
 
 // A repo where cadre is off, while a setup run is active: only the settings rule applies (the rest of the guards are for active repos)
-export const settingsOnly: Hook = async (h, e, next) => (FENCED.includes(e.tool) && SETTINGS.test(inputPath(e.tool, e.input ?? e, '/') ?? '') ? { deny: SETTINGS_DENY } : next(e))
+export const settingsOnly: Hook = async (h, e, next) => (FENCED.includes(e.tool) && SETTINGS.test(inputPath(e.tool, e.input ?? e, '/') ?? '') ? { deny: modelText('deny', SETTINGS_DENY) } : next(e))
 
 // Event-only judgement for the re-entry .catch (G2): a deny reason, or undefined to let the call through. Must not use $.
 export const judge = (e: any): string | undefined => {
@@ -120,7 +121,7 @@ export const guard: Hook = async (h, e, next) => {
   if (!why) return next(e)
   const tb = e.agentId && (await h.bind.read())[e.agentId]
   if (tb && tb.role === 'tester') await logCall(h, e.agentId, { tool: e.tool, path: inputPath(e.tool, e.input ?? e, tb.worktree), outcome: why })   // the view audit counts refusals too (3.5.2)
-  if (await strict(h)) return { deny: why }
+  if (await strict(h)) return { deny: modelText('deny', why) }
   h.log(`cadre advisory: ${why}`); return next(e)
 }
 
@@ -133,11 +134,11 @@ export const check: Hook = async (h, e, next) => {
   const pol = await policyOf(h)
   if (tool === 'Read' && w.role !== 'tester' && w.b.worktree) {   // S26: Read needs the allow too (outside the session cwd it prompts), only inside its own tree
     const p = inputPath(tool, e.input, w.b.worktree), real = p === undefined ? undefined : await placed(h, join(w.b.worktree, p))
-    return real && under(real, w.b.worktree) ? { decision: 'allow', reason: 'cadre: inside its own tree' } : next(e)
+    return real && under(real, w.b.worktree) ? { decision: 'allow', reason: modelText('deny', 'inside its own tree') } : next(e)
   }
   if (w.role !== 'tester' && !(w.owner && FENCED.includes(tool))) return next(e)
   const f = await fence(h, w, tool, e.input, pol)
-  return f === 'allow' || f === undefined ? { decision: 'allow', reason: 'cadre: inside its own tree' } : next(e)
+  return f === 'allow' || f === undefined ? { decision: 'allow', reason: modelText('deny', 'inside its own tree') } : next(e)
 }
 
 // #7 session.send: SendMessage naming another task id -> {isDelivered:false} (4.6).
@@ -147,7 +148,7 @@ export const send: Hook = async (h, e, next) => {
   if (!own || (await h.ui.read()).drainTo === e.to) return next(e)   // cadre's own queued resume (core/reuse.sendMine) is exempt
   const known = new Set((await h.board.read()).tasks.map(t => t.id))
   const other = idsIn(`${e.to} ${e.text}`, known).find(id => id !== own.taskId)
-  return other ? { isDelivered: false, reason: `you work on ${own.taskId} only; do not name ${other}` } : next(e)
+  return other ? { isDelivered: false, reason: modelText('deny', `you work on ${own.taskId} only; do not name ${other}`) } : next(e)
 }
 
 // Re-entry (fail-closed .catch, 13.3): the board is unreadable, so judge a spawn from the event: a task marker in the prompt is refused, marker-less passes.
@@ -157,7 +158,7 @@ export const judgeSpawn = (e: any): string | undefined => /\b(TASK|bd)-[A-Za-z0-
 export const configSet: Hook = async (h, e, next) => {
   if (!/(^|\.)strictness$/.test(e.key) || e.value === e.previous) return next(e)
   const running = (await h.board.read()).tasks.some(t => t.state === 'active' || t.state === 'review')
-  return running ? { deny: 'strictness cannot be changed while tasks are running; retry when they finish' } : next(e)
+  return running ? { deny: modelText('deny', 'strictness cannot be changed while tasks are running; retry when they finish') } : next(e)
 }
 
 // Realpath of the worktree root once (its deepest existing ancestor is resolved): fence rule 3, locks and bindings all compare real paths (M13).

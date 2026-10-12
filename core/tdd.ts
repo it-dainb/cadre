@@ -149,7 +149,7 @@ export async function specChange(h: Host, d: Deps, id: string, why: string): Pro
   await apply(h, { kind: 'block', id, at: await h.now(), actor: 'mod' }, pipeOf(d.reg)); await d.store.move(id, 'blocked', d.actor).catch(() => undefined)
   await d.store.setMeta(id, { 'cadre.blocked': 'spec_change', 'cadre.specChange': why.slice(0, 1500) }, d.actor)
   await specAsk(h, id, why)
-  h.toast(`cadre: ${id} spec change · /cadre resolve ${id}`)
+  h.toast(`cadre: ${id} spec change · press 1`)
 }
 // accept: back to the tester step (the view is rebuilt from the spec commit when it is spawned: new red, amended specCommit); reject: the worker resumes and conforms
 export async function resolveSpec(h: Host, id: string, how: string): Promise<{ text: string }> {

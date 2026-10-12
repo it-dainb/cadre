@@ -1,5 +1,6 @@
 // L3 effect check (DESIGN 13.1): fingerprint, in-flight window attribution, stash quarantine, flags, protected-ref restore by CAS. Slot #6 `wrap` (+ later duties).
 // Git runs through the injected h.run (ADR 0003): kit-testable with a scripted run.
+import { modelText } from './say'
 import { askByTool, askCard, shown } from './asks'
 import type { Hook, Host } from '../types'
 import type { TaskStore } from '../task-management/store'
@@ -108,17 +109,17 @@ async function after(h: Host, e: any, r: any): Promise<any> {
     if (e.tool !== 'Agent' || !r?.result?.content?.[0]) return r
     const s = await h.board.read(), [id] = idsIn(String(e.prompt ?? e.input?.prompt ?? ''), s.tasks.map(t => t.id)), t = s.tasks.find(x => x.id === id)
     const ask = !t && (await askByTool(h, e.tool_use_id))   // a marker-less explorer: its card, never its text
-    if (ask) { await shown(h, ask[0], ask[1]); return { ...r, result: { ...r.result, content: [{ ...r.result.content[0], text: askCard(ask[1]).replaceAll('\n', ' · ') }, ...r.result.content.slice(1)] } } }
+    if (ask) { await shown(h, ask[0], ask[1]); return { ...r, result: { ...r.result, content: [{ ...r.result.content[0], text: modelText('card', askCard(ask[1]).replaceAll('\n', ' · ')) }, ...r.result.content.slice(1)] } } }
     if (!t?.card) return r
     if (e.tool_use_id) await UI.mapCard?.(h, e.tool_use_id, t.id)
     const b = Object.values(await h.bind.read()).find(x => x.taskId === t.id && x.step === t.step && ['tester', 'worker', 'reviewer'].includes(x.role))   // an agent bound at the step the task is still at: it stopped without reporting (its stop is observed after this result returns)
     const text = b ? noReportCard(t, b.role, b.step) : t.card
-    return { ...r, result: { ...r.result, content: [{ ...r.result.content[0], text: text.replace('\n', ' · ') }, ...r.result.content.slice(1)] } }
+    return { ...r, result: { ...r.result, content: [{ ...r.result.content[0], text: modelText('card', text.replace('\n', ' · ')) }, ...r.result.content.slice(1)] } }
   }
   const b = (await h.bind.read())[e.agentId]
   if (b?.role === 'tester') await logCall(h, e.agentId, { tool: e.tool, path: inputPath(e.tool, e.input ?? e, b.worktree), outcome: r?.deny ? String(r.deny) : r?.error ? 'error' : 'ok' })
   const d = b && (await drainDelta(h, e.agentId))
-  return d ? { ...r, context: [...(r?.context ?? []), d] } : r
+  return d ? { ...r, context: [...(r?.context ?? []), modelText('context', d)] } : r
 }
 async function audited(h: Host, e: any, next: (e: any) => any) {
   const loop = e.agentId ?? '', id = e.tool_use_id ?? h.rand(4)

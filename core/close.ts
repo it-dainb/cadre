@@ -20,7 +20,7 @@ import { modeOf, pkgOf } from './specview'
 import * as G from './git'
 
 
-const NUDGE: Record<string, string> = { worker: 'You stopped without calling report. Call it now: {"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"} (or outcome "blocked" with reason).', tester: 'You stopped without calling report. Call it now with role "tester", outcome "done", summary and tests.', reviewer: 'You stopped without calling report. Call it now with role "reviewer", verdict, summary, findings, coverage and contractStatus.', explorer: ASK_NUDGE }
+export const NUDGE: Record<string, string> = { worker: 'You stopped without calling report. Call it now: {"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"} (or outcome "blocked" with reason).', tester: 'You stopped without calling report. Call it now with role "tester", outcome "done", summary and tests.', reviewer: 'You stopped without calling report. Call it now with role "reviewer", verdict, summary, findings, coverage and contractStatus.', explorer: ASK_NUDGE }
 const num = (v?: string) => Number(v ?? 0) || 0
 const sha7 = (s: string) => s.slice(0, 7)
 
@@ -167,7 +167,7 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
   const spec = r.outcome === 'spec_change', why = String(r.reason ?? r.summary ?? '').slice(0, 400)
   if (spec) { await specChange(h, d, t.id, why); await record(h, d, t.id, 'blocked', t.step, { why }, { summary: r.summary, reason: r.reason }); await raise(h, t.id, 'spec_change') }
   else await blockTask(h, d, t, why, 'blocked', { summary: r.summary, reason: r.reason, questions: r.questions })
-  return spec ? 'spec change recorded; the human decides (/cadre resolve). Stop and wait.' : 'blocked recorded; main asks the human and you are resumed with the decision. Stop and wait.'
+  return spec ? 'spec change recorded; the human decides. Stop and wait.' : 'blocked recorded; main asks the human and you are resumed with the decision. Stop and wait.'
 }
 
 // ---- #2 turn.complete: L3 sweep every turn; an agent that stopped without reporting is nudged x2, auto-reported, or released ----
@@ -222,7 +222,7 @@ export async function closeTask(h: Host, d: Deps, id: string): Promise<string | 
   if (!t) return `no task ${id}`
   if (!(t.state === 'review' && t.step === 'merge')) return `${id} is ${t.state}${t.step ? `·${t.step}` : ''}: only a review-passed task (review✓) can be completed`
   await sweep(h).catch(() => {})
-  const gf = Object.keys((await h.git.read()).flags ?? {}).find(f => f.startsWith('git:')); if (gf) return `merges are refused while git flag ${gf} is open (/cadre resolve git keep|restore)`
+  const gf = Object.keys((await h.git.read()).flags ?? {}).find(f => f.startsWith('git:')); if (gf) return `merges are refused while git flag ${gf} is open; ask the human to keep or restore it (they answer it in the cadre dialog)`
   const task = await d.store.get(id), C = task.meta['cadre.sourceCommit'], wt = task.meta['cadre.worktree'], base = task.meta['cadre.base'], spec = d.reg[t.type], plan = (await h.board.read()).plan
   if (!plan || !C || !wt) return `${id} has no reviewed commit`
   if (task.meta['cadre.review'] !== `pass@${C}`) return `${id} has no pass@${sha7(C)} review`
@@ -277,7 +277,7 @@ async function cancelTask(h: Host, d: Deps, id: string, why: string): Promise<st
 async function decide(h: Host, d: Deps, id: string, text: string): Promise<string | null> {
   const t = (await h.board.read()).tasks.find(x => x.id === id)
   if (t?.state !== 'blocked') return `${id} is not blocked; nothing to decide`
-  if ((await d.store.get(id)).meta['cadre.blocked'] === 'spec_change') return `${id} awaits a spec change decision: the human runs /cadre resolve ${id} accept|reject`
+  if ((await d.store.get(id)).meta['cadre.blocked'] === 'spec_change') return `${id} awaits a spec change decision: the human accepts or rejects it in the cadre dialog`
   return unblock(h, d, id, `Decision from the human: ${text}`, 'blocked')
 }
 async function unblock(h: Host, d: Deps, id: string, text: string, flag: string): Promise<string | null> {

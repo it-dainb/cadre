@@ -1,5 +1,6 @@
 // agent.spawn admission (DESIGN 3.4, 4.6, 8.4): claim, next step / rebind, review spawn, marker-less retype, lease staleness, recovery.
 // Judge before next; on spawn rejection release and rethrow (AG-12). `admit` is the slot; `admitWith` is the same flow over explicit Deps (tests).
+import { modelText } from './say'
 import type { Binding, Hook, Host, Role, Snapshot, SnapTask } from '../types'
 import type { Config } from '../config/defaults'
 import { StoreError, type Task, type TaskStore } from '../task-management/store'
@@ -25,7 +26,7 @@ export interface Deps {
   view?: (h: Host, d: Deps, t: Task, wt: string) => Promise<string>   // spec view builder (core/specview, M5); absent = tester/red are skipped (3.1)
 }
 const ROLE: Record<string, Role> = { tester: 'tester', worker: 'worker', reviewer: 'reviewer', explorer: 'explorer' }   // red/green are mod-run, merge is main's close
-const deny = (why: string) => ({ deny: why })
+const deny = (why: string) => ({ deny: modelText('deny', why) })
 
 
 // Everything admission needs from the outside world, resolved per hook (never cached across hooks): store + config via the register.ts wiring.
@@ -51,7 +52,7 @@ export async function admitWith(h: Host, d: Deps, e: any, next: (e: any) => any)
   if (!ids.length) {   // marker-less: a read-only explorer; forks pass untouched
     if (e.fork) return next(e)
     const m = modelOf(d, 'explorer')
-    const r = await next({ ...e, subagentType: 'cadre:explorer', ...(m ? { model: m } : {}), prompt: brief('explorer', { id: '', title: '', type: '', question: e.prompt }) })
+    const r = await next({ ...e, subagentType: 'cadre:explorer', ...(m ? { model: m } : {}), prompt: modelText('agent-brief', brief('explorer', { id: '', title: '', type: '', question: e.prompt })) })
     if (r?.agentId) await asked(h, r.agentId, e)   // tracked from the start: its stop is observed and main only sees its card (core/asks)
     return r
   }
@@ -68,7 +69,7 @@ export async function admitWith(h: Host, d: Deps, e: any, next: (e: any) => any)
 async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTask, role: Role, prompt: string, cwd: string, step: string, wt: string, undo: () => Promise<void>, task?: Task) {
   const m = modelOf(d, role, task)
   let r: any
-  try { r = await next({ ...e, subagentType: `cadre:${role}`, prompt, ...(m ? { model: m } : {}), cwd }) } catch (err) { await undo(); throw err }
+  try { r = await next({ ...e, subagentType: `cadre:${role}`, prompt: modelText('agent-brief', prompt), ...(m ? { model: m } : {}), cwd }) } catch (err) { await undo(); throw err }
   if (r?.deny) { await undo(); return r }
   await unbindAgent(h, `~${t.id}`)
   if (r?.agentId) {
@@ -109,7 +110,7 @@ async function ensureWt(h: Host, d: Deps, wt: string, branch: string): Promise<'
 async function lostEpic(h: Host, s: Snapshot, t: SnapTask) {   // epic branch missing: epic blocked, human resolves (re-cut from dev or cancel)
   await commit(h, x => (x.plan && epicNext(x.plan.state, 'lost') ? { ...x, plan: { ...x.plan, state: epicNext(x.plan.state, 'lost')!, flags: [...new Set([...(x.plan.flags ?? []), 'lost-epic'])] } } : x))
   await emit(h, 'flag.raised', { taskId: s.epic ?? t.id, flag: 'lost-epic' }, { taskId: t.id })
-  return deny(`epic branch ${s.plan?.epicBranch} is missing; ask the human to recreate it from dev or cancel the epic (/cadre resolve ${s.epic} recut|cancel)`)
+  return deny(`epic branch ${s.plan?.epicBranch} is missing; ask the human to recreate it from dev or end the epic (they answer it in the cadre dialog)`)
 }
 
 // ---- todo -> active: the claim ----
@@ -117,7 +118,7 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
   const spec = d.reg[t.type], pipe = stepsOf(d), first = pipe(t.type, t.lane)[0]
   if (!s.epic || !s.plan) return deny('no approved plan yet; ask the human to approve it')
   if (first !== 'worker' && first !== 'explorer' && first !== 'tester') return deny(`${t.id}: type ${t.type} starts at "${first}", which is not available; pick another task`)
-  const flag = t.flags.find(f => BLOCKING.test(f)); if (flag) return deny(`${t.id} has flag ${flagName(flag)}; ask the human to resolve it (/cadre resolve)`)
+  const flag = t.flags.find(f => BLOCKING.test(f)); if (flag) return deny(`${t.id} has flag ${flagName(flag)}; ask the human to resolve it (they answer it in the cadre dialog)`)
   if (t.condition?.state === 'not-met') return deny(`${t.id} never runs: its condition (${t.condition.on} failed) is not met`)
   if (!(await d.store.ready(s.epic)).includes(t.id)) return deny(`${t.id} is not ready (waiting on a dependency or gate); spawn a task that TaskList shows ready`)
   const running = s.tasks.filter(x => x.state === 'active').length
@@ -160,7 +161,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
   const live = leaseLive(task, now)
   if (live && !mine.length) return deny(`${t.id} is being worked on from another session; leave it`)
   if (live && mine.some(a => bind[a].role === role && !bind[a].retired)) return deny(`${t.id} is running; wait for its result (TaskList)`)   // retired (core/reuse: context or TTL over) = rebind fresh
-  if (t.state === 'blocked' && task.meta['cadre.decision'] === undefined) return deny(`${t.id} is blocked; ask the human to decide (/cadre resolve)`)
+  if (t.state === 'blocked' && task.meta['cadre.decision'] === undefined) return deny(`${t.id} is blocked; ask the human to decide (they answer it in the cadre dialog)`)
   const spike = kindOf(d.reg[t.type]) === 'spike', wt = task.meta['cadre.worktree'] ?? wtPath(d.wtRoot, d.key, t.id), branch = task.meta['cadre.branch'] ?? ''
   if (!spike) {
     const how = await ensureWt(h, d, wt, branch)

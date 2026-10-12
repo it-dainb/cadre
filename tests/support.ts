@@ -2,6 +2,10 @@
 import type { Host, SnapTask } from '../types'
 import { emptySnapshot } from '../core/board'
 import { emptyRing } from '../core/events'
+import { SAY, leaks } from '../core/say'
+
+// boundary lint: every text that reaches a model goes through core/say.modelText; a leak there fails the test that produced it
+SAY.check = (kind, text) => { const l = leaks(kind, text); if (l.length) throw new Error(`model-visible leak (${kind}): ${l[0].slice(0, 200)}`) }
 
 const cell = <T>(v: T) => ({ read: async () => v, update: async (fn: (x: T) => T) => (v = fn(v)) })
 export function fakeHost(o: { t0?: number; files?: Record<string, string>; env?: Record<string, string>; options?: Host['options'] } = {}): Host & { logs: string[]; toasts: string[] } {

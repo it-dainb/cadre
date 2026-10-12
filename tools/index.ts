@@ -1,5 +1,6 @@
 // The 3 MCP tools (DESIGN 5.2, 6.2, 6.6): report, inspect, run_check; strict schemas with schemaVersion, isDeferred:false. Registered in session.start from SPECS (register.ts).
 // Handlers answer `{result}` (an `error: …` text is a refusal the agent can retry). Descriptions are byte-stable.
+import { modelText } from '../core/say'
 import type { Hook, Host } from '../types'
 import { resolveDeps, type Deps } from '../core/admission'
 import { raise, report, runCheck } from '../core/close'
@@ -75,11 +76,11 @@ export async function handleWith(h: Host, d: Deps, e: any): Promise<{ result: st
   const i = e.input ?? e, id = e.agentId as string | undefined
   try {
     switch (String(e.tool).replace(/^mcp__cadre__/, '')) {
-      case 'report': return { result: await onReport(h, d, id, i) }
-      case 'inspect': return { result: await onInspect(h, d, id, i) }
-      default: return { result: await onCheck(h, d, id, i) }
+      case 'report': return { result: modelText('tool-result', await onReport(h, d, id, i)) }
+      case 'inspect': return { result: modelText('tool-result', await onInspect(h, d, id, i)) }
+      default: return { result: modelText('tool-result', await onCheck(h, d, id, i)) }
     }
-  } catch (x) { return { result: bad(String((x as Error).message ?? x)) } }
+  } catch (x) { return { result: modelText('tool-result', bad(String((x as Error).message ?? x))) } }
 }
 // tool.call for mcp__cadre__*: answer {result}.
 export const handle: Hook = async (h, e, next) => (TOOLS.some(t => e.tool === `mcp__cadre__${t}`) ? (await warm(h), handleWith(h, await resolveDeps(h), e)) : next(e))

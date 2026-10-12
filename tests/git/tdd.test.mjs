@@ -72,7 +72,7 @@ test('spec view golden: no source bodies, no symlinks, tdd.paths + viewInclude +
   for (const f of ['test/old.json', 'docs/guide.md', 'SCENARIOS.md', 'INTERFACE.md']) assert.ok(lstatSync(join(view, f)).isFile())
   assert.match(readFileSync(join(view, 'INTERFACE.md'), 'utf8'), /\[new\] function login/)
   const lite = world({ acceptance: '' }), v2 = await V.buildView(lite.h, lite.d, await mkTask(lite), await worktree(lite))   // a lite bug (no scenarios): the bug report is the tester's spec
-  assert.match(readFileSync(join(v2, 'SCENARIOS.md'), 'utf8'), /reproduces this bug[\s\S]*page 1 skips the first page/)
+  assert.match(readFileSync(join(v2, 'SCENARIOS.md'), 'utf8'), /reproduces the bug described below[\s\S]*page 1 skips the first page/)
   const man = JSON.parse(w.meta['cadre.view']); assert.deepEqual(Object.keys(man).sort(), ['FILES.md', 'INTERFACE.md', 'SCENARIOS.md', 'docs/guide.md', 'test/old.json'])
   assert.equal(man['docs/guide.md'], sh(w.root, 'rev-parse', 'HEAD:docs/guide.md'))   // content hash == git blob hash
   await V.logCall(w.h, 'ag1', { tool: 'Read', path: 'test/old.json', outcome: 'ok' }); await V.logCall(w.h, 'ag1', { tool: 'Read', path: '../x', outcome: 'denied' })

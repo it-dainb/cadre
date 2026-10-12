@@ -60,7 +60,7 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
   if (p.state !== 'approved') return p.state === 'integrating' ? 'integration is already running' : `epic is ${p.state}; only an approved epic integrates`
   const open = s.tasks.filter(t => t.state !== 'done' && t.state !== 'cancelled').map(t => t.id)
   if (open.length) return `children still open: ${open.join(', ')}`
-  const gf = await gitFlags(h); if (gf.length) return `git flag ${gf[0]} is open (someone changed a protected ref); /cadre resolve git keep|restore first`
+  const gf = await gitFlags(h); if (gf.length) return `git flag ${gf[0]} is open (someone changed a protected ref); ask the human to keep or restore it in the cadre dialog first`
   let got = false; await h.board.update(b => { got = b.plan?.state === 'approved'; return got ? { ...b, plan: { ...b.plan!, state: 'integrating' } } : b })
   if (!got) return 'integration is already running'
   const [root, cfg, store] = [await h.cwd(), await cfgOf(h), await storeOf(h)]
@@ -103,7 +103,7 @@ export async function releaseDev(h: Host, want?: string): Promise<string> {
   const s = await h.board.read(), no = (w: string) => `refused: ${w}`
   if (s.plan?.state === 'integrating') return no('an integration is running')
   const gf = await gitFlags(h), bf = [...(s.plan?.flags ?? []), ...s.tasks.flatMap(t => t.flags)].find(f => BLOCKING.test(f))
-  if (gf.length || bf) return no(`flag ${gf[0] ?? bf} is open; /cadre resolve it first`)
+  if (gf.length || bf) return no(`flag ${gf[0] ?? bf} is open; ask the human to resolve it in the cadre dialog first`)
   if (want && !/^\d+\.\d+\.\d+$/.test(want)) return no(`version "${want}": expected x.y.z`)
   const [root, cfg] = [await h.cwd(), await cfgOf(h)], dev = cfg.branches.dev
   const main = cfg.branches.main || ((await exists(h.run, root, 'main')) ? 'main' : 'master')

@@ -1,5 +1,6 @@
 // Roster (DESIGN 4.1): 4 agent types, shipped as plugin agent files agents/<role>.md (A28: per-agent experimental.cacheTtl; their body = PROMPTS, tools = TOOLS, test-pinned).
 // The `tools` list is also the role's L1 allowlist (default-deny by name). Grep/Glob are absent in 2.1.295 (S45): no search tools; briefs name paths.
+import { modelText } from '../core/say'
 import type { Role } from '../types'
 import { PROMPTS } from './prompts'
 
@@ -26,7 +27,7 @@ export interface Roles { [k: string]: { tier?: string; effort?: string } }
 // A role's spec as config resolves it (init stage 6 renders one per role); model/effort come from config roles + models (tier -> alias), 'default' effort left out.
 export function spec(role: Role, cfg: { roles: Roles; models: Record<string, string>; mcpAllow: readonly string[] }) {
   const r = cfg.roles[role] ?? {}
-  return { name: role, description: DESC[role], prompt: PROMPTS[role], tools: allowlist(role, cfg.mcpAllow), ...(r.tier ? { model: cfg.models[r.tier] ?? r.tier } : {}), ...(r.effort && r.effort !== 'default' ? { effort: r.effort } : {}) }
+  return { name: role, description: DESC[role], prompt: modelText('agent-brief', PROMPTS[role]), tools: allowlist(role, cfg.mcpAllow), ...(r.tier ? { model: cfg.models[r.tier] ?? r.tier } : {}), ...(r.effort && r.effort !== 'default' ? { effort: r.effort } : {}) }
 }
 // The plugin agent file agents/<role>.md, byte for byte (tests compare it with the shipped file). No model: admission sets it per spawn from config.
 // 1h cache TTL for worker/tester/reviewer (A28, S44); the one-shot explorer keeps the 5 min default and low effort.

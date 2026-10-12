@@ -1,5 +1,6 @@
 // Model-visible text built by the mod (DESIGN 4.2-4.6, 8.2): role briefs (static header first), per-agent deltas, main's diff-gated context line,
 // reminder suppression, resume card, id matcher. Caps from 1.4: header 1.5 KB, spec 4 KB, context 3 KB, notes 500, delta 1 KB, line 1 KB, card 3 KB.
+import { modelText } from './say'
 import type { Hook, Host, Role } from '../types'
 import { scoped } from '../commands/init'
 import { modelView, viewHash } from './board'
@@ -82,7 +83,7 @@ export const context: Hook = async (h, e, next) => {
   const [s, sc] = [await h.board.read(), await h.secret.read()], card = sc.ctx?.card, key = viewHash(s)
   if (!card && (!s.plan || sc.ctx?.key === key)) return next(e)
   await h.secret.update(x => ({ ...x, ctx: { key } }))
-  return next({ ...e, context: [...(e.context ?? []), ...(card ? [card] : []), ...(s.plan ? [contextLine(modelView(s))] : [])] })
+  return next({ ...e, context: [...(e.context ?? []), ...(card ? [modelText('context', card)] : []), ...(s.plan ? [modelText('context', contextLine(modelView(s)))] : [])] })
 }
 // prompt.attachment: native todo/task reminders are noise next to the board line (BT-23, PC-11)
 export const attachment: Hook = (h, e, next) => (e.type === 'todo_reminder' || e.type === 'task_reminder' ? { text: null } : next(e))

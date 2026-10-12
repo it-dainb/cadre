@@ -1,5 +1,6 @@
 // The only file that calls on() or touches $. Registration ORDER is the chain order (DESIGN 2.2, outermost first).
 // Each slot calls a function in its owner module with a per-hook Host (never a module-level Host, L3). Gating registrations carry a fail-closed .catch (13.3).
+import { modelText } from '../core/say'
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 import type { Host } from '../types'
@@ -95,8 +96,8 @@ function host($): Host {
   h.taskStore = async () => wire.store(h, await h.config!(), await h.cwd())
   h.answer = (id, key, hash, vals) => decide(h, id, key, hash, vals)
   h.ask = async (q, o) => String(await $.ui.ask(q, o))
-  h.sendTo = (agentId, text) => $.session.send({ to: { agentId }, text })   // core/reuse.drain only
-  h.submit = text => $.prompt.submit({ text })   // drive, from #1 after next only
+  h.sendTo = (agentId, text) => $.session.send({ to: { agentId }, text: modelText('nudge', text) })   // core/reuse.drain only
+  h.submit = text => $.prompt.submit({ text: modelText('brief', text) })   // drive, from #1 after next only
   h.usage = () => $.session.usage()
   h.version = async () => String((await $.session.version()).version)
   h.root = async () => $.plugin.root
@@ -106,13 +107,13 @@ function host($): Host {
 // Fail-closed handlers (G1, G2). On re-entry every $ rejects, so decide from the event alone.
 const FAIL = 'refused: temporary failure; retry once, then ask the human'
 const why = ($, next) => { if (next.error && next.error.kind !== 're-entry') void $.ui.log(`cadre: hook failed: ${next.error.kind}: ${next.error.message}`); return FAIL }   // the engine redacts the error in its own log: keep the reason in ours
-function denyCall($, e, next) { return next.error?.kind === 're-entry' ? (judge(e) ? { deny: judge(e) } : next(e)) : next.called ? next(e) : { deny: why($, next) } }
-function denySpawn($, e, next) { return next.error?.kind === 're-entry' ? (judgeSpawn(e) ? { deny: judgeSpawn(e) } : next(e)) : next.called ? next(e) : { deny: why($, next) } }
-function denyCheck($, e, next) { return next.error?.kind === 're-entry' || !next.called ? { decision: 'deny', reason: why($, next) } : next(e) }
+function denyCall($, e, next) { return next.error?.kind === 're-entry' ? (judge(e) ? { deny: modelText('deny', judge(e)!) } : next(e)) : next.called ? next(e) : { deny: modelText('deny', why($, next)) } }
+function denySpawn($, e, next) { return next.error?.kind === 're-entry' ? (judgeSpawn(e) ? { deny: modelText('deny', judgeSpawn(e)!) } : next(e)) : next.called ? next(e) : { deny: modelText('deny', why($, next)) } }
+function denyCheck($, e, next) { return next.error?.kind === 're-entry' || !next.called ? { decision: 'deny', reason: modelText('deny', why($, next)) } : next(e) }
 // prompt.submit / session.compact only add context or a summary: on failure fall back to the engine's own (deliberate fail-open). /cadre never acts on failure.
 function passOn($, e, next) { return next(e) }
 function denyCmd($, e, next) { return next.called ? next(e) : { text: FAIL } }
-function denySend($, e, next) { return next.error?.kind === 're-entry' ? next(e) : next.called ? next(e) : { isDelivered: false, reason: FAIL } }
+function denySend($, e, next) { return next.error?.kind === 're-entry' ? next(e) : next.called ? next(e) : { isDelivered: false, reason: modelText('deny', FAIL) } }
 
 // Dev only (docs/dev/ui-dev.md): seed the atoms from a scenario dump (`scripts/ui-dev.mjs --dump`) so the pane shows it in real Claude Code. Inert unless CADRE_DEV is 1.
 async function seed($) {

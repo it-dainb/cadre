@@ -144,9 +144,9 @@ async function project(h: Host, cfg: Config): Promise<Row[]> {
   const now = await h.now(), stale = tasks.filter(t => t.assignee && ['active', 'review', 'blocked'].includes(t.category) && !leaseLive(t, now)).map(t => t.id), bound = Object.keys(await h.bind.read()).filter(k => !k.startsWith('~')).length
   rows.push(stale.length ? ['warn', `expired leases: ${stale.join(', ')}`, 'main spawns them again; they rebind'] : ['ok', `no stale leases; ${bound} agent(s) bound`])
   const b = await h.board.read(), fl = b.tasks.filter(t => t.flags.length)
-  rows.push(fl.length ? ['warn', `open flags: ${fl.map(t => `${t.id} ${t.flags.join('+')}`).join(', ')}`, '/cadre resolve <id> keep|accept|reject|cancel'] : ['ok', 'no open flags'])
+  rows.push(fl.length ? ['warn', `open flags: ${fl.map(t => `${t.id} ${t.flags.join('+')}`).join(', ')}`, 'press 1: answer it in the dialog'] : ['ok', 'no open flags'])
   const q = (await h.run(['git', '-C', root, 'for-each-ref', 'refs/cadre/quarantine', '--format=%(refname)'])).stdout.split('\n').filter(Boolean).length
-  rows.push(q ? ['warn', `${q} quarantined ref(s)`, '/cadre resolve git keep|restore'] : ['ok', 'no quarantined refs'])
+  rows.push(q ? ['warn', `${q} quarantined ref(s)`, 'press 1: keep or restore in the dialog'] : ['ok', 'no quarantined refs'])
   const rq = ((await h.store.get(await qk(h))) as unknown[] | undefined)?.length ?? 0
   rows.push(rq ? ['warn', `${rq} resume(s) queued`, 'they are sent at the next turn'] : ['ok', 'no queued resumes'])
   for (const [t, v] of Object.entries(cfg.sync)) {

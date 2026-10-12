@@ -1,6 +1,7 @@
 // Agent-run setup and init (ADR 0010). `/cadre setup|init` hands MAIN one short brief that points at a guide; Claude does the work with visible tool calls under a
 // scoped maintenance lease (policy/guards). cadre only CHECKS: at every main turn end while a run is active it re-runs the checks, redraws the checklist decision and,
 // when something Claude owns still fails, sends ONE follow-up naming it (at most 3 per run; then the decision shows what is left and Retry).
+import { modelText } from '../core/say'
 import type { Host, Secret } from '../types'
 import { fnv1a64 } from '../core/board'
 import { ask, settle } from '../core/decide'
@@ -23,7 +24,7 @@ const end = (h: Host) => h.secret.update(({ run: _r, ...s }) => s)
 const send = (h: Host, brief: string) => h.secret.update(s => (s.run ? { ...s, run: { ...s.run, brief } } : s))
 export async function pump(h: Host): Promise<void> {
   let text: string | undefined; await h.secret.update(s => { text = s.run?.brief; return text ? { ...s, run: { ...s.run!, brief: undefined } } : s })
-  if (text) await h.submit?.(text).catch((e: Error) => h.log(`cadre: could not hand the step to Claude: ${e.message.slice(0, 120)}`))
+  if (text) await h.submit?.(modelText('brief', text)).catch((e: Error) => h.log(`cadre: could not hand the step to Claude: ${e.message.slice(0, 120)}`))
   await sendBrief(h)   // a `/cadre <goal>` brief (core/lanes)
 }
 

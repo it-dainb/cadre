@@ -1,6 +1,7 @@
 // One output contract for every agent (ADR 0010): a marker-less explorer ("ask") has no task, so it is tracked here, keyed by its agentId, from admission on.
 // Its answer comes only through report (validated); a stop without one is nudged twice through the queued resume, then auto-reported from its last text (flag
 // auto-reported). Main never gets the agent's prose: the Agent result (foreground) and the task-notification (background) become the ask card.
+import { modelText } from './say'
 import type { Host } from '../types'
 import { queueResume } from './reuse'
 
@@ -33,7 +34,7 @@ export async function askStopped(h: Host, e: { agentId: string; answer?: string;
   if (a.answer === undefined && e.reason === 'answer' && a.k < 2) { await put(h, e.agentId, x => ({ ...x, k: x.k + 1 })); return queueResume(h, { agentId: e.agentId, taskId: a.id, text: NUDGE }) }
   if (a.answer === undefined) await put(h, e.agentId, x => ({ ...x, answer: one(String(e.answer ?? ''), 2000) || '(no answer)', cites: 0, auto: true }))
   const b = (await askOf(h, e.agentId))!
-  if (b.told === false) { await put(h, e.agentId, x => ({ ...x, told: true })); await h.submit?.(`Result of ${b.id}: ${askCard(b).replaceAll('\n', ' · ')}`).catch(() => {}) }
+  if (b.told === false) { await put(h, e.agentId, x => ({ ...x, told: true })); await h.submit?.(modelText('card', `Result of ${b.id}: ${askCard(b).replaceAll('\n', ' · ')}`)).catch(() => {}) }
 }
 // the card replaced a hand-back: told=true when it carried the answer, false when it said "finishing" (then askStopped sends the answer once)
 export const shown = (h: Host, agentId: string, a: Ask) => put(h, agentId, x => ({ ...x, told: a.answer !== undefined }))

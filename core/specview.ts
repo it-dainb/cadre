@@ -1,5 +1,6 @@
 // Spec view (DESIGN 3.5.1, 3.5.3): the tester's tree, built by COPYING blobs (never symlinks) at the base, with a content hash per file and a call log for the audit.
 // Paths in the view are package-relative: view/<p> <-> <wt>/<pkg.root>/<p>. Everything runs through h.run / h.write (ADR 0003).
+import { modelText } from './say'
 import type { Host } from '../types'
 import type { Task } from '../task-management/store'
 import { StoreError } from '../task-management/store'
@@ -38,7 +39,7 @@ export async function hashes(h: Host, dir: string): Promise<Record<string, strin
 // Build `<wtRoot>/<repoKey>.views/<id>/` (outside the worker allowWrite). Source = the spec commit when a spec exists (rebuild after accept), else the base. Returns the view path.
 export async function buildView(h: Host, d: Deps, task: Task, wt: string): Promise<string> {
   const pkg = pkgOf(d, task), root = rootOf(pkg), paths = pkg?.tdd?.paths ?? []
-  if (!paths.length) throw new StoreError('Invalid', `${task.id}: its package has no tdd.paths; run /cadre init 4`)
+  if (!paths.length) throw new StoreError('Invalid', `${task.id}: its package has no test paths (tdd.paths); ask the human to run /cadre init`)
   const view = `${d.wtRoot}/${d.key}.views/${task.id}`, scratch = `${d.wtRoot}/${d.key}.scratch/${task.id}-view`, src = task.meta['cadre.specCommit'] ?? task.meta['cadre.base'] ?? (await G.tip(h.run, wt, 'HEAD'))
   await sh(h, ['rm', '-rf', view, scratch]); await must(h, ['mkdir', '-p', view, `${scratch}/x`, `${scratch}/stubs`])
   const want = [...paths, ...(pkg?.viewInclude ?? [])], take: string[] = []
@@ -52,10 +53,12 @@ export async function buildView(h: Host, d: Deps, task: Task, wt: string): Promi
     await G.git(h.run, wt, ['archive', '--format=tar', '-o', `${scratch}/v.tar`, src, '--', ...take]); await must(h, ['tar', '-xf', `${scratch}/v.tar`, '-C', `${scratch}/x`])
     await must(h, ['cp', '-a', `${scratch}/x/${root ? `${root}/` : ''}.`, view])
   }
-  await h.write(`${view}/FILES.md`, `# Files in this view\n\nThe agent tools cannot list directories: Read these for the test conventions (runner, import style, naming).\n\n${take.map(p => `- ${root ? p.slice(root.length + 1) : p}`).join('\n') || '(none)'}\n`)
-  const bug = task.acceptance?.trim() ? '' : `No scenarios: a lite bug fix (ADR 0011). Write a test that reproduces this bug, so it fails now and passes once fixed:\n\n${task.title}\n${task.description ?? ''}`   // live 0.8.0: an empty spec left the tester nothing to make red
-  await h.write(`${view}/SCENARIOS.md`, `# Scenarios ${task.id}\n\n${task.acceptance?.trim() ? task.acceptance : bug}\n`)
-  await h.write(`${view}/INTERFACE.md`, `# Interface ${task.id}\n\n${renderContract(task.design)}\n\n\`\`\`json\n${task.design ?? ''}\n\`\`\`\n`)
+  // FILES.md: the agent's tools cannot list directories, so the view names its files. SCENARIOS.md: a lite bug fix (ADR 0011) has no scenarios; its
+  // title and description are the bug to reproduce (live 0.8.0: an empty spec left the tester nothing to make red). Dev reasons stay here, never in the text.
+  await h.write(`${view}/FILES.md`, modelText('agent-file', `# Files in this view\n\nRead these files for this project's test conventions (runner, import style, naming):\n\n${take.map(p => `- ${root ? p.slice(root.length + 1) : p}`).join('\n') || '(none)'}\n`))
+  const bug = `No scenarios were written for this fix. Write one test that reproduces the bug described below: it must fail now and pass once the bug is fixed.\n\n${task.title}\n${task.description ?? ''}`
+  await h.write(`${view}/SCENARIOS.md`, modelText('agent-file', `# Scenarios ${task.id}\n\n${task.acceptance?.trim() ? task.acceptance : bug}\n`))
+  await h.write(`${view}/INTERFACE.md`, modelText('agent-file', `# Interface ${task.id}\n\n${renderContract(task.design)}\n\n\`\`\`json\n${task.design ?? ''}\n\`\`\`\n`))
   if (pkg?.tdd?.stubs) {   // generator output only, run in the offline jail; CADRE_OUT is where it writes
     const mode = await modeOf(h, d), out = mode === 'none' ? `${scratch}/stubs` : '/tmp/stubs', cwd = root ? `${wt}/${root}` : wt
     const r = await G.checkRun(h.run, mode, { wt, scratch, pkgRoot: cwd, argv: pkg.tdd.stubs, env: { CADRE_OUT: out } })

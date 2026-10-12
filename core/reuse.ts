@@ -1,5 +1,6 @@
 // The one sender (DESIGN 2.2, 4.4, 7, 8): resume queue per sessionId + drain (#1), resume vs fresh, checkpoints, cost ledger (turn.step), compaction answer, prompt.submit.
 // Rehydrate/start/prune live in core/session, drive and the /goal observer in core/drive.
+import { modelText } from './say'
 import { askCard, askOf, shown } from './asks'
 import type { Binding, Hook, Host } from '../types'
 import type { TaskStore } from '../task-management/store'
@@ -43,11 +44,11 @@ async function sendMine(h: Host, store: TaskStore | undefined, cfg: any) {
     const ask = r.taskId.startsWith('ask-') && (await askOf(h, r.agentId))   // a marker-less explorer's nudge (core/asks): no task, no lease
     if (!ask && store && !leaseLive(await store.get(r.taskId), now)) continue   // stale lease: that agent is gone; the rebind handoff replaces it (8.4)
     if (!ask && (!b || b.retired)) continue
-    if (ask) { const res = await h.sendTo!(r.agentId, r.text); if (!res.isDelivered) h.log(`cadre: ${ask.id} could not be resumed: ${res.reason ?? 'not delivered'}`); continue }
+    if (ask) { const res = await h.sendTo!(r.agentId, modelText('nudge', r.text)); if (!res.isDelivered) h.log(`cadre: ${ask.id} could not be resumed: ${res.reason ?? 'not delivered'}`); continue }
     if (stale(b, now, cfg)) { await retire(h, r.agentId, b, `context ${ctxPct(b)}%`); continue }
     const delta = await drainDelta(h, r.agentId)
     await h.ui.update(u => ({ ...u, drainTo: r.agentId }))   // marks cadre's own send so policy/guards.send does not isolate it (reviewer findings quote other ids)
-    const res = await h.sendTo!(r.agentId, delta ? `${r.text}\n\n${delta}` : r.text).finally(() => h.ui.update(u => ({ ...u, drainTo: undefined })))
+    const res = await h.sendTo!(r.agentId, modelText('nudge', delta ? `${r.text}\n\n${delta}` : r.text)).finally(() => h.ui.update(u => ({ ...u, drainTo: undefined })))
     if (!res.isDelivered) await retire(h, r.agentId, b, res.reason ?? 'not delivered')
   }
 }
@@ -100,7 +101,7 @@ export const compact: Hook = async (h, e, next) => {
   const s = await h.board.read()
   if (e.agentId) {
     const b = (await h.bind.read())[e.agentId], t = b && s.tasks.find(x => x.id === b.taskId)
-    return next(t ? { ...e, instructions: [e.instructions, `Keep: task ${t.id} (${t.step}), the spec commit, the last check result, open findings.`].filter(Boolean).join('\n') } : e)
+    return next(t ? { ...e, instructions: [e.instructions, modelText('context', `Keep: task ${t.id} (${t.step}), the spec commit, the last check result, open findings.`)].filter(Boolean).join('\n') } : e)
   }
   if (!s.plan) return next(e)
   const card = (await cardOf(h, s, await storeOf(h).catch(() => undefined))).text, keep: any[] = []
@@ -108,7 +109,7 @@ export const compact: Hook = async (h, e, next) => {
   for (const m of [...(e.messages ?? [])].reverse()) { n += String(m.text ?? '').length; if (keep.length >= 6 || n > 8000) break; keep.unshift(m) }
   while (keep.length && (keep[0].role !== 'user' || keep[0].toolResults?.length)) keep.shift()   // never start on an orphan tool result
   await h.secret.update(x => ({ ...x, ctx: { key: viewHash(s) } }))   // the card counts as the sent context: delivered once
-  return { messages: [{ role: 'user', text: card, toolUses: [] }, ...keep] }
+  return { messages: [{ role: 'user', text: modelText('context', card), toolUses: [] }, ...keep] }
 }
 
 // ---- #8 prompt.submit (main): lazy rehydrate, /goal sniff, task-notification -> result card (S40) ----
@@ -120,12 +121,12 @@ export const submit: Hook = async (h, e, next) => {
   if (e.origin?.kind !== 'task-notification') return next(e)
   const agent = /<task-id>([^<]+)<\/task-id>/.exec(e.text ?? '')?.[1], tu = /<tool-use-id>([^<]+)<\/tool-use-id>/.exec(e.text ?? '')?.[1]
   const ask = await askOf(h, agent)   // a marker-less explorer: its card (once with the answer), never its text
-  if (ask) { await shown(h, agent!, ask); return next({ ...e, text: ask.told ? `Agent ${ask.id} finished; its answer was already given (TaskGet ${ask.id}).` : `Result of ${ask.id}: ${askCard(ask).replaceAll('\n', ' · ')}` }) }
+  if (ask) { await shown(h, agent!, ask); return next({ ...e, text: modelText('card', ask.told ? `Agent ${ask.id} finished; its answer was already given (TaskGet ${ask.id}).` : `Result of ${ask.id}: ${askCard(ask).replaceAll('\n', ' · ')}`) }) }
   const taskId = agent && ((await h.bind.read())[agent]?.taskId ?? Object.values((await h.events.read()).epics).flat().reverse().find(x => x.type === 'agent.bound' && x.data.agentId === agent)?.taskId)
   const t = taskId && (await h.board.read()).tasks.find(x => x.id === taskId)
   if (!t || !t.card) return next(e)   // no card yet: the notification passes as is; the card rides the next context line
   if (tu) await UI.mapCard?.(h, tu, t.id)
-  return next({ ...e, text: `Result of agent ${agent}: ${t.card.replace('\n', ' · ')}` })
+  return next({ ...e, text: modelText('card', `Result of agent ${agent}: ${t.card.replace('\n', ' · ')}`) })
 }
 
 // ---- #1 turn.complete: after next, send this session's resumes; agents: checkpoint + ledger; main: usage mirror, pointer, compact hint, drive ----

@@ -1,5 +1,6 @@
 // Lanes (ADR 0011): ask | lite | full. `/cadre <goal>` queues one brief (guides/goal.md, inlined: main cannot read the plugin folder); main picks the lane.
 // Here: the deterministic override (pure), the plan's lane on the board + its tasks' `cadre.lane` (pipeline, completeness), the card's lane line and [l] lane.
+import { modelText } from './say'
 import type { DecisionOption, Host, Plan } from '../types'
 import type { Task, TaskStore } from '../task-management/store'
 import { defaults, kindOf, type TypeRegistry } from '../task-management/registry'
@@ -71,7 +72,7 @@ export async function changeLane(h: Host, store: TaskStore, reg: TypeRegistry, p
 export const queueBrief = (h: Host, text: string) => h.ui.update(u => ({ ...u, goal: text }))
 export async function sendBrief(h: Host): Promise<void> {
   let text: string | undefined; await h.ui.update(u => { text = u.goal as string | undefined; if (!text) return u; const { goal: _g, ...r } = u; return r })
-  if (text) await h.submit?.(text).catch((e: Error) => h.log(`cadre: could not hand the goal to Claude: ${e.message.slice(0, 120)}`))
+  if (text) await h.submit?.(modelText('brief', text)).catch((e: Error) => h.log(`cadre: could not hand the goal to Claude: ${e.message.slice(0, 120)}`))
 }
 // `/cadre <goal>` (commands/cadre, human origin, active repo): the guide inlined after the goal
 export async function goal(h: Host, text: string): Promise<string> {

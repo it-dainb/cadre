@@ -1,5 +1,6 @@
 // Native Task* for main (DESIGN 5.1): `{result}` answers schema-exact per BTO §4 (nothing in core runs: no zod, no panel, no TaskCreated hooks),
 // drafts through TaskStore, field mapping, deps, frozen approved fields, TaskList/TaskGet from the model view. Main only; subagents never see Task*.
+import { modelData, modelText } from '../core/say'
 import { askById, askTask } from '../core/asks'
 import type { Hook, Host } from '../types'
 import type { Task, TaskStore } from '../task-management/store'
@@ -32,7 +33,7 @@ export const LIFECYCLE: Partial<Record<'completed' | 'pending' | 'deleted' | 'de
 
 const str = (v: unknown): v is string => typeof v === 'string' && v.trim() !== ''
 const ids = (v: unknown): v is string[] => Array.isArray(v) && v.every(x => typeof x === 'string')
-const withCtx = <T>(result: T, ...ctx: string[]) => { const context = ctx.filter(Boolean); return context.length ? { result, context } : { result } }
+const withCtx = <T>(result: T, ...ctx: string[]) => { const context = ctx.filter(Boolean).map(c => modelText('context', c)); return context.length ? { result: modelData('tool-result', result), context } : { result: modelData('tool-result', result) } }
 
 // metadata -> the store's fields. null clears: '' for text/meta.
 function fieldsOf(m: Record<string, any>): { patch: Parameters<TaskStore['update']>[1]; meta: Record<string, string>; names: string[] } {
@@ -51,14 +52,14 @@ const fail = (e: unknown): string => (e instanceof StoreError ? `${e.code}: ${e.
 
 async function create(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
   const m = e.metadata ?? {}, key = `create:${e.subject}`
-  if (!str(e.subject) || typeof e.description !== 'string') return { deny: 'TaskCreate needs a subject and a description (strings); fields go in metadata' }
-  if (await capped(h, key)) return { deny: await refuse(h, key, 'draft refused') }
+  if (!str(e.subject) || typeof e.description !== 'string') return { deny: modelText('deny', 'TaskCreate needs a subject and a description (strings); fields go in metadata') }
+  if (await capped(h, key)) return { deny: modelText('deny', await refuse(h, key, 'draft refused')) }
   const err = typeof m === 'object' && m && !Array.isArray(m) ? validateFields(m, reg) : 'metadata: expected an object'
-  if (err) return { deny: await refuse(h, key, err) }
+  if (err) return { deny: modelText('deny', await refuse(h, key, err)) }
   await clearRetries(h, key)
   const s = await h.board.read()
   if (m.kind) {
-    if (s.plan && !['done-on-dev', 'released'].includes(s.plan.state)) return { deny: `plan ${s.plan.id} is still ${s.plan.state}: ask the human to approve or reject it first` }
+    if (s.plan && !['done-on-dev', 'released'].includes(s.plan.state)) return { deny: modelText('deny', `plan ${s.plan.id} is still ${s.plan.state}: ask the human to approve or reject it first`) }
     const prefix = (await cfgOf(h)).branches.epicPrefix, id = await store.createEpic(e.subject, e.description), mission = m.kind === 'mission', name = mission ? 'mission' : slug(e.subject)
     if (mission) await store.setMeta(id, { 'cadre.kind': 'mission' }, 'main')
     else if (m.lane) await store.setMeta(id, { 'cadre.lane': m.lane, ...(m.reason ? { 'cadre.laneReason': m.reason } : {}) }, 'main')   // lanes (ADR 0011): core/lanes.relane reads them
@@ -68,8 +69,8 @@ async function create(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
     const missing = await retouch(h, store, reg)
     return withCtx({ task: { id, subject: e.subject } }, mission || lite ? '' : planRules(reg), missingLine(missing))
   }
-  if (!s.epic || !s.plan) return { deny: 'no plan yet: first TaskCreate with metadata {"kind":"plan"}' }
-  if (s.plan.slug === 'mission') return { deny: 'a mission draft takes no tasks; once it is approved, start a plan' }
+  if (!s.epic || !s.plan) return { deny: modelText('deny', 'no plan yet: first TaskCreate with metadata {"kind":"plan"}') }
+  if (s.plan.slug === 'mission') return { deny: modelText('deny', 'a mission draft takes no tasks; once it is approved, start a plan') }
   const f = fieldsOf(m)
   const t = await store.createDraft({ title: e.subject, description: e.description, acceptance: f.patch.acceptance, design: f.patch.design, type: m.type ?? 'feature', parent: s.epic, meta: f.meta })
   return withCtx({ task: { id: t.id, subject: e.subject } }, missingLine(await retouch(h, store, reg)))
@@ -127,21 +128,21 @@ async function update(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
 
 async function list(h: Host) {
   const v = modelView(await h.board.read()), open = (i: string) => !['done', 'cancelled'].includes(v.tasks.find(x => x.id === i)?.state ?? 'done')
-  return { result: { tasks: v.tasks.map(t => ({ id: t.id, subject: subject(t), status: NATIVE[t.state], ...(t.owner ? { owner: t.owner } : {}), blockedBy: t.deps.map(d => d.id).filter(open) })) } }
+  return { result: modelData('tool-result', { tasks: v.tasks.map(t => ({ id: t.id, subject: subject(t), status: NATIVE[t.state], ...(t.owner ? { owner: t.owner } : {}), blockedBy: t.deps.map(d => d.id).filter(open) })) }) }
 }
 async function get(h: Host, store: TaskStore, e: any) {
-  if (String(e.taskId).startsWith('ask-')) { const a = await askById(h, String(e.taskId)); return { result: { task: a ? askTask(a) : null } } }   // a marker-less explorer's answer (core/asks)
-  let t: Task; try { t = await store.get(String(e.taskId)) } catch (x) { if (x instanceof StoreError && x.code === 'NotFound') return { result: { task: null } }; throw x }
+  if (String(e.taskId).startsWith('ask-')) { const a = await askById(h, String(e.taskId)); return { result: modelData('taskget', { task: a ? askTask(a) : null }) } }   // a marker-less explorer's answer (core/asks)
+  let t: Task; try { t = await store.get(String(e.taskId)) } catch (x) { if (x instanceof StoreError && x.code === 'NotFound') return { result: modelData('taskget', { task: null }) }; throw x }
   const v = modelView(await h.board.read()), st = v.tasks.find(x => x.id === t.id), open = (i: string) => !['done', 'cancelled'].includes(v.tasks.find(x => x.id === i)?.state ?? 'done')
-  return { result: { task: { id: t.id, subject: st ? subject(st) : t.title, description: taskText(t, st), status: NATIVE[t.category], blocks: v.tasks.filter(x => x.deps.some(d => d.id === t.id)).map(x => x.id), blockedBy: t.deps.filter(d => d.type !== 'discovered-from' && d.type !== 'related' && d.type !== 'parent-child').map(d => d.id).filter(open) } } }
+  return { result: modelData('taskget', { task: { id: t.id, subject: st ? subject(st) : t.title, description: taskText(t, st), status: NATIVE[t.category], blocks: v.tasks.filter(x => x.deps.some(d => d.id === t.id)).map(x => x.id), blockedBy: t.deps.filter(d => d.type !== 'discovered-from' && d.type !== 'related' && d.type !== 'parent-child').map(d => d.id).filter(open) } }) }
 }
 
 // Chained inside slot #5, after the guards: Task* tool.call answers for main. Anything else passes through.
 export const answer: Hook = async (h, e, next) => {
   if (e.agentId || !['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet'].includes(e.tool)) return next(e)
   let store: TaskStore, reg: TypeRegistry
-  try { store = await storeOf(h); reg = await registryOf(h) } catch (x) { return { deny: `task board unavailable (${fail(x)}); retry, or ask the human` } }
-  try { return e.tool === 'TaskCreate' ? await create(h, store, reg, e) : e.tool === 'TaskUpdate' ? await update(h, store, reg, e) : e.tool === 'TaskList' ? await list(h) : await get(h, store, e) } catch (x) { return { deny: `${e.tool} failed (${fail(x)}); retry, or ask the human` } }
+  try { store = await storeOf(h); reg = await registryOf(h) } catch (x) { return { deny: modelText('deny', `task board unavailable (${fail(x)}); retry, or ask the human`) } }
+  try { return e.tool === 'TaskCreate' ? await create(h, store, reg, e) : e.tool === 'TaskUpdate' ? await update(h, store, reg, e) : e.tool === 'TaskList' ? await list(h) : await get(h, store, e) } catch (x) { return { deny: modelText('deny', `${e.tool} failed (${fail(x)}); retry, or ask the human`) } }
 }
 
 // tool.describe: isDeferred:false (TP-16) and tightened descriptions (TP-15). Byte-stable: no dates, ids or counters.
