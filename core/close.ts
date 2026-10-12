@@ -293,9 +293,9 @@ async function decide(h: Host, d: Deps, id: string, text: string): Promise<strin
   const y = yoloOn((await h.board.read()).drive)
   if ((await d.store.get(id)).meta['cadre.blocked'] === 'spec_change') {   // yolo: main accepts or rejects it, through the same path as the dialog (recorded)
     if (!y) return `${id} awaits a spec change decision: the human accepts or rejects it in the cadre dialog`
-    const m = /^\s*(accept|reject)\w*\b[\s:,.-]*([\s\S]*)$/i.exec(text); if (!m) return `${id}: metadata.decision must start with "accept" or "reject", then the reason`
+    const m = /^\s*(accept|reject)\s*:\s*(\S[\s\S]*)$/i.exec(text); if (!m) return `${id}: metadata.decision must be "accept: <reason>" or "reject: <reason>"`   // the exact word and a colon: "acceptable… reject: …" must never read as accept
     const how = m[1].toLowerCase(), r = await resolveSpec(h, id, how, 'main'); if (!/accepted|rejected/.test(r.text)) return r.text
-    await clear(h, id, 'spec_change'); await decided(h, 'spec', `${id}: spec change ${how}ed: ${m[2].trim() || 'no reason given'}`, id); return null
+    await clear(h, id, 'spec_change'); await decided(h, 'spec', `${id}: spec change ${how}ed: ${m[2].trim()}`, id); return null
   }
   const e = await unblock(h, d, id, y ? `Decision: ${text}` : `Decision from the human: ${text}`, 'blocked')
   if (!e && y) await decided(h, 'question', `${id}: ${text}`, id)

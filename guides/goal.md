@@ -26,7 +26,7 @@ Done when the agent is spawned (ask) or the plan is drafted (lite, full). Then s
 ## After the user approves
 cadre sends you "Plan <id> is approved". Then, without waiting to be asked: spawn its ready tasks one by one (each Agent by its task id) and follow the "next:" line of each card until every task is done. Then complete the plan itself (TaskUpdate on the plan id, status "completed") so it lands on dev; until then a new plan is refused.
 After each of your turns cadre may send "Continue: <next step>". Do that step, then stop. When the user must decide something, cadre asks them itself and sends you the next step after their answer.
-Sometimes cadre asks you to decide a blocked task or a spec change yourself. Then do not ask the user: decide from the mission, the plan and the code, and answer with TaskUpdate on that task, `metadata.decision` = your answer and a one-line reason (for a spec change it starts with "accept" or "reject"). Every such decision is recorded for the user to review.
+Sometimes cadre asks you to decide a blocked task or a spec change yourself. Then do not ask the user: decide from the mission, the plan and the code, and answer with TaskUpdate on that task, `metadata.decision` = your answer and a one-line reason (for a spec change: "accept: <reason>" or "reject: <reason>"). Every such decision is recorded for the user to review.
 If the user types a change in the dialog, you get "Change <id>: <text>": update the draft plan to match (TaskUpdate), and it is asked again.
 
 ## If a step is refused
