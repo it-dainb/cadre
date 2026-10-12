@@ -56,11 +56,10 @@ export function resolve(layers: Layer[]): { config: Config; diagnostics: string[
 
 const parse = (name: string, text: string | null): Layer['value'] => { if (text == null) return undefined; try { return JSON.parse(text) } catch { return `bad json in ${name}` } }
 const bool = (s?: string) => (s === undefined ? undefined : s === '1' || s === 'true')
-// env layer: user-level trust, so it may relax S keys (CADRE_ALLOW_SDK_APPROVAL)
+// env layer: user-level trust, so it may relax S keys (CADRE_STRICTNESS)
 export const envLayer = (e: Record<string, string | undefined>): Record<string, unknown> => ({
   ...(e.CADRE_STRICTNESS ? { strictness: e.CADRE_STRICTNESS } : {}),
   ...(e.CADRE_STORE ? { store: { kind: e.CADRE_STORE } } : {}),
-  ...(e.CADRE_ALLOW_SDK_APPROVAL !== undefined ? { approval: { allowSdk: bool(e.CADRE_ALLOW_SDK_APPROVAL) } } : {}),
   ...(e.CADRE_DISABLE !== undefined ? { disable: bool(e.CADRE_DISABLE) } : {}),
 })
 

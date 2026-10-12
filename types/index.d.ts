@@ -95,7 +95,7 @@ export interface Host {
   board: Cell<Snapshot>; events: Cell<EventRing>; secret: Cell<Secret>
   ui: Cell<Record<string, unknown>>; git: Cell<GitState>; bind: Cell<Record<string, Binding>>
   store: { get(k: string): Promise<unknown>; set(k: string, v: unknown): Promise<void>; del(k: string): Promise<void> }   // $.store: per-user keys only
-  env(): Promise<Record<string, string | undefined>>  // CADRE_STRICTNESS, CADRE_STORE, CADRE_ALLOW_SDK_APPROVAL, CADRE_DISABLE, GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL
+  env(): Promise<Record<string, string | undefined>>  // CADRE_STRICTNESS, CADRE_STORE, CADRE_DISABLE, GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL
   readText(path: string): Promise<string | null>      // null if missing
   log(text: string): void; toast(text: string): void  // local display only
   options: { strictness?: string }                    // plugin.json userConfig

@@ -1,7 +1,7 @@
 // Regression goldens for renders the wireframes do not show (ascii, stubs, band variants); the epic and the approval sheet are asserted against design/artifact/wireframes.json in tests/ui.test.ts. Trailing spaces trimmed; the engine's [-] mark is not drawn by us.
 export const GOLDEN: Record<string, string[]> = {
  "epic stubs|118": [
-  "1: Epic  7: Plan  8: Doctor  ·  p3 · epic/p3-auth-login · 4/8 done · ▶1 ⏸2 ◌1 · [LIVE] 62m",
+  "1: Epic  7: Plan  8: Doctor  9: Settings  ·  p3 · epic/p3-auth-login · 4/8 done · ▶1 ⏸2 ◌1 · [LIVE] 62m",
   "──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
   " ┌────────────────┐     ┏━━━━━━━━━━━━━━━━┓     ┌────────────────┐     ┌────────────────┐  ╭────────────╮ │ SELECTED  a2 · feat      [RUN] ▶",
   " │a1 feat    [OK]✓│     ┃a2 feat   [RUN]▶┃     │a6 feat  [WAIT]⏸│     │a8 docs  [WAIT]⏸│  │  epic/p3   │ │ Session refresh",
@@ -50,7 +50,7 @@ export const GOLDEN: Record<string, string[]> = {
   "[OK] cadre · p3 auth-login · done-on-dev ✓ · ✓✓✓│✓✓│✓◌ 7 tasks · ctx 41% · cache 88% · [WARN] release? v1.4.0"
  ],
  "epic live wide ascii|118": [
-  "1: Epic  7: Plan  8: Doctor  ·  p3 · epic/p3-auth-login · 4/7 done · >1 =1 .1 · [LIVE] 62m",
+  "1: Epic  7: Plan  8: Doctor  9: Settings  ·  p3 · epic/p3-auth-login · 4/7 done · >1 =1 .1 · [LIVE] 62m",
   "----------------------------------------------------------------------------------------------------------------------",
   " +----------------+     +================+     +----------------+  +------------+ | SELECTED  a2 · feat      [RUN] >",
   " |a1 feat    [OK]+|     |a2 feat   [RUN]>|     |a6 feat  [WAIT]=|  |  epic/p3   | | Session refresh",

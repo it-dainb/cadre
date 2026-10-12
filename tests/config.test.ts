@@ -9,7 +9,7 @@ const repo = (value: unknown): Layer => ({ name: 'repo', trust: 'repo', value })
 describe('defaults (DESIGN 12)', () => {
   test('golden values', async () => {
     const d = defaults()
-    expect([d.strictness, d.approval.allowSdk, d.mcpAllow, d.jail, d.effectCheck, d.roles.testerView, d.roles.tdd.author]).toEqual(['strict', false, [], 'auto', 'auto', 'view', 'separate'])
+    expect([d.strictness, d.mcpAllow, d.jail, d.effectCheck, d.roles.testerView, d.roles.tdd.author]).toEqual(['strict', [], 'auto', 'auto', 'view', 'separate'])
     expect([d.store.bin, d.store.timeoutMs, d.store.pollMs, d.drive, d.cost.clearHintPct, d.cost.compactPct]).toEqual(['bd', 45000, 10000, { level: 'epic', maxTurns: 100, maxCostUsd: 20, maxWallMinutes: 240, noProgressTurns: 3 }, 40, 60])
     expect([d.maxParallel, d.maxRows, d.reuse, d.review, d.limits.reportRetries, d.models, d.ui.glyphs, d.branches.dev, d.branches.epicPrefix, d.release.onEpicDone, d.changelog.path])
       .toEqual([3, 6, { maxContextPct: 60, cacheTtlMs: 3_600_000 }, { deepLabels: ['security', 'breaking'], maxRework: 3 }, 3, { fast: 'haiku', standard: 'sonnet', deep: 'opus' }, 'unicode', 'dev', 'epic/', 'propose', 'CHANGELOG.md'])
@@ -21,13 +21,12 @@ describe('defaults (DESIGN 12)', () => {
 
 describe('classes', () => {
   test('S / U / O by longest prefix', async () => {
-    for (const k of ['strictness', 'approval.allowSdk', 'mcpAllow', 'jail', 'jailWritable', 'effectCheck', 'roles.testerView']) expect(classOf(k)).toBe('S')
+    for (const k of ['strictness', 'mcpAllow', 'jail', 'jailWritable', 'effectCheck', 'roles.testerView']) expect(classOf(k)).toBe('S')
     for (const k of ['adapters.pm.command', 'store.bin', 'store.dir', 'store.kind', 'worktrees.root', 'drive.maxTurns', 'cost.prices', 'disable']) expect(classOf(k)).toBe('U')
     for (const k of ['store.timeoutMs', 'store.pollMs', 'changelog.path', 'cost.clearHintPct', 'types', 'packages', 'sync.pm', 'review.maxRework', 'maxParallel', 'ui.glyphs', 'roles.worker.tier', 'roles.tdd.author', 'models.fast']) expect(classOf(k)).toBe('O')
   })
   test('tighten: bool takes only the strict value, enum the stricter, list the intersection', async () => {
-    expect(tighten('approval.allowSdk', false, true)).toBe(false)
-    expect(tighten('approval.allowSdk', true, false)).toBe(false)
+    expect(tighten('jail', 'auto', 'on')).toBe('on')
     expect(tighten('strictness', 'strict', 'advisory')).toBe('strict'); expect(tighten('strictness', 'advisory', 'strict')).toBe('strict')
     expect(tighten('roles.testerView', 'view', 'full')).toBe('view'); expect(tighten('jail', 'auto', 'on')).toBe('on'); expect(tighten('jail', 'on', 'off')).toBe('on')
     expect(tighten('mcpAllow', ['a', 'b'], ['b', 'c'])).toEqual(['b'])
@@ -40,17 +39,17 @@ describe('layers', () => {
     expect(r.config.maxParallel).toBe(7); expect(r.config.ui.glyphs).toBe('ascii'); expect(r.diagnostics).toEqual([])
   })
   test('repo may not relax S keys: ignored with a diagnostic; may tighten', async () => {
-    const r = resolve([user({ strictness: 'advisory', approval: { allowSdk: true }, mcpAllow: ['a', 'b'] }), repo({ strictness: 'strict', approval: { allowSdk: true }, mcpAllow: ['b', 'c'] })])
-    expect(r.config.strictness).toBe('strict'); expect(r.config.approval.allowSdk).toBe(true)   // repo `true` is the relaxation: user's value stands
+    const r = resolve([user({ strictness: 'advisory', mcpAllow: ['a', 'b'] }), repo({ strictness: 'strict', mcpAllow: ['b', 'c'] })])
+    expect(r.config.strictness).toBe('strict')
     expect(r.config.mcpAllow).toEqual(['b'])
     expect(r.diagnostics).toEqual(['repo: mcpAllow: the repo file may only tighten this key'])
-    const d = resolve([repo({ approval: { allowSdk: true } })])   // defaults are strict: the repo cannot relax them
-    expect(d.config.approval.allowSdk).toBe(false)
-    expect(d.diagnostics).toEqual(['repo: approval.allowSdk: the repo file may only tighten this key'])
+    const d = resolve([repo({ strictness: 'advisory' })])   // defaults are strict: the repo cannot relax them
+    expect(d.config.strictness).toBe('strict')
+    expect(d.diagnostics).toEqual(['repo: strictness: the repo file may only tighten this key'])
   })
   test('user layers may relax S keys', async () => {
-    const r = resolve([user({ strictness: 'advisory', approval: { allowSdk: true }, roles: { testerView: 'full' } })])
-    expect([r.config.strictness, r.config.approval.allowSdk, r.config.roles.testerView]).toEqual(['advisory', true, 'full'])
+    const r = resolve([user({ strictness: 'advisory', roles: { testerView: 'full' } })])
+    expect([r.config.strictness, r.config.roles.testerView]).toEqual(['advisory', 'full'])
   })
   test('repo cannot set U keys but can set O siblings (store.timeoutMs vs store.bin)', async () => {
     const r = resolve([repo({ store: { bin: '/evil/bd', timeoutMs: 1000 }, drive: { maxCostUsd: 9999 }, adapters: { x: { command: ['y'] } }, worktrees: { root: '/tmp' }, maxRows: 9 })])
@@ -69,10 +68,10 @@ describe('layers', () => {
     expect(r.diagnostics).toEqual(['home: not an object, skipped', 'home: nope: unknown key', 'home: maxParallel: expected number', 'home: roles.worker: expected an object'])
   })
   test('env layer maps CADRE_* and is user-trust', async () => {
-    expect(envLayer({ CADRE_STRICTNESS: 'advisory', CADRE_STORE: 'memory', CADRE_ALLOW_SDK_APPROVAL: '1', CADRE_DISABLE: 'true' })).toEqual({ strictness: 'advisory', store: { kind: 'memory' }, approval: { allowSdk: true }, disable: true })
+    expect(envLayer({ CADRE_STRICTNESS: 'advisory', CADRE_STORE: 'memory', CADRE_DISABLE: 'true' })).toEqual({ strictness: 'advisory', store: { kind: 'memory' }, disable: true })
     expect(envLayer({})).toEqual({})
-    const r = resolve([repo({}), user(envLayer({ CADRE_STORE: 'memory', CADRE_ALLOW_SDK_APPROVAL: 'true' }), 'env')])
-    expect(r.config.store.kind).toBe('memory'); expect(r.config.approval.allowSdk).toBe(true)
+    const r = resolve([repo({}), user(envLayer({ CADRE_STORE: 'memory' }), 'env')])
+    expect(r.config.store.kind).toBe('memory')
   })
   test('load() reads home file (+ per-repo section), repo file, env and userConfig through the Host', async () => {
     const h = fakeHost({

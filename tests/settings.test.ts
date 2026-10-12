@@ -34,7 +34,7 @@ describe('settings rows (scenario: every layer)', () => {
   })
   for (const w of [60, 120]) test(`golden lines at ${w}`, () => {
     const t = frame(w).join('\n'), s = frame(w, 40).join('\n')
-    expect(t).toContain('SETTINGS 47 keys')
+    expect(t).toContain('SETTINGS 46 keys')
     expect(t).toContain('▸ changelog.path docs/CHANGES.md [repo] e: edit')
     expect(t).toContain('maxParallel 5 [user] edit')
     expect(t).toContain('disable false [default]' + (w >= 100 ? ' user-level only' : '') + ' toggle')

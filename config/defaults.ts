@@ -3,7 +3,7 @@ import { defaults as typeDefaults } from '../task-management/registry'
 
 export type Cls = 'S' | 'U' | 'O'
 export const defaults = () => ({
-  strictness: 'strict', 'approval': { allowSdk: false }, mcpAllow: [] as string[],
+  strictness: 'strict', mcpAllow: [] as string[],
   jail: 'auto', jailWritable: [] as string[], effectCheck: 'auto',
   changelog: { path: 'CHANGELOG.md' },
   roles: {
@@ -30,14 +30,14 @@ export type Config = ReturnType<typeof defaults>
 
 // Longest dotted prefix wins. Anything not listed is O.
 export const CLASS: Record<string, Cls> = {
-  strictness: 'S', approval: 'S', mcpAllow: 'S', jail: 'S', jailWritable: 'S', effectCheck: 'S', 'roles.testerView': 'S',
+  strictness: 'S', mcpAllow: 'S', jail: 'S', jailWritable: 'S', effectCheck: 'S', 'roles.testerView': 'S',
   adapters: 'U', store: 'U', 'store.timeoutMs': 'O', 'store.pollMs': 'O', worktrees: 'U', drive: 'U', 'cost.prices': 'U', disable: 'U',
 }
 // Free-form subtrees: keys under them are not validated against the defaults.
 export const OPEN = ['adapters', 'sync', 'types', 'packages', 'cost.prices']
 // Tighten rule per S key (repo layer): bool -> only the strict value; enum -> the stricter (later) value; list -> intersection.
 export const TIGHTEN: Record<string, ['bool', boolean] | ['enum', ...string[]] | ['list']> = {
-  strictness: ['enum', 'advisory', 'strict'], 'approval.allowSdk': ['bool', false], mcpAllow: ['list'],
+  strictness: ['enum', 'advisory', 'strict'], mcpAllow: ['list'],
   jail: ['enum', 'off', 'auto', 'on'], jailWritable: ['list'], effectCheck: ['enum', 'off', 'auto', 'always'],
   'roles.testerView': ['enum', 'full', 'view'],
 }
