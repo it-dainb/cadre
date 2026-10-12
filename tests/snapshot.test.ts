@@ -51,14 +51,12 @@ describe('views', () => {
 })
 
 describe('no code anywhere in views, events or the read model (D7)', () => {
-  test('code8 and the init code live only in the secret atom', async () => {
+  test('no approval secret exists (ADR 0012); views, model view and events carry no code, nonce or token key', async () => {
     const h = fakeHost()
-    await h.secret.update(() => ({ approval: { planId: 'p3', code8: 'ab12cd34' }, initConfirm: { stage: 1, code: 'ff00ee11' }, nonce: 'n0nce0n0', token: 'tok3n000' }))
     await h.board.update(() => ({ ...EPIC }))
     for (const type of Object.keys(GOLDEN) as EventType[]) await emit(h, type, SAMPLE[type], { taskId: 'a1' })
     const out = JSON.stringify([humanView(await h.board.read()), modelView(await h.board.read()), await h.events.read()])
-    for (const bad of ['ab12cd34', 'ff00ee11', 'n0nce0n0', 'tok3n000', 'code8', 'initConfirm', 'nonce', '"token"']) expect(out.includes(bad)).toBe(false)
-    expect(JSON.stringify(await h.secret.read())).toContain('ab12cd34')   // ...and it IS in the secret atom
+    for (const bad of ['code8', 'initConfirm', 'nonce', '"token"', 'dcode', 'fallback']) expect(out.includes(bad)).toBe(false)
   })
   test('the snapshot type has no secret-bearing key at any depth', async () => {
     const keys = new Set<string>(); const walk = (v: unknown) => { if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) { keys.add(k); walk(x) } }

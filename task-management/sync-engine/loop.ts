@@ -1,11 +1,10 @@
 // Sync tick (DESIGN 11.4), level-triggered and state-based. Called from the one $.clock.every(5000): only bd + adapter processes + $.state, never a submit.
 // Per target: lease + cursor on the control issue (metadata CAS fallback, A30), pull -> merge -> push by hash, heal every 15 min, backoff 30 s -> 5 min.
-// Event-only adapters (`deliver`) ride the same tick; commands they return enter core/dispatch as origin adapter:<name>.
+// Event-only adapters (`deliver`) ride the same tick; commands they return are refused (ADR 0012).
 import type { Host } from '../../types'
-import { canon, fnv1a64, humanView, modelView } from '../../core/board'
+import { canon, fnv1a64, modelView } from '../../core/board'
 import { emit, ofEpic, subscribe } from '../../core/events'
-import { ROUTES, cfgOf, dispatch, initConfirm, initPropose, isHuman, storeOf } from '../../core/dispatch'
-import type { Route } from '../../core/dispatch'
+import { ROUTES, cfgOf, initConfirm, initPropose, storeOf } from '../../core/dispatch'
 import { sessionOf } from '../../core/board'
 import { repoKeyOf, wire } from '../../commands/init'
 import { AdapterError, call } from '../protocol'
@@ -81,24 +80,14 @@ async function cycle(h: Host, cfg: any, target: string, store: TaskStore, force:
   return true
 }
 
-// ---- deliver (events grant) + returned commands ----
-const KNOWN = ['approve', 'reject', 'resolve', 'drive', 'release', 'init', 'config', 'sync']
-const route: Route = async (h, c) => ROUTES[c.cmd] ? ROUTES[c.cmd](h, c) : { text: `/cadre ${c.cmd}: not available` }
-export async function runCommand(h: Host, name: string, a: AdapterCfg, c: any): Promise<string> {
-  const cmd = { schemaVersion: 1 as const, cmd: String(c?.cmd), args: Array.isArray(c?.args) ? c.args.map(String) : [], origin: { kind: 'adapter', name, token: typeof c?.token === 'string' ? c.token : undefined } }
-  if (!KNOWN.includes(cmd.cmd)) return `refused: unknown command ${cmd.cmd}`
-  const why = a.grants?.includes('commands') ? await isHuman(h, cmd.origin) : `adapter ${name} is not granted commands`
-  if (why) return `refused: ${why}`
-  if (cmd.cmd === 'approve' && !cmd.args[0]?.includes('@')) return 'refused: approvals need plan@code8'
-  return (await dispatch(h, cmd, route)).text
-}
+// ---- deliver (events grant): adapters get the view and the events; they can decide nothing (ADR 0012) ----
 // after a ring rebuild (rehydrate): every adapter gets reset:true + a snapshot on its next deliver (2.5)
 export async function resetDelivery(h: Host): Promise<void> { for (const n of Object.keys((await cfgOf(h)).adapters)) { const k = `deliver:${n}`, st = await h.store.get(k); if (st) await h.store.set(k, { ...(st as object), init: false }) } }
 export async function deliver(h: Host, name: string, a: AdapterCfg, force = false): Promise<{ sent: boolean; results: string[] }> {
   const k = `deliver:${name}`, st = ((await h.store.get(k)) as { acked: number; epic?: string; hash?: string; sub?: string[] | null; init?: boolean } | undefined) ?? { acked: 0 }
   const ring = await h.events.read(), b = await h.board.read(), evs = ofEpic(ring, b.epic ?? '')
   if (st.sub === undefined) st.sub = (await call(h, name, a, 'describe')).subscribe ?? null
-  const view = a.grants.includes('commands') ? humanView(b) : modelView(b), hash = fnv1a64(canon(view))
+  const view = modelView(b), hash = fnv1a64(canon(view))
   const have = st.acked === 0 || evs.some(e => e.seq === st.acked), reset = !st.init || st.epic !== (b.epic ?? '') || st.acked > ring.seq || !have && evs.length > 0 && evs[0].seq > st.acked
   const fresh = (reset ? evs : evs.filter(e => e.seq > st.acked)), sub = st.sub
   if (!force && !reset && !fresh.length && hash === st.hash) return { sent: false, results: [] }
@@ -107,7 +96,7 @@ export async function deliver(h: Host, name: string, a: AdapterCfg, force = fals
   const res = await call(h, name, a, 'deliver', { events: sent, snapshot: view, ...(reset ? { reset: true } : {}) })
   if (typeof res?.ack !== 'number') throw new AdapterError('Invalid', `adapter ${name}: deliver must return {ack: seq}`)
   await h.store.set(k, { acked: sent.length ? Math.min(res.ack, top) : top, epic: b.epic ?? '', hash, sub, init: true })
-  const results: string[] = []; for (const c of Array.isArray(res.commands) ? res.commands : []) results.push(await runCommand(h, name, a, c))
+  const results = Array.isArray(res.commands) && res.commands.length ? [`refused: adapter ${name} cannot send commands; decisions are buttons in the pane`] : []   // ADR 0012
   return { sent: true, results }
 }
 
@@ -187,7 +176,7 @@ export async function syncAdd(h: Host, name: string, args: string[] = []): Promi
   try {
     if (args[0] === 'confirm') {
       const p = st.pending; if (!p) return 'sync add: nothing pending'
-      if (!(await initConfirm(h, SYNC_ADD, args[1] ?? ''))) return 'sync add: wrong code (burned); run /cadre sync add again for a new diff'
+      if (!(await initConfirm(h, SYNC_ADD))) return 'sync add: nothing pending; run /cadre sync add again for a new diff'
       const s = await stepOf(h, p.n, name, a, st.d, p.args)
       if (!('lines' in s) || s.lines.join('\n') !== p.text) return 'sync add: the remote state changed since the diff was shown; nothing written; run /cadre sync add again'
       await s.apply(); st.n = p.n + 1; delete st.pending; await h.store.set(k, st)

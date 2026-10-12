@@ -19,7 +19,7 @@ export async function world(o: { env?: Record<string, string>; config?: unknown 
     run: async (argv: readonly string[]) => { calls.push([...argv]); return { exitCode: 0, stdout: 'sha1\n', stderr: '' } },
   }) as Host & { logs: string[]; toasts: string[] }
   const call = (tool: string, input: Record<string, unknown>, agentId?: string) => answer(h, { tool, tool_use_id: 'u', ...(agentId ? { agentId } : {}), ...input }, async () => 'NEXT') as Promise<any>
-  const text = (c: { cmd: string; args: string[]; origin?: any }) => dispatch(h, { schemaVersion: 1, origin: { kind: 'composer' }, ...c }, async () => ({ text: 'routed' }))
+  const text = (c: { cmd: string; args: string[]; origin?: any }) => dispatch(h, { schemaVersion: 1, origin: { kind: 'press' }, ...c }, async () => ({ text: 'routed' }))
   return { h, store, calls, call, text }
 }
 // plan + one complete task; returns ids

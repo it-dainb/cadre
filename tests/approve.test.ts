@@ -2,9 +2,6 @@ import { describe, expect, test } from 'claude-code/testing'
 import '../commands/agentrun'   // registers RUN.recheck (the mission approval re-checks a running init)
 import { FULL, plan, world } from './fixtures/native/world'
 
-const code = async (w: Awaited<ReturnType<typeof world>>) => (await w.h.secret.read()).approval!.code8
-const nonce = async (w: Awaited<ReturnType<typeof world>>) => (await w.h.secret.read()).nonce
-
 describe('approval sheet data (board.sheet, drawn by ui/)', () => {
   test('per draft: type, tdd, changelog, scenarios, contract with status; a changed symbol carries the prior accepted signature', async () => {
     const w = await world(); const { task } = await plan(w)
@@ -17,35 +14,27 @@ describe('approval sheet data (board.sheet, drawn by ui/)', () => {
   })
 })
 
-describe('approve: plan@code8, burn on use, completeness (DESIGN 3.1)', () => {
-  test('a draft change draws a new nonce and code8 (8 hex), held only in cadre.secret', async () => {
+describe('approve: bound to the decision hash, completeness (DESIGN 3.1, ADR 0012)', () => {
+  test('a draft change redraws the plan decision with a new content hash; nothing secret exists', async () => {
     const w = await world(); const { task } = await plan(w)
-    const [n1, c1] = [await nonce(w), await code(w)]
-    expect(c1).toMatch(/^[0-9a-f]{8}$/)
+    const hash = async () => (await w.h.board.read()).decisions!.find(d => d.id.startsWith('plan:'))!.hash
+    const h1 = await hash(); expect(h1).toMatch(/^[0-9a-f]+$/)
     await w.call('TaskUpdate', { taskId: task, subject: 'changed' })
-    expect([await nonce(w) === n1, await code(w) === c1]).toEqual([false, false])
-    expect(JSON.stringify(await w.h.board.read())).not.toContain(await code(w)); expect(JSON.stringify(await w.h.events.read())).not.toContain(await code(w))
+    expect(await hash()).not.toBe(h1); expect(await w.h.secret.read()).not.toHaveProperty('approval')
   })
-  test('token mismatch is refused, nothing changes, and the nonce is redrawn', async () => {
+  test('typed origins cannot approve: composer, sdk, adapter, plugin are refused and nothing changes', async () => {
     const w = await world(); const { plan: p, task } = await plan(w)
-    const [n1, c1] = [await nonce(w), await code(w)]
-    expect(await w.text({ cmd: 'approve', args: [`${p}@deadbeef`] })).toEqual({ text: 'refused: token mismatch: use the code on the band or in the pane' })
+    for (const kind of ['composer', 'sdk', 'adapter', 'plugin', 'bridge']) expect((await w.text({ cmd: 'approve', args: [p], origin: { kind } })).text).toContain('cannot decide')
     expect((await w.store.get(task)).category).toBe('draft'); expect(w.calls).toEqual([])
-    expect([await nonce(w) === n1, await code(w) === c1]).toEqual([false, false])
   })
-  test('burn on use: the accepted code is dead afterwards, and a refused attempt kills the live code', async () => {
+  test('a replay after approval is refused (the decision is gone)', async () => {
     const w = await world(); const { plan: p } = await plan(w)
-    const live = await code(w)
-    await w.text({ cmd: 'approve', args: [`${p}@nope0000`] })       // refused attempt
-    expect((await w.text({ cmd: 'approve', args: [`${p}@${live}`] })).text).toContain('refused: token mismatch')   // the old code no longer matches
-    const fresh = await code(w)
-    expect((await w.text({ cmd: 'approve', args: [`${p}@${fresh}`] })).text).toBe(`Plan ${p} approved: 1 task ready; epic branch epic/${p}-auth-login cut.`)
-    expect((await w.h.secret.read()).approval).toBeUndefined()
-    expect((await w.text({ cmd: 'approve', args: [`${p}@${fresh}`] })).text).toContain('refused')   // replay
+    expect((await w.text({ cmd: 'approve', args: [p] })).text).toBe(`Plan ${p} approved: 1 task ready; epic branch epic/${p}-auth-login cut.`)
+    expect((await w.text({ cmd: 'approve', args: [p] })).text).toContain('refused')
   })
   test('accepted: drafts -> todo through the machine, plan approved, decision record, epic branch cut from dev (first approval only)', async () => {
     const w = await world(); const { plan: p, task } = await plan(w)
-    await w.text({ cmd: 'approve', args: [`${p}@${await code(w)}`] })
+    await w.text({ cmd: 'approve', args: [p] })
     const b = await w.h.board.read()
     expect(b.tasks.find(t => t.id === task)!.state).toBe('todo'); expect(b.plan).toMatchObject({ state: 'approved', approvedAt: expect.any(Number) }); expect(b.approval).toEqual({ planId: null, missing: [] })
     expect((await w.store.get(task)).category).toBe('todo')
@@ -55,34 +44,33 @@ describe('approve: plan@code8, burn on use, completeness (DESIGN 3.1)', () => {
     // a second batch of drafts in the approved plan is approved without a second cut
     w.calls.length = 0
     await w.call('TaskCreate', { subject: 'More', description: '', metadata: FULL })
-    expect((await w.text({ cmd: 'approve', args: [`${p}@${await code(w)}`] })).text).toBe(`Plan ${p} approved: 1 task ready.`)
+    expect((await w.text({ cmd: 'approve', args: [p] })).text).toBe(`Plan ${p} approved: 1 task ready.`)
     expect(w.calls).toEqual([])
   })
-  test('completeness refusal lists exactly what is missing, per task, and burns', async () => {
+  test('completeness refusal lists exactly what is missing, per task', async () => {
     const w = await world(); const p = (await w.call('TaskCreate', { subject: 'P', description: '', metadata: { kind: 'plan' } })).result.task.id
     await w.call('TaskCreate', { subject: 'A', description: '', metadata: { type: 'feature', package: '.' } })
     await w.call('TaskCreate', { subject: 'B', description: '', metadata: { type: 'docs', scenarios: FULL.scenarios, package: '.' } })
     await w.call('TaskCreate', { subject: 'S', description: '', metadata: { type: 'spike' } })   // spikes need nothing
-    const c1 = await code(w)
-    expect(await w.text({ cmd: 'approve', args: [`${p}@${c1}`] })).toEqual({ text: 'refused: incomplete, missing: m-2: scenarios, changelog, interface; m-3: changelog' })
-    expect(await code(w)).not.toBe(c1)
+    expect(await w.text({ cmd: 'approve', args: [p] })).toEqual({ text: 'refused: incomplete, missing: m-2: scenarios, changelog, interface; m-3: changelog' })
     expect((await w.store.list({ parent: p })).every(t => t.category === 'draft')).toBe(true)
     expect((await w.h.board.read()).approval.missing).toEqual(['m-2: scenarios, changelog, interface', 'm-3: changelog'])
   })
   test('an empty plan is not approvable (missing: tasks); a wrong plan id is refused', async () => {
     const w = await world(); const p = (await w.call('TaskCreate', { subject: 'P', description: '', metadata: { kind: 'plan' } })).result.task.id
-    expect((await w.text({ cmd: 'approve', args: [`${p}@${await code(w)}`] })).text).toBe('refused: incomplete, missing: tasks')
-    expect((await w.text({ cmd: 'approve', args: [`p9@${await code(w)}`] })).text).toBe('refused: no draft plan p9')
+    expect((await w.text({ cmd: 'approve', args: [p] })).text).toBe('refused: incomplete, missing: tasks')
+    expect((await w.text({ cmd: 'approve', args: ['p9'] })).text).toBe('refused: no draft plan p9')
   })
-  test('the code covers the drafts: an edit made after the code was shown changes it', async () => {
+  test('the hash covers the drafts: an edit made after the card was drawn refuses the approval and redraws the card', async () => {
     const w = await world(); const { plan: p, task } = await plan(w)
-    const shown = await code(w)
-    await w.store.update(task, { title: 'sneaky' }, 'x')      // draft edited outside Task*: code8 no longer matches the drafts
-    expect((await w.text({ cmd: 'approve', args: [`${p}@${shown}`] })).text).toContain('token mismatch')
+    const shown = (await w.h.board.read()).decisions![0].hash
+    await w.store.update(task, { title: 'sneaky' }, 'x')      // draft edited outside Task*: the card no longer matches the drafts
+    expect((await w.text({ cmd: 'approve', args: [p] })).text).toBe('refused: it changed; review again')
+    expect((await w.h.board.read()).decisions![0].hash).not.toBe(shown)
   })
   test('mission draft: approval records a mission and clears the plan', async () => {
     const w = await world(); const m = (await w.call('TaskCreate', { subject: 'Ship auth', description: 'goal, constraints', metadata: { kind: 'mission' } })).result.task.id
-    expect((await w.text({ cmd: 'approve', args: [`${m}@${await code(w)}`] })).text).toBe('Mission "Ship auth" approved and recorded.')
+    expect((await w.text({ cmd: 'approve', args: [m] })).text).toBe('Mission "Ship auth" approved and recorded.')
     expect(await w.h.board.read()).toMatchObject({ mission: 'Ship auth', plan: null, epic: null })
     expect((await w.store.list({})).some(t => t.type === 'milestone')).toBe(true)
   })
@@ -90,12 +78,12 @@ describe('approve: plan@code8, burn on use, completeness (DESIGN 3.1)', () => {
     const w = await world(); await w.h.secret.update(s => ({ ...s, run: { kind: 'init', at: 0, turns: 0, follow: 0, guide: '/p/guides/init.md' } }))
     const m = (await w.call('TaskCreate', { subject: 'Ship auth', description: 'goal', metadata: { kind: 'mission' } })).result.task.id
     expect((await w.h.board.read()).decisions?.map(d => [d.title, ...d.lines].join('|'))).toEqual(['approve the mission · Ship auth|goal'])   // the card shows the mission, not "0 tasks"
-    const t = (await w.text({ cmd: 'approve', args: [`${m}@${await code(w)}`] })).text
+    const t = (await w.text({ cmd: 'approve', args: [m] })).text
     expect(t).toStartWith('Mission "Ship auth" approved and recorded · init: '); expect(t).not.toContain('\n')
   })
   test('M12: reject on an amended plan reverts the amendment to todo; the approved task is never deleted', async () => {
     const w = await world(); const { plan: p, task } = await plan(w)
-    await w.text({ cmd: 'approve', args: [`${p}@${await code(w)}`] })
+    await w.text({ cmd: 'approve', args: [p] })
     await w.call('TaskUpdate', { taskId: task, metadata: { amend: true }, subject: 'changed' })
     expect((await w.store.get(task)).category).toBe('draft')
     await w.text({ cmd: 'reject', args: [p, 'no'] })

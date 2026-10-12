@@ -29,7 +29,7 @@ async function draw(h: Host, k: Kind, its: Item[], state: 'on' | 'stopped' | 'do
   const n = its.filter(i => i.st === 'ok' || i.st === 'warn').length, human = !its.some(i => i.st === 'fail') && its.some(i => i.st === 'wait')
   const title = state === 'done' ? `${k} · all done` : state === 'stopped' ? `${k} · stopped · ${its.length - n} left` : `${k} · ${n}/${its.length} done · ${human ? 'needs you' : 'Claude is on it'}`
   const lines = [...(note ? [note] : []), ...its.map(i => `${G[i.st]} ${i.name}${i.why ? `: ${i.why}` : ''}`)]
-  await ask(h, { id: `run:${k}`, kind: 'init', title, short: title, lines, hash: fnv1a64(title + lines.join('\n')), tab: 'epic', fallback: `/cadre ${k}`,
+  await ask(h, { id: `run:${k}`, kind: 'init', title, short: title, lines, hash: fnv1a64(title + lines.join('\n')), tab: 'epic',
     options: [...(state === 'stopped' ? [{ key: 'r', label: 'Retry', verb: 'change', run: k }] : []), { key: 'x', label: state === 'done' ? 'Close' : 'Cancel', verb: 'reject', run: `${k} cancel` }] })
 }
 const followUp = async (h: Host, k: Kind, fails: Item[], guide: string) => [
@@ -82,7 +82,7 @@ async function moved(h: Host, r: NonNullable<Secret['run']>): Promise<boolean> {
   await end(h); await h.secret.update(s => ({ ...s, hold: { kind: r.kind, files: Object.fromEntries(changed.map(([p, was]) => [p, was])) } }))
   const lines = ['A settings file changed outside cadre during the run. The run stopped.', ...changed.flatMap(([p, was, now]) => [`${rel(p)}:`, ...jdiff(parse(was), parse(now)).slice(0, 10).map(l => `  ${l}`)]), 'Restore puts back the bytes from before (the changed file is kept as .cadre-changed).']
   await settle(h, `run:${r.kind}`); h.log(`cadre: settings-changed: ${changed.map(c => rel(c[0])).join(', ')}`)
-  await ask(h, { id: 'run:settings', kind: 'flag', title: `settings-changed · ${r.kind} stopped`, short: 'settings changed', lines, hash: fnv1a64(lines.join('\n')), tab: 'epic', crit: true, fallback: `/cadre ${r.kind} restore`,
+  await ask(h, { id: 'run:settings', kind: 'flag', title: `settings-changed · ${r.kind} stopped`, short: 'settings changed', lines, hash: fnv1a64(lines.join('\n')), tab: 'epic', crit: true,
     options: [{ key: 'r', label: 'Restore', verb: 'restore', run: `${r.kind} restore` }, { key: 'k', label: 'Keep', verb: 'keep', run: `${r.kind} keep` }] })
   return true
 }

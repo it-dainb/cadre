@@ -20,16 +20,16 @@ export interface Plan {
   landed?: { dev: string; sha: string; at: number }; released?: { version: string; at: number }
   flags?: string[]   // plan-level flags (integration-failed)
 }
-// A decision the human owes (ADR 0008): ONE record drawn by ONE renderer (ui/card). Carries NO code: `{code}` in run/fallback is filled from Secret.dcode at press / render time.
+// A decision the human owes (ADR 0008): ONE record drawn by ONE renderer (ui/card). Approved only by a press on its Button or the ask dialog, both bound to `hash` (ADR 0012); no typed code.
 // Option keys are hotkeys (one lowercase letter; n and p are the queue's). `run` = a dispatcher command (`<sub> <args>`) run as origin press; `fill` = text loaded into the composer instead.
 export interface DecisionOption { key: string; label: string; verb: string; run?: string; fill?: string }
 export interface Decision {
   id: string; kind: string; title: string; short?: string; lines: string[]; hash: string; options: DecisionOption[]   // hash = content hash: a press bound to an older one is refused
-  fallback?: string; tab?: string; sel?: string; crit?: boolean                                                          // typed fallback (may hold {code}) · pane tab behind the card · task to select · [CRIT] tag
+  tab?: string; sel?: string; crit?: boolean                                                                             // pane tab behind the card · task to select · [CRIT] tag
   fields?: DecisionField[]; error?: string   // text the human types on the card (Input); an option's run gets them where it says {fields} (k=v argv). error: the last submit's refusal, shown on the card
 }
 export interface DecisionField { key: string; label: string; value?: string }   // value = prefill
-// The board snapshot = the read model. Carries NO code8/init code (those live in Secret).
+// The board snapshot = the read model.
 export interface Snapshot {
   schemaVersion: 1; seq: number; repo: string; mission: string | null; epic: string | null
   plan: Plan | null; tasks: SnapTask[]
@@ -54,9 +54,7 @@ export interface CadreEvent {
 export interface EventRing { seq: number; epics: Record<string, CadreEvent[]> }  // 500 per epic; '' = no epic
 
 export interface Secret {
-  approval?: { planId: string; code8: string }; initConfirm?: { stage: number; code: string }
-  dcode?: Record<string, string>                      // decision id -> the code its run/fallback templates need
-  nonce?: string; initNonce?: string; token?: string; adoptTried?: boolean; active?: boolean; root?: string   // root: the main session's cwd, set at session.start
+  adoptTried?: boolean; active?: boolean; root?: string   // root: the main session's cwd, set at session.start
   session?: string                                      // this session's id (core/admission.sessionOf; resume queue key)
   run?: { kind: 'setup' | 'init'; at: number; turns: number; follow: number; guide: string; brief?: string; snap?: Record<string, string | null> }   // an agent-run setup/init (ADR 0010): started at, main turns since, follow-ups sent, the guide main follows (its folder is readable under the lease), a brief waiting to be sent (commands/agentrun.pump)
   hold?: { kind: 'setup' | 'init'; files: Record<string, string | null> }   // settings changed outside cadre during a run: the bytes from before, for [r] Restore (commands/agentrun)
@@ -109,7 +107,8 @@ export interface Host {
   version?(): Promise<string>                           // $.session.version().version: the running Claude Code build (commands/doctor)
   taskStore?(): Promise<any>; config?(): Promise<any>   // the TaskStore (a core/dispatch storeOf) and resolved Config; register.ts wires them (config falls back to env layer + defaults)
   sendTo?(agentId: string, text: string): Promise<{ isDelivered: boolean; reason?: string }>   // $.session.send({to:{agentId}}): core/reuse.drain only (the one sender)
-  press?(id: string, key: string, hash: string): Promise<{ text: string }>   // a Button press on decision `id`, option `key`, drawn with `hash`: stale = refused; else the option's command runs as origin {kind:'press'} (commands/cadre.press; ADR 0008)
+  press?(id: string, key: string, hash: string, origin?: 'press' | 'dialog'): Promise<{ text: string }>   // an answer to decision `id`, option `key`, drawn with `hash`: stale = refused; else the option's command runs as that origin (core/dispatch.answer; ADR 0008, 0012)
+  ask?(question: string, options: string[]): Promise<string>   // $.ui.ask (AskUserQuestion dialog): the answer label; rejects in -p / on dismiss. Only for surfaces with no pane (ADR 0012)
   submit?(text: string): Promise<unknown>; usage?(): Promise<{ context?: { percent?: number }; cost?: { usd: number } }>   // $.prompt.submit (drive, #1 only) · $.session.usage
   root?(): Promise<string>                              // $.plugin.root: the plugin's folder (guides/ for agent-run setup/init, ADR 0010)
 }

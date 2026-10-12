@@ -6,8 +6,8 @@ import { type Cfg, CFG, type View, at } from '../../../ui/model'
 
 export const MIN = 60_000, BASE = 1_000_000
 // what core/dispatch.redraw asks for a plan (same shape), and a made-up kind used to prove the card needs no per-kind code
-export const planDec = (n = 7): Decision => ({ id: 'plan:p3', kind: 'plan', title: `approve plan p3 · ${n} tasks`, short: `approve p3 (${n} tasks)`, tab: 'plan', fallback: '/cadre approve p3@{code}', hash: 'h1', lines: [`${n} tasks`],
-  options: [{ key: 'a', label: 'Approve', verb: 'approve', run: 'approve p3@{code}' }, { key: 'x', label: 'Reject', verb: 'reject', run: 'reject p3 rejected in the pane' }, { key: 'c', label: 'Change', verb: 'change', fill: 'Change p3: ' }] })
+export const planDec = (n = 7): Decision => ({ id: 'plan:p3', kind: 'plan', title: `approve plan p3 · ${n} tasks`, short: `approve p3 (${n} tasks)`, tab: 'plan', hash: 'h1', lines: [`${n} tasks`],
+  options: [{ key: 'a', label: 'Approve', verb: 'approve', run: 'approve p3' }, { key: 'x', label: 'Reject', verb: 'reject', run: 'reject p3 rejected in the pane' }, { key: 'c', label: 'Change', verb: 'change', fill: 'Change p3: ' }] })
 type Spec = { id: string; title: string; type: string; kind: SnapTask['kind']; deps: SnapTask['deps']; ph: [number, string][] }
 const D = (id: string, type: SnapTask['deps'][0]['type'] = 'blocks') => ({ id, type })
 export const SPECS: Spec[] = [
@@ -49,7 +49,7 @@ export function ring(): CadreEvent[] {
   return out.sort((a, b) => a.at - b.at).map((e, i) => ({ ...e, seq: i + 1 }))
 }
 // the epic as of `nowMin`: tasks folded from the ring (same fold as replay), plan, mode, counters
-export function view(nowMin: number, o: { t?: number | null; cfg?: Partial<Cfg>; ui?: Record<string, unknown>; code8?: string; board?: Partial<Snapshot>; tweak?: (ts: SnapTask[]) => SnapTask[] } = {}): View {
+export function view(nowMin: number, o: { t?: number | null; cfg?: Partial<Cfg>; ui?: Record<string, unknown>; board?: Partial<Snapshot>; tweak?: (ts: SnapTask[]) => SnapTask[] } = {}): View {
   const evs = ring().filter(e => e.at <= BASE + nowMin * MIN)
   const proto: Snapshot = { ...emptySnapshot('repo'), seq: evs.length, mission: 'Auth v2', epic: 'p3', tasks: SPECS.map(s => ({ id: s.id, title: s.title, type: s.type, kind: s.kind, merges: s.kind !== 'spike', state: 'todo', step: '', phaseSince: 0, deps: s.deps, flags: [] })),
     plan: { id: 'p3', slug: 'auth-login', state: nowMin >= 93 ? 'done-on-dev' : 'approved', epicBranch: 'epic/p3-auth-login', approvedAt: BASE },
@@ -58,7 +58,7 @@ export function view(nowMin: number, o: { t?: number | null; cfg?: Partial<Cfg>;
   const tasks = folded.tasks.map(t => (t.id === 'a2' && t.state === 'active' ? { ...t, owner: 'worker 1', ctx: 41 } : t))
   const flagged = folded.tasks.flatMap(t => t.flags.map(f => flagDecision(t.id, f, t.title))).filter((d): d is Decision => !!d)
   const b: Snapshot = { ...proto, decisions: flagged, ...o.board, tasks: o.board?.tasks ?? (o.tweak ? o.tweak(tasks) : tasks), plan: o.board?.plan ?? folded.plan }
-  return { b, ring: evs, sec: o.code8 ? { approval: { planId: 'p3', code8: o.code8 }, dcode: { 'plan:p3': o.code8 } } : {}, ui: { ctx: 34, ...o.ui }, c: { ...CFG, ...o.cfg }, now: BASE + nowMin * MIN, sx: 'strict', t: o.t === undefined || o.t === null ? null : BASE + o.t * MIN }
+  return { b, ring: evs, sec: {}, ui: { ctx: 34, ...o.ui }, c: { ...CFG, ...o.cfg }, now: BASE + nowMin * MIN, sx: 'strict', t: o.t === undefined || o.t === null ? null : BASE + o.t * MIN }
 }
 
 // approval sheet data (human view `sheet`): 7 tasks, 12 scenarios, 3 NEW / 2 CHANGED / 4 same symbols
@@ -73,7 +73,7 @@ export const SHEET: SheetTask[] = [
   { id: 'a6', type: 'feat', title: 'Remember me', package: 'web', tdd: 'required', scenarios: ['S1 Given remember-me When login Then a 30d cookie', 'S2 Given no remember-me When login Then a session cookie', 'S3 Given a stolen cookie When used Then rejected'], contract: [{ sig: 'rememberMe(s: Session) -> Cookie', status: 'new' }] },
   { id: 'a7', type: 'chore', title: 'Spike: passkeys', tdd: 'none', scenarios: ['S1 Given the spike When done Then findings are filed'], contract: [] },
 ]
-export const approval = (n = 62, code8 = 'ab12cd34'): View => view(n, { code8, board: { decisions: [planDec()], approval: { planId: 'p3', missing: [] }, plan: { id: 'p3', slug: 'auth-login', state: 'draft', epicBranch: 'epic/p3-auth-login' }, sheet: SHEET, drive: { on: false, level: 'epic', epicId: 'p3', turns: 0, costUsd: 0, startedAt: null, paused: 'approval' }, tasks: SPECS.map(x => ({ id: x.id, title: x.title, type: x.type, kind: x.kind, merges: true, state: 'todo' as const, step: '', phaseSince: 0, deps: x.deps, flags: [] })) } as Partial<Snapshot> })
+export const approval = (n = 62): View => view(n, { board: { decisions: [planDec()], approval: { planId: 'p3', missing: [] }, plan: { id: 'p3', slug: 'auth-login', state: 'draft', epicBranch: 'epic/p3-auth-login' }, sheet: SHEET, drive: { on: false, level: 'epic', epicId: 'p3', turns: 0, costUsd: 0, startedAt: null, paused: 'approval' }, tasks: SPECS.map(x => ({ id: x.id, title: x.title, type: x.type, kind: x.kind, merges: true, state: 'todo' as const, step: '', phaseSince: 0, deps: x.deps, flags: [] })) } as Partial<Snapshot> })
 
 // named render cases shared by the golden generator and tests/ui.test.ts
 import { band } from '../../../ui/band'
@@ -98,5 +98,5 @@ export const CASES: Record<string, () => string[]> = {
   'epic live wide ascii|118': () => { const v = view(62, { cfg: { glyphs: 'ascii' } }), p = pane(v, 118, 40, NOOP); return [...txt(p.before), ...p.tl!.rows.map(r => T(v.c, r)), ...txt(p.after)] },
   'sheet wide|116': () => txt(sheet(approval(), 116, NOOP)),
   'sheet narrow|56': () => txt(sheet(approval(), 56, NOOP)),
-  'sheet amended|56': () => { const v = approval(), t = v.b as any; return txt(sheet({ ...v, sec: { approval: { planId: 'p3', code8: '5c1e09fa' } }, ui: { seen: { code: 'ab12cd34', sig: { ...sheetSig(v), a3: 'old' } } }, b: t }, 56, NOOP)) },
+  'sheet amended|56': () => { const v = approval(), t = v.b as any; return txt(sheet({ ...v, sec: {}, ui: { seen: { hash: 'old', sig: { ...sheetSig(v), a3: 'old' } } }, b: t }, 56, NOOP)) },
 }

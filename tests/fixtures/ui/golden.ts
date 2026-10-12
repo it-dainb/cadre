@@ -36,13 +36,11 @@ export const GOLDEN: Record<string, string[]> = {
  ],
  "band attention|115": [
   "[ATTN] ⚑ NEEDS YOU · approve plan p3 · 7 tasks · 12 scenarios · 3 new / 2 changed symbols             1: open sheet",
-  "  type  /cadre approve p3@ab12cd34   (or press 1, then a)                                              d: Epic view",
-  "[WAIT] cadre · p3 · drive ⏸ approval · ctx 34% · cache 87%"
+  "  ○a1 ○a4 ○a7 │ ⏸a2 ⏸a3 │ ⏸a6 ⏸a5   0/7 done · ▶0 ⏸4 ◌0"
  ],
  "band attention|55": [
   "[ATTN] ⚑ approve p3 (7 tasks)             1: open sheet",
-  "  /cadre approve p3@ab12cd34",
-  "[WAIT] p3 ○○○│⏸⏸│⏸⏸ 0/7 · drive ⏸ ctx34%"
+  "[WAIT] p3 ○○○│⏸⏸│⏸⏸ 0/7 ▶0 ⏸4 ctx34%"
  ],
  "band critical|115": [
   "[ATTN] ⚑ NEEDS YOU · [CRIT] ✗ git:dev:agent · dev moved outside a cadre merge · merges blocked              1: open",

@@ -1,5 +1,5 @@
-// Band above the prompt (UI-DESIGN 6.1): status line + mini-DAG strip, the ⚑ NEEDS YOU row, keys `1` and `d`. Idle with no plan: nothing drawn (a pending init code still draws).
-import { type Acts, type Line, type TagK, type View, L, S, T, attention, col, cols, gl, kindOf, padL, REDO, tg } from './model'
+// Band above the prompt (UI-DESIGN 6.1): status line + mini-DAG strip, the ⚑ NEEDS YOU row, key `1`. Idle with no plan: nothing drawn (a pending init card still draws).
+import { type Acts, type Line, type TagK, type View, L, S, T, attention, col, cols, gl, kindOf, REDO, tg } from './model'
 import { stats, wrap } from './sheet'
 
 // one glyph (+ id) per task in depth order, `│` between depths; over-long strips fold the done end into `+n✓`
@@ -36,7 +36,7 @@ function row2(v: View, w: number): Line {
 
 export function band(v: View, w: number, a: Acts): Line[] {
   const p = v.b.plan, items = p ? attention(v) : attention(v).filter(i => i.d?.kind === 'init')
-  if (!p && !items.length) return []   // no plan: only a pending init code draws (init runs before any plan), without the plan status rows
+  if (!p && !items.length) return []   // no plan: only a pending init card draws (init runs before any plan), without the plan status rows
   const top = items[0], wide = w >= 100, res = v.ui.res as { w: string; n: string; at: number } | undefined
   if (!top && res && ((v.ui.ack as number | undefined) ?? 0) < res.at) return [tag('ok', wide ? res.w : res.n)]
   if (!top) return wide && p!.state !== 'done-on-dev' && p!.state !== 'released' ? [status(v, w), row2(v, w)] : [status(v, w)]
@@ -47,7 +47,5 @@ export function band(v: View, w: number, a: Acts): Line[] {
   if (w < 40) { const [f, ...rest] = wrap(head, w, '  '); return [[...tag0, S(f.slice(tg('attn').length))], ...rest.map(x => L(x)), [bt]] }   // docked pane: the band is as narrow as the transcript column; wrap, never truncate
   const r1: Line = [...tag0, S(head.slice(tg('attn').length)), S(' '.repeat(Math.max(1, w - head.length - open.length))), bt]
   if (w < 50) return [r1]
-  const cmd = top.cmd ? (wide ? `  type  ${top.cmd}   (or press 1, then a)` : `  ${top.cmd}`) : ''
-  const r2: Line | null = cmd ? padL(L(cmd), w - 12).concat(wide ? [S('Epic view', undefined, { k: 'dag', hk: 'd', p: () => a.go('epic') })] : []) : null
-  return [r1, ...(r2 ? [r2, ...(p ? [status(v, w, 'attn')] : [])] : p ? [wide ? row2(v, w) : status(v, w)] : [])]
+  return [r1, ...(p ? [wide ? row2(v, w) : status(v, w)] : [])]   // buttons only: no typed line (ADR 0012)
 }

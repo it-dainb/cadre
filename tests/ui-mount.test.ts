@@ -19,11 +19,11 @@ for (const surface of ['terminal', 'desktop'] as const) {
     on('ui.render', () => ({ type: 'Text', props: {}, children: ['engine'] }))
     on('ui.open', (_$, e) => { opened.push(e); return { value: { isPlaced: true } } })
     on('ui.panes', () => ({ value: [] }))
-    seed(approval(62, 'ab12cd34'))
+    seed(approval(62))
     const band = await $.ui.mount({ plugin: 'cadre', surface, component: 'AbovePrompt', props: BAND })
     expect((await band.find({ text: /NEEDS YOU/ }))?.text).toContain('approve plan p3')
     expect((await band.find({ text: /engine$/ }))?.text.endsWith('engine')).toBe(true)   // our rows wrap the engine's band
-    expect((await band.findAll({ type: 'Button' })).map(b => b.key).sort()).toEqual(['att', 'dag'])
+    expect((await band.findAll({ type: 'Button' })).map(b => b.key).sort()).toEqual(['att'])
     await band.press({ key: 'att' }); await clock.advance(1)
     expect(opened.map(o => o.id)).toEqual(['cadre'])
     await band.unmount()

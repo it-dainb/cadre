@@ -10,7 +10,7 @@ import { ack, levelOf, onEvent as notifyEvent } from './notify'
 import { cur as curDec, decisions, defaultTab } from './card'
 export { defaultTab }
 import { strictOf } from '../config/index'
-import { type Acts, S, attention, at, cols, draw, gl, kindOf, read, t0, tg, txt, col, REDO } from './model'
+import { type Acts, S, at, cols, draw, gl, kindOf, read, t0, tg, txt, col, REDO } from './model'
 
 export { ack, syncStatus } from './notify'
 let lastW = 0   // width of the last pane draw: a cache for cursor-only blits (a resize is a redraw), not state
@@ -29,12 +29,11 @@ const OPEN = { id: 'cadre', title: 'cadre', columns: 120 }
 export async function openPane(h: Host, tab: string, o: { focus?: boolean; quiet?: boolean; pre?: ReturnType<NonNullable<Host['ops']>['open']> } = {}): Promise<void> {
   const opened = o.pre ?? h.ops!.open({ ...OPEN, ...(o.focus === false ? {} : { focus: true as const }) })   // `focus: false` is refused by the engine: leave it out
   const v = await read(h)
-  await h.ui.update(u => ({ ...u, tab, ...(tab === 'plan' || tab === 'card' ? { seen: { code: v.sec.approval?.code8 ?? '', sig: sheetSig(v) } } : {}) }))
+  await h.ui.update(u => ({ ...u, tab, ...(tab === 'plan' || tab === 'card' ? { seen: { hash: (v.b.decisions ?? []).find(d => d.id === `plan:${v.b.plan?.id}`)?.hash ?? '', sig: sheetSig(v) } } : {}) }))
   const r = await opened
-  if (!r.isPlaced && !o.quiet) {
-    h.toast(`cadre: pane not shown${r.reason ? ` · ${r.reason.slice(0, 30)}` : ''} · /cadre status`)
-    if (tab === 'plan') h.log(txt(sheet(v, 100, NOOP)).join('\n'))
-    if (tab === 'card' && decisions(v)[0]) h.log(`${decisions(v)[0].title} · type ${attention(v)[0]?.cmd ?? decisions(v)[0].fallback ?? '/cadre status'}`)
+  if (!r.isPlaced) {
+    if (!o.quiet) { h.toast(`cadre: pane not shown${r.reason ? ` · ${r.reason.slice(0, 30)}` : ''} · /cadre status`); if (tab === 'plan') h.log(txt(sheet(v, 100, NOOP)).join('\n')) }
+    if (tab === 'card' || tab === 'plan') await askDialog(h)   // no pane can draw here (VS Code panel, Remote Control): the same Decision as a dialog (ADR 0012)
   }
   if (!o.quiet) await ack(h)
 }
@@ -49,12 +48,26 @@ export async function onEvent(h: Host, e: Parameters<typeof notifyEvent>[1]): Pr
   await openPane(h, 'card', { quiet: true, focus: !(await h.ops.peek()).trim() })
 }
 
+// The same Decision where no pane can draw: an AskUserQuestion dialog with its runnable options. The chosen label maps to that option; the hash is re-checked when the answer arrives
+// (core/dispatch.answer). Other mods or hooks could auto-answer the dialog: accepted only on surfaces without a pane (ADR 0012). -p / dismiss: $.ui.ask rejects, nothing is decided.
+let asking = false
+export async function askDialog(h: Host): Promise<void> {
+  if (!h.ask || !h.press || asking) return
+  const d = decisions(await read(h))[0], os = d?.options.filter(o => o.run) ?? []
+  if (!d || !os.length) return
+  asking = true
+  try {
+    const a = await h.ask([d.title, ...d.lines].join('\n'), os.map(o => o.label)).catch(() => undefined), o = os.find(x => x.label === a)
+    if (o) h.log(`cadre: ${(await h.press(d.id, o.key, d.hash, 'dialog')).text}`)
+  } finally { asking = false }
+}
+
 export function acts(h: Host): Acts {
   return {
     go: tab => { const pre = h.ops!.open({ ...OPEN, focus: true }); later(h, () => openPane(h, tab, { pre })) },
     pick: id => { const pre = h.ops!.open({ ...OPEN, focus: true }); later(h, async () => { await h.ui.update(u => ({ ...u, sel: id, go: false })); await openPane(h, 'epic', { pre }) }) },
     fill: cmd => later(h, async () => { await prefill(h, cmd); await ack(h) }),
-    // a press: the typed command as the human's origin (ADR 0008). A refusal means the card went stale (code burned, drawn anew): say so and redraw it.
+    // a press: the option's command as the human's origin (ADR 0008). A refusal means the card went stale (its hash moved): say so and redraw it.
     press: (id, key, hash) => later(h, async () => {
       const r = await h.press!(id, key, hash); await ack(h)
       const l = r.text.split('\n')[0]   // a toast is a pointer (<= 60 chars); the reason stays on the card

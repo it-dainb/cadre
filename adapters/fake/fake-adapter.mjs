@@ -21,7 +21,7 @@ const p = req.params ?? {}, ok = result => out({ ok: true, result })
 
 switch (req.method) {
   case 'ping': ok({ pong: true }); break
-  case 'describe': ok({ name: 'fake', version: '1.0.0', caps: ['sync', 'events', 'commands'], subscribe: st.subscribe }); break
+  case 'describe': ok({ name: 'fake', version: '1.0.0', caps: ['sync', 'events'], subscribe: st.subscribe }); break
   case 'describeSchema': ok({ trackers: ['Task', 'Bug', 'Feature'], statuses: ['New', 'In Progress', 'In Review', 'Blocked', 'Closed', 'Rejected'], priorities: ['high', 'normal', 'low'], versions: ['v1'], customFields: st.customFields ?? [{ name: 'cadre_ref', required: false }] }); break
   case 'listProjects': ok(st.projects); break
   case 'validateAccess': ok({ auth: true, perms: st.perms ?? { view: true, add: true, edit: true }, missing: [] }); break   // no writes

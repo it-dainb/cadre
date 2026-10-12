@@ -1,7 +1,7 @@
 // /cadre <sub> (DESIGN 5.3): parse text into a dispatcher command (core/dispatch is the only entry). Queue/state-by-CAS only: never submits or spawns (P4, G6).
 import type { Hook, Host } from '../types'
 import type { Command, Out } from '../core/dispatch'
-import { ROUTES, cfgOf, dispatch, gateDraw, gateOf, redraw, registryOf, resolveEpic, restore, storeOf } from '../core/dispatch'
+import { ROUTES, answer, cfgOf, dispatch, resolveEpic, restore } from '../core/dispatch'
 import { modelView } from '../core/board'
 import { wake, warm } from '../core/session'
 import { contextLine, subject } from '../core/render'
@@ -27,18 +27,11 @@ async function route(h: Host, c: Command): Promise<Out> {
   switch (c.cmd) {
     case 'status': return status(h)
     case 'open': await openPane(h, a ?? defaultTab(await read(h))); return { text: `Opened the cadre pane (${a ?? 'epic'}).` }
-    case 'approve': {   // no token: the sheet opens in the pane's Plan tab; the one-line text is all the model sees
-      const id = (a ?? '').split('@')[0], s = await h.board.read(), gate = s.plan?.id === id ? null : await gateOf(await storeOf(h), id)
-      if (gate) { await gateDraw(h, gate); await openPane(h, 'plan'); return { text: `Approval for gate ${id} opened in the cadre pane.` } }
-      if (!s.plan || s.plan.id !== id) return { text: `refused: no draft plan ${id || '(give a plan id)'}` }
-      if ((await h.secret.read()).approval?.planId !== id) await redraw(h, await storeOf(h), await registryOf(h))
-      await openPane(h, 'plan'); return { text: `Approval sheet for ${id} opened in the cadre pane.` }
-    }
     case 'resolve': if (a && a === (await h.board.read()).plan?.id) return resolveEpic(h, a, c.args[1] ?? ''); break
     case 'restore': return restore(h, a)
     case 'init': case 'setup': {   // Claude does the work (ADR 0010); the checklist and the containment confirm show as decision cards (ADR 0008)
       const text = a === 'restore' || a === 'keep' ? await settingsAnswer(h, a)
-        : a === 'confirm' ? [await (c.cmd === 'init' ? initConfirm : confirmUser)(h, c.args[1]), await resnap(h).then(() => recheck(h))].filter(Boolean).join(' · ')   // cadre's own confirmed write is not a change from outside
+        : a === 'confirm' ? [await (c.cmd === 'init' ? initConfirm : confirmUser)(h), await resnap(h).then(() => recheck(h))].filter(Boolean).join(' · ')   // cadre's own confirmed write is not a change from outside
         : await start(h, c.cmd)
       if ((await h.board.read()).decisions?.length) await openPane(h, 'card').catch(() => {})
       return { text }
@@ -47,7 +40,7 @@ async function route(h: Host, c: Command): Promise<Out> {
     case 'config': if (!a || a === 'show') return { text: configText(await cfgOf(h), c.args[1]) }
   }
   const r = ROUTES[c.cmd]
-  return r ? r(h, c) : { text: `unknown /cadre subcommand "${c.cmd}". Try: status, open, approve <id>, reject, resolve, release, restore, init, setup, doctor, sync, adapter token, config, drive` }
+  return r ? r(h, c) : { text: `unknown /cadre subcommand "${c.cmd}". Try: status, open, approve <id>, reject, resolve, release, restore, init, setup, doctor, sync, config, drive (decisions are buttons on the card)` }
 }
 
 // command.run {command:'cadre'}
@@ -64,11 +57,5 @@ export const run: Hook = async (h, e) => {
   const kind = e.origin?.kind === 'press' ? 'unclassified' : e.origin?.kind ?? 'unclassified'   // 'press' is ours alone
   try { return await dispatch(h, { schemaVersion: 1, cmd, args, origin: { kind, name: e.origin?.name } }, route) } catch (x) { return { text: `cadre: ${(x as Error).message}` } }
 }
-// a Button press on decision `id`, option `key`, drawn with `hash` (ADR 0008): stale = refused (the card redraws from the board); else the option's command runs as the human's origin, with the code it was asked with
-export async function press(h: Host, id: string, key: string, hash: string): Promise<Out> {
-  const d = ((await h.board.read()).decisions ?? []).find(x => x.id === id), o = d?.options.find(x => x.key === key)?.run
-  if (!d || d.hash !== hash || !o) return { text: 'refused: it changed; review again' }   // the old code died with the old content (every change draws a new one); nothing runs
-  const typed = ((await h.ui.read()).fields as Record<string, Record<string, string>> | undefined)?.[id] ?? {}
-  const [cmd, ...args] = o.replace('{code}', (await h.secret.read()).dcode?.[id] ?? '').split(/\s+/).filter(Boolean).flatMap(a => (a === '{fields}' ? (d.fields ?? []).map(f => `${f.key}=${typed[f.key] ?? f.value ?? ''}`) : [a]))   // card fields as k=v argv elements
-  try { return await dispatch(h, { schemaVersion: 1, cmd, args, origin: { kind: 'press' } }, route) } catch (x) { return { text: `cadre: ${(x as Error).message}` } }
-}
+// a Button press / ask-dialog answer on decision `id`, option `key`, drawn with `hash` (ADR 0008, 0012): core/dispatch.answer
+export const press = (h: Host, id: string, key: string, hash: string, origin: 'press' | 'dialog' = 'press'): Promise<Out> => answer(h, id, key, hash, origin, route)

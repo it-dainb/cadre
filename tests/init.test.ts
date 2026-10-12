@@ -43,9 +43,8 @@ function mk(o: { repo?: boolean; branches?: string[]; files?: Record<string, str
   })
   const s = new MemoryStore(); wire.store = async () => s; if (o.journal !== false) void s.init({ journal: true } as any)
   if (o.mission !== false) void h.board.update(b => ({ ...b, mission: 'ship it' }))
-  const code = async () => (await h.secret.read()).initConfirm?.code as string
   const tick = () => pump(h)   // the session's 5 s timer sends a waiting brief
-  return { h, files, g, calls, code, sent, tick, s }
+  return { h, files, g, calls, sent, tick, s }
 }
 const items = async (h: Host) => Object.fromEntries((await initItems(h)).map(i => [i.name, `${i.st}${i.why ? `: ${i.why}` : ''}`]))
 const card = async (h: Host, id = 'run:init') => ((await h.board.read()).decisions ?? []).find(d => d.id === id)
@@ -78,26 +77,25 @@ describe('init checks (ADR 0010): read-only, one per phase', () => {
 
 describe('safety settings: written by cadre only after the human confirms the diff on its card', () => {
   test('proposed once the rest passes; nothing written before the confirm; then .bak, settings, the cache allowance, policy, ok', async () => {
-    const { h, files, code } = mk({ files: { ...READY, [`${ROOT}/.claude/settings.local.json`]: '{"permissions":{"allow":["Read"]}}' } })
+    const { h, files } = mk({ files: { ...READY, [`${ROOT}/.claude/settings.local.json`]: '{"permissions":{"allow":["Read"]}}' } })
     const its = await items(h); expect(Object.values(its).filter(v => v !== 'ok')).toEqual(['wait: confirm them on their card'])
-    const d = (await card(h, 'init:5'))!; expect(d.title).toBe('init · safety settings · confirm'); expect(d.options.map(o => o.run)).toEqual(['init confirm {code}'])
-    expect(d.lines.join('\n')).toContain('sandbox.enabled'); expect(d.lines.join('\n')).toContain(`~/.claude/cadre.json: + repos.${RK}`); expect(d.lines.join('\n')).not.toContain((await h.secret.read()).initConfirm!.code)
+    const d = (await card(h, 'init:5'))!; expect(d.title).toBe('init · safety settings · confirm'); expect(d.options.map(o => o.run)).toEqual(['init confirm'])
+    expect(d.lines.join('\n')).toContain('sandbox.enabled'); expect(d.lines.join('\n')).toContain(`~/.claude/cadre.json: + repos.${RK}`); expect(d.lines.join('\n')).not.toMatch(/\b[0-9a-f]{8}\b/); expect(await h.secret.read()).not.toHaveProperty('initConfirm')
     expect(files[`${ROOT}/.claude/settings.local.json`]).toBe('{"permissions":{"allow":["Read"]}}'); expect(files[`${HOME}/.claude/cadre.json`]).toBeUndefined()
     await items(h); expect((await h.board.read()).decisions?.filter(x => x.id === 'init:5')).toHaveLength(1)   // a re-check does not re-ask
-    expect(await confirm(h, 'deadbeef')).toContain('wrong code'); expect(files[`${ROOT}/.claude/settings.local.json`]).toBe('{"permissions":{"allow":["Read"]}}')   // burned
-    await items(h); expect(await confirm(h, await code())).toBe('init: safety settings written')
+    expect(await confirm(h)).toBe('init: safety settings written')
     const s = JSON.parse(files[`${ROOT}/.claude/settings.local.json`]); expect(s.permissions.allow).toEqual(['Read']); expect(s.sandbox.allowUnsandboxedCommands).toBe(false); expect(s.sandbox.filesystem.allowWrite).toContain(`${HOME}/.cache/pnpm`)
     expect(files[`${ROOT}/.claude/settings.local.json.bak`]).toBe('{"permissions":{"allow":["Read"]}}'); expect(JSON.parse(files[`${HOME}/.claude/cadre.json`]).repos[RK].jailWritable).toEqual([`${HOME}/.cache/pnpm`])
     expect((await policyOf(h)).repo).toBe(ROOT); expect(Object.values(await items(h)).every(v => v === 'ok')).toBe(true)
   })
   test('settings changed since the card: nothing written', async () => {
-    const { h, files, code } = mk({ files: READY }); await items(h); files[`${ROOT}/.claude/settings.local.json`] = '{"x":1}'
-    expect(await confirm(h, await code())).toContain('changed since the card'); expect(files[`${ROOT}/.claude/settings.local.json`]).toBe('{"x":1}')
+    const { h, files } = mk({ files: READY }); await items(h); files[`${ROOT}/.claude/settings.local.json`] = '{"x":1}'
+    expect(await confirm(h)).toContain('changed since the card'); expect(files[`${ROOT}/.claude/settings.local.json`]).toBe('{"x":1}')
   })
   test('a symlinked cache dir: allowWrite and policy wtRoot use the realpath, matching contain() (G8)', async () => {
-    const { h, files, code } = mk({ files: READY }); const stat = h.stat
+    const { h, files } = mk({ files: READY }); const stat = h.stat
     h.stat = async (p, o) => (p === `${HOME}/.cache` ? { kind: 'dir', realPath: o?.resolve ? '/data/cache' : undefined } : p.startsWith(`${HOME}/.cache/`) ? undefined : stat(p, o))
-    await items(h); await confirm(h, await code()); const real = `/data/cache/cadre/wt/${RK}`
+    await items(h); await confirm(h); const real = `/data/cache/cadre/wt/${RK}`
     expect(JSON.parse(files[`${ROOT}/.claude/settings.local.json`]).sandbox.filesystem.allowWrite[0]).toBe(real); expect((await policyOf(h)).wtRoot).toBe(real)
   })
 })
@@ -137,15 +135,14 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     expect(sent).toEqual([]); expect((await card(h))!.title).toBe('init · 6/8 done · needs you'); expect((await card(h, 'init:5'))).toBeDefined()
   })
   test('done: the run ends (and with it the lease), the card says all done with Close, a toast; a confirm on the safety card finishes it', async () => {
-    const { h, tick, code } = mk({ files: READY }); await start(h, 'init'); await tick()
-    expect((await cadreRun(h, { args: `init confirm ${await code()}`, origin: { kind: 'press' } }, () => ({}))).text).toContain('refused')   // a press origin from the engine is not ours (ADR 0008): refused, the code burned
-    await recheck(h)   // the next re-check asks again with a new code
+    const { h, tick } = mk({ files: READY }); await start(h, 'init'); await tick()
+    expect((await cadreRun(h, { args: 'init confirm', origin: { kind: 'press' } }, () => ({}))).text).not.toContain('written')   // typed never confirms (ADR 0012); the card stays
     const d = (await card(h, 'init:5'))!; expect((await press(h, d.id, 'a', d.hash)).text).toBe('init: safety settings written · init: all done')
     expect((await h.secret.read()).run).toBeUndefined(); const c = (await card(h))!; expect(c.title).toBe('init · all done'); expect(c.options.map(o => o.label)).toEqual(['Close']); expect(h.toasts).toContain('cadre: init done')
     expect((await press(h, c.id, 'x', c.hash)).text).toBe('init: cancelled'); expect(await card(h)).toBeUndefined()
   })
   test('nothing open: /cadre init says all done and starts nothing', async () => {
-    const { h, tick, code, sent } = mk({ files: READY }); await items(h); await confirm(h, await code())
+    const { h, tick, sent } = mk({ files: READY }); await items(h); await confirm(h)
     expect(await start(h, 'init')).toBe('init: all done'); await tick(); expect(sent).toEqual([]); expect((await h.secret.read()).run).toBeUndefined()
   })
   test('limits: 20 main turns or 30 minutes stop the run', async () => {
@@ -200,7 +197,7 @@ describe('maintenance lease (ADR 0010): main during a human-started run', () => 
     const { h, tick, call } = await lease(); await start(h, 'init'); await tick()
     await h.secret.update(s => ({ ...s, run: { ...s.run!, turns: LIMIT.turns } })); expect(await call('Bash')).not.toBe('ok')
     await h.secret.update(s => ({ ...s, run: { ...s.run!, turns: 0, at: -LIMIT.ms } })); expect(await call('Write', ALLOWED[0])).not.toBe('ok')
-    await start(h, 'init'); expect(await call('Bash')).toBe('ok'); await cadreRun(h, { args: 'init cancel', origin: { kind: 'composer' } }, () => ({})); expect(await call('Bash')).not.toBe('ok')
+    await start(h, 'init'); expect(await call('Bash')).toBe('ok'); const d = (await card(h, 'run:init'))!; await press(h, d.id, 'x', d.hash); expect(await call('Bash')).not.toBe('ok')   // the card's Cancel; typed cancel does not exist
   })
 })
 
@@ -223,8 +220,8 @@ describe('settings watch (ADR 0010): a settings file changed outside cadre durin
     expect((await press(h, d.id, 'k', d.hash)).text).toBe('init: settings kept · run /cadre init to go on'); expect(files[SET]).toBe('{"sandbox":{"enabled":false}}')
   })
   test("cadre's own confirmed write (the safety settings card) is not a change from outside", async () => {
-    const { h, tick, code } = mk({ files: { ...READY, [`${ROOT}/.claude/settings.local.json`]: '{}' } }); await start(h, 'init'); await tick()
-    expect((await cadreRun(h, { args: `init confirm ${await code()}`, origin: { kind: 'composer' } }, () => ({}))).text).toBe('init: safety settings written · init: all done')
+    const { h, tick } = mk({ files: { ...READY, [`${ROOT}/.claude/settings.local.json`]: '{}' } }); await start(h, 'init'); await tick()
+    const d = (await card(h, 'init:5'))!; expect((await press(h, d.id, 'a', d.hash)).text).toBe('init: safety settings written · init: all done')
     expect(await card(h, 'run:settings')).toBeUndefined()
   })
   test('a repo where cadre is off: during a run only the settings rule applies', async () => {
@@ -258,10 +255,10 @@ describe('agent-run setup', () => {
 describe('guides', () => {
   test('the guides speak task language (commands in backticks are literal), name every phase with a done line, and match the checks', () => {
     const g = BUDGET.guides as Record<string, string>
-    expect(Object.keys(g)).toEqual(['init', 'setup'])
-    for (const t of Object.values(g)) { expect(banned(t.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, ''))).toEqual([]); expect(t).toContain('AskUserQuestion'); expect(t).not.toContain('sudo apt') }
+    expect(Object.keys(g)).toEqual(['goal', 'init', 'setup'])   // goal: tests/lanes.test.ts
+    for (const t of [g.init, g.setup]) { expect(banned(t.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, ''))).toEqual([]); expect(t).toContain('AskUserQuestion'); expect(t).not.toContain('sudo apt') }
     expect(g.init).toContain('bd config set events-journal true'); expect(g.init).toContain('"kind": "mission"'); expect(g.init).toContain(skeleton().trim())
-    expect(g.setup).toContain('npm install -g @beads/bd@latest'); expect(g.setup).toContain('confirm the user settings card'); for (const t of Object.values(g)) expect(t).toContain('Never edit a Claude Code settings file'.slice(0, 10))
+    expect(g.setup).toContain('npm install -g @beads/bd@latest'); expect(g.setup).toContain('confirm the user settings card'); for (const t of [g.init, g.setup]) expect(t).toContain('Never edit a Claude Code settings file'.slice(0, 10))
   })
 })
 

@@ -31,7 +31,7 @@ async function child(req) {
   v.ui.tab = req.tab ?? v.ui.tab ?? s.tab ?? defaultTab(v)
   const w = req.w ?? s.width ?? 120, rows = [], patch = {}
   const said = []
-  const dc = (id, key) => { const d = (v.b.decisions ?? []).find(x => x.id === id), o = d?.options.find(x => x.key === key); return o ? (o.fill ? `prefill composer: ${o.fill}` : `/cadre ${(o.run ?? '').replace('{code}', v.sec.dcode?.[id] ?? '<code>')}`) : `press ${id} ${key}` }
+  const dc = (id, key) => { const d = (v.b.decisions ?? []).find(x => x.id === id), o = d?.options.find(x => x.key === key); return o ? (o.fill ? `prefill composer: ${o.fill}` : `/cadre ${o.run ?? ''}`) : `press ${id} ${key}` }
   const acts = {
     go: t => { patch.tab = t; said.push(`go tab ${t}`) }, pick: id => { patch.sel = id; said.push(`select ${id}`) }, fill: c => said.push(`prefill composer: ${c}`),
     press: (id, k) => said.push(dc(id, k)), run: c => said.push(`/cadre config ${c}`), input: (id, k, x) => said.push(`field ${id}.${k} = ${x}`),

@@ -14,11 +14,10 @@ const { MemoryStore } = await import('../../task-management/adapters/memory/stor
 const { defaults } = await import('../../task-management/registry.ts')
 const { fakeHost } = await import('../support.ts')
 const { emit } = await import('../../core/events.ts')
-const { newToken } = await import('../../core/dispatch.ts')
 const { defaults: cfgDefaults } = await import('../../config/index.ts')
 
 const FAKE = new URL('../../adapters/fake/fake-adapter.mjs', import.meta.url).pathname
-const GRANTS = ['sync', 'events', 'commands']
+const GRANTS = ['sync', 'events']
 const adapterCfg = (grants = GRANTS, extra = {}) => ({ command: ['node', FAKE], grants, ...extra })
 
 // one-shot spawn like Host.spawn: stdin = input, closed; env carries the fake remote's state file
@@ -144,40 +143,32 @@ test('no journal: full scan every tick (heal path), still level-triggered', asyn
   assert.equal(Object.values(remote(file).tasks)[1].fields.title, 'two!')
 })
 
-test('deliver: events + snapshot; reset first; commands need grant + token; approvals need plan@code8; non-granted gets the model view', async () => {
-  const { h, file, advance } = await world({ adapters: { ui: adapterCfg(['events', 'commands']), pub: adapterCfg(['events']) }, sync: {} })
+test('deliver: events + snapshot (the model view, always); an adapter cannot send commands and decides nothing (ADR 0012)', async () => {
+  const { h, file, advance } = await world({ adapters: { ui: adapterCfg(['events']), pub: adapterCfg(['events']) }, sync: {} })
   await emit(h, 'drive.status', { state: 'on' }); await L.tick(h)
   const d = remote(file).delivered; assert.equal(d.length, 2)   // ui + pub share the file here: both delivered once
-  assert.equal(d[0].reset, true); assert.ok(d[0].events.length >= 1); assert.ok('seq' in d[0].snapshot, 'commands-granted adapter gets the human view'); assert.ok(!('seq' in d[1].snapshot), 'non-granted gets the model view')
-  assert.ok(!JSON.stringify(d).match(/code8|initConfirm|"token"/))
-  const tok = await newToken(h), A = adapterCfg(['events', 'commands'])
-  const run = c => L.runCommand(h, 'ui', A, c)
-  assert.match(await run({ cmd: 'sync', args: [], token: tok }), /no sync|trk/)                     // grant + token: accepted
-  assert.match(await run({ cmd: 'sync', args: [], token: 'wrong' }), /refused: .*session token/)           // wrong token
-  assert.match(await run({ cmd: 'sync', args: [] }), /refused/)                                            // no token
-  assert.match(await L.runCommand(h, 'pub', adapterCfg(['events']), { cmd: 'sync', args: [], token: tok }), /refused: adapter pub is not granted commands/)
-  assert.match(await run({ cmd: 'approve', args: ['p1'], token: tok }), /refused: approvals need plan@code8/)
-  assert.match(await run({ cmd: 'approve', args: ['p1@deadbeef'], token: tok }), /refused/)
-  assert.match(await run({ cmd: 'rm', args: [], token: tok }), /refused: unknown command/)
+  assert.equal(d[0].reset, true); assert.ok(d[0].events.length >= 1); assert.ok(!('seq' in d[0].snapshot) && !('seq' in d[1].snapshot), 'every adapter gets the model view')
+  assert.ok(!JSON.stringify(d).match(/code8|initConfirm|"token"|decisions/))
+  assert.equal(L.runCommand, undefined, 'no adapter command entry exists')
   // returned commands ride the next deliver; unchanged state sends nothing
   advance(10_000); await L.tick(h); const n = remote(file).delivered.length; advance(10_000); await L.tick(h); assert.equal(remote(file).delivered.length, n, 'unchanged state sends nothing')
-  edit(file, s => { s.commands.push({ cmd: 'sync', args: [], token: 'nope' }) }); await emit(h, 'drive.status', { state: 'off' }); advance(10_000); await L.tick(h)
+  edit(file, s => { s.commands.push({ cmd: 'approve', args: ['p1'] }) })
+  const r = await L.deliver(h, 'ui', adapterCfg(['events']), true); assert.deepEqual(r.results, ['refused: adapter ui cannot send commands; decisions are buttons in the pane'])
+  await emit(h, 'drive.status', { state: 'off' }); advance(10_000); await L.tick(h)
   assert.equal(remote(file).delivered.length > n, true)
 })
 
 test('guided setup: 5 confirmed diffs; project must exist (never created); mapping from the schema; validate without writes; direction init', async () => {
   const { h, file, files, store } = await world({ sync: {} }), A = (...a) => L.syncAdd(h, 'fake', a)
-  const code = async () => (await h.secret.read()).initConfirm.code
   assert.match(await A(), /1\/5 connection/)
   assert.match(await A('url=http://trk'), /step 1\/5: proposed changes[^]*sync\.fake[^]*url/)
-  assert.match(await A('confirm', 'wrong'), /wrong code/)
-  assert.match(await A('url=http://trk'), /proposed changes/); assert.match(await A('confirm', await code()), /step 1\/5 done/)
+  assert.match(await A('url=http://trk'), /proposed changes/); assert.match(await A('confirm'), /step 1\/5 done/); assert.match(await A('confirm'), /nothing pending/)
   assert.match(await A(), /2\/5 project[^]*never creates[^]*p1 \(Demo\)/); assert.match(await A('project=nope'), /2\/5 project/)
   assert.equal(remote(file).projects?.length ?? 1, 1)
-  await A('project=p1'); await A('confirm', await code())
-  const m3 = await A(); assert.match(m3, /3\/5|mapping/); assert.match(m3, /"active":"In Progress"/); await A('confirm', await code())
+  await A('project=p1'); await A('confirm')
+  const m3 = await A(); assert.match(m3, /3\/5|mapping/); assert.match(m3, /"active":"In Progress"/); await A('confirm')
   const m4 = await A(); assert.match(m4, /5\/5 initial direction/); assert.equal(remote(file).writes ?? 0, 0, 'steps 1-4 never write remotely')
-  assert.match(await A('direction=push'), /control issue cadre-control: cursor init/); assert.match(await A('confirm', await code()), /done/)
+  assert.match(await A('direction=push'), /control issue cadre-control: cursor init/); assert.match(await A('confirm'), /done/)
   const cfg = JSON.parse(files['/repo/.cadre/config.json']).sync.fake; assert.equal(cfg.project, 'p1'); assert.equal(cfg.direction, 'both'); assert.equal(cfg.mapping.status.done, 'Closed')
   assert.ok((await store.list({})).some(t => t.title === 'cadre-control'))
 })
@@ -186,10 +177,10 @@ test('guided setup blocks: no permission / required custom field without default
   const w = await world({ sync: {} }), A = (...a) => L.syncAdd(w.h, 'fake', a)
   assert.match(await L.syncAdd(w.h, 'zzz'), /no adapters\.zzz/)
   edit(w.file, s => { s.customFields = [{ name: 'Severity', required: true }] })
-  await A('url=u'); await A('confirm', (await w.h.secret.read()).initConfirm.code); await A('project=p1'); await A('confirm', (await w.h.secret.read()).initConfirm.code)
+  await A('url=u'); await A('confirm'); await A('project=p1'); await A('confirm')
   assert.match(await A(), /blocked[^]*Severity/)
   edit(w.file, s => { s.customFields = []; s.perms = { view: true, add: false, edit: true } })
-  await A(); await A('confirm', (await w.h.secret.read()).initConfirm.code)
+  await A(); await A('confirm')
   assert.match(await A(), /4\/5 validate: blocked: no add permission/)
 })
 

@@ -72,7 +72,7 @@ describe('TaskUpdate: deps, refused fields, frozen fields', () => {
   })
   test('an approved epic is not a draft: completed reaches the epic lifecycle', async () => {
     const w = await world(); const { plan: p } = await plan(w)
-    await w.text({ cmd: 'approve', args: [`${p}@${(await w.h.secret.read()).approval!.code8}`] })
+    await w.text({ cmd: 'approve', args: [p] })
     LIFECYCLE.completed = async () => null
     expect((await w.call('TaskUpdate', { taskId: p, status: 'completed' })).result.success).toBe(true); delete LIFECYCLE.completed
   })
@@ -83,7 +83,7 @@ describe('TaskUpdate: deps, refused fields, frozen fields', () => {
   })
   test('approved tasks are frozen; metadata.amend:true returns a todo to draft and the edit applies', async () => {
     const w = await world(); const { plan: p, task } = await plan(w)
-    await w.text({ cmd: 'approve', args: [`${p}@${(await w.h.secret.read()).approval!.code8}`] })
+    await w.text({ cmd: 'approve', args: [p] })
     expect((await w.store.get(task)).category).toBe('todo')
     const f = await w.call('TaskUpdate', { taskId: task, subject: 'new' })
     expect(f.result).toEqual({ success: false, taskId: task, updatedFields: [], error: 'approved; set metadata.amend:true to return it to draft' })
@@ -95,7 +95,7 @@ describe('TaskUpdate: deps, refused fields, frozen fields', () => {
   })
   test('completed: the close card rides the answer so main sees the squash landed', async () => {
     const w = await world(); const { plan: p, task } = await plan(w)
-    await w.text({ cmd: 'approve', args: [`${p}@${(await w.h.secret.read()).approval!.code8}`] })
+    await w.text({ cmd: 'approve', args: [p] })
     LIFECYCLE.completed = async () => null; await w.h.board.update(b => ({ ...b, tasks: b.tasks.map(t => ({ ...t, card: 'TASK x · review → done · commit abc1234' })) }))
     const r = await w.call('TaskUpdate', { taskId: task, status: 'completed' })
     expect(r.result.success).toBe(true); expect(JSON.stringify(r)).toContain('commit abc1234')
@@ -103,7 +103,7 @@ describe('TaskUpdate: deps, refused fields, frozen fields', () => {
   })
   test('amend is illegal from an active task (machine decides)', async () => {
     const w = await world(); const { plan: p, task } = await plan(w)
-    await w.text({ cmd: 'approve', args: [`${p}@${(await w.h.secret.read()).approval!.code8}`] })
+    await w.text({ cmd: 'approve', args: [p] })
     await w.store.claim(task, 'a'); await w.h.board.update(b => ({ ...b, tasks: b.tasks.map(t => ({ ...t, state: 'active' as const })) }))
     const r = await w.call('TaskUpdate', { taskId: task, metadata: { amend: true } })
     expect(r.result.error).toContain('amend is illegal from active')
@@ -117,7 +117,7 @@ describe('TaskList / TaskGet from the model view, tool.describe', () => {
     await w.call('TaskUpdate', { taskId: b, addBlockedBy: [task] })
     expect((await w.call('TaskList', {})).result).toEqual({ tasks: [
       { id: task, subject: '[draft] Add login', status: 'pending', blockedBy: [] }, { id: b, subject: '[draft] B', status: 'pending', blockedBy: [task] }] })
-    await w.text({ cmd: 'approve', args: [`${p}@${(await w.h.secret.read()).approval!.code8}`] })
+    await w.text({ cmd: 'approve', args: [p] })
     expect((await w.call('TaskList', {})).result.tasks[0].subject).toBe('[todo] Add login')
   })
   test('TaskGet renders scenarios, contract, changelog; unknown id → {task:null}', async () => {

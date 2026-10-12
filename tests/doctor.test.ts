@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { confirmUser, doctor, machine, nudge, setupItems } from '../commands/doctor'
 import { defaults } from '../config/index'
+import { settle } from '../core/decide'
 import { banned } from './fixtures/wording'
 import { fakeHost } from './support'
 import { contain } from '../policy/containment'
@@ -92,13 +93,13 @@ describe('setup checklist (ADR 0010): checks only, Claude fixes', () => {
     expect(banned(its.filter(i => i.st === 'fail').map(i => `${i.name}: ${i.why}`))).toEqual([])
     expect(h.logs).toHaveLength(1); await setupItems(h); expect(h.logs).toHaveLength(1)   // same result again: no new transcript row
   })
-  test('user settings: cadre shows the merge on a card and writes it only after Confirm (.bak, re-read); a wrong code is burned; changed bytes are refused', async () => {
+  test('user settings: cadre shows the merge on a card and writes it only after Confirm (.bak, re-read); with nothing pending it writes nothing; changed bytes are refused', async () => {
     const h = mk({ files: { [USER]: '{"theme":"dark"}\n' } }); await setupItems(h)
     const d = (await h.board.read()).decisions!.find(x => x.id === 'init:91')!; expect(d.title).toBe('setup · user settings · confirm'); expect(d.lines.join('\n')).toContain('env.CLAUDE_CODE_ENABLE_TODO_TOOLS')
-    expect(h.files[USER]).toBe('{"theme":"dark"}\n'); expect(await confirmUser(h, 'nope')).toContain('wrong code')
-    await setupItems(h); const code = (await h.secret.read()).initConfirm!.code; h.files[USER] = '{"theme":"light"}\n'
-    expect(await confirmUser(h, code)).toContain('changed since the card'); expect(h.files[USER]).toBe('{"theme":"light"}\n')
-    await setupItems(h); expect(await confirmUser(h, (await h.secret.read()).initConfirm!.code)).toBe('setup: user settings written')
+    expect(h.files[USER]).toBe('{"theme":"dark"}\n'); await settle(h, 'init:91'); expect(await confirmUser(h)).toContain('nothing pending'); expect(h.files[USER]).toBe('{"theme":"dark"}\n')
+    await setupItems(h); h.files[USER] = '{"theme":"light"}\n'
+    expect(await confirmUser(h)).toContain('changed since the card'); expect(h.files[USER]).toBe('{"theme":"light"}\n')
+    await setupItems(h); expect(await confirmUser(h)).toBe('setup: user settings written')
     expect(JSON.parse(h.files[USER])).toEqual({ theme: 'light', env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } }); expect(h.files[`${USER}.bak`]).toBe('{"theme":"light"}\n')
     expect((await setupItems(h)).every(i => i.st === 'ok')).toBe(true)
   })

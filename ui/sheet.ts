@@ -1,4 +1,4 @@
-// Plan tab = approval sheet (UI-DESIGN 5.3, 6.6). Reads `sheet` from the human view, code8 from cadre.secret (its footer only), pages one task at a time.
+// Plan tab = approval sheet (UI-DESIGN 5.3, 6.6). Reads `sheet` from the human view, pages one task at a time.
 import { canon, fnv1a64 } from '../core/board'
 import { type Acts, type Line, type View, L, S, T, cut, tg, col, gl, padL } from './model'
 
@@ -24,16 +24,15 @@ const symLines = (x: Sym, n: number, wide: boolean): Line[] => {
 }
 
 export function sheet(v: View, w: number, a: Acts): Line[] {
-  const p = v.b.plan, ts = sheetOf(v), c = v.c, ap = v.sec.approval, wide = w >= 100
+  const p = v.b.plan, ts = sheetOf(v), c = v.c, dec = (v.b.decisions ?? []).find(d => d.id === `plan:${v.b.plan?.id}`), wide = w >= 100
   if (!p) return [L('no plan yet: nothing to approve', 'inactive')]
   const i = Math.min(Math.max(0, Number(v.ui.si ?? 0)), Math.max(0, ts.length - 1)), t = ts[i]
-  const seen = v.ui.seen as { code: string; sig: Record<string, string> } | undefined, sig = sheetSig(v)
-  const changed = ap && seen && seen.code !== ap.code8 ? Object.keys(sig).filter(k => sig[k] !== seen.sig[k]) : []
-  const cmd = ap && ap.planId === p.id ? `${p.id}@${ap.code8}` : ''
-  const fillBtn = (k: string, label: string, cmdText: string): Line[number] => ({ t: label, k, hk: k, p: () => a.fill(cmdText) })
+  const seen = v.ui.seen as { hash: string; sig: Record<string, string> } | undefined, sig = sheetSig(v)
+  const changed = dec && seen && seen.hash !== dec.hash ? Object.keys(sig).filter(k => sig[k] !== seen.sig[k]) : []
+  const btn = (k: string, label: string): Line[number] => ({ t: label, k, hk: k, p: () => a.press(dec!.id, k, dec!.hash) })   // a press bound to the decision's content hash (ADR 0012)
   const sc = ts.reduce((n, x) => n + x.scenarios.length, 0)
   const out: Line[] = []
-  if (changed.length) out.push([{ t: `${tg('warn')} ${gl(c, 'warn')} plan changed since you opened it`, c: col('warn') }], L(`${' '.repeat(7)}(${changed.map(k => `${k} scenarios`).join(', ')}) · re-read · code changed`))
+  if (changed.length) out.push([{ t: `${tg('warn')} ${gl(c, 'warn')} plan changed since you opened it`, c: col('warn') }], L(`${' '.repeat(7)}(${changed.map(k => `${k} scenarios`).join(', ')}) · re-read`))
   if (wide) {
     const types = [...new Set(ts.map(x => x.type))].map(y => `${y}×${ts.filter(x => x.type === y).length}`).join(' ')
     const pk = [...new Set(ts.map(x => x.package).filter(Boolean))].join(', ')
@@ -49,8 +48,8 @@ export function sheet(v: View, w: number, a: Acts): Line[] {
     if (t) out.push(L(cut(hdr(t).replace(' · ', ' ').replace('tdd required', 'tdd req'), w)), ...(t.changelog ? [L(`changelog: ${t.changelog}`)] : []), ...t.scenarios.flatMap(s => wrap(s, w - 10).map(x => L(x))), ...t.contract.filter(x => x.status !== 'unchanged').flatMap(x => symLines(x, w, false)))
   }
   out.push(L(T(c, '─'.repeat(w))))
-  const dis = v.t !== null || !cmd
-  out.push([{ t: `${tg('attn')} `, c: col('attn'), b: true }, ...(dis ? [S('(read-only)')] : [fillBtn('a', wide ? `load approve command (${cmd})` : `approve cmd${changed.length ? ` (${cmd})` : ''}`, `/cadre approve ${cmd}`), ...(changed.length && !wide ? [] : [S(' · '), fillBtn('x', wide ? 'load reject command' : 'reject', `/cadre reject ${p.id} `)])]),
+  const dis = v.t !== null || !dec
+  out.push([{ t: `${tg('attn')} `, c: col('attn'), b: true }, ...(dis ? [S('(read-only)')] : [btn('a', wide ? 'Approve plan' : 'approve'), ...(changed.length && !wide ? [] : [S(' · '), btn('x', wide ? 'Reject plan' : 'reject')])]),
     S(' · '), S(wide ? 'next task' : 'next', undefined, { k: 'n', hk: 'n', p: () => a.step('sheet', 1) }), S(' '), S(wide ? 'prev task' : 'prev', undefined, { k: 'p', hk: 'p', p: () => a.step('sheet', -1) }), ...(wide ? [S(' · PgDn: scroll')] : [])])
   return out
 }

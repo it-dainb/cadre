@@ -6,7 +6,7 @@ import { card, decisions } from '../ui/card'
 import { pane } from '../ui/pane'
 import { sheet } from '../ui/sheet'
 import { type View, read, txt, wid } from '../ui/model'
-import { acts, onEvent } from '../ui/index'
+import { acts, onEvent, openPane } from '../ui/index'
 import { press, run } from '../commands/cadre'
 import { ROUTES, dispatch, initPropose } from '../core/dispatch'
 import { ask, flagDecision, settle } from '../core/decide'
@@ -17,12 +17,12 @@ import { NOOP, approval, planDec, view } from './fixtures/ui/epic'
 import { banned } from './fixtures/wording'
 
 const dec = (id: string, kind: string, title: string, lines: string[], options: Decision['options'], o: Partial<Decision> = {}): Decision => ({ id, kind, title, lines, hash: 'h', options, ...o })
-const withDec = (ds: Decision[], code = '1a2b3c4d', ui: Record<string, unknown> = {}): View => { const v = view(62, { board: { decisions: ds }, ui }); v.sec = { dcode: Object.fromEntries(ds.map(d => [d.id, code])) }; return v }
+const withDec = (ds: Decision[], ui: Record<string, unknown> = {}): View => view(62, { board: { decisions: ds }, ui })
 const flag = (f: string) => flagDecision('a2', f, 'Session refresh')!
 const labels = (d: Decision) => d.options.map(o => `${o.key}:${o.label}`)
-const OK = { key: 'a', label: 'Confirm', verb: 'approve', run: 'x confirm {code}' }
+const OK = { key: 'a', label: 'Confirm', verb: 'approve', run: 'x confirm' }
 // a kind nobody wrote UI for: the card, band row, queue and press path work from the record alone
-const DEPLOY = dec('deploy:7', 'deploy', 'deploy build 7 to staging?', ['3 services restart', 'rollback is automatic'], [{ key: 'd', label: 'Deploy', verb: 'approve', run: 'deploy now' }, { key: 'w', label: 'Wait an hour', verb: 'change', fill: 'deploy later: ' }], { fallback: '/cadre deploy now' })
+const DEPLOY = dec('deploy:7', 'deploy', 'deploy build 7 to staging?', ['3 services restart', 'rollback is automatic'], [{ key: 'd', label: 'Deploy', verb: 'approve', run: 'deploy now' }, { key: 'w', label: 'Wait an hour', verb: 'change', fill: 'deploy later: ' }])
 
 const KINDS: [string, Decision, string[], string[]][] = [
   ['plan', planDec(), ['a:Approve', 'x:Reject', 'c:Change'], ['7 tasks']],
@@ -33,7 +33,7 @@ const KINDS: [string, Decision, string[], string[]][] = [
   ['other flag', flag('rework:2/2'), ['k:Keep', 'x:Cancel task'], ['rework:2/2']],
   ['conflict flag', flag('conflict'), ['a:Accept', 'k:Keep', 'x:Cancel task'], ['conflict']],
   ['lost epic', flagDecision('p3', 'lost-epic')!, ['r:Re-cut', 'x:End epic'], ['epic branch is gone']],
-  ['gate', dec('gate:g1', 'gate', 'approve gate g1 · Sign off the API', ['Sign off the API', 'a human gate: the work after it waits for you'], [{ key: 'a', label: 'Approve', verb: 'approve', run: 'approve g1@{code}' }, { key: 'c', label: 'Change', verb: 'change', fill: 'Change g1: ' }], { fallback: '/cadre approve g1@{code}' }), ['a:Approve', 'c:Change'], ['Sign off the API']],
+  ['gate', dec('gate:g1', 'gate', 'approve gate g1 · Sign off the API', ['Sign off the API', 'a human gate: the work after it waits for you'], [{ key: 'a', label: 'Approve', verb: 'approve', run: 'approve g1' }, { key: 'c', label: 'Change', verb: 'change', fill: 'Change g1: ' }]), ['a:Approve', 'c:Change'], ['Sign off the API']],
   ['release', dec('release:1.4.0', 'release', 'release v1.4.0?', ['dev merges into main with an annotated tag v1.4.0'], [{ key: 'r', label: 'Release', verb: 'release', run: 'release 1.4.0' }]), ['r:Release'], ['dev merges into main']],
   ['test-only kind', DEPLOY, ['d:Deploy', 'w:Wait an hour'], ['3 services restart']],
 ]
@@ -50,12 +50,11 @@ describe('ONE renderer draws any Decision (wide and narrow)', () => {
       expect(ls.flat().filter(s => s.hk && s.k !== 'n' && s.k !== 'p').map(s => s.hk)).toEqual(d.options.map(o => o.key))   // options = buttons, key = hotkey
     }
   })
-  test('the band row of a never-seen kind: title, review button, typed fallback only when it carries a code', () => {
-    const v = withDec([DEPLOY]); expect(txt(band(v, 115, NOOP)).join('\n')).toContain('deploy build 7 to staging?'); expect(txt(band(v, 115, NOOP)).join('\n')).not.toContain('/cadre deploy now')
-    const g = withDec([KINDS[8][1]]); g.sec = { dcode: { 'gate:g1': 'cafe0001' } }; expect(txt(band(g, 115, NOOP)).join('\n')).toContain('/cadre approve g1@cafe0001')
+  test('the band row of a never-seen kind: title and the open button; never a typed line (ADR 0012)', () => {
+    for (const d of [DEPLOY, KINDS[8][1], KINDS[0][1]]) { const t = txt(band(withDec([d]), 115, NOOP)).join('\n'); expect(t).toContain(d.title); expect(t).not.toMatch(/\/cadre|type |@/) }
   })
   test('the queue: "1 of 3", next/prev move through them oldest first', () => {
-    const ds = [KINDS[0][1], KINDS[3][1], DEPLOY], t = (di: number) => txt(card(withDec(ds, 'c', { di }), 116, NOOP)).join('\n')
+    const ds = [KINDS[0][1], KINDS[3][1], DEPLOY], t = (di: number) => txt(card(withDec(ds, { di }), 116, NOOP)).join('\n')
     expect(t(0)).toContain('1 of 3'); expect(t(0)).toContain('approve plan p3'); expect(t(1)).toContain('2 of 3'); expect(t(1)).toContain('a2 flagged spec_change'); expect(t(2)).toContain('deploy build 7'); expect(t(9)).toContain('3 of 3')
     expect(txt(card(withDec([DEPLOY]), 116, NOOP)).join('\n')).not.toContain(' of ')
     const got: string[] = []; card(withDec(ds), 116, { ...NOOP, step: (w, d) => { got.push(`${w}${d}`) } }).flat().filter(s => s.k === 'n' || s.k === 'p').forEach(s => s.p!()); expect(got).toEqual(['dec-1', 'dec1'])
@@ -82,12 +81,12 @@ describe('band: fits, no duplicated hotkey labels', () => {
 })
 
 describe('core: ask / settle / events', () => {
-  test('ask adds (replace keeps its place), settle clears it and its code; the model view never sees decisions; no code on the board', async () => {
+  test('ask adds (replace keeps its place), settle clears it; the model view never sees decisions; the secret atom stays empty', async () => {
     const w = await world(), d2 = { ...DEPLOY, id: 'deploy:8' }
-    await ask(w.h, DEPLOY, 'c0de0001'); await ask(w.h, d2, 'c0de0002'); await ask(w.h, { ...DEPLOY, hash: 'h2' }, 'c0de0003')
+    await ask(w.h, DEPLOY); await ask(w.h, d2); await ask(w.h, { ...DEPLOY, hash: 'h2' })
     const b = await w.h.board.read(); expect(b.decisions!.map(d => `${d.id}:${d.hash}`)).toEqual(['deploy:7:h2', 'deploy:8:h'])
-    expect(JSON.stringify(b)).not.toContain('c0de000'); expect(JSON.stringify(modelView(b))).not.toContain('deploy'); expect((await w.h.secret.read()).dcode).toEqual({ 'deploy:7': 'c0de0003', 'deploy:8': 'c0de0002' })
-    await settle(w.h, 'deploy:7'); expect((await w.h.board.read()).decisions!.map(d => d.id)).toEqual(['deploy:8']); expect((await w.h.secret.read()).dcode).toEqual({ 'deploy:8': 'c0de0002' }); await settle(w.h, 'nope')
+    expect(JSON.stringify(modelView(b))).not.toContain('deploy'); expect((await w.h.secret.read()).dcode).toBeUndefined()
+    await settle(w.h, 'deploy:7'); expect((await w.h.board.read()).decisions!.map(d => d.id)).toEqual(['deploy:8']); await settle(w.h, 'nope')
   })
   test('every flag.raised asks; flag.resolved settles; a phase that asked first (spec_change) keeps its richer card', async () => {
     const w = await world(); await emit(w.h, 'flag.raised', { taskId: 'a2', flag: 'conflict' }, { taskId: 'a2' })
@@ -96,24 +95,24 @@ describe('core: ask / settle / events', () => {
     expect((await w.h.board.read()).decisions!.find(d => d.id === 'flag:a3:spec_change')!.lines).toEqual(['why: the API changed'])
     await emit(w.h, 'flag.resolved', { taskId: 'a2', flag: 'conflict,drift' }, { taskId: 'a2' }); expect((await w.h.board.read()).decisions!.map(d => d.id)).toEqual(['flag:a3:spec_change'])
   })
-  test('a plan asks when approvable (code in the secret, none on the board) and settles on approve and on reject', async () => {
-    const w = await world(), { plan: p } = await plan(w), b = await w.h.board.read(), sec = await w.h.secret.read()
-    expect(b.decisions!.map(d => d.id)).toEqual([`plan:${p}`]); expect(JSON.stringify(b)).not.toContain(sec.approval!.code8); expect(sec.dcode![`plan:${p}`]).toBe(sec.approval!.code8)
-    await w.text({ cmd: 'approve', args: [`${p}@${sec.approval!.code8}`] }); expect((await w.h.board.read()).decisions).toEqual([])
+  test('a plan asks when approvable (bound to its content hash) and settles on approve and on reject', async () => {
+    const w = await world(), { plan: p } = await plan(w), b = await w.h.board.read()
+    expect(b.decisions!.map(d => d.id)).toEqual([`plan:${p}`]); expect(b.decisions![0].options.map(o => o.run)).toEqual([`approve ${p}`, expect.stringContaining('reject'), undefined])
+    await w.text({ cmd: 'approve', args: [p] }); expect((await w.h.board.read()).decisions).toEqual([])
     const w2 = await world(), r = await plan(w2); await w2.text({ cmd: 'reject', args: [r.plan] }); expect((await w2.h.board.read()).decisions).toEqual([])
   })
-  test('init/setup: initPropose asks, a confirm attempt (right or wrong) settles it', async () => {
-    const w = await world(), code = await initPropose(w.h, 90, 'p', { title: 'setup plan ready · confirm it', lines: ['  1. x'], sub: 'setup', change: 'setup' })
-    const d = (await w.h.board.read()).decisions![0]; expect([d.id, d.fallback, d.options.map(o => o.run)]).toEqual(['init:90', '/cadre setup confirm {code}', ['setup confirm {code}', 'setup cancel', 'setup']]); expect(JSON.stringify(d)).not.toContain(code); expect((await w.h.secret.read()).dcode!['init:90']).toBe(code)
-    await dispatch(w.h, { schemaVersion: 1, cmd: 'setup', args: ['cancel'], origin: { kind: 'composer' } }, async () => ({ text: '' })); expect((await w.h.board.read()).decisions).toEqual([])
+  test('init/setup: initPropose asks (hash-bound, no code), Cancel settles it', async () => {
+    const w = await world(); await initPropose(w.h, 90, 'p', { title: 'setup plan ready · confirm it', lines: ['  1. x'], sub: 'setup', change: 'setup' })
+    const d = (await w.h.board.read()).decisions![0]; expect([d.id, d.options.map(o => o.run)]).toEqual(['init:90', ['setup confirm', 'setup cancel', 'setup']])
+    await dispatch(w.h, { schemaVersion: 1, cmd: 'setup', args: ['cancel'], origin: { kind: 'press' } }, async () => ({ text: '' })); expect((await w.h.board.read()).decisions).toEqual([])
   })
 })
 
-async function ui(w: Awaited<ReturnType<typeof world>>, o: { peek?: string } = {}) {
+async function ui(w: Awaited<ReturnType<typeof world>>, o: { peek?: string; placed?: boolean } = {}) {
   const calls: [string, ...any[]][] = [], timers: (() => unknown)[] = []
-  const ops = { els: () => ({}), open: async (a: any) => { calls.push(['open', a]); return { isPlaced: true } }, focused: async () => false, toast: (t: string) => { calls.push(['toast', t]) }, notify: async () => ({ isSent: true }), status: () => {},
+  const ops = { els: () => ({}), open: async (a: any) => { calls.push(['open', a]); return { isPlaced: o.placed ?? true } }, focused: async () => false, toast: (t: string) => { calls.push(['toast', t]) }, notify: async () => ({ isSent: true }), status: () => {},
     peek: async () => o.peek ?? '', fill: async (t: string) => { calls.push(['fill', t]); return { isFilled: true } }, after: (_ms: number, fn: () => unknown) => { timers.push(fn) }, invalidate: () => { calls.push(['inv']) }, blit: async () => {} } as unknown as UiOps
-  Object.assign(w.h, { ops, press: (id: string, k: string, hash: string) => press(w.h, id, k, hash) })
+  Object.assign(w.h, { ops, press: (id: string, k: string, hash: string, origin?: 'press' | 'dialog') => press(w.h, id, k, hash, origin) })
   const drain = async () => { while (timers.length) await timers.shift()!() }
   return { calls, drain, of: (k: string) => calls.filter(c => c[0] === k).map(c => c[1]) }
 }
@@ -131,7 +130,7 @@ describe('presses: one generic handler -> the dispatcher as the human (origin pr
     const w = await world(); await plan(w); const u = await ui(w), go = await pressOf(w.h, 'x'); go(); await u.drain()
     expect((await w.h.board.read()).plan).toBeNull(); expect((w.h as any).toasts[0]).toContain('dropped')
   })
-  test('stale press: the plan changed after the card was drawn -> refused, nothing approved, the card redraws with the new hash and code', async () => {
+  test('stale press: the plan changed after the card was drawn -> refused, nothing approved, the card redraws with the new hash', async () => {
     const w = await world(), { task } = await plan(w), u = await ui(w), old = await top(w.h), go = await pressOf(w.h, 'a')
     await w.call('TaskUpdate', { taskId: task, subject: 'changed under the card' })
     const fresh = await top(w.h); expect(fresh.hash).not.toBe(old.hash)   // the card re-renders from the board
@@ -139,7 +138,7 @@ describe('presses: one generic handler -> the dispatcher as the human (origin pr
     expect((await w.store.get(task)).category).toBe('draft'); expect((w.h as any).toasts[0]).toContain('review again'); expect(u.of('inv').length).toBe(1)
     expect((await press(w.h, fresh.id, 'a', fresh.hash)).text).toContain('approved')   // the redrawn card works
   })
-  test('a press burns the code: replaying the same press after success is refused', async () => {
+  test('replaying the same press after success is refused (the decision is gone)', async () => {
     const w = await world(); await plan(w); const d = await top(w.h)
     expect((await press(w.h, d.id, 'a', d.hash)).text).toContain('approved'); expect((await press(w.h, d.id, 'a', d.hash)).text).toContain('refused')
   })
@@ -149,26 +148,22 @@ describe('presses: one generic handler -> the dispatcher as the human (origin pr
     acts(w.h).fill(c.fill!); await u.drain(); expect(u.of('fill')).toEqual([c.fill]); expect((await w.store.get(task)).category).toBe('draft')
     u = await ui(w, { peek: 'half-typed' }); acts(w.h).fill(c.fill!); await u.drain(); expect(u.of('fill')).toEqual([]); expect(u.of('toast')[0]).toContain('composer not empty')
   })
-  test('a test-only kind presses through its own command with no UI code; a stale hash or unknown key is refused; the code is filled in from the secret', async () => {
+  test('a test-only kind presses through its own command with no UI code; a stale hash or unknown key is refused', async () => {
     const w = await world(), seen: string[][] = []; ROUTES.deploy = async (_h, c) => { seen.push(c.args); return { text: 'deployed' } }
-    await ask(w.h, { ...DEPLOY, options: [{ key: 'd', label: 'Deploy', verb: 'approve', run: 'deploy now {code}' }] }, 'c0de1234')
+    await ask(w.h, { ...DEPLOY, options: [{ key: 'd', label: 'Deploy', verb: 'approve', run: 'deploy now' }] })
     expect((await press(w.h, 'deploy:7', 'd', 'stale')).text).toBe('refused: it changed; review again'); expect((await press(w.h, 'deploy:7', 'z', 'h')).text).toContain('refused')
-    expect((await press(w.h, 'deploy:7', 'd', 'h')).text).toBe('deployed'); expect(seen).toEqual([['now', 'c0de1234']])  
+    expect((await press(w.h, 'deploy:7', 'd', 'h')).text).toBe('deployed'); expect(seen).toEqual([['now']])
   })
-  test('only a press (or the composer) is the human: other origins are refused, and an engine origin cannot claim "press"', async () => {
-    const w = await world(), { task } = await plan(w), p = (await w.h.board.read()).plan!.id, at = async () => `${p}@${(await w.h.secret.read()).approval!.code8}`
-    for (const kind of ['sdk', 'plugin', 'bridge', 'unclassified']) expect((await dispatch(w.h, { schemaVersion: 1, cmd: 'approve', args: [await at()], origin: { kind } }, async () => ({ text: '' }))).text).toContain('refused')
+  test('only a press or the ask dialog is the human: typed and other origins are refused, and an engine origin cannot claim "press"', async () => {
+    const w = await world(), { task } = await plan(w), p = (await w.h.board.read()).plan!.id, at = async () => p
+    for (const kind of ['composer', 'sdk', 'plugin', 'bridge', 'unclassified']) expect((await dispatch(w.h, { schemaVersion: 1, cmd: 'approve', args: [await at()], origin: { kind } }, async () => ({ text: '' }))).text).toContain('refused')
     const out = await run(w.h, { args: `approve ${await at()}`, origin: { kind: 'press' } } as any, (async () => undefined) as any) as { text: string }
-    expect(out.text).toContain('refused'); expect((await w.store.get(task)).category).toBe('draft')
+    expect(out.text).not.toContain('approved'); expect((await w.store.get(task)).category).toBe('draft')
   })
-  test('the typed fallback is unchanged: composer origin `approve <id>@<code>` still approves', async () => {
-    const w = await world(), { task } = await plan(w), p = (await w.h.board.read()).plan!.id
-    expect((await w.text({ cmd: 'approve', args: [`${p}@${(await w.h.secret.read()).approval!.code8}`] })).text).toContain('approved'); expect((await w.store.get(task)).category).toBe('todo')
-  })
-  test('Cancel on a setup card burns its code and says so in one plain line; other origins cannot cancel', async () => {
+  test('Cancel on a setup card says so in one plain line; typed origins cannot cancel', async () => {
     const w = await world(); await initPropose(w.h, 90, 'p', { title: 't', lines: ['  1. x'], sub: 'setup', change: 'setup' }); const d = await top(w.h)
     expect((await dispatch(w.h, { schemaVersion: 1, cmd: 'setup', args: ['cancel'], origin: { kind: 'sdk' } }, async () => ({ text: '' }))).text).toContain('refused')
-    const r = await press(w.h, d.id, 'x', d.hash); expect(r.text).toBe('setup: cancelled'); expect(banned(r.text)).toEqual([]); expect((await w.h.secret.read()).initConfirm).toBeUndefined(); expect(decisions(await read(w.h))).toEqual([])
+    const r = await press(w.h, d.id, 'x', d.hash); expect(r.text).toBe('setup: cancelled'); expect(banned(r.text)).toEqual([]); expect(decisions(await read(w.h))).toEqual([])
   })
 })
 
@@ -182,5 +177,34 @@ describe('opening: focus only while the composer is empty', () => {
   test('text in the composer: the pane may open but never asks for focus (no steal)', async () => {
     const w = await world(), u = await ui(w, { peek: 'I am typing' }); await onEvent(w.h, await pending(w)); await u.drain()
     expect(u.of('open')).toEqual([{ id: 'cadre', title: 'cadre', columns: 120 }])
+  })
+})
+
+describe('no pane can draw (VS Code panel, Remote Control): the same Decision as an ask dialog (ADR 0012)', () => {
+  const dlg = async (w: Awaited<ReturnType<typeof world>>, pick: (labels: string[]) => string | Promise<string>) => {
+    const asked: { q: string; labels: string[] }[] = []
+    Object.assign(w.h, { ask: async (q: string, labels: string[]) => { asked.push({ q, labels }); return pick(labels) } })
+    return asked
+  }
+  test('the dialog offers the runnable options; the chosen label runs that option as origin dialog', async () => {
+    const w = await world(), { task } = await plan(w), u = await ui(w, { placed: false }), asked = await dlg(w, ls => ls[0])
+    await openPane(w.h, 'card'); await u.drain()
+    expect(asked).toHaveLength(1); expect(asked[0].labels).toEqual(['Approve', 'Reject']); expect(asked[0].q).toContain('approve plan'); expect((await w.store.get(task)).category).toBe('todo')   // `Change` is a composer fill: not offered
+    expect((w.h as any).logs.at(-1)).toContain('approved')
+  })
+  test('Reject answers the same way', async () => {
+    const w = await world(); await plan(w); await ui(w, { placed: false }); await dlg(w, () => 'Reject')
+    await openPane(w.h, 'card'); expect((await w.h.board.read()).plan).toBeNull()
+  })
+  test('the card changes while the dialog is open: the answer is refused, nothing is approved', async () => {
+    const w = await world(), { task } = await plan(w); await ui(w, { placed: false })
+    await dlg(w, async ls => { await w.call('TaskUpdate', { taskId: task, subject: 'changed under the dialog' }); return ls[0] })
+    await openPane(w.h, 'card'); expect((await w.store.get(task)).category).toBe('draft'); expect((w.h as any).logs.at(-1)).toContain('it changed; review again')
+  })
+  test('dismissed / -p (ask rejects) or an unknown answer: nothing is decided; a pane that draws never asks', async () => {
+    const w = await world(), { task } = await plan(w); await ui(w, { placed: false })
+    Object.assign(w.h, { ask: async () => { throw new Error('dismissed') } }); await openPane(w.h, 'card'); expect((await w.store.get(task)).category).toBe('draft')
+    await dlg(w, () => 'Other text'); await openPane(w.h, 'card'); expect((await w.store.get(task)).category).toBe('draft')
+    const asked = await dlg(w, ls => ls[0]); await ui(w, { placed: true }); await openPane(w.h, 'card'); expect(asked).toEqual([])
   })
 })

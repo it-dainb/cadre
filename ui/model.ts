@@ -97,11 +97,9 @@ export const t0 = (v: View) => v.b.plan?.approvedAt ?? v.ring[0]?.at ?? v.now
 
 // --- attention items (derived from the board + secret; no secrets in text) ---
 // attention = the pending decisions (board.decisions, oldest first; ONE record kind, drawn by ui/card) + two states that are not decisions
-export type Item = { key: string; tag: TagK; text: string; short?: string; cmd?: string; tab: string; sel?: string; d?: Decision }
-// the typed fallback is shown only when it carries a code (the one thing the human cannot otherwise know); {code} comes from the secret, never from the board
-export const fallbackOf = (v: View, d: Decision): string | undefined => (d.fallback?.includes('{code}') ? (v.sec.dcode?.[d.id] ? d.fallback.replace('{code}', v.sec.dcode[d.id]) : undefined) : undefined)
+export type Item = { key: string; tag: TagK; text: string; short?: string; tab: string; sel?: string; d?: Decision }
 export function attention(v: View): Item[] {
-  const b = v.b, out: Item[] = (b.decisions ?? []).map(d => ({ key: `dec:${d.id}`, tag: d.crit ? 'crit' : d.kind === 'flag' ? 'warn' : 'attn', text: d.title, short: d.short, cmd: fallbackOf(v, d), tab: d.tab ?? 'epic', sel: d.sel, d }))
+  const b = v.b, out: Item[] = (b.decisions ?? []).map(d => ({ key: `dec:${d.id}`, tag: d.crit ? 'crit' : d.kind === 'flag' ? 'warn' : 'attn', text: d.title, short: d.short, tab: d.tab ?? 'epic', sel: d.sel, d }))
   if (b.containment.state === 'degraded') out.push({ key: 'mode:containment', tag: 'crit', text: 'Containment degraded · run /cadre init', tab: 'epic' })
   for (const t of b.tasks) if (t.state === 'blocked') out.push({ key: `q:${t.id}`, tag: 'attn', text: `${t.id} blocked: needs an answer`, tab: 'epic', sel: t.id })
   return out

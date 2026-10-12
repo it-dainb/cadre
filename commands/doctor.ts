@@ -115,9 +115,9 @@ async function proposeUser(h: Host, lines: string[], sig: string): Promise<void>
   await h.ui.update(u => ({ ...u, 'setup.pending': sig }))
   await initPropose(h, USER_CARD, `setup user settings\n${sig}`, { title: 'setup · user settings · confirm', short: 'setup user settings', sub: 'setup', lines: ['cadre writes this after you confirm (a .bak is kept):', ...lines.map(l => `  ~/.claude/settings.json: ${l}`)] })
 }
-export async function confirmUser(h: Host, code: string | undefined): Promise<string> {
-  const was = (await h.ui.read())['setup.pending'], good = await initConfirm(h, USER_CARD, code ?? ''), path = `${await h.home()}/.claude/settings.json`
-  if (!good || !was) return 'setup: wrong code or nothing pending (burned); the card shows a new one'
+export async function confirmUser(h: Host): Promise<string> {
+  const was = (await h.ui.read())['setup.pending'], good = await initConfirm(h, USER_CARD), path = `${await h.home()}/.claude/settings.json`
+  if (!good || !was) return 'setup: nothing pending; the card shows the current diff'
   const p = await mplan(h, path, PATCH); if (fnv1a64(p.lines.join('\n') + (p.old ?? '')) !== was) return 'setup: the settings file changed since the card; nothing written'
   await mapply({ readText: h.readText, writeText: h.write }, path, PATCH); await h.ui.update(({ 'setup.pending': _p, ...u }) => u)
   return 'setup: user settings written'

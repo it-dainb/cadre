@@ -1,15 +1,13 @@
 // How to ask the human (ADR 0008, CONTRACTS): `ask` puts a Decision on the board (human view), `settle` clears it. ui/card draws any Decision; a press is core's `press` (commands/cadre).
-// Every human-in-the-loop phase calls ask when it needs the human and settle when it is answered; none draws UI. The code a run/fallback template needs rides in cadre.secret, never on the board.
+// Every human-in-the-loop phase calls ask when it needs the human and settle when it is answered; none draws UI.
 import type { Decision, Host } from '../types'
 
-export const ask = async (h: Host, d: Decision, code?: string): Promise<void> => {
+export const ask = async (h: Host, d: Decision): Promise<void> => {
   await h.board.update(b => { const l = b.decisions ?? [], i = l.findIndex(x => x.id === d.id); return { ...b, decisions: i < 0 ? [...l, d] : l.map((x, j) => (j === i ? d : x)) } })   // replace keeps its place in the queue
-  await h.secret.update(({ dcode, ...s }) => (code === undefined ? { ...s, ...(dcode ? { dcode } : {}) } : { ...s, dcode: { ...dcode, [d.id]: code } }))
 }
 export const settle = async (h: Host, ...ids: string[]): Promise<void> => {
   const on = ids.filter(Boolean); if (!on.length || !((await h.board.read()).decisions ?? []).some(d => on.includes(d.id))) return
   await h.board.update(b => ({ ...b, decisions: (b.decisions ?? []).filter(d => !on.includes(d.id)) }))
-  await h.secret.update(({ dcode, ...s }) => ({ ...s, ...(dcode ? { dcode: Object.fromEntries(Object.entries(dcode).filter(([k]) => !on.includes(k))) } : {}) }))
 }
 export const settleIf = async (h: Host, pre: string): Promise<void> => settle(h, ...((await h.board.read()).decisions ?? []).filter(d => d.id.startsWith(pre)).map(d => d.id))
 

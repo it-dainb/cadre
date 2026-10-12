@@ -24,7 +24,6 @@ import { pump, turnEnd } from '../commands/agentrun'
 import { tick } from '../task-management/sync-engine/loop'
 import { onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapCard, resumeBanner } from '../ui/index'
 import { load } from '../config/index'
-import { newToken } from '../core/dispatch'
 import { wire, repoKeyOf, rootFor } from '../commands/init'
 import { BdStore } from '../task-management/adapters/beads/store'
 import { MemoryStore } from '../task-management/adapters/memory/store'
@@ -94,7 +93,8 @@ function host($): Host {
   }
   h.config = async () => { const root = await h.cwd(); return (await load(h, { home: await h.home(), root, repoKey: repoKeyOf(root) })).config }
   h.taskStore = async () => wire.store(h, await h.config!(), await h.cwd())
-  h.press = (id, key, hash) => press(h, id, key, hash)
+  h.press = (id, key, hash, origin) => press(h, id, key, hash, origin)
+  h.ask = async (q, o) => String(await $.ui.ask(q, o))
   h.sendTo = (agentId, text) => $.session.send({ to: { agentId }, text })   // core/reuse.drain only
   h.submit = text => $.prompt.submit({ text })   // drive, from #1 after next only
   h.usage = () => $.session.usage()

@@ -1,6 +1,6 @@
 # ADR 0008: decisions by click (the decision card)
 
-Status: accepted (0.4.0). Supersedes UI-DESIGN D6 and §5.2 for **presses**; the typed path is unchanged and remains the fallback.
+Status: accepted (0.4.0). Supersedes UI-DESIGN D6 and §5.2 for **presses**. The typed fallback and the codes were removed by ADR 0012 (decisions by press or dialog only).
 
 ## Decision
 One mechanism, not per-feature code: a `Decision` record (types/index.d.ts), `core/decide.ask/settle`, ONE renderer (`ui/card.ts`) and ONE press path (`commands/cadre.press`). The API and how to add a kind are in `docs/CONTRACTS.md` ("How to ask the human"). The list below is what currently asks.

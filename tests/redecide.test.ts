@@ -16,7 +16,7 @@ async function cleared(w: Awaited<ReturnType<typeof world>>) {
 const ids = async (h: Host) => ((await h.board.read()).decisions ?? []).map(d => d.id)
 
 describe('rehydrate re-asks pending decisions', () => {
-  test('a draft plan and a spec_change (with the worker\'s reason): the same decisions are back, with a working code', async () => {
+  test('a draft plan and a spec_change (with the worker\'s reason): the same decisions are back, ', async () => {
     const w = await world(), { plan: p, task } = await plan(w)
     await w.store.setMeta(task, { 'cadre.blocked': 'spec_change', 'cadre.specChange': 'the API changed under the tests' }, 'mod')
     const was = (await w.h.board.read()).decisions!.find(d => d.id === `plan:${p}`)!, f = await cleared(w)
@@ -24,17 +24,16 @@ describe('rehydrate re-asks pending decisions', () => {
     expect(await ids(f)).toEqual([`plan:${p}`, `flag:${task}:spec_change`])
     const now = (await f.board.read()).decisions!
     expect(now[0].title).toBe(was.title); expect(now[1].lines.join(' ')).toContain('the API changed under the tests')
-    const code = (await f.secret.read()).approval!.code8; expect((await f.secret.read()).dcode![`plan:${p}`]).toBe(code)
     expect((await f.board.read()).tasks.find(t => t.id === task)!.flags).toContain('spec_change')
   })
   test('an open gate comes back and goes first (it shares the approval slot with the plan)', async () => {
     const w = await world(), { plan: p } = await plan(w), g = await w.store.createDraft({ title: 'Sign off', description: 'ship it', type: 'gate', parent: (await w.h.board.read()).epic! })
     const f = await cleared(w); await rehydrate(f)
-    expect(await ids(f)).toContain(`gate:${g.id}`); expect(await ids(f)).not.toContain(`plan:${p}`); expect((await f.secret.read()).approval!.planId).toBe(g.id)
+    expect(await ids(f)).toContain(`gate:${g.id}`); expect(await ids(f)).not.toContain(`plan:${p}`); expect((await f.board.read()).approval.planId).toBe(g.id)
   })
   test('nothing pending: no decisions', async () => {
     const w = await world(); await plan(w); const p = (await w.h.board.read()).plan!.id
-    await w.text({ cmd: 'approve', args: [`${p}@${(await w.h.secret.read()).approval!.code8}`] })
+    await w.text({ cmd: 'approve', args: [p] })
     const f = await cleared(w); await rehydrate(f); expect(await ids(f)).toEqual([])
   })
 })

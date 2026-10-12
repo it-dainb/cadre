@@ -3,7 +3,7 @@ import type { Host } from '../types'
 
 export const CODES = ['Offline', 'Auth', 'RateLimited', 'Conflict', 'NotFound', 'Invalid', 'Unsupported'] as const
 export type Code = typeof CODES[number]
-export type Grant = 'sync' | 'events' | 'commands'
+export type Grant = 'sync' | 'events'
 export interface AdapterCfg { command: string[]; credentialEnv?: string; grants: Grant[] }
 export class AdapterError extends Error {
   constructor(public code: Code, message: string = code, public retryAfterMs?: number) { super(message) }

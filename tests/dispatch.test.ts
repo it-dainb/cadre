@@ -1,95 +1,63 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { defaults } from '../config/index'
-import { dispatch, initConfirm, initPropose, isHuman, newToken } from '../core/dispatch'
+import { answer, dispatch, initConfirm, initPropose, isHuman } from '../core/dispatch'
 import { plan, world } from './fixtures/native/world'
 
-const cfg = (adapters: Record<string, unknown> = {}) => ({ ...defaults(), adapters })
-const approve = async (w: Awaited<ReturnType<typeof world>>, origin: any) => w.text({ cmd: 'approve', args: [`${(await w.h.board.read()).plan!.id}@${(await w.h.secret.read()).approval!.code8}`], origin })
+const card = { title: 't', lines: ['  1. x'], sub: 'setup', change: 'setup' }
+const route = async () => ({ text: 'routed' })
 
-describe('origin matrix (DESIGN 2.5): who is the human', () => {
-  test('composer yes; bridge, plugin, task-notification, unclassified no', async () => {
+describe('origin matrix (ADR 0012): only a press or the ask dialog is the human', () => {
+  test('press and dialog yes; composer, sdk, adapter, bridge, plugin and the rest no', () => {
+    expect([isHuman({ kind: 'press' }), isHuman({ kind: 'dialog' })]).toEqual([null, null])
+    for (const kind of ['composer', 'sdk', 'adapter', 'bridge', 'plugin', 'task-notification', 'scheduled-trigger', 'peer', 'unclassified']) expect(isHuman({ kind })).toContain(`origin ${kind} cannot decide`)
+  })
+  test('every gate command is refused to a typed origin before routing; reads and start commands are open', async () => {
     const w = await world()
-    expect(await isHuman(w.h, { kind: 'composer' })).toBeNull()
-    for (const kind of ['bridge', 'plugin', 'task-notification', 'scheduled-trigger', 'peer', 'unclassified']) expect(await isHuman(w.h, { kind })).toBe(`origin ${kind} is not human`)
-  })
-  test('sdk only under approval.allowSdk (user-level config or CADRE_ALLOW_SDK_APPROVAL)', async () => {
-    expect(await isHuman((await world()).h, { kind: 'sdk' })).toContain('approval.allowSdk is off')
-    expect(await isHuman((await world({ env: { CADRE_ALLOW_SDK_APPROVAL: '1' } })).h, { kind: 'sdk' })).toBeNull()
-  })
-  test('adapter:<name> needs a commands grant AND the current session token', async () => {
-    const w = await world({ config: cfg({ pm: { grants: ['commands'] }, ro: { grants: ['events'] } }) })
-    const tok = await newToken(w.h)
-    expect(w.h.toasts).toEqual([`cadre session token: ${tok}`]); expect(w.h.logs).toEqual([])
-    expect(await isHuman(w.h, { kind: 'adapter', name: 'pm', token: tok })).toBeNull()
-    for (const o of [{ kind: 'adapter', name: 'pm', token: 'wrong' }, { kind: 'adapter', name: 'pm' }, { kind: 'adapter', name: 'ro', token: tok }, { kind: 'adapter', name: 'zz', token: tok }])
-      expect(await isHuman(w.h, o)).toContain('is not granted commands or the session token is wrong')
-    expect(await isHuman((await world({ config: cfg({ pm: { grants: ['commands'] } }) })).h, { kind: 'adapter', name: 'pm', token: undefined })).toContain('session token')   // no token drawn yet
-  })
-  test('a new token (`adapter token`) kills the old one', async () => {
-    const w = await world({ config: cfg({ pm: { grants: ['commands'] } }) }); const old = await newToken(w.h)
-    expect((await w.text({ cmd: 'adapter', args: ['token'] })).text).toContain('shown by toast only')
-    expect(await isHuman(w.h, { kind: 'adapter', name: 'pm', token: old })).not.toBeNull()
-    expect(await isHuman(w.h, { kind: 'adapter', name: 'pm', token: (await w.h.secret.read()).token })).toBeNull()
-  })
-})
-
-describe('approval through every origin: plan@code8 is required of all of them', () => {
-  test('bridge / plugin origins are refused, and the refused attempt still redraws the nonce', async () => {
-    const w = await world(); await plan(w); const c = (await w.h.secret.read()).approval!.code8
-    expect((await approve(w, { kind: 'bridge' })).text).toBe('refused: origin bridge is not human')
-    expect((await approve(w, { kind: 'plugin', name: 'x' })).text).toBe('refused: origin plugin is not human')
-    expect((await w.h.secret.read()).approval!.code8).not.toBe(c)
-  })
-  test('sdk under allowSdk with the right code approves; with a wrong code does not', async () => {
-    const w = await world({ env: { CADRE_ALLOW_SDK_APPROVAL: '1' } }); const { plan: p } = await plan(w)
-    expect((await w.text({ cmd: 'approve', args: [`${p}@bad`], origin: { kind: 'sdk' } })).text).toContain('token mismatch')
-    expect((await approve(w, { kind: 'sdk' })).text).toContain('approved')
-  })
-  test('adapter: granted + token + plan@code8 approves; granted + token but a wrong code does not', async () => {
-    const w = await world({ config: cfg({ pm: { grants: ['commands'] } }) }); const { plan: p } = await plan(w); const token = await newToken(w.h)
-    expect((await w.text({ cmd: 'approve', args: [`${p}@bad`], origin: { kind: 'adapter', name: 'pm', token } })).text).toContain('token mismatch')
-    expect((await approve(w, { kind: 'adapter', name: 'pm', token })).text).toContain('approved')
-  })
-  test('approve without a code from a non-human is refused before routing; status is open to anyone', async () => {
-    const w = await world()
-    expect(await w.text({ cmd: 'approve', args: ['p1'], origin: { kind: 'plugin', name: 'x' } })).toEqual({ text: 'refused: origin plugin is not human' })
-    expect(await w.text({ cmd: 'status', args: [], origin: { kind: 'plugin', name: 'x' } })).toEqual({ text: 'routed' })
-    expect(await w.text({ cmd: 'sync', args: ['now'], origin: { kind: 'bridge' } })).toEqual({ text: 'routed' })
-    expect(await w.text({ cmd: 'sync', args: ['add', 'pm'], origin: { kind: 'bridge' } })).toEqual({ text: 'refused: origin bridge is not human' })
-    expect(await w.text({ cmd: 'drive', args: ['on'], origin: { kind: 'bridge' } })).toEqual({ text: 'refused: origin bridge is not human' })
-    expect(await w.text({ cmd: 'drive', args: ['status'], origin: { kind: 'bridge' } })).toEqual({ text: 'routed' })
-    expect(await w.text({ cmd: 'config', args: ['set', 'a', 'b'], origin: { kind: 'bridge' } })).toEqual({ text: 'refused: origin bridge is not human' })
-    expect(await w.text({ cmd: 'config', args: ['show'], origin: { kind: 'bridge' } })).toEqual({ text: 'routed' })
+    for (const origin of [{ kind: 'composer' }, { kind: 'bridge' }, { kind: 'sdk' }, { kind: 'adapter', name: 'pm' }]) {
+      for (const [cmd, args] of [['approve', ['p1']], ['reject', ['p1']], ['resolve', ['p1', 'recut']], ['release', []], ['restore', []], ['sync', ['add', 'pm']], ['drive', ['on']], ['config', ['set', 'a', 'b']], ['init', ['confirm']], ['setup', ['confirm']], ['init', ['cancel']]] as [string, string[]][])
+        expect((await w.text({ cmd, args, origin })).text).toContain('cannot decide')
+    }
+    const o = { kind: 'bridge' }
+    expect(await w.text({ cmd: 'status', args: [], origin: o })).toEqual({ text: 'routed' })
+    expect(await w.text({ cmd: 'sync', args: ['now'], origin: o })).toEqual({ text: 'routed' })
+    expect(await w.text({ cmd: 'drive', args: ['status'], origin: o })).toEqual({ text: 'routed' })
+    expect(await w.text({ cmd: 'config', args: ['show'], origin: o })).toEqual({ text: 'routed' })
+    expect(await w.text({ cmd: 'init', args: [], origin: { kind: 'composer' } })).toEqual({ text: 'routed' })   // typed `/cadre init` / `setup` only START the run
+    expect((await w.text({ cmd: 'setup', args: [], origin: o })).text).toContain('cannot start setup')
   })
   test('an unknown schemaVersion is refused', async () => {
     const w = await world()
-    expect(await dispatch(w.h, { schemaVersion: 2 as any, cmd: 'status', args: [], origin: { kind: 'composer' } }, async () => ({ text: 'x' }))).toEqual({ text: 'refused: unsupported command schemaVersion' })
+    expect(await dispatch(w.h, { schemaVersion: 2 as any, cmd: 'status', args: [], origin: { kind: 'composer' } }, route)).toEqual({ text: 'refused: unsupported command schemaVersion' })
   })
 })
 
-describe('init confirm code (DESIGN 10.1): nonce-salted, burned on every attempt', () => {
-  test('same diff, two proposals → two different codes (not a hash of the diff); the code lives only in secret', async () => {
-    const w = await world()
-    const a = await initPropose(w.h, 2, 'diff'), na = (await w.h.secret.read()).initNonce
-    const b = await initPropose(w.h, 2, 'diff')
-    expect(a).toMatch(/^[0-9a-f]{8}$/); expect(a).not.toBe(b); expect((await w.h.secret.read()).initNonce).not.toBe(na)
-    expect(JSON.stringify(await w.h.board.read())).not.toContain(b)
+describe('approval is a press (or dialog) on the decision: no typed path exists', () => {
+  test('a typed approve with an @code suffix is just an unknown plan; nothing is approved', async () => {
+    const w = await world(); const { plan: p, task } = await plan(w)
+    expect((await w.text({ cmd: 'approve', args: [`${p}@ab12cd34`], origin: { kind: 'composer' } })).text).toContain('cannot decide')
+    expect((await w.text({ cmd: 'approve', args: [`${p}@ab12cd34`] })).text).toBe(`refused: no draft plan ${p}@ab12cd34`)
+    expect((await w.store.get(task)).category).toBe('draft')
   })
-  test('accepted and refused attempts both redraw the nonce and kill the code', async () => {
-    const w = await world(); const code = await initPropose(w.h, 2, 'd'); const n0 = (await w.h.secret.read()).initNonce
-    expect(await initConfirm(w.h, 2, 'wrong')).toBe(false)
-    const s1 = await w.h.secret.read(); expect([s1.initNonce === n0, s1.initConfirm]).toEqual([false, undefined])
-    expect(await initConfirm(w.h, 2, code)).toBe(false)   // the refused attempt burned it
-    const c2 = await initPropose(w.h, 2, 'd'); const n2 = (await w.h.secret.read()).initNonce
-    expect(await initConfirm(w.h, 3, c2)).toBe(false)   // wrong stage
-    await initPropose(w.h, 2, 'd'); const c3 = (await w.h.secret.read()).initConfirm!.code
-    expect(await initConfirm(w.h, 2, c3)).toBe(true)
-    const s = await w.h.secret.read(); expect(s.initConfirm).toBeUndefined(); expect(s.initNonce).not.toBe(n2)
-    expect(await initConfirm(w.h, 2, c3)).toBe(false)   // replay
+  test('the secret atom carries no approval material', async () => {
+    const w = await world(); await plan(w); await initPropose(w.h, 2, 'd', card)
+    const s = await w.h.secret.read(); for (const k of ['approval', 'nonce', 'initNonce', 'initConfirm', 'dcode', 'token']) expect(s).not.toHaveProperty(k)
   })
-  test('a non-human `init confirm` is refused and burns the pending code', async () => {
-    const w = await world(); await initPropose(w.h, 2, 'd')
-    expect(await w.text({ cmd: 'init', args: ['confirm', 'x'], origin: { kind: 'bridge' } })).toEqual({ text: 'refused: origin bridge is not human' })
-    expect((await w.h.secret.read()).initConfirm).toBeUndefined()
+})
+
+describe('init confirm (DESIGN 10.1): the card is bound to the diff hash', () => {
+  test('the card carries the diff hash and a Confirm that runs `<sub> confirm` (no code)', async () => {
+    const w = await world(); await initPropose(w.h, 2, 'diff', card)
+    const d = (await w.h.board.read()).decisions![0]; expect([d.id, d.options.map(o => o.run)]).toEqual(['init:2', ['setup confirm', 'setup cancel', 'setup']]); expect(d.hash).toMatch(/^[0-9a-f]+$/)
+  })
+  test('a confirm of a pending card is true once and settles it; with nothing pending (or another stage) it is false', async () => {
+    const w = await world(); await initPropose(w.h, 2, 'd', card)
+    expect(await initConfirm(w.h, 3)).toBe(false); expect((await w.h.board.read()).decisions).toHaveLength(1)
+    expect(await initConfirm(w.h, 2)).toBe(true); expect((await w.h.board.read()).decisions).toEqual([])
+    expect(await initConfirm(w.h, 2)).toBe(false)   // replay
+  })
+  test('answer: a changed diff (new hash) refuses the old button; the current one runs', async () => {
+    const w = await world(); await initPropose(w.h, 2, 'd1', card); const old = (await w.h.board.read()).decisions![0].hash
+    await initPropose(w.h, 2, 'd2', card)
+    expect((await answer(w.h, 'init:2', 'a', old, 'press', route)).text).toBe('refused: it changed; review again')
+    expect((await answer(w.h, 'init:2', 'a', (await w.h.board.read()).decisions![0].hash, 'press', route)).text).toBe('routed')
   })
 })

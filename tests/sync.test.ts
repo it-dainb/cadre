@@ -75,10 +75,10 @@ describe('fx-data: sync events and confirm stage', () => {
     expect(evs.map(e => e.data)).toEqual([expect.objectContaining({ state: 'offline', pending: 4, conflicts: 2 }), expect.objectContaining({ state: 'ok', conflicts: 2 })])
     expect('pending' in evs[1].data).toBe(false)
   })
-  test('sync add has its own confirm stage: an init stage-8 code does not confirm it', async () => {
+  test('sync add has its own confirm stage: an init stage-8 card does not confirm it', async () => {
     const h = Object.assign(fakeHost(), { config: async () => ({ adapters: { pm: A } }) }) as any
     await h.store.set('sync.add:pm', { n: 1, d: {}, pending: { n: 1, args: [], text: 't' } })
-    const code = await initPropose(h, 8, 'd')
-    expect(await syncAdd(h, 'pm', ['confirm', code])).toContain('wrong code')
+    await initPropose(h, 8, 'd', { title: 't', lines: [], sub: 'init' })
+    expect(await syncAdd(h, 'pm', ['confirm'])).toContain('nothing pending')
   })
 })

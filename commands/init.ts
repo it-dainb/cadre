@@ -103,10 +103,10 @@ async function propose5(c: Ctx, caches: string[]): Promise<void> {
   await c.h.ui.update(u => ({ ...u, 'init.pending': { sig: p.sig, caches } }))
   await initPropose(c.h, 5, `init 5 containment\n${p.sig}`, { title: 'init · safety settings · confirm', short: 'init safety settings', sub: 'init', lines: ['cadre writes these settings after you confirm:', ...p.lines.slice(0, 14).map(l => `  ${l}`), ...(p.lines.length > 14 ? [`  … ${p.lines.length - 14} more lines`] : [])] })
 }
-// `init confirm <code>`: the code is burned on every attempt; the files are re-read and must match what the card showed
-export async function confirm(h: Host, code: string | undefined): Promise<string> {
-  const c = await ctxOf(h), pend = (await h.ui.read())['init.pending'] as { sig: string; caches: string[] } | undefined, good = await initConfirm(h, 5, code ?? '')
-  if (!good || !pend) return 'init: wrong code or nothing pending (burned); the card shows a new one'
+// `init confirm` (the card's Confirm): the files are re-read and must match what the card showed
+export async function confirm(h: Host): Promise<string> {
+  const c = await ctxOf(h), pend = (await h.ui.read())['init.pending'] as { sig: string; caches: string[] } | undefined, good = await initConfirm(h, 5)
+  if (!good || !pend) return 'init: nothing pending; the card shows the current diff'
   const p = await plan5(c, pend.caches); if (p.sig !== pend.sig) return 'init: the settings files changed since the card; nothing written'
   for (const [path, text] of p.writes) { const old = await h.readText(path); if (old !== null && old !== text) await h.write(`${path}.bak`, old); if (old !== text) await h.write(path, text) }
   await setPolicy(h, { repo: p.real, wtRoot: p.wt, home: c.home }); await contain(h).catch(() => {})

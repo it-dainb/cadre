@@ -10,7 +10,7 @@ export const emptySnapshot = (repo = ''): Snapshot => ({
 })
 export const isCold = (s: Snapshot): boolean => s.seq === 0   // lazy rehydrate trigger (DESIGN 13.4)
 
-// canonical JSON: sorted keys, undefined dropped. fnv1a64 over it = the snapshot hash (diff gate) and code8's input.
+// canonical JSON: sorted keys, undefined dropped. fnv1a64 over it = the snapshot hash (diff gate).
 export const canon = (v: unknown): string =>
   JSON.stringify(v, (_k, x) => x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x)
 export function fnv1a64(s: string): string {
@@ -20,7 +20,7 @@ export function fnv1a64(s: string): string {
 }
 
 // Two views of one schema. Neither carries a code (those live in the `secret` atom).
-export const humanView = (s: Snapshot): Snapshot => structuredClone(s)   // band, pane, toasts, adapters granted `commands`
+export const humanView = (s: Snapshot): Snapshot => structuredClone(s)   // band, pane, toasts (never an adapter, ADR 0012)
 // model view (main context, TaskGet, cards, adapters without grant): drops volatile fields so the hash only moves on real change
 export function modelView(s: Snapshot): Omit<Snapshot, 'seq' | 'cost'> {
   const { seq: _s, cost: _c, decisions: _d, ...v } = structuredClone(s)   // decisions are for the human only
