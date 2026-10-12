@@ -57,7 +57,7 @@ function world(over = {}) {
   sh(root, 'add', '-A'); sh(root, 'commit', '-qm', 'init'); sh(root, 'branch', 'epic/e1-x')
   const pkg = { root: '.', setup: [], checks: { test: ['node', 'run.mjs'], knownbad: ['false'] }, verify: ['test'], viewInclude: ['docs/**'], tdd: { paths: ['test/**'], report: '/tmp/cadre/r.xml' }, ...over.pkg }
   const cfg = { ...defaults(), packages: [pkg], worktrees: { root: join(b, 'wt') }, jail: 'auto', ...over.cfg }
-  const meta = {}, comments = [], store = { async setMeta(id, kv) { Object.assign(meta, kv) }, async comment(id, t) { comments.push(t) }, async move() {}, async get(id) { return { id, title: 't', type: over.type ?? 'feature', meta: { ...meta }, acceptance: 'S1: Given a When b Then c', design: over.design ?? JSON.stringify({ symbols: [{ name: 'login', kind: 'function', params: 'u', returns: 'bool', status: 'new' }] }) } } }
+  const meta = {}, comments = [], store = { async setMeta(id, kv) { Object.assign(meta, kv) }, async comment(id, t) { comments.push(t) }, async move() {}, async get(id) { return { id, title: 't', type: over.type ?? 'feature', meta: { ...meta }, acceptance: over.acceptance ?? 'S1: Given a When b Then c', description: 'page 1 skips the first page', design: over.design ?? JSON.stringify({ symbols: [{ name: 'login', kind: 'function', params: 'u', returns: 'bool', status: 'new' }] }) } } }
   const h = fakeHost(); Object.assign(h, { run, readText: async p => (existsSync(p) ? readFileSync(p, 'utf8') : null), write: async (p, t) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) }, cwd: async () => root, home: async () => b, config: async () => cfg, taskStore: async () => store })
   const d = { store, cfg, reg: cfg.types, root, home: b, wtRoot: cfg.worktrees.root, key: repoKeyOf(root), actor: 'a', session: 's' }
   return { b, root, h, d, meta, comments, store, pkg }
@@ -71,6 +71,8 @@ test('spec view golden: no source bodies, no symlinks, tdd.paths + viewInclude +
   assert.equal(existsSync(join(view, 'src')), false); assert.equal(existsSync(join(view, 'test/link.ts')), false)   // symlink skipped, source body absent
   for (const f of ['test/old.json', 'docs/guide.md', 'SCENARIOS.md', 'INTERFACE.md']) assert.ok(lstatSync(join(view, f)).isFile())
   assert.match(readFileSync(join(view, 'INTERFACE.md'), 'utf8'), /\[new\] function login/)
+  const lite = world({ acceptance: '' }), v2 = await V.buildView(lite.h, lite.d, await mkTask(lite), await worktree(lite))   // a lite bug (no scenarios): the bug report is the tester's spec
+  assert.match(readFileSync(join(v2, 'SCENARIOS.md'), 'utf8'), /reproduces this bug[\s\S]*page 1 skips the first page/)
   const man = JSON.parse(w.meta['cadre.view']); assert.deepEqual(Object.keys(man).sort(), ['FILES.md', 'INTERFACE.md', 'SCENARIOS.md', 'docs/guide.md', 'test/old.json'])
   assert.equal(man['docs/guide.md'], sh(w.root, 'rev-parse', 'HEAD:docs/guide.md'))   // content hash == git blob hash
   await V.logCall(w.h, 'ag1', { tool: 'Read', path: 'test/old.json', outcome: 'ok' }); await V.logCall(w.h, 'ag1', { tool: 'Read', path: '../x', outcome: 'denied' })

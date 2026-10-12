@@ -66,10 +66,10 @@ export async function answerDialog(h: Host, id?: string): Promise<void> {
       }
       const os = d.options.filter(o => o.run).slice(0, 4), x = (await h.ask(body(d), [...os.map(o => o.label), ...(os.length < 2 ? [NOT_NOW] : [])])).trim(), o = os.find(y => y.label === x)
       if (!o) {
-        if (x && x !== NOT_NOW && !d.fields?.length) { await queueBrief(h, `${d.change ?? `About "${d.title}": `}${x}`); h.log(`cadre: sent to Claude · ${cut(x, 60)}`) }
+        if (x && x !== NOT_NOW && !d.fields?.length) { await queueBrief(h, `${d.change ?? `About "${d.title}": `}${x}`); h.log(`sent to Claude · ${cut(x, 60)}`) }
         return
       }
-      const r = await h.answer(d.id, o.key, d.hash, vals); h.log(`cadre: ${r.text}`)
+      const r = await h.answer(d.id, o.key, d.hash, vals); h.log(r.text)   // the engine prefixes the plugin name
       if (!r.text.startsWith('refused')) return
       id = d.id; last = d.hash
     }

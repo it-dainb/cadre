@@ -53,7 +53,8 @@ export async function buildView(h: Host, d: Deps, task: Task, wt: string): Promi
     await must(h, ['cp', '-a', `${scratch}/x/${root ? `${root}/` : ''}.`, view])
   }
   await h.write(`${view}/FILES.md`, `# Files in this view\n\nThe agent tools cannot list directories: Read these for the test conventions (runner, import style, naming).\n\n${take.map(p => `- ${root ? p.slice(root.length + 1) : p}`).join('\n') || '(none)'}\n`)
-  await h.write(`${view}/SCENARIOS.md`, `# Scenarios ${task.id}\n\n${task.acceptance ?? ''}\n`)
+  const bug = task.acceptance?.trim() ? '' : `No scenarios: a lite bug fix (ADR 0011). Write a test that reproduces this bug, so it fails now and passes once fixed:\n\n${task.title}\n${task.description ?? ''}`   // live 0.8.0: an empty spec left the tester nothing to make red
+  await h.write(`${view}/SCENARIOS.md`, `# Scenarios ${task.id}\n\n${task.acceptance?.trim() ? task.acceptance : bug}\n`)
   await h.write(`${view}/INTERFACE.md`, `# Interface ${task.id}\n\n${renderContract(task.design)}\n\n\`\`\`json\n${task.design ?? ''}\n\`\`\`\n`)
   if (pkg?.tdd?.stubs) {   // generator output only, run in the offline jail; CADRE_OUT is where it writes
     const mode = await modeOf(h, d), out = mode === 'none' ? `${scratch}/stubs` : '/tmp/stubs', cwd = root ? `${wt}/${root}` : wt

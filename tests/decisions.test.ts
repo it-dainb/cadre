@@ -65,7 +65,7 @@ describe('answers: the chosen label runs its option as origin dialog; the hash i
     const w = await world(), { plan: p, task } = await plan(w); await ui(w, () => 'Approve'); await answerDialog(w.h)
     expect((await w.store.get(task)).category).toBe('todo'); expect((await w.h.board.read()).plan?.state).toBe('approved'); expect(decisions(await read(w.h))).toEqual([])
     expect(await goal(w.h)).toBe(`Plan ${p} is approved: spawn its ready tasks one by one (each by its id), follow the cards until every task is done, then complete the plan (TaskUpdate ${p} completed).`)
-    expect((w.h as any).logs.at(-1)).toBe(`cadre: Plan ${p} approved: 1 task ready; epic branch epic/${p}-auth-login cut.`)
+    expect((w.h as any).logs.at(-1)).toBe(`Plan ${p} approved: 1 task ready; epic branch epic/${p}-auth-login cut.`)
   })
   test('the close of the plan\'s last open task nudges main once (its card\'s next line) to complete the plan', async () => {
     const w = await world(), { plan: p, task } = await plan(w); await w.text({ cmd: 'approve', args: [p] })
@@ -81,7 +81,7 @@ describe('answers: the chosen label runs its option as origin dialog; the hash i
     const w = await world(), { task } = await plan(w); let n = 0
     const u = await ui(w, async (_q, ls) => { if (!n++) await w.call('TaskUpdate', { taskId: task, subject: 'changed under the dialog' }); return ls[0] })
     await answerDialog(w.h)
-    expect(u.asked).toHaveLength(2); expect((w.h as any).logs[0]).toBe('cadre: refused: it changed; review again'); expect((w.h as any).logs[1]).toContain('approved')
+    expect(u.asked).toHaveLength(2); expect((w.h as any).logs[0]).toBe('refused: it changed; review again'); expect((w.h as any).logs[1]).toContain('approved')
     expect((await w.store.get(task)).title).toBe('changed under the dialog')
   })
   test('a replayed answer after success is refused (the decision is gone); a stale hash or an unknown key runs nothing', async () => {
@@ -94,7 +94,7 @@ describe('answers: the chosen label runs its option as origin dialog; the hash i
   test('free text ("Type something") on a plan = a change request to main; the plan stays a draft and is not asked again', async () => {
     const w = await world(), { plan: p, task } = await plan(w), u = await ui(w, () => 'split the login into two tasks'); await answerDialog(w.h)
     expect(await goal(w.h)).toBe(`Change ${p}: split the login into two tasks`); expect((await w.store.get(task)).category).toBe('draft'); expect(u.asked).toHaveLength(1)
-    expect((w.h as any).logs.at(-1)).toBe('cadre: sent to Claude · split the login into two tasks')
+    expect((w.h as any).logs.at(-1)).toBe('sent to Claude · split the login into two tasks')
   })
   test('free text on another kind goes to main with its title; dismissed or "Not now" decides nothing', async () => {
     const w = await world(); await ask(w.h, flag('conflict')); await ui(w, () => 'keep mine but tell me why'); await answerDialog(w.h)
@@ -122,7 +122,7 @@ describe('fields: asked one by one in the dialog, validated, re-asked with the e
     await configPress(w.h, 'edit maxParallel'); expect((await top(w.h)).fields).toEqual([{ key: 'value', label: 'maxParallel', value: '3' }])
     await answerDialog(w.h)
     expect(u.asked.map(a => a.labels)).toEqual([['Keep 3', 'Cancel'], ['Save for me', 'Save to repo', 'Cancel'], ['Keep 3', 'Cancel'], ['Save for me', 'Save to repo', 'Cancel']])
-    expect(u.asked[3].q).toContain('! expected a number'); expect((w.h as any).logs.filter((l: string) => !l.includes('prune'))).toEqual(['cadre: refused: expected a number, 0 or more', 'cadre: maxParallel = 7 · saved for you'])
+    expect(u.asked[3].q).toContain('! expected a number'); expect((w.h as any).logs.filter((l: string) => !l.includes('prune'))).toEqual(['refused: expected a number, 0 or more', 'maxParallel = 7 · saved for you'])
     expect(JSON.parse((await w.h.readText('/hm/u/.claude/cadre.json'))!).maxParallel).toBe(7); expect(decisions(await read(w.h))).toEqual([])
   })
   test('Cancel at a field decides nothing', async () => {
