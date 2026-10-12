@@ -40,6 +40,9 @@ Status: accepted (0.9.0). User decisions, 2026-10-12 (plan `cadre-0.9.0-ui`, Tra
 - The 5 s heartbeat renewed leases of tasks in review; bd refused it and the failure was logged every tick. Only `active` tasks are beaten.
 - Yolo stopped on "blocked <id>" when main's turn ended between the block and its flag (a report in flight). A blocked task without its flag yet now only pauses.
 - A worker that kept editing after reporting a spec change was told "write only inside your working directory" and went looking for another place to write (one run ended in a quarantine). A write while the task waits for a decision now says to stop and wait (`policy/guards`).
+- In auto, main asked the spec change again with its own question ("ask the human about <id>"): a task waiting on a spec change now reads `wait: the user decides the spec change of <id> in its own dialog`.
+- After a rework, drive kept asking main to spawn a reviewer while the bound reviewer was resumed (refused each time): the owner is cleared at the worker's report only when no reviewer is bound.
+- A reworking worker's write was blamed on its idle reviewer, which shares the worktree, and quarantined (`core/effect`: every binding of a worktree owns it).
 - Flag decisions repeated the task id (`a2 flagged conflict` / `a2 a2`): the body line is the task title only.
 
 ### Consequences

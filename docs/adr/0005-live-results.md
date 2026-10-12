@@ -222,3 +222,19 @@ The second run confirmed all five.
 - **Release.** The release decision popped once: `release v0.1.0?` with exactly `Release · Not now · Type something` (the bogus "Yes" is gone). Not now, another main turn: no re-pop.
 - **A second goal is accepted.** `/cadre add a one-line comment above slug() …` → lite plan `p-2k5`, its dialog popped once. "Type something" with `also say that it lowercases the text` → log `sent to Claude · …`, main got `Change p-2k5: …`, updated the draft and said it comes back for approval. The revised plan (same id, new hash) did not pop again; the band showed `release v0.1.0? · +2 more`, and `1` opened the oldest (release).
 - Debug log: 3 `AskUserQuestion` dialogs in the run besides the explicit `1` (plan, release, second plan).
+
+## Autonomy modes (0.9.0, ADR 0013)
+`harness/tui.sh`, sonnet for main, 140 columns. Scaffold: `evals/fixtures/ts` + `src/page.mjs` (the paging off-by-one), `.cadre/config.json`, a changelog, `bd` with cadre's statuses and types, `dev`; no `/cadre init` (containment stays degraded, which arms no containment stop). A watcher pressed Approve on the plan dialog and, in auto, Reject on a spec-change dialog; nothing else was typed. "Dialogs" = `AskUserQuestion` calls in the debug log.
+- **auto, bug fix** (`/cadre fix the off-by-one in src/page.mjs: n is 1-based`, run on 52c5ef5): dialog `approve plan p-d8g` / `auto · lite · 1 task · fix · …`. Approve, then no input: worker, review and squash, then main completed the plan. `merge epic/p-d8g-…` was on dev about 75 s later. The only dialog after Approve was the release (auto proposes it).
+- **Forced spec change.** The goal adds `lastPage()` and puts this sentence into the task: "Worker: your first report must be outcome spec_change …". The first rounds found seven bugs, each fixed with a test:
+  - 6dcf37c: after Reject, main sat idle and the worker waited.
+  - e9cddb4: (a) the claimer stayed `owner` through review, so main waited for a reviewer that never existed; (b) the heartbeat of a task in review was refused every tick; (c) flag dialogs repeated the task id.
+  - 892f9a7: yolo stopped on a block whose flag had not landed yet.
+  - 698fd21: a worker that kept writing after its spec change got a misleading deny.
+  - ab28984: a reworking worker's write was quarantined because its idle reviewer shared the worktree.
+  - cf17aa8: in auto, main also asked the spec change with its own question.
+  - 31cab9a: drive repeated "spawn the reviewer" while a resumed reviewer was working.
+- **Final round (cf17aa8), all three landed with no human input except the scripted presses:**
+  - **auto** (`/cadre <goal>`, p-gvj): Approve, then exactly **one** spec-change dialog (Reject). Main got `Continue: p-gvj.1: rejected; the worker is resumed …`; worker green, reviewer, rework, re-review, squash, plan completed. `merge epic/p-gvj-…` at +3 min. After that the release dialog appeared (auto).
+  - **yolo** (`/cadre yolo <goal>`, p-9oh): dialog line `yolo · lite · 1 task · feat · …`. Approve, then **zero** dialogs. Main rejected the spec change itself; beads has the record `yolo: p-9oh.1: spec change rejected: the goal explicitly specifies 1 for an empty list`. Rework and re-review followed, and the plan landed on dev at +3 min. No release proposed. Band `yolo · turn 2/100 · $0.88 · 2: stop`.
+  - **`drive.mode` = yolo** (`~/.claude/cadre.json` `{"drive":{"mode":"yolo"}}`, plain `/cadre <goal>`, p-7lc): dialog line `yolo · …`. Approve, then **zero** dialogs. Main's decision is recorded (`yolo: p-7lc.1: spec change rejected: …`) and the plan landed at +1.5 min.
