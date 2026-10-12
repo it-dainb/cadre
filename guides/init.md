@@ -25,8 +25,8 @@ BEADS_DIR="$PWD/.cadre/store" bd config set events-journal true
 ```
 Done when `BEADS_DIR="$PWD/.cadre/store" bd config get events-journal` prints `true`.
 
-## Phase 3: mission
-If your brief says the user's goal comes next, skip this phase: you draft the mission together with the plan.
+## Phase 3: mission (only when no goal comes next)
+If your brief says the user's goal comes next, do nothing in this phase: no question and no TaskCreate. The mission goes into that goal's plan later.
 Otherwise ask the user with AskUserQuestion, in one round: the goal in one line, the constraints, the non-goals. Then draft it with TaskCreate: subject = the goal, description = `Goal: …\nConstraints: …\nNon-goals: …`, metadata `{"kind": "mission"}`.
 Tell the user to approve the mission in the cadre dialog (key 1 opens it). Do not wait for it: go on with phase 4.
 

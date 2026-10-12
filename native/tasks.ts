@@ -58,6 +58,7 @@ async function create(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
   if (err) return { deny: modelText('deny', await refuse(h, key, err)) }
   await clearRetries(h, key)
   const s = await h.board.read()
+  if (m.kind === 'mission' && (await h.secret.read()).run?.goal) return { deny: modelText('deny', 'not now: the user\'s goal comes next, and its plan carries the mission (metadata.mission). Go on with the next setup step.') }   // ADR 0014: one dialog for mission + plan
   if (m.kind) {
     if (s.plan && !['done-on-dev', 'released'].includes(s.plan.state)) return { deny: modelText('deny', `plan ${s.plan.id} is still ${s.plan.state}: ask the human to approve or reject it first`) }
     const prefix = (await cfgOf(h)).branches.epicPrefix, id = await store.createEpic(e.subject, e.description), mission = m.kind === 'mission', name = mission ? 'mission' : slug(e.subject)

@@ -79,3 +79,9 @@ describe('setup preferences: main hands them over, cadre writes ~/.claude/cadre.
     expect((await prefsRow(mk({ [USER]: '{"drive":{"maxTurns":5}}' }).h))[1]).toContain('~/.claude/cadre.json')
   })
 })
+
+test('a goal run refuses a separate mission draft: the plan carries it', async () => {
+  const w = await world(); await w.h.secret.update(s => ({ ...s, run: { kind: 'init' as const, at: 0, turns: 0, follow: 0, guide: 'g', goal: { text: 'fix it', mode: 'auto' as const } } }))
+  const r = await w.call('TaskCreate', { subject: 'Fix it', description: 'Goal: fix it', metadata: { kind: 'mission' } })
+  expect(r.deny).toContain('metadata.mission'); expect((await w.h.board.read()).plan).toBeNull()
+})
