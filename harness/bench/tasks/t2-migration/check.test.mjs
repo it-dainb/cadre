@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { migrate } from '../src/migrate.mjs'
+import { pick } from './zz-find.mjs'
+const { migrate } = pick('migrate')
 import * as m001 from '../migrations/001_init.mjs'
 import * as m002 from '../migrations/002_currency.mjs'
 const fresh = () => ({ tables: {}, applied: [] })

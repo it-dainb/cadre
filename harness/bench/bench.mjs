@@ -69,9 +69,11 @@ function judge(dir) {
   // the epic branch while the plan runs; once the plan landed the branch is gone and dev holds it
   let tip = null; const ref = [epicBranch, 'dev'].find(b => b && sh('git', ['-C', work, 'rev-parse', '--verify', '-q', b]))
   if (ref) {
-    tip = mkdtempSync(join(tmpdir(), 'bench-tip-')); execFileSync('bash', ['-c', `git -C '${work}' archive '${ref}' | tar -x -C '${tip}'`]); cpSync(join(B, 'tasks', m.task, 'check.test.mjs'), join(tip, 'test', 'zz-bench-check.test.mjs'))
+    tip = mkdtempSync(join(tmpdir(), 'bench-tip-')); execFileSync('bash', ['-c', `git -C '${work}' archive '${ref}' | tar -x -C '${tip}'`]); cpSync(join(B, 'tasks', m.task, 'check.test.mjs'), join(tip, 'test', 'zz-bench-check.test.mjs')); cpSync(join(B, 'find.mjs'), join(tip, 'test', 'zz-find.mjs'))
   }
   const multi = p.tasks.length > 1
+  // files the plan changed outside every declared path (CHANGELOG.md is cadre's own): reported, not failed
+  const declared = new Set(['CHANGELOG.md', ...p.tasks.flatMap(t => t.paths)]), offPath = ref ? (sh('git', ['-C', work, 'diff', '--name-only', 'main', ref]) ?? '').split('\n').filter(f => f && !declared.has(f)) : []
   const tasks = p.tasks.map(t => {
     const id = ids[t.key], j = JSON.parse(sh('bd', ['show', id, '--json']) ?? 'null'), x = (Array.isArray(j?.data ?? j) ? (j.data ?? j)[0] : j?.data ?? j) ?? {}, meta = x.metadata ?? {}
     const runs = (() => { try { return JSON.parse(meta['cadre.runs'] ?? '[]') } catch { return [] } })(), rework = (+meta['cadre.rework'] || 0) + (+meta['cadre.rebase'] || 0)
@@ -84,7 +86,7 @@ function judge(dir) {
   const roles = {}; for (const [k, v] of Object.entries(byRole)) { const r = k.split(':')[0]; roles[r] = (roles[r] ?? 0) + v.usd }
   // invalid (not a failure): the run hit its time budget, or the harness broke (no final result from Claude Code)
   const done = read(join(dir, 'stream.jsonl')).split('\n').some(l => { try { return JSON.parse(l).type === 'result' } catch { return false } }), invalid = m.exit === 124 ? 'budget' : !done ? `harness (exit ${m.exit})` : null
-  const res = { cell: m.cell, task: m.task, tier: p.tier, k: m.k, exit: m.exit, invalid, checkedOn: ref ?? null, secs: Math.round((m.t1 - m.t0) / 1000), tasks, rejections, tokens: byRole,
+  const res = { cell: m.cell, task: m.task, tier: p.tier, k: m.k, exit: m.exit, invalid, checkedOn: ref ?? null, offPath, secs: Math.round((m.t1 - m.t0) / 1000), tasks, rejections, tokens: byRole,
     usd: { ...Object.fromEntries(Object.entries(roles).map(([k, v]) => [k, +v.toFixed(4)])), total: +Object.values(roles).reduce((a, b) => a + b, 0).toFixed(4) } }
   writeFileSync(join(dir, 'result.json'), JSON.stringify(res, null, 1)); return res
 }
@@ -99,9 +101,9 @@ if (cmd === 'table') {
     const ts = v.flatMap(r => r.tasks), landed = ts.filter(t => t.landed).length, spent = v.reduce((a, r) => a + r.usd.total, 0), roleUsd = v.reduce((a, r) => a + r.usd.total - (r.usd.main ?? 0), 0)
     const [tier, cell] = k.split('|')
     return [tier, cell, `${v.length}`, `${landed}/${ts.length}`, `${Math.round(100 * ts.filter(t => t.firstTry).length / ts.length)}%`, (ts.reduce((a, t) => a + t.rework, 0) / ts.length).toFixed(2), `${ts.reduce((a, t) => a + t.escalations, 0)}`,
-      landed ? `$${(spent / landed).toFixed(2)}` : '-', landed ? `$${(roleUsd / landed).toFixed(2)}` : '-', `${(v.reduce((a, r) => a + r.secs, 0) / v.length / 60).toFixed(1)}`]
+      landed ? `$${(spent / landed).toFixed(2)}` : '-', landed ? `$${(roleUsd / landed).toFixed(2)}` : '-', `${(v.reduce((a, r) => a + r.secs, 0) / v.length / 60).toFixed(1)}`, `${v.filter(r => r.offPath?.some(f => f.startsWith('src/'))).length}/${v.length}`]
   })
-  const head = ['tier', 'cell (worker_tester_reviewer)', 'runs', 'landed', 'first-try', 'mean rework', 'escalations', '$/landed (all)', '$/landed (roles)', 'min/run']
+  const head = ['tier', 'cell (worker_tester_reviewer)', 'runs', 'landed', 'first-try', 'mean rework', 'escalations', '$/landed (all)', '$/landed (roles)', 'min/run', 'src off declared paths']
   if (process.argv.includes('--md')) { console.log(`| ${head.join(' | ')} |\n|${head.map(() => '---').join('|')}|`); for (const r of rows) console.log(`| ${r.join(' | ')} |`) }
   else { const w = head.map((h, i) => Math.max(h.length, ...rows.map(r => r[i].length))); for (const r of [head, ...rows]) console.log(r.map((x, i) => x.padEnd(w[i])).join('  ')) }
   const rej = rs.flatMap(r => r.rejections.map(x => `${r.cell} ${r.task}: ${x.slice(0, 160)}`)); if (rej.length) console.log(`\nreview rejections (${rej.length}):\n${rej.slice(0, 40).join('\n')}`)

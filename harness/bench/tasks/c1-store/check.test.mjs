@@ -1,8 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createMemoryStore } from '../src/store.mjs'
-import { Ledger } from '../src/ledger.mjs'
-import { totals } from '../src/report.mjs'
+import { pick } from './zz-find.mjs'
+const { createMemoryStore } = pick('createMemoryStore')
+const { Ledger } = pick('Ledger')
+const { totals } = pick('totals')
 test('a.S1-2', () => { const s = createMemoryStore(); assert.equal(s.get('x'), undefined); s.put('k', { n: 1 }); assert.deepEqual(s.get('k'), { n: 1 }) })
 test('a.S3', () => { const s = createMemoryStore(), o = { n: 1 }; s.put('k', o); o.n = 2; assert.deepEqual(s.get('k'), { n: 1 }); s.get('k').n = 3; assert.deepEqual(s.get('k'), { n: 1 }) })
 test('a.S4', () => { const s = createMemoryStore(); for (const k of ['b:1', 'a:2', 'a:1']) s.put(k, 1); assert.deepEqual(s.list('a:'), ['a:1', 'a:2']); assert.deepEqual(s.list(), ['a:1', 'a:2', 'b:1']) })

@@ -1,7 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Ledger } from '../src/ledger.mjs'
-import { InsufficientFunds } from '../src/errors.mjs'
+import { pick } from './zz-find.mjs'
+const { Ledger } = pick('Ledger')
+const { InsufficientFunds } = pick('InsufficientFunds')
 const two = (a, b) => { const l = new Ledger(); l.open('a'); l.open('b'); if (a) l.deposit('a', a); if (b) l.deposit('b', b); return l }
 const bal = l => [l.balance('a'), l.balance('b')]
 test('S1', () => { const l = two(500, 0); l.transfer('a', 'b', 200); assert.deepEqual(bal(l), [300, 200]) })

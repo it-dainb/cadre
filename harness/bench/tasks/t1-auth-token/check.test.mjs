@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { sign, verify } from '../src/auth/token.mjs'
+import { pick } from './zz-find.mjs'
+const { sign, verify } = pick('sign', 'verify')
 const t = sign({ sub: 'a' }, 's3cret', { ttlSec: 60, now: 0 })
 test('S1', () => assert.deepEqual(verify(t, 's3cret', { now: 59000 }), { sub: 'a' }))
 test('S2', () => assert.throws(() => verify(t, 's3cret', { now: 60000 }), /^Error: expired token/))
