@@ -43,22 +43,31 @@ export async function savePointer(h: Host) {
 
 // ---- who is still there (continue after exit). A /clear resets $.state and the session id, not the process: its agents keep running. A quit ends the process and its agents. ----
 // ponytail: a module variable is the process id; it also resets on a plugin hot reload (dev only), which then reads as a new process. continueRun still never takes over from a session that stamped in the last 30 s.
-export const proc = { id: '' }
+export const proc: { id: string; pid?: string } = { id: '' }
 const procOf = (h: Host) => (proc.id ||= h.rand(6))
-type Alive = Record<string, { p: string; at: number }>
+// `<host> <pid>` of the Claude Code process: a child's parent is that process (mods run inside it). '' where there is no sh: the 30 s window alone then
+const pidOf = async (h: Host) => (proc.pid ??= await h.run(['sh', '-c', 'echo "$(uname -n) $PPID"']).then(r => (r.exitCode ? '' : r.stdout.trim()), () => ''))
+type Alive = Record<string, { p: string; at: number; pid?: string }>
 const ALIVE = 30_000
 // each active session stamps {process, at} at most every 10 s from the 5 s tick. ponytail: read-modify-write on one key; two sessions writing at once may drop one stamp for one interval (the 30 s window absorbs it).
 export async function stampAlive(h: Host): Promise<void> {
   const k = await scoped(h, 'alive'), now = await h.now(), me = await sessionOf(h), a = ((await h.store.get(k)) as Alive | undefined) ?? {}
   if (a[me]?.p === procOf(h) && now - a[me].at < 10_000) return
-  await h.store.set(k, { ...Object.fromEntries(Object.entries(a).filter(([, v]) => now - v.at < 86_400_000)), [me]: { p: procOf(h), at: now } })
+  await h.store.set(k, { ...Object.fromEntries(Object.entries(a).filter(([, v]) => now - v.at < 86_400_000)), [me]: { p: procOf(h), at: now, pid: await pidOf(h) } })
 }
 // session `s` from here: 'here' (this process: this session or one before a /clear), 'other' (another process that stamped in the last 30 s; also an unknown owner), 'gone'
 export async function held(h: Host, s?: string): Promise<'here' | 'other' | 'gone'> {
   if (!s) return 'other'
   const a = (((await h.store.get(await scoped(h, 'alive'))) as Alive | undefined) ?? {})[s]
   if (s === (await sessionOf(h)) || a?.p === procOf(h)) return 'here'
-  return a && (await h.now()) - a.at < ALIVE ? 'other' : 'gone'
+  if (!a || (await h.now()) - a.at >= ALIVE) return 'gone'
+  const [host, pid] = (a.pid ?? '').split(' ')   // a crash leaves its stamp: on this machine, a process that is gone frees it at once. ponytail: a reused pid reads as alive, so the window decides then
+  return pid && host === (await pidOf(h)).split(' ')[0] && (await h.run(['sh', '-c', 'kill -0 "$1"', 'sh', pid]).catch(() => ({ exitCode: 0 }))).exitCode ? 'gone' : 'other'
+}
+// session.end on a quit (not /clear or /resume: the process and its agents go on): this process's stamps go, so a session started right after can continue at once
+export async function quit(h: Host): Promise<void> {
+  const k = await scoped(h, 'alive'), a = ((await h.store.get(k)) as Alive | undefined) ?? {}
+  await h.store.set(k, Object.fromEntries(Object.entries(a).filter(([, v]) => v.p !== procOf(h))))
 }
 // the session that spawned a task's current agent (admission.launch) or last renewed its claim (admission.beat); a bare number is a record from before owners were kept
 // a task an agent may still be working on. Not the claim lease: bd drops it when a task moves to review (a reviewer at work has none), live
@@ -152,7 +161,7 @@ export async function continueRun(h: Host): Promise<string> {
   if (!p || p.slug === 'mission' || p.landed || p.state === 'done-on-dev' || p.state === 'released') return needs ? `${needs} needs you · press 1 to answer` : NOTHING
   if (p.state === 'draft') return `${p.id} ${p.slug} waits for your approval${more || ' · press 1 to answer'}`
   const store = await storeOf(h), me = await sessionOf(h), now = await h.now(), rec = await casDrive(h, store, () => undefined).catch(() => undefined)
-  if (rec?.on && rec.epicId === p.id && rec.lease.until > now && (await held(h, rec.lease.session)) === 'other') return `${p.id} is running in another session · continue it there, or quit that one first`
+  if (rec?.on && rec.epicId === p.id && rec.lease.until > now && (await held(h, rec.lease.session)) === 'other') return `${p.id} is running in another session · continue it there, or quit that one, then /cadre continue here (a session that crashed frees it within 30 s)`
   const bind = await h.bind.read(), go: string[] = [], took: string[] = [], other: string[] = []
   for (const t of s.tasks.filter(t => t.state === 'active' || (t.state === 'review' && t.step === 'reviewer'))) {
     const mine = agentsOf(bind, t.id).filter(a => !a.startsWith('~'))

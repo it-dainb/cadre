@@ -11,13 +11,14 @@ import { autoAsk, openPane } from '../ui/index'
 import { stepName } from '../ui/v2/facts'
 import { confirm as initConfirm } from './init'
 import { confirmUser, doctor } from './doctor'
-import { recheck, resnap, settingsAnswer, start } from './agentrun'
+import { halted, haltText, queue, recheck, resnap, settingsAnswer, start } from './agentrun'
 import { confirmPrefs } from './prefs'
 import { defaults } from '../config/index'
 
 export async function route(h: Host, c: Command): Promise<Out> {   // every dispatcher command (dialog answers, Settings presses; tests)
   const [a] = c.args
   if ((c.cmd === 'goal' || c.cmd === 'yolo') && c.origin.kind === 'composer' && (await settingUp(h))) return later(h, a ?? '', c.cmd === 'yolo')
+  if ((c.cmd === 'goal' || c.cmd === 'yolo') && c.origin.kind === 'composer' && (await halted(h))?.kind === 'init') return { text: await start(h, 'init', { text: a ?? '', mode: c.cmd === 'yolo' || (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto' }) }   // an interrupted project setup picks up, then this goal
   if (!['setup', 'doctor', 'init', 'open'].includes(c.cmd) && !(await wake(h))) return (c.cmd === 'goal' || c.cmd === 'yolo') && c.origin.kind === 'composer' ? onboard(h, a ?? '', c.cmd === 'yolo') : { text: await status(h) }   // per-repo opt-in: typing a goal here is the opt-in (ADR 0014)
   switch (c.cmd) {
     case 'open': await openPane(h, a ?? 'epic'); return { text: `Opened the cadre pane (${a ?? 'epic'}).` }
@@ -49,11 +50,13 @@ export const NO_PLAN = 'No plan yet · /cadre <goal> to start'
 const setUp = async (h: Host) => !!(await h.store.get('cadre:setup'))   // commands/doctor stamps it when setup finds nothing critical
 export async function status(h: Host): Promise<string> {
   const ds = (await h.board.read()).decisions ?? [], mine = ds.filter(d => !d.quiet && /^(run|init):/.test(d.id))   // setup/init waiting on the human: said even before the repo is on
-  if (!(await wake(h))) return modelText('context', mine.length ? `setup · ${mine.length} needs you · press 1` : (await setUp(h)) ? READY : WELCOME)   // a set-up repo implies a set-up machine: no welcome there
+  const hr = await halted(h)
+  if (!(await wake(h))) return modelText('context', mine.length ? `setup · ${mine.length} needs you · press 1` : hr ? haltText(hr) : (await setUp(h)) ? READY : WELCOME)   // a set-up repo implies a set-up machine: no welcome there
   await warm(h)
   const b = await h.board.read(), p = b.plan, needs = (b.decisions ?? []).length, ts = b.tasks, n = `${ts.filter(t => t.state === 'done').length}/${ts.length}`
   const left = await unfinished(h)
   const text = needs ? `${p?.id ?? (mine.length ? 'setup' : 'cadre')} · ${needs} needs you · press 1 to answer`
+    : hr ? haltText(hr)
     : !p || p.slug === 'mission' || p.state === 'done-on-dev' || p.state === 'released' ? NO_PLAN
     : left ? `Unfinished plan ${left.id} ${left.slug} (${left.done}/${left.total}) · /cadre continue to pick it up`   // core/session.unfinished: the same test as continue and the band
     : [p.id + ' ' + p.slug, `${n} done`, ...ts.filter(t => t.state === 'active' || t.state === 'review').slice(0, 1).map(t => `running ${t.id} ${stepName(t.step)}`), '/cadre to open'].join(' · ')
@@ -65,8 +68,7 @@ export const SETTING_UP = 'setting up · answer the dialog (press 1)'
 const settingUp = async (h: Host) => (await h.secret.read()).run?.kind === 'init' || ((await h.board.read()).decisions ?? []).some(d => d.id === 'init:goal')
 async function later(h: Host, text: string, yolo: boolean): Promise<Out> {
   if (!(await h.secret.read()).run) { await onboard(h, text, yolo); return { text: modelText('context', SETTING_UP) } }   // the dialog shows the new text
-  const goal = { text, mode: (yolo || (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto') as 'auto' | 'yolo' }
-  await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, goal } } : s))
+  await queue(h, { text, mode: yolo || (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto' })
   return { text: modelText('context', SETTING_UP) }
 }
 // `/cadre <goal>` · `/cadre yolo <goal>` in a repo cadre is not set up in: ONE dialog, Set up (init run, then this goal) or Not now (nothing changes)

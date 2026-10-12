@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { NOTHING, continueRun, proc, prune, unfinished, rehydrate, savePointer, stampAlive } from '../core/session'
+import { NOTHING, continueRun, proc, prune, quit, unfinished, rehydrate, savePointer, stampAlive } from '../core/session'
 import { drain, queueResume } from '../core/reuse'
 import { admit } from '../core/admission'
 import { arm, casDrive } from '../core/drive'
@@ -48,7 +48,7 @@ const spawned = () => { const seen: any[] = []; return { seen, next: async (e: a
 
 // session S1 in process P1 runs the plan: drive armed in `mode`, a worker on a, a reviewer on b; then the process quits (P2 is the next one)
 async function running(mode: 'auto' | 'yolo' = 'yolo') {
-  const m = await machine(); proc.id = 'P1'
+  const m = await machine(); proc.id = 'P1'; proc.pid = 'box 111'
   const h1 = await m.session('S1')
   await h1.board.update((s: any) => ({ ...s, seq: 3, epic: m.epic, containment: { state: 'contained', unsandboxed: 0 }, plan: { id: m.epic, slug: 'auth', state: 'approved', epicBranch: 'epic/auth', mode },
     tasks: [task(m.a, { state: 'active', step: 'worker', owner: ACTOR }), task(m.b, { state: 'review', step: 'reviewer', owner: ACTOR }), task(m.c)] }))
@@ -59,7 +59,7 @@ async function running(mode: 'auto' | 'yolo' = 'yolo') {
   return { ...m, h1 }
 }
 const after = async (m: Awaited<ReturnType<typeof running>>, ms: number) => {   // a new process, `ms` later, its board cold; wake() has drawn containment
-  proc.id = 'P2'; m.clock.now += ms
+  proc.id = 'P2'; proc.pid = 'box 222'; m.clock.now += ms
   const h2 = await m.session('S2'); await h2.board.update((s: any) => ({ ...s, containment: { state: 'contained', unsandboxed: 0 } }))
   return h2
 }
@@ -131,13 +131,26 @@ describe('continue after exit', () => {
 
   test('a live other session keeps its plan and its tasks: no takeover, its agents are not respawned', async () => {
     const m = await running('auto'), h2 = await after(m, 5_000)   // S1 stamped 5 s ago: alive
-    expect(await continueRun(h2)).toBe(`${m.epic} is running in another session · continue it there, or quit that one first`)
+    expect(await continueRun(h2)).toBe(`${m.epic} is running in another session · continue it there, or quit that one, then /cadre continue here (a session that crashed frees it within 30 s)`)
     await casDrive(h2, m.store, r => r && { ...r, on: false })   // even with nothing driving it, its tasks stay with it
     const line = await continueRun(h2)
     expect(line).toContain(`${m.a}, ${m.b} stay with another session`); expect(line).toContain('Nothing was in flight')
     expect(String((await h2.ui.read()).goal ?? '')).not.toContain(`TASK-${m.a} (it starts`)
     const w = spawned(), out = await admit(h2, { prompt: `TASK-${m.a}`, description: 'd', subagentType: 'general-purpose', background: true, fork: false }, w.next)
     expect(out.deny).toContain('being worked on from another session'); expect(w.seen).toEqual([])
+  })
+
+  test('a quit clears its stamp: a session started right after continues at once', async () => {
+    const m = await running('auto'); await quit(m.h1)
+    const h2 = await after(m, 2_000)
+    expect(await continueRun(h2)).toMatch(new RegExp(`^Picking up ${m.a} worker, ${m.b} reviewer`))
+  })
+
+  test('a crash: a stamp whose process is gone on this machine frees the plan at once; another machine waits out the window', async () => {
+    const m = await running('auto'), h2 = await after(m, 2_000), run = h2.run, kills: string[] = []
+    h2.run = async (argv: string[]) => (argv[2]?.startsWith('kill -0') ? (kills.push(argv[4]), { exitCode: 1, stdout: '', stderr: 'No such process' }) : run(argv))
+    proc.pid = 'other 222'; expect(await continueRun(h2)).toContain('is running in another session'); expect(kills).toEqual([])   // not this machine: never probed
+    proc.pid = 'box 222'; expect(await continueRun(h2)).toMatch(new RegExp(`^Picking up ${m.a} worker`)); expect(kills).toContain('111')
   })
 
   test('pending decisions come back: a blocked task asks its question again (auto)', async () => {

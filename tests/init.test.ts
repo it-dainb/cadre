@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { clearKnownRed, confirm, initItems, repoKeyOf, rootFor, wire } from '../commands/init'
 import { load } from '../config/index'
-import { QUIET, pump, recheck, redNote, seen, start, stopCheck, turnEnd, watch } from '../commands/agentrun'
+import { QUIET, cancel, halt, pump, recheck, redNote, seen, start, stopCheck, turnEnd, watch } from '../commands/agentrun'
+import { band2 } from '../ui/v2/band'
+import { txt } from '../ui/model'
 import { SETTING_UP, decide, run as cadreRun, status as statusLine } from '../commands/cadre'
 import { guard, policyOf, setPolicy, settingsOnly, LIMIT } from '../policy/guards'
 import { wake, warm } from '../core/session'
@@ -143,6 +145,20 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     const d = (await card(h, 'init:5'))!; expect((await decide(h, d.id, 'a', d.hash)).text).toBe('init: safety settings written · init: all done')
     expect((await h.secret.read()).run).toBeUndefined(); const c = (await card(h))!; expect(c.title).toBe('init · all done'); expect(c.options.map(o => o.label)).toEqual(['Close']); expect(h.toasts).toContain('cadre: init done')
     expect((await decide(h, c.id, 'x', c.hash)).text).toBe('init: cancelled'); expect(await card(h)).toBeUndefined()
+  })
+  test('killed mid-setup: the next session names the interrupted setup (status and band), with the queued goal; the goal picks it up; done or cancel forgets it', async () => {
+    const { h, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]
+    await start(h, 'init'); expect((await cadreRun(h, { args: 'add a login page', origin: { kind: 'composer' } }, () => ({}))).text).toBe(SETTING_UP)   // queued behind the run
+    await h.secret.update(({ run: _r, ...x }) => x); await h.board.update(b => ({ ...b, decisions: [] }))   // Claude Code killed: session memory and the dialog are gone, $.store and the files stay
+    expect(await statusLine(h)).toBe('Setup was interrupted · /cadre add a login page to pick it up')
+    await halt(h); const v = { b: await h.board.read(), ring: [], sec: await h.secret.read(), ui: await h.ui.read(), c: { maxTurns: 100 }, now: 0, sx: 'strict', t: null } as any
+    expect(txt(band2(v, 120, { go() {}, pick() {}, answer() {}, step() {} })).join('\n')).toContain('Setup was interrupted · /cadre add a login page to pick it up')
+    expect((await cadreRun(h, { args: 'add a login page', origin: { kind: 'composer' } }, () => ({}))).text).toBe('init: Claude is on it · progress in the cadre pane · then your goal')
+    expect((await h.secret.read()).run).toMatchObject({ kind: 'init', goal: { text: 'add a login page' } })
+    files[`${ROOT}/CHANGELOG.md`] = skeleton(); await turnEnd(h, {})
+    await h.secret.update(({ run: _r, ...x }) => x); expect(await statusLine(h)).not.toContain('interrupted')
+    await start(h, 'setup'); await h.secret.update(({ run: _r, ...x }) => x); await h.board.update(b => ({ ...b, decisions: [] })); expect(await statusLine(h)).toBe('Setup was interrupted · /cadre setup to pick it up')
+    await cancel(h, 'setup'); expect(await statusLine(h)).not.toContain('interrupted')
   })
   test('nothing open: /cadre init says all done and starts nothing', async () => {
     const { h, tick, sent } = mk({ files: READY }); await items(h); await confirm(h)

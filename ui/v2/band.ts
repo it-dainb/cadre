@@ -13,7 +13,7 @@ export function band2(v: View, w: number, a: Acts): Line[] {
 function lines(v: View, w: number, a: Acts): Line[] {
   const pane = (t: string): Seg => S(t, color('muted'), t ? { k: 'pane', p: () => a.go('epic') } : {})   // a click on the plan opens the pane (the [-] at the band's corner is Claude Code's own: it folds the band away)
   const p = v.b.plan, needs = needsOf(v), dr = driveOf(v), bad = problem(v), ts = v.b.tasks, job = runOf(v)
-  if (!p && !needs.length && !job) return []
+  if (!p && !needs.length && !job && !v.ui.halt) return []
   const landed = p && (p.state === 'done-on-dev' || p.state === 'released'), run = running(ts), top = run[0]
   const wide = w >= 100, tight = w < 50
   const dkey = dr ? S(dr.key, undefined, { k: 'drv', hk: '0', p: () => a.drive?.(dr.key) }) : undefined
@@ -30,7 +30,8 @@ function lines(v: View, w: number, a: Acts): Line[] {
       const left: Line = tight ? [g(v, 'run'), S(` ${top.id}${SEP}${pr || p.id}`)] : [g(v, 'run'), S(` ${top.id} `), S(top.title, undefined, { b: false }), muted(more)]
       l1 = lr(w, left, tight ? bothCell.filter(s => s.hk) : right.filter(s => s.t || s.hk))
     } else l1 = lr(w, [g(v, 'wait'), muted(` ${[p.id, pr].filter(Boolean).join(' ')}`)], bothCell.filter(s => s.hk || s.t))
-  } else if (job && v.sec?.run) l1 = [g(v, 'run'), S(clip(` ${job.id.slice(4)} is running${tight ? '' : `${SEP}Claude is on it`}`, w - 2), undefined, { k: 'pane', p: () => a.go('epic') })]   // init/setup: progress, no key
+  } else if (v.ui.halt && !v.sec?.run) l1 = [g(v, 'wait'), muted(clip(` ${v.ui.halt}`, w - 2))]   // a setup cut short in an earlier session (commands/agentrun.halt)
+  else if (job && v.sec?.run) l1 = [g(v, 'run'), S(clip(` ${job.id.slice(4)} is running${tight ? '' : `${SEP}Claude is on it`}`, w - 2), undefined, { k: 'pane', p: () => a.go('epic') })]   // init/setup: progress, no key
   // line 2
   let l2: Line | undefined
   if (needs.length) {

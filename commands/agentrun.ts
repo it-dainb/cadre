@@ -5,7 +5,7 @@ import { modelText } from '../core/say'
 import type { Host, Secret } from '../types'
 import { fnv1a64 } from '../core/board'
 import { ask, settle } from '../core/decide'
-import { initItems, restoreIgnore, type Item } from './init'
+import { initItems, restoreIgnore, scoped, type Item } from './init'
 import { setupItems } from './doctor'
 import { LIMIT } from '../policy/guards'
 import { RUN } from '../core/dispatch'
@@ -18,7 +18,13 @@ const items = (h: Host, k: Kind, quick = false) => (k === 'setup' ? setupItems(h
 const finished = (its: Item[]) => its.every(i => i.st === 'ok' || i.st === 'warn')
 const WHAT = { setup: 'Set up cadre on this machine', init: 'Set up cadre in this project' }
 
-const end = (h: Host) => h.secret.update(({ run: _r, ...s }) => s)
+const end = async (h: Host, done = false) => { if (done) { await h.store.del(await scoped(h, 'run')); await h.ui.update(({ halt: _x, ...u }) => u) } await h.secret.update(({ run: _r, ...s }) => s) }   // done: finished or cancelled; a stopped run stays open (halted)
+// a run started here and never finished (Claude Code quit or was killed mid-run, or it stopped): kept in $.store, as session memory goes with the session. None while a run is on.
+type Halt = { kind: Kind; goal?: { text: string; mode: 'auto' | 'yolo' } }
+const mark = async (h: Host, r: Halt) => h.store.set(await scoped(h, 'run'), r)
+export const halted = async (h: Host) => ((await h.secret.read()).run ? undefined : ((await h.store.get(await scoped(h, 'run'))) as Halt | undefined))
+export const haltText = (r: Halt) => `Setup was interrupted · /cadre ${r.goal ? r.goal.text.slice(0, 80) : r.kind === 'setup' ? 'setup' : '<goal>'} to pick it up`
+export async function halt(h: Host): Promise<void> { const r = await halted(h); if (r) await h.ui.update(u => ({ ...u, halt: haltText(r) })) }   // session.start: the band says it (ui/v2/band)
 // $.prompt.submit is refused from a command or a press frame, and $.clock.after inherits that frame (live, 0.7.0). So a brief waits in the run (`brief`)
 // and goes out from main's turn end or the session's 5 s timer (pump); it starts once the session is idle.
 const send = (h: Host, brief: string) => h.secret.update(s => (s.run ? { ...s, run: { ...s.run, brief } } : s))
@@ -57,8 +63,8 @@ export async function start(h: Host, k: Kind, goal?: { text: string; mode: 'auto
   if (goal) await settle(h, 'init:goal')
   const at = await h.now(); await h.secret.update(s => ({ ...s, run: { kind: k, at, turns: 0, follow: 0, guide: '', snap: {}, ...(goal ? { goal } : {}) } }))   // before the checks: mission waits for the plan in a goal run
   const its = await items(h, k)
-  if (finished(its)) { await end(h); await settle(h, `run:${k}`); if (goal) { await goalBrief(h, goal.text, goal.mode); return `${k}: all done · ${goal.mode === 'yolo' ? 'yolo · ' : ''}Claude plans your goal` } return `${k}: all done` }
-  const guide = `${(await h.root?.()) ?? '.'}/guides/${k}.md`
+  if (finished(its)) { await end(h, true); await settle(h, `run:${k}`); if (goal) { await goalBrief(h, goal.text, goal.mode); return `${k}: all done · ${goal.mode === 'yolo' ? 'yolo · ' : ''}Claude plans your goal` } return `${k}: all done` }
+  const guide = `${(await h.root?.()) ?? '.'}/guides/${k}.md`; await mark(h, { kind: k, ...(goal ? { goal } : {}) })
   const gi = k === 'init' && its.find(i => i.name === 'task store')?.st !== 'ok' ? await h.readText(`${await h.cwd()}/.gitignore`) : undefined   // this run will init the task store: keep the .gitignore bytes (init.restoreIgnore)
   await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, guide, ...(gi !== undefined ? { gi: { had: gi !== null, text: gi ?? '' } } : {}) } } : s)); await resnap(h)
   await draw(h, k, its, 'on')
@@ -71,8 +77,8 @@ export async function recheck(h: Host, turn = false, ended = turn): Promise<stri
   if (await moved(h, r)) return `${r.kind}: stopped · a settings file changed · press 1`
   const k = r.kind, its = await items(h, k), fails = its.filter(i => i.st === 'fail'), turns = r.turns + (turn ? 1 : 0)
   if (finished(its)) await restoreIgnore(h)
-  if (finished(its) && r.goal) { await end(h); await settle(h, `run:${k}`); await goalBrief(h, r.goal.text, r.goal.mode); h.toast('init done · Claude plans your goal'); return `${k}: all done · Claude plans your goal` }   // no "all done" dialog: the plan's dialog is next
-  if (finished(its)) { await end(h); await draw(h, k, its, 'done'); h.toast(`cadre: ${k} done`); return `${k}: all done` }
+  if (finished(its) && r.goal) { await end(h, true); await settle(h, `run:${k}`); await goalBrief(h, r.goal.text, r.goal.mode); h.toast('init done · Claude plans your goal'); return `${k}: all done · Claude plans your goal` }   // no "all done" dialog: the plan's dialog is next
+  if (finished(its)) { await end(h, true); await draw(h, k, its, 'done'); h.toast(`cadre: ${k} done`); return `${k}: all done` }
   const out = turns >= LIMIT.turns || (await h.now()) - r.at >= LIMIT.ms
   if (out) return stuck(h, r, its, 'the time or turn limit was reached')
   if (fails.length && ended && (r.follow >= LIMIT.follow || r.stopSeen)) return stuck(h, r, its, r.follow >= LIMIT.follow ? 'Claude stopped 3 times with checks still failing' : 'Claude stopped with checks still failing')   // stopSeen: the stop check let it stop (it said it cannot go on)
@@ -123,7 +129,7 @@ export async function watch(h: Host): Promise<void> {
   await recheck(h, false, true)
 }
 // `/cadre setup|init cancel` (core/dispatch): the lease ends and the decision goes
-export async function cancel(h: Host, k: string): Promise<void> { if ((await h.secret.read()).run?.kind === k) await end(h); await settle(h, `run:${k}`) }
+export async function cancel(h: Host, k: string): Promise<void> { if ((await h.secret.read()).run?.kind === k || (await halted(h))?.kind === k) await end(h, true); await settle(h, `run:${k}`) }
 
 // ---- settings watch (ADR 0010): Bash under the lease could still write a settings file. Their bytes are kept when the run starts and after each of cadre's
 // own confirmed writes (resnap); any other change stops the run with a CRIT decision: Restore the kept bytes (the changed file is kept as .cadre-changed) or [k] Keep.
@@ -153,3 +159,4 @@ export async function settingsAnswer(h: Host, how: 'restore' | 'keep'): Promise<
   return `${hold.kind}: settings ${how === 'restore' ? 'restored' : 'kept'} · run /cadre ${hold.kind} to go on`
 }
 RUN.recheck = h => recheck(h); RUN.cancel = cancel
+export const queue = async (h: Host, goal: NonNullable<Halt['goal']>) => { const r = (await h.secret.read()).run; if (r) { await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, goal } } : s)); await mark(h, { kind: r.kind, goal }) } }   // a goal typed while the run is on: after it (commands/cadre.later)
