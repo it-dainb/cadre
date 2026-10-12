@@ -88,7 +88,10 @@ async function reask(h: Host, store: TaskStore, plan: Snapshot['plan'] & {}) {
   for (const f of Object.keys((await h.git.read()).flags ?? {})) { const d = flagDecision('', f); if (d) await ask(h, d) }
   if (plan.state === 'done-on-dev' && !y) await propose(h, await h.cwd(), (await cfgOf(h)).branches.dev)
 }
-export async function rehydrate(h: Host): Promise<boolean> {
+// one at a time: a rehydrate takes seconds of store calls, and a hook arriving meanwhile (a reviewer's report right after a /clear, live) must see the finished board, not a half-built one
+let flight: Promise<boolean> | undefined
+export const rehydrate = (h: Host): Promise<boolean> => (flight ??= hydrate(h).finally(() => { flight = undefined }))
+async function hydrate(h: Host): Promise<boolean> {
   const b0 = await h.board.read()
   if (!isCold(b0) || b0.epic) return false
   const p = ((await h.store.get(await pk(h))) as any) ?? (await adopt(h, b0))
@@ -100,10 +103,10 @@ export async function rehydrate(h: Host): Promise<boolean> {
   await safe(h, 'ring rebuild', async () => { if (await ring(h, store, p.epic)) await resetDelivery(h) })
   const rec = same ? await casDrive(h, store, r => (r?.on && r.epicId === p.epic && r.lease.session === p.session ? { ...r, lease: { session: me, until: now + LEASE } } : undefined)) : undefined   // our own lease moves to the new session id
   if (rec?.on && rec.epicId === p.epic) await h.board.update(s => ({ ...s, drive: { ...s.drive, on: true, turns: rec.turns, mode: rec.mode, stopped: rec.stopped } }))   // drive survives /clear: it continues at the next turn.complete (9)
-  let gone = 0
+  let gone = 0   // this process's agents survive a /clear: kept while their task is in flight (not by the claim's lease: a task in review has none, live)
   for (const [a, b] of Object.entries((p.bind ?? {}) as Record<string, Binding>)) {
     if (a.startsWith('~')) continue
-    if (same && leaseLive(await store.get(b.taskId).catch(() => ({}) as any), now)) await h.bind.update(t => ({ ...t, [a]: { ...b, sessionId: me } })); else gone++
+    if (same && ['active', 'review', 'blocked'].includes((await store.get(b.taskId).catch(() => ({}) as any)).category)) await h.bind.update(t => ({ ...t, [a]: { ...b, sessionId: me } })); else gone++
   }
   const q = ((await h.store.get(await qk(h))) as Entry[] | undefined) ?? [], ids = new Set(Object.keys(await h.bind.read()))
   await h.store.set(await qk(h), q.map(x => (ids.has(x.agentId) ? { ...x, sessionId: me } : x)))

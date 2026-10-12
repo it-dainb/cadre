@@ -82,7 +82,9 @@ describe('continue after exit', () => {
 
   test('the same process after /clear keeps its agents and its drive (no continue needed)', async () => {
     const m = await running(), h2 = await m.session('S2')   // proc stays P1
-    await rehydrate(h2)
+    m.clock.now += 6 * 60_000   // no claim lease left (a task in review has none at all in the real store): the agents of this process still run
+    const second = (async () => { while (!(await h2.board.read()).epic) await Promise.resolve(); await rehydrate(h2); return Object.keys(await h2.bind.read()).sort() })()   // a hook arriving mid-rehydrate (a reviewer's report right after the /clear)
+    await rehydrate(h2); expect(await second).toEqual(['r1', 'w1'])
     expect((await h2.board.read()).drive).toMatchObject({ on: true, mode: 'yolo' }); expect(Object.keys(await h2.bind.read()).sort()).toEqual(['r1', 'w1'])
     expect((await h2.ui.read()).cont).toBeUndefined()
   })
