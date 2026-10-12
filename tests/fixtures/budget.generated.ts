@@ -6,6 +6,7 @@ export const BUDGET = {
   "skills": 0,
   "gatingMissing": 0,
   "modelExits": [],
+  "uiLiterals": [],
   "modules": {
     "agents/index.ts": 27,
     "agents/prompts.ts": 35,

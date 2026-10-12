@@ -14,9 +14,10 @@ export const glyph = (k: GlyphK, ascii: boolean): string => GLYPH[k][ascii ? 1 :
 export const glyphRole = (k: GlyphK): Role => GLYPH[k][2]
 export const RULE = ['─', '-'] as const
 export const rule = (n: number, ascii: boolean): string => RULE[ascii ? 1 : 0].repeat(Math.max(0, n))
+export const ELL = '…', SEP = ' · ', ARROWS = '↑↓←→'   // text marks: truncation, fact separator, key-hint arrows
 export const BLOCKS = '█▓▒░'   // Raster cells only (width-1, BMP)
 // every glyph v2 may draw, for the acceptance lint: BRAND §6 + the rule + Raster blocks + the separators of §5 + the cursor
-export const ALLOWED = new Set([...Object.values(GLYPH).flatMap(g => [g[0], g[1]]), RULE[0], RULE[1], ...BLOCKS, '·', '›', '—', '…', '│'])
+export const ALLOWED = new Set([...Object.values(GLYPH).flatMap(g => [g[0], g[1]]), RULE[0], RULE[1], ...BLOCKS, ...ARROWS, ELL, '—', '│'])
 
 // §7: spacing scale, indent, gutters, fixed task-row columns
 export const SPACE = [0, 1, 2, 3, 4, 6, 8] as const
@@ -53,3 +54,10 @@ export const readCfg = (u: Record<string, any> | undefined): UiCfg => {
 }
 export const flashOn = (u: Record<string, any> | undefined): boolean => readCfg(u).flash
 export const densityOf = (u: Record<string, any> | undefined): Density => readCfg(u).density
+
+// graph edges (TUI-DESIGN 4.3), Raster cell characters and the timeline cursor; each has an ASCII form
+export const edge = (k: 'blocks' | 'cond', ascii: boolean): string => (k === 'blocks' ? (ascii ? '->' : '─→') : ascii ? '..>' : '┄→')
+const BLOCK: Record<Cell, [string, string]> = { work: ['█', '#'], review: ['▓', '='], offline: ['░', ':'], attention: ['▒', '%'], failure: ['█', 'X'] }
+export const block = (c: Cell, ascii: boolean): string => BLOCK[c][ascii ? 1 : 0]
+export const cursor = (ascii: boolean): string => (ascii ? '|' : '│')
+ALLOWED.add('┄')

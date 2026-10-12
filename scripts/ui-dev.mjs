@@ -7,7 +7,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const ME = fileURLToPath(import.meta.url), ROOT = join(dirname(ME), '..')
-const WIDTHS = [60, 120, 160], TABS = { 1: 'epic', 7: 'plan', 8: 'doctor', 9: 'settings' }
+const WIDTHS = [40, 60, 80, 120, 160], TABS = { 1: 'epic', 7: 'plan', 8: 'doctor', 9: 'settings' }
+const ALLTABS = [...new Set([...Object.values(TABS), 'graph', 'timeline', 'activity'])]   // v2 tabs join as they land; a tab a version does not know draws its default view
 const FLAGS = ['--experimental-transform-types', '--no-warnings']
 
 // ---------- child: render one frame, print JSON ----------
@@ -18,7 +19,7 @@ const sgr = (codes, s) => (codes.length ? `\x1b[${codes.join(';')}m${s}\x1b[0m` 
 async function child(req) {
   await import(pathToFileURL(join(ROOT, 'tests/dev/register.mjs')))
   const I = f => import(pathToFileURL(join(ROOT, f)))
-  const [{ band }, { pane }, M] = await Promise.all([I('ui/band.ts'), I('ui/pane.ts'), I('ui/model.ts')])
+  const [{ band }, { pane }, M, { width }] = await Promise.all([I('ui/band.ts'), I('ui/pane.ts'), I('ui/model.ts'), I('ui/layout.ts')])
   const s = (await I(`scenarios/${req.name}.ts`)).default
   const ring = [...(s.ring ?? s.events ?? [])].sort((a, b) => a.at - b.at), n = ring.length
   const v = { b: s.b ?? s.snapshot, ring, sec: s.sec ?? s.secret ?? {}, ui: { ...s.ui }, c: { ...M.CFG, ...(s.c ?? s.cfg) }, now: s.now, sx: s.sx ?? 'strict', t: s.t ?? null }
@@ -38,8 +39,8 @@ async function child(req) {
   }
   const bandLines = band(v, w, acts), p = pane(v, w, req.rows ?? 40, acts, true)
   const flat = [...bandLines, ...p.before, ...p.after]
-  // text projection: a Button draws `[k] label`, an Input `label: value▏`
-  const body = seg => (seg.inp ? `${seg.il ?? 'task id'}: ${seg.iv ?? ''}▏` : seg.hk ? `[${seg.hk}] ${seg.t}` : seg.t)
+  // text projection: a Button draws `k: label` like the engine (plain Button), an Input `label: value▏`
+  const body = seg => (seg.inp ? `${seg.il ?? 'task id'}: ${seg.iv ?? ''}▏` : seg.hk ? `${seg.hk}: ${seg.t}` : seg.t)
   const paint = l => l.map(seg => sgr([...(seg.b ? [1] : []), ...(seg.d ? [2] : []), ...(seg.i ? [7] : []), ...(ANSI[seg.c] ? [ANSI[seg.c]] : [])], body(seg))).join('')
   const plainOf = l => l.map(body).join('').trimEnd()
   const tlRows = (p.tl?.rows ?? []).map(r => ({ a: [...r].map(ch => sgr(RASTER[ch] ? [RASTER[ch]] : [], M.T(v.c, ch))).join(''), p: M.T(v.c, r).trimEnd() }))
@@ -47,13 +48,15 @@ async function child(req) {
   const head = `▌ ${req.name} · w${w} · tab ${v.ui.tab} · event ${idx}/${n} ${idx >= n ? '[LIVE]' : `[${ev}]`}`
   const frame = [{ a: sgr([2], head), p: head }, ...bandLines.map(l => ({ a: paint(l), p: plainOf(l) })), { a: sgr([2], '─'.repeat(w)), p: '─'.repeat(w) },
     ...p.before.map(l => ({ a: paint(l), p: plainOf(l) })), ...tlRows, ...p.after.map(l => ({ a: paint(l), p: plainOf(l) }))]
+  // overflow: any drawn line wider than bodyColumns (the header and the dev rule are the harness's, not the plugin's)
+  const over = [...bandLines.map(plainOf), ...p.before.map(plainOf), ...tlRows.map(r => r.p), ...p.after.map(plainOf)].filter(l => width(l) > w).map(l => `${width(l)}>${w}: ${l.trim().slice(0, 70)}`)
   let status = ''
   if (req.press) {
     const hit = flat.flat().find(x => x.hk === req.press && x.p)
     if (!hit) status = `no [${req.press}] button on this frame`
     else { hit.p(); status = `[${req.press}] → ${said.join(' · ') || '(nothing)'}${v.t === null ? '' : '  (replay: the real pane has actions off)'}` }
   }
-  return { ansi: frame.map(x => x.a), plain: frame.map(x => x.p.trimEnd()), status, patch, idx, n, w, tab: v.ui.tab, buttons: flat.flat().filter(x => x.hk).map(x => x.hk) }
+  return { over, ansi: frame.map(x => x.a), plain: frame.map(x => x.p.trimEnd()), status, patch, idx, n, w, tab: v.ui.tab, buttons: flat.flat().filter(x => x.hk).map(x => x.hk) }
 }
 
 // ---------- parent ----------
@@ -69,12 +72,15 @@ async function main(argv) {
   const has = k => argv.includes(k), pos = argv.filter((a, i) => !a.startsWith('--') && !['--width', '--tab'].includes(argv[i - 1]))[0]
   let st = { name: pos ?? 'epic-p3', w: opt('--width') ? Number(opt('--width')) : undefined, tab: opt('--tab'), idx: undefined, ui: {} }
   if (argv[0] === '--dump') { const r = await run({ name: argv[1], dump: true }); if (r.error) { console.error(r.error); process.exit(1) } console.log(JSON.stringify(r)); return }
-  if (has('--all')) {   // CI: every scenario x tab x {60,120} renders
-    let bad = 0
-    for (const name of names()) for (const w of [60, 120]) for (const tab of ['epic', 'plan', 'doctor', 'settings']) {
-      const r = await run({ name, w, tab }); if (r.error) { bad++; console.error(`FAIL ${name} ${tab} ${w}\n${r.error}`) }
-    }
-    console.log(bad ? `${bad} failed` : `ok: ${names().length} scenarios`); process.exit(bad ? 1 : 0)
+  if (has('--all')) {   // CI: every scenario x tab x width renders, and no line is wider than bodyColumns
+    let bad = 0, n = 0
+    const jobs = names().flatMap(name => WIDTHS.flatMap(w => ALLTABS.map(tab => ({ name, w, tab }))))
+    for (let i = 0; i < jobs.length; i += 8) await Promise.all(jobs.slice(i, i + 8).map(async j => {   // 8 child processes at a time
+      const r = await run(j); n++
+      if (r.error) { bad++; console.error(`FAIL ${j.name} ${j.tab} ${j.w}\n${r.error}`) }
+      else if (r.over.length) { bad++; console.error(`OVERFLOW ${j.name} ${j.tab} ${j.w}\n  ${r.over.join('\n  ')}`) }
+    }))
+    console.log(bad ? `${bad} of ${n} frames failed` : `ok: ${n} frames (${names().length} scenarios)`); process.exit(bad ? 1 : 0)
   }
   if (!existsSync(join(ROOT, 'scenarios', `${st.name}.ts`))) { console.error(`no scenario "${st.name}". have: ${names().join(', ')}`); process.exit(2) }
   if (has('--once') || !process.stdout.isTTY || !process.stdin.isTTY) {

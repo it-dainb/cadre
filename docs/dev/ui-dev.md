@@ -3,7 +3,7 @@
 Develop the pane without a Claude session, the engine or other features. `scripts/ui-dev.mjs` imports the **real** `ui/` renderers (the code the plugin runs) and draws band + pane (+ the decision card, the timeline) for a *scenario* in your terminal. Node stdlib only.
 
 ```bash
-node --experimental-transform-types scripts/ui-dev.mjs [scenario] [--width N] [--tab epic|plan|doctor|settings|card] [--once] [--all]
+node --experimental-transform-types scripts/ui-dev.mjs [scenario] [--width N] [--tab epic|plan|doctor|settings|graph|timeline|activity] [--once] [--all]
 ```
 - no `--once`: interactive; hot reload (a save in `ui/`, `core/`, `scenarios/` or `tests/fixtures/ui/` redraws in about half a second: each frame renders in a fresh child process, so nothing is stale). A syntax/runtime error draws a red frame; fix and save, the loop keeps running.
 - `--once`: print one frame (ANSI on a TTY, plain text otherwise: pipe it for CI/snapshots). `--all`: render every scenario x tab x {60,120}, exit 1 on any throw.

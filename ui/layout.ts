@@ -1,5 +1,5 @@
 // UI v2 layout helpers (BRAND §5, §7): fixed-column rows, priority truncation, relative times, plurals. Pure strings; colour/glyphs come from tokens.
-import { ALLOWED } from './tokens'
+import { ALLOWED, ELL, SEP } from './tokens'
 
 // cell width: the BRAND glyph set and ASCII are 1; anything else outside Latin/BMP-narrow is flagged (returns 2) so tests can reject it
 export const cw = (ch: string): number => {
@@ -15,7 +15,7 @@ export const clip = (s: string, n: number): string => {
   if (width(s) <= n) return s
   let out = '', w = 0
   for (const ch of s) { if (w + cw(ch) > n - 1) break; out += ch; w += cw(ch) }
-  return n > 0 ? out + '…' : ''
+  return n > 0 ? out + ELL : ''
 }
 export const padR = (s: string, n: number): string => s + ' '.repeat(Math.max(0, n - width(s)))
 export const padL = (s: string, n: number): string => ' '.repeat(Math.max(0, n - width(s))) + s
@@ -27,7 +27,7 @@ export function row(r: RowIn, w: number, indent = 2): string {
   const time = r.time === undefined ? '' : padL(r.time, 6)
   const facts = [...(r.facts ?? [])]
   const build = () => {
-    const f = facts.length ? facts.join(' · ') : '', right = [f, time].filter(Boolean).join(' ')
+    const f = facts.length ? facts.join(SEP) : '', right = [f, time].filter(Boolean).join(' ')
     return { f, right }
   }
   const room = (right: string) => w - width(head) - width(tail) - (right ? width(right) + 2 : 0)
