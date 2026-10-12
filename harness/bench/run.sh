@@ -9,9 +9,11 @@ while [ $# -gt 0 ]; do case $1 in -j) J=$2; shift;; -n) DRY=1;; --go) GO=1;; esa
 RUNS=$(J=$J node "$B/bench.mjs" plan "$G" 2>"$B/.est") || exit 2; EST=$(cat "$B/.est"); rm -f "$B/.est"; echo "$EST"
 [ -n "$DRY" ] && { cut -d'|' -f1 <<<"$RUNS" | sort | uniq -c; exit 0; }
 HI=$(sed -E 's/.*US\$[0-9]+-([0-9]+).*/\1/' <<<"$EST"); [ "$HI" -gt 5 ] && [ -z "$GO" ] && { echo "estimate over \$5: rerun with --go once approved"; exit 3; }
-SRC=${SPIKE:-$(dirname "$H")}; OUTD=$H/out/bench/$(basename "$G" .json)-$(date +%Y%m%d-%H%M%S); mkdir -p "$OUTD/plug"
-git -C "$SRC" archive HEAD | tar -x -C "$OUTD/plug"; echo "plugin $(git -C "$SRC" rev-parse --short HEAD) · evidence $OUTD"
-export H B OUTD CAP=${CAP:-$HI}
+SRC=${SPIKE:-$(dirname "$H")}; OUTD=$H/out/bench/$(basename "$G" .json)-$(date +%Y%m%d-%H%M%S); mkdir -p "$OUTD"
+# the plugin snapshot lives outside the repo: `plugin test .` would collect its tests
+PLUG=$(mktemp -d "${TMPDIR:-/tmp}/cadre-bench-plug-XXXX"); git -C "$SRC" archive HEAD | tar -x -C "$PLUG"; git -C "$SRC" rev-parse HEAD >"$OUTD/plugin-commit"
+echo "plugin $(git -C "$SRC" rev-parse --short HEAD) · evidence $OUTD"
+export H B OUTD PLUG CAP=${CAP:-$HI}
 one() {   # <cell>|<task>|<k>|<roles json>
   IFS='|' read -r cell task k roles <<<"$1"; D=$OUTD/$cell/$task-$k
   spent=$(node "$B/bench.mjs" spent "$OUTD"); node -e "process.exit(+process.argv[1] >= +process.argv[2] ? 0 : 1)" "$spent" "$CAP" && { echo "$cell $task#$k skipped: \$$spent spent, cap \$$CAP"; return; }
@@ -20,7 +22,7 @@ one() {   # <cell>|<task>|<k>|<roles json>
   n=$(node -p "require('$B/tasks/$task/plan.json').tasks.length"); bud=$(( ${BUDGET:-1800} * (n > 1 ? 2 : 1) )); name=bench-$$-$RANDOM
   P="Plan p-p1 is approved. Execute it: spawn the agent for each task as the board directs, close each task once its review passes, then tell me where things stand. Spawn every agent in the foreground (run_in_background false) and wait for its result: this is a headless run that ends when your turn ends."
   t0=$(date +%s%3N)
-  WORK=$D/work OUT=$D/out SPIKE=$OUTD/plug PROJECTS=$D/projects EXTRA_DOCKER="--name $name" timeout -k 10 "$bud" "$H/run.sh" -p "$P" --plugin-dir /work/spike --model "${MAIN_MODEL:-sonnet}" \
+  WORK=$D/work OUT=$D/out SPIKE=$PLUG PROJECTS=$D/projects EXTRA_DOCKER="--name $name" timeout -k 10 "$bud" "$H/run.sh" -p "$P" --plugin-dir /work/spike --model "${MAIN_MODEL:-sonnet}" \
     --permission-mode bypassPermissions --debug-file /out/debug.log --output-format stream-json --verbose >"$D/stream.jsonl" 2>"$D/stderr.log"; ex=$?
   [ $ex = 124 ] && docker kill "$name" >/dev/null 2>&1
   printf '{"cell":"%s","task":"%s","k":%s,"t0":%s,"t1":%s,"exit":%s}\n' "$cell" "$task" "$k" "$t0" "$(date +%s%3N)" "$ex" >"$D/meta.json"
@@ -28,4 +30,4 @@ one() {   # <cell>|<task>|<k>|<roles json>
 }
 export -f one
 xargs -P "$J" -d '\n' -I{} bash -c 'one "$1"' _ {} <<<"$RUNS"
-echo; node "$B/bench.mjs" table "$OUTD" | tee "$OUTD/table.txt"
+echo; node "$B/bench.mjs" table "$OUTD" | tee "$OUTD/table.txt"; rm -rf "$PLUG"

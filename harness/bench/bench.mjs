@@ -21,13 +21,13 @@ const usd = (m, u) => { const [i, o, r] = PRICE[fam(m)]; return (u.in * i + u.ou
 // ---- plan: grid -> runs ----
 const tag = r => r ? `${r.tier}.${r.effort ?? 'default'}${r.escalate?.after ? `+esc.${r.escalate.to}` : ''}` : '-'
 const role = r => ({ tier: r.tier, effort: r.effort ?? 'default', ...(r.escalate ? { escalate: r.escalate } : {}) })
-// rough $ per task by role and model (calibrate from a smoke run: README); main dominates
-const EST = { main: 0.45, worker: { haiku: 0.06, sonnet: 0.3, opus: 0.8 }, tester: { haiku: 0.04, sonnet: 0.18, opus: 0.5 }, reviewer: { haiku: 0.04, sonnet: 0.15, opus: 0.45 } }
+// $ per task by role and model, from the pilot's means (2026-10-12; main runs warm across parallel runs, a cold one costs ~3x)
+const EST = { main: 0.3, worker: { haiku: 0.005, sonnet: 0.05, opus: 0.15 }, tester: { haiku: 0.005, sonnet: 0.045, opus: 0.12 }, reviewer: { haiku: 0.01, sonnet: 0.075, opus: 0.2 } }
 const EFF = { low: 0.6, medium: 0.8, high: 1, xhigh: 1.4, max: 1.8, default: 1 }
 if (cmd === 'plan') {
   const g = JSON.parse(read(arg)), tasks = Object.entries(plans).filter(([t, p]) => g.tiers.includes(p.tier) && (!g.only || g.only.includes(t)))
-  const cells = []
-  for (const w of g.workers) for (const t of g.testers) for (const r of g.reviewers) {
+  const cells = [], combos = g.cells ?? g.workers.flatMap(w => g.testers.flatMap(t => g.reviewers.map(r => ({ worker: w, tester: t, reviewer: r }))))   // cells: an explicit list instead of the cross product
+  for (const { worker: w, tester: t, reviewer: r } of combos) {
     const w2 = w.tier === 'haiku' && g.escalateHaiku !== false && !w.escalate ? { ...w, escalate: { after: 1, to: 'sonnet' } } : w
     cells.push({ name: `w-${tag(w2)}_t-${tag(t)}_r-${tag(r)}`, roles: { worker: role(w2), tester: role(t), reviewer: role(r) } })
   }
