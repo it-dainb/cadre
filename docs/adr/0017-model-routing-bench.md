@@ -26,4 +26,32 @@ A run = one task plan executed headless by main (sonnet) through `harness/run.sh
 
 ## Results
 
-(pending: first pass light + standard, then thorough + core)
+### Pilot (2026-10-12): light + standard, N=1, plugin e9462f1
+
+7 tasks x 6 cells = 42 runs, 0 invalid, $14.49 total (main $9.41, roles $5.08). Main fixed on sonnet; reviewer sonnet/high. A haiku worker escalates to sonnet after one failed round.
+Effort verified on the wire (passthrough proxy, `harness/bench/effort-proxy.mjs`): each agent's requests carry the configured `output_config.effort`, Haiku included.
+
+| tier | cell (worker_tester_reviewer) | runs | landed | first-try | mean rework | escalations | $/landed (all) | $/landed (roles) | min/run | src off declared paths |
+|---|---|---|---|---|---|---|---|---|---|---|
+| light | w-haiku.high+esc.sonnet_t-haiku.high_r-sonnet.high | 4 | 4/4 | 100% | 0.00 | 0 | $0.29 | $0.07 | 2.1 | 2/4 |
+| light | w-haiku.high+esc.sonnet_t-sonnet.medium_r-sonnet.high | 4 | 4/4 | 100% | 0.00 | 0 | $0.31 | $0.10 | 1.9 | 1/4 |
+| light | w-sonnet.high_t-haiku.high_r-sonnet.high | 4 | 3/4 | 75% | 0.25 | 0 | $0.47 | $0.16 | 2.2 | 1/4 |
+| light | w-sonnet.high_t-sonnet.medium_r-sonnet.high | 4 | 3/4 | 75% | 0.25 | 0 | $0.52 | $0.21 | 2.2 | 0/4 |
+| light | w-sonnet.medium_t-haiku.high_r-sonnet.high | 4 | 4/4 | 100% | 0.00 | 0 | $0.32 | $0.12 | 1.9 | 1/4 |
+| light | w-sonnet.medium_t-sonnet.medium_r-sonnet.high | 4 | 4/4 | 100% | 0.00 | 0 | $0.33 | $0.13 | 2.0 | 1/4 |
+| standard | w-haiku.high+esc.sonnet_t-haiku.high_r-sonnet.high | 3 | 3/3 | 100% | 0.00 | 0 | $0.31 | $0.08 | 2.2 | 0/3 |
+| standard | w-haiku.high+esc.sonnet_t-sonnet.medium_r-sonnet.high | 3 | 3/3 | 100% | 0.00 | 0 | $0.35 | $0.13 | 2.2 | 0/3 |
+| standard | w-sonnet.high_t-haiku.high_r-sonnet.high | 3 | 3/3 | 100% | 0.00 | 0 | $0.39 | $0.13 | 2.2 | 0/3 |
+| standard | w-sonnet.high_t-sonnet.medium_r-sonnet.high | 3 | 3/3 | 100% | 0.00 | 0 | $0.39 | $0.17 | 2.1 | 0/3 |
+| standard | w-sonnet.medium_t-haiku.high_r-sonnet.high | 3 | 2/3 | 67% | 0.33 | 0 | $0.54 | $0.19 | 2.3 | 0/3 |
+| standard | w-sonnet.medium_t-sonnet.medium_r-sonnet.high | 3 | 3/3 | 100% | 0.00 | 0 | $0.37 | $0.14 | 2.2 | 0/3 |
+
+**Every non-landed run had the same cause, in cadre, not in the models.** In all 3 the reviewer asked for the task's changelog entry in CHANGELOG.md, which the worker may not edit (cadre writes it at close). The worker reported blocked and the task stopped at 1 rework. These runs fall in sonnet-worker cells by chance (n=1). With them excluded, every cell landed 100% first try.
+**Declared paths are not in the briefs.** Haiku testers/workers sometimes create a new module (`src/titleCase.mjs`) instead of the declared `src/words.mjs`. Hidden checks test behaviour wherever the symbol lives; the last column counts runs with source files outside the declared paths.
+**Escalation was never exercised** (no haiku worker failed a round).
+Main is ~65% of all $ and depends on cache warmth across parallel runs. So `$/landed (roles)` is the comparison that tracks the role choice: haiku worker + haiku tester $0.07–0.08 vs sonnet/sonnet $0.13–0.21.
+Pilot N=1 cannot separate the cells on quality (light/standard are easy for every config); the focus pass decides.
+
+### Focus pass
+
+(pending: 2–3 cells x 7 tasks x N=3, chosen by the user)

@@ -47,7 +47,7 @@ function judge(dir) {
   const sh = (c, a, o = {}) => { try { return execFileSync(c, a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env, ...o }) } catch { return null } }
   const ids = JSON.parse(read(join(dir, 'scaffold.json')) || '{}').tasks ?? {}, epicBranch = JSON.parse(read(join(dir, 'scaffold.json')) || '{}').epicBranch
   // tokens + $ by role from every transcript; a streamed message repeats its id: keep the last usage per id
-  const byRole = {}, rejections = []
+  const byRole = {}; let rejections = []
   for (const f of walk(join(dir, 'projects')).filter(f => f.endsWith('.jsonl'))) {
     const lines = read(f).split('\n').filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
     const first = lines.find(l => l.type === 'user')?.message?.content, text = typeof first === 'string' ? first : Array.isArray(first) ? first.map(b => b.text ?? '').join('') : ''
@@ -65,6 +65,7 @@ function judge(dir) {
       if (b.type === 'tool_use' && /report$/.test(b.name) && b.input?.verdict === 'changes') rejections.push((b.input.findings ?? []).map(x => x.issue).filter(Boolean).slice(0, 3).join(' | ') || b.input.summary || 'changes')
     }
   }
+  rejections = [...new Set(rejections)]   // a report retried after a schema refusal repeats the same findings
   // per task: store status + meta, then the hidden check on the epic branch tip
   // the epic branch while the plan runs; once the plan landed the branch is gone and dev holds it
   let tip = null; const ref = [epicBranch, 'dev'].find(b => b && sh('git', ['-C', work, 'rev-parse', '--verify', '-q', b]))
