@@ -15,7 +15,7 @@ const { BdStore } = await import('../../task-management/adapters/beads/store.ts'
 const { dirOf } = await import('../../task-management/adapters/beads/layout.ts')
 const { fakeHost } = await import('../support.ts')
 
-const run = (argv, o = {}) => new Promise(res => { const p = execFile(argv[0], argv.slice(1), { cwd: o.cwd, env: { ...process.env, ...o.env }, timeout: 60000 }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })); p.stdin.end(o.stdin ?? '') })
+const run = (argv, o = {}) => new Promise(res => { const p = execFile(argv[0], argv.slice(1), { cwd: o.cwd, env: { ...process.env, ...o.env }, timeout: 60000 }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })); p.stdin.on('error', () => {}); p.stdin.end(o.stdin ?? '') })   // a child that exits before reading its stdin: EPIPE is not a failure
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()
 const put = (d, p, t) => { mkdirSync(join(d, p, '..'), { recursive: true }); writeFileSync(join(d, p), t) }
 const CHANGELOG = '# Changelog\n\nAll notable changes to this project will be documented in this file.\n\nThe format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).\n\n## [Unreleased]\n'
