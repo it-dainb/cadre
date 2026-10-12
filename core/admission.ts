@@ -12,6 +12,7 @@ import { BLOCKING, apply, epicNext } from './machine'
 import { emit } from './events'
 import { flagName } from './render'
 import { brief, idsIn, type BriefIn } from './briefs'
+import { asked } from './asks'
 import { taskBranch, wtPath, wtRootOf } from './branches'
 import * as G from './git'
 import { checkpoint } from './effect'
@@ -50,7 +51,9 @@ export async function admitWith(h: Host, d: Deps, e: any, next: (e: any) => any)
   if (!ids.length) {   // marker-less: a read-only explorer; forks pass untouched
     if (e.fork) return next(e)
     const m = modelOf(d, 'explorer')
-    return next({ ...e, subagentType: 'cadre:explorer', ...(m ? { model: m } : {}), prompt: brief('explorer', { id: '', title: '', type: '', question: e.prompt }) })
+    const r = await next({ ...e, subagentType: 'cadre:explorer', ...(m ? { model: m } : {}), prompt: brief('explorer', { id: '', title: '', type: '', question: e.prompt }) })
+    if (r?.agentId) await asked(h, r.agentId, e)   // tracked from the start: its stop is observed and main only sees its card (core/asks)
+    return r
   }
   if (e.fork) return deny('a task agent cannot be a fork; spawn it without fork')
   const t = s.tasks.find(x => x.id === ids[0])!

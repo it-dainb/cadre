@@ -1,5 +1,6 @@
 // report -> review -> verdict -> close (DESIGN 3.4, 3.8, 6.3). Slot #2 `observe`; `report` is called by tools/index; LIFECYCLE + ROUTES.resolve register at load.
 // Every function takes explicit Deps (admission.resolveDeps in the slots) so tests drive them with a MemoryStore and a scripted run.
+import { NUDGE as ASK_NUDGE, askOf, askStopped } from './asks'
 import type { Binding, Hook, Host, SnapTask } from '../types'
 import type { Task } from '../task-management/store'
 import { pipeOf } from '../task-management/registry'
@@ -19,7 +20,7 @@ import { modeOf, pkgOf } from './specview'
 import * as G from './git'
 
 
-const NUDGE: Record<string, string> = { worker: 'You stopped without calling report. Call it now: {"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"} (or outcome "blocked" with reason).', tester: 'You stopped without calling report. Call it now with role "tester", outcome "done", summary and tests.', reviewer: 'You stopped without calling report. Call it now with role "reviewer", verdict, summary, findings, coverage and contractStatus.', explorer: 'You stopped without calling report. Call it now with role "explorer" and your answer.' }
+const NUDGE: Record<string, string> = { worker: 'You stopped without calling report. Call it now: {"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"} (or outcome "blocked" with reason).', tester: 'You stopped without calling report. Call it now with role "tester", outcome "done", summary and tests.', reviewer: 'You stopped without calling report. Call it now with role "reviewer", verdict, summary, findings, coverage and contractStatus.', explorer: ASK_NUDGE }
 const num = (v?: string) => Number(v ?? 0) || 0
 const sha7 = (s: string) => s.slice(0, 7)
 
@@ -187,10 +188,10 @@ export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
       return
     }
     if (b.role === 'reviewer') return unbind(h, e.agentId, 'stopped', t.id)   // a verdict is never invented; main spawns a fresh reviewer
-    const text = String(e.answer ?? '').slice(0, 300)
+    const text = String(e.answer ?? '').slice(0, b.role === 'explorer' ? 2000 : 300)
     try {
       if (b.role === 'worker') await workerDone(h, d, t, b, { summary: `(auto-report: stopped without report) ${text}` }, true)
-      else if (b.role === 'explorer') await explorerDone(h, d, t, e.agentId, { answer: text || '(no answer)', citations: [] })
+      else if (b.role === 'explorer') { await explorerDone(h, d, t, e.agentId, { answer: text || '(no answer)', citations: [] }); await raise(h, t.id, 'auto-reported') }
       else await release(h, d, t, b, e.agentId, 'no report')
     } catch (x) { await release(h, d, t, b, e.agentId, `auto-report failed: ${(x as Error).message}`.slice(0, 200)) }
     return
@@ -200,7 +201,7 @@ export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
 }
 export async function observeWith(h: Host, d: Deps, e: any, next: (e: any) => any): Promise<any> {
   await sweep(h).catch(x => h.log(`cadre: sweep failed: ${x}`))
-  if (e.agentId) await stopped(h, d, e).catch(x => h.log(`cadre: observe failed: ${x}`))
+  if (e.agentId) await ((await askOf(h, e.agentId)) ? askStopped(h, e) : stopped(h, d, e)).catch(x => h.log(`cadre: observe failed: ${x}`))
   return next(e)
 }
 export const observe: Hook = async (h, e, next) => observeWith(h, await resolveDeps(h), e, next)

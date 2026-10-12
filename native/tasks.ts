@@ -1,5 +1,6 @@
 // Native Task* for main (DESIGN 5.1): `{result}` answers schema-exact per BTO §4 (nothing in core runs: no zod, no panel, no TaskCreated hooks),
 // drafts through TaskStore, field mapping, deps, frozen approved fields, TaskList/TaskGet from the model view. Main only; subagents never see Task*.
+import { askById, askTask } from '../core/asks'
 import type { Hook, Host } from '../types'
 import type { Task, TaskStore } from '../task-management/store'
 import { StoreError } from '../task-management/store'
@@ -124,6 +125,7 @@ async function list(h: Host) {
   return { result: { tasks: v.tasks.map(t => ({ id: t.id, subject: subject(t), status: NATIVE[t.state], ...(t.owner ? { owner: t.owner } : {}), blockedBy: t.deps.map(d => d.id).filter(open) })) } }
 }
 async function get(h: Host, store: TaskStore, e: any) {
+  if (String(e.taskId).startsWith('ask-')) { const a = await askById(h, String(e.taskId)); return { result: { task: a ? askTask(a) : null } } }   // a marker-less explorer's answer (core/asks)
   let t: Task; try { t = await store.get(String(e.taskId)) } catch (x) { if (x instanceof StoreError && x.code === 'NotFound') return { result: { task: null } }; throw x }
   const v = modelView(await h.board.read()), st = v.tasks.find(x => x.id === t.id), open = (i: string) => !['done', 'cancelled'].includes(v.tasks.find(x => x.id === i)?.state ?? 'done')
   return { result: { task: { id: t.id, subject: st ? subject(st) : t.title, description: taskText(t, st), status: NATIVE[t.category], blocks: v.tasks.filter(x => x.deps.some(d => d.id === t.id)).map(x => x.id), blockedBy: t.deps.filter(d => d.type !== 'discovered-from' && d.type !== 'related' && d.type !== 'parent-child').map(d => d.id).filter(open) } } }

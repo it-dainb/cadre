@@ -4,6 +4,7 @@ import type { Hook, Host } from '../types'
 import { resolveDeps, type Deps } from '../core/admission'
 import { raise, report, runCheck } from '../core/close'
 import { warm } from '../core/session'
+import { askAnswer, askOf } from '../core/asks'
 import { RETRIES, refuse, clearRetries, validateReport } from '../core/validate'
 import * as G from '../core/git'
 
@@ -25,6 +26,7 @@ async function onReport(h: Host, d: Deps, agentId: string | undefined, r: any): 
   const key = `report:${agentId ?? 'main'}`
   if (!agentId) return bad('only a spawned agent reports')
   const env = validateReport(r); if (env) return bad(await refuse(h, key, env))
+  if (!(await h.bind.read())[agentId] && (await askOf(h, agentId))) return r.role === 'explorer' ? askAnswer(h, agentId, r) : bad('role: you are an explorer; report role "explorer" with answer and citations')
   try {
     const text = await report(h, d, agentId, r); await clearRetries(h, key); return text
   } catch (x) {
