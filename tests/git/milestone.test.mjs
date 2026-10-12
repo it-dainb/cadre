@@ -97,4 +97,6 @@ test('after an epic lands, the other running epic takes the new milestone tip', 
   const { d, h, ms, ep } = await world()
   assert.equal(await integrateEpic(h, ep[1]), null)
   assert.equal(sh(d, 'merge-base', '--is-ancestor', ms, 'epic/signup'), ''); assert.equal(sh(d, 'show', 'epic/signup:b.txt'), 'login')
+  const b = await h.board.read(); assert.equal(b.plan.landed, undefined); assert.equal(b.plan.state, 'approved'); assert.notEqual(sh(d, 'rev-parse', 'dev'), sh(d, 'rev-parse', ms))   // one epic of two: the milestone is NOT landed (no early "landed on dev")
+  const ev = Object.values((await h.events.read()).epics).flat().filter(e => e.type === 'plan.landed'); assert.deepEqual(ev.map(e => [e.data.planId, e.data.on]), [[ep[1], ms]])
 })

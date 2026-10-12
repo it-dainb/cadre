@@ -36,3 +36,18 @@ sonnet, auto, three small features: one roadmap dialog after the critic's review
 ## Consequences
 - `metadata` gains `epic`, `size`, `planned`, `critique`; `lane` gains `milestone`. `milestone/` branches are protected like `epic/` ones.
 - Kit: `tests/milestone.test.ts` (lane + override + Change lane, roadmap missing list, critic, the one dialog, approval, JIT auto-approval + record, scheduling within maxEpics, next: line, stop propagation per mode, per-epic no progress, scaled bounds, admission per epic, continue). Real git: `tests/git/milestone.test.mjs` (landing on the milestone branch, footer, freshen, the milestone on dev, release subject, one landing at a time, red → fix task → stop, conflict → stop).
+
+## Wave 2: conflicts between epics
+User decisions, 2026-10-12 (plan `cadre-0.10.0-milestone`, "Conflicts between epics"). Reuses ADR 0014 G (`core/rebase.ts`).
+
+**Trial merge before every landing.** `integrateEpic` runs `git merge-tree --write-tree` of the target tip (the milestone branch, or dev for a single plan) and the epic branch first; a conflict skips the merge attempt and names the files.
+
+**A conflict is a task, not a stop.** A conflict at landing adds ONE resolve task to that epic (`rebase.resolveTask`): type `refactor`, lane lite (worker → green → reviewer → merge), changelog none, meta `cadre.resolve = <target>`. Its worktree and branch are created at once from the epic tip with the target merged in and the conflict left in the files (`MERGE_HEAD`, markers); the claim keeps that tree. The description gives both sides: this epic's goal and the epics already on the target. The worker resolves it, the usual gates run (green on the merged tree, a review), and close lands it on the epic branch as a real merge (`--no-ff`), not a squash: a squash would drop the target as a parent and the landing would conflict again. Its protected files that equal the target's (the changelog the earlier landings amended) are not counted as its edits. Main then completes the epic again. Both modes, automatic, recorded (`drive.decided` kind `resolve` + a beads decision). At most 2 per epic (`cadre.resolves`); then a milestone epic stops (`stopEpic`: auto asks with the files and the epics already landed; yolo stops that epic, independent epics go on) and a single plan gets the `integration-failed` flag as before. Default for single-epic plans (the plan left it open): the same resolve task, since it is gated the same way; the milestone's own landing on dev keeps asking the human (its children are epics, not tasks).
+
+**Running epics take the new milestone tip.** After an epic lands (and the milestone took dev's news), every other running epic gets the milestone tip merged into its branch in a throwaway worktree with a CAS on the branch (`rebase.refreshEpics`), then its running workers get the new epic tip (`rebase.refresh`, scoped to that epic). An epic that would conflict is left alone: its own landing turns the conflict into a resolve task.
+
+**Early heads-up.** `rebase.watch` (60 s) also compares the branches of running epics pairwise; a collision tells every running worker of both epics once.
+
+**Promote to core mid-run.** In a running milestone, `TaskCreate` with `metadata.core: true` and no `epic` adds a core-patch epic: approved at once (recorded `drive.decided` kind `plan`), scheduled and planned like any epic; when it lands its files are locked for the later tasks (`coreLanded`) and the running epics take it (above). The goal guide names it in one line.
+
+**Rejected.** Resolving a conflict in the epic's last task (its worker is gone and its review done); merging epic branches into each other (the rule stays: a child builds only on what landed on its parent).
