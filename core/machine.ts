@@ -8,7 +8,7 @@ import { strictOf } from '../config/index'
 // A pipeline step lives in one beads task; its step decides the category. reviewer/merge = `review` (merge = review pass, awaiting close).
 export const STEP_CAT: Record<string, Category> = { tester: 'active', red: 'active', worker: 'active', green: 'active', explorer: 'active', report: 'active', reviewer: 'review', merge: 'review' }
 // flags that stop a claim, an integration and a release until the human resolves them
-export const BLOCKING = /^(git:|external$|drift$|conflict$|lost-|integration-failed$)/
+export { BLOCKING } from './decide'
 export type Pipe = (type: string, lane?: string) => readonly string[]
 
 export type MKind = 'approve' | 'amend' | 'claim' | 'advance' | 'verdict' | 'close' | 'block' | 'unblock' | 'rewind' | 'release' | 'cancel' | 'skip'

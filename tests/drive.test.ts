@@ -7,6 +7,7 @@ import { drain } from '../core/reuse'
 import { resolveDeps } from '../core/admission'
 import { dispatch } from '../core/dispatch'
 import { flagDecision, ask } from '../core/decide'
+import { emit } from '../core/events'
 import { BUDGET } from './fixtures/budget.generated'
 import { world } from './fixtures/native/world'
 import { fakeHost } from './support'
@@ -121,6 +122,17 @@ describe('T6.3 gate policy', () => {
     await w.setTask({ state: 'active' })
     expect((await w.evs()).filter(e => e.type === 'drive.decided').map(e => [e.data.kind, e.actor])).toEqual([['spec', 'main'], ['question', 'main']])
     expect((await w.store.list({})).filter(x => x.title.startsWith('yolo: ')).map(x => x.title)).toEqual([`yolo: ${w.t}: spec change rejected: the tests match the API docs`, `yolo: ${w.t}: 50, because the API caps pages at 50`])
+  })
+  test('yolo: a flag drive does not hold on (a worker that stopped without reporting) is never a dialog; it is recorded; a stop hands it to the human', async () => {
+    const w = await go('yolo'); await w.h.ui.update(({ goal: _g, ...u }) => u)
+    await w.setTask({ flags: ['auto-reported'] }); await emit(w.h, 'flag.raised', { taskId: w.t, flag: 'auto-reported' }, { taskId: w.t })
+    expect((await w.board()).decisions ?? []).toEqual([])
+    await w.turn(); expect([(await w.board()).drive.paused, (await w.board()).drive.stopped, w.submitted.length]).toEqual([undefined, undefined, 1])
+    expect((await w.evs()).filter(e => e.type === 'drive.decided').map(e => [e.data.kind, e.data.text])).toEqual([['flag', `${w.t} flagged auto-reported: left on the task; the run goes on`]])
+    await emit(w.h, 'flag.raised', { taskId: w.t, flag: 'rework:4/3' }, { taskId: w.t }); expect((await w.board()).decisions!.map(d => d.id)).toEqual([`flag:${w.t}:rework:4/3`])   // one drive holds on still asks
+    await dispatch(w.h, { schemaVersion: 1, cmd: 'drive', args: ['stop'], origin: { kind: 'press' } }, route)
+    expect((await w.board()).decisions!.map(d => d.id)).toEqual([`flag:${w.t}:rework:4/3`, `flag:${w.t}:auto-reported`])
+    expect(w.answered).toEqual([])
   })
   test('auto: a spec change is a dialog and main cannot decide it; the answer resumes the worker and tells main', async () => {
     const w = await go('auto'); await bindWorker(w)

@@ -8,9 +8,9 @@ import { controlOf } from '../task-management/sync-engine/loop'
 import { pipeOf } from '../task-management/registry'
 import { DRIVE, ROUTES, cfgOf, mirror, registryOf, storeOf } from './dispatch'
 import { fnv1a64, modelView, safe, sessionOf } from './board'
-import { emit } from './events'
+import { emit, subscribe } from './events'
 import { nextAction } from './render'
-import { ask, flagDecision } from './decide'
+import { ask, flagDecision, holds, yoloOn } from './decide'
 import { BLOCKING, apply } from './machine'
 import { queueBrief } from './lanes'
 import { modelText } from './say'
@@ -49,19 +49,24 @@ const boundOf = (r: DriveRec, dc: any, cost: number, idle: number, now: number):
   r.turns >= dc.maxTurns ? `max turns ${dc.maxTurns}` : cost >= dc.maxCostUsd ? `cost $${cost} ≥ $${dc.maxCostUsd}` : now - r.startedAt > dc.maxWallMinutes * 60_000 ? `max ${dc.maxWallMinutes} min` : idle >= dc.noProgressTurns ? `no progress in ${idle} turns` : null
 
 // a decision drive (or main under yolo) took without the human: a beads decision record linked to the plan + `drive.decided` for Activity and Doctor
-export async function decided(h: Host, kind: 'spec' | 'question' | 'rework' | 'integration', text: string, taskId?: string): Promise<void> {
+export async function decided(h: Host, kind: 'spec' | 'question' | 'rework' | 'integration' | 'flag', text: string, taskId?: string): Promise<void> {
   const s = await h.board.read(), store = await storeOf(h)
   await store.record('decision', `${s.drive.mode ?? 'auto'}: ${text.slice(0, 80)}`, text, s.plan?.id).catch(e => h.log(`decision record failed: ${e}`))
   await emit(h, 'drive.decided', { kind, text: text.slice(0, 300), ...(taskId ? { taskId } : {}) }, { taskId, actor: kind === 'spec' || kind === 'question' ? 'main' : 'mod' })
 }
 
+// yolo: a flag drive does not hold on (auto-reported, locked-dirty, …) is no question for the human; it stays on the task and is recorded (core/events.emit skips its decision)
+subscribe(async (h, ev) => {
+  const fl = String(ev.data.flag ?? ''), tid = String(ev.data.taskId ?? '')
+  if (ev.type === 'flag.raised' && fl !== 'spec_change' && fl !== 'blocked' && !holds(fl) && yoloOn((await h.board.read()).drive)) await decided(h, 'flag', `${tid} flagged ${fl}: left on the task; the run goes on`, tid)
+})
 // hard stop (both modes) or a stop by the human: the run waits for `drive resume`. What yolo decided quietly becomes a decision again: the human takes over.
 export async function stop(h: Host, why: string): Promise<void> {
   const s = await h.board.read(); if (!s.drive.on || s.drive.stopped) return
   await casDrive(h, await storeOf(h), r => (r?.on && !r.stopped ? { ...r, stopped: why } : undefined)).catch(e => h.log(`drive stop not saved: ${e}`))
   await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: why, paused: undefined } })); await driveEvent(h, 'stopped', why)
   const b = await h.board.read()
-  for (const t of b.tasks) for (const f of t.flags.filter(f => f === 'spec_change' || f === 'blocked')) if (!(b.decisions ?? []).some(d => d.id === `flag:${t.id}:${f}`)) { const d = flagDecision(t.id, f, t.title); if (d) await ask(h, d) }
+  for (const t of b.tasks) for (const f of t.flags) if (!(b.decisions ?? []).some(d => d.id === `flag:${t.id}:${f}`)) { const d = flagDecision(t.id, f, t.title); if (d) await ask(h, d) }
 }
 
 // the gate in front of the epic: pause (auto: the human answers in the dialog) or stop (yolo, where auto would ask; an agent moving a protected branch in both)
