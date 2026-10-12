@@ -175,6 +175,8 @@ export async function initItems(h: Host, o: { quick?: boolean } = {}): Promise<I
   const a = !r && !s && !p && !o.quick ? await audit(c) : undefined, w = workflow(c), l = await changelog(c)
   const audited: Item = a && !a.why && a.red.length ? { name: 'commands pass on a clean checkout', st: 'ok', why: redLine(a.red) } : it('commands pass on a clean checkout', a?.why ?? null, !a)
   const out = [it('repository', r), it('task store', s, !!r), m, it('build and test commands', p), audited, it('workflow', w), it('changelog', l)]
+  const st = (await c.h.run(['find', c.root, '-maxdepth', '4', '(', '-name', '.git', '-o', '-name', 'node_modules', ')', '-prune', '-o', '-type', 'd', '-name', '.cadre', '-print', '-prune'])).stdout.split('\n').filter(p => p.endsWith('/.cadre') && p !== `${c.root}/.cadre`).map(p => p.replace(`${c.root}/`, ''))   // made from a shell left in a package folder (live 0.10.0). ponytail: 4 levels deep
+  if (st.length) out.splice(1, 0, it('no setup folder outside the root', `${st.join(', ')} is not the project root's: delete ${st.length > 1 ? 'them' : 'it'} (rm -rf ${st.map(p => `${c.root}/${p}`).join(' ')})`))
   if (o.quick) return out
   if (await contained(c)) out.push({ name: 'safety settings', st: 'ok' })
   else if (out.every(i => i.st === 'ok' || (i === m && i.st === 'wait'))) { await propose5(c, a!.caches, a!.red); out.push({ name: 'safety settings', st: 'wait', why: 'confirm them on their card' }) }

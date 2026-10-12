@@ -121,6 +121,7 @@ export interface Host {
   ask?(question: string, options: string[]): Promise<string>   // $.ui.ask (AskUserQuestion dialog): the chosen label or the free text; rejects in -p / on dismiss. The only way a decision is answered (ADR 0012)
   submit?(text: string): Promise<unknown>; usage?(): Promise<{ context?: { percent?: number }; cost?: { usd: number } }>   // $.prompt.submit (drive, #1 only) · $.session.usage
   root?(): Promise<string>                              // $.plugin.root: the plugin's folder (guides/ for agent-run setup/init, ADR 0010)
+  shell?(): Promise<string>                             // $.session.cwd(): where main's Bash is now (it follows a `cd`); never the repo root (that is cwd())
 }
 // UI side effects (ui/ only). Built per hook by host($); optional so test hosts may omit it.
 export interface UiOps {

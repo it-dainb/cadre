@@ -114,6 +114,7 @@ function host($): Host {
   h.version = async () => String((await $.session.version()).version)
   h.theme = async () => { const v = String(((await $.config.list().catch(() => [])) as { key: string; value?: unknown }[]).find(r => r.key === 'theme')?.value ?? ''); return /^light/.test(v) ? 'light' : /^dark/.test(v) ? 'dark' : 'unknown' }
   h.root = async () => $.plugin.root
+  h.shell = async () => String(await $.session.cwd())
   return h
 }
 

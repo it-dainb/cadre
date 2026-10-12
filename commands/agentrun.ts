@@ -68,7 +68,8 @@ export async function start(h: Host, k: Kind, goal?: { text: string; mode: 'auto
   const gi = k === 'init' && its.find(i => i.name === 'task store')?.st !== 'ok' ? await h.readText(`${await h.cwd()}/.gitignore`) : undefined   // this run will init the task store: keep the .gitignore bytes (init.restoreIgnore)
   await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, guide, ...(gi !== undefined ? { gi: { had: gi !== null, text: gi ?? '' } } : {}) } } : s)); await resnap(h)
   await draw(h, k, its, 'on')
-  await send(h, goal ? `${WHAT[k]}, then plan the user's goal (it comes next). Follow ${guide} step by step. Skip the mission question: you draft the mission together with the plan.` : `${WHAT[k]}. Follow ${guide} step by step.`)
+  const at0 = k === 'init' ? ` The project root is ${await h.cwd()}: start every Bash call with cd "${await h.cwd()}" && and give files there by their full path.` : ''   // a shell left in a package folder made a second .cadre there, live 0.10.0
+  await send(h, goal ? `${WHAT[k]}, then plan the user's goal (it comes next). Follow ${guide} step by step.${at0} Skip the mission question: you draft the mission together with the plan.` : `${WHAT[k]}. Follow ${guide} step by step.${at0}`)
   return `${k}: Claude is on it · progress in the cadre pane${goal ? ' · then your goal' : ''}`
 }
 // re-check now (a main turn ended, or the human answered a gate in the dialog): done ends the run; a failure Claude owns gets a follow-up; the limits stop it
@@ -115,7 +116,8 @@ export async function stopCheck(h: Host, e: { last_assistant_message?: string })
 export async function redNote(h: Host): Promise<string | null> {
   const r = (await h.secret.read()).run; if (!r) return null
   const fails = (await items(h, r.kind, true)).filter(i => i.st === 'fail')
-  return fails.length ? `setup still open: ${fails.map(i => `${i.name}${i.why ? ` (${i.why})` : ''}`).join('; ')}`.replaceAll(`${await h.home()}/`, '~/') : null
+  const root = await h.cwd(), sh = await h.shell?.().catch(() => undefined), at = sh && sh !== root ? ` · your shell is in ${sh}; the project root is ${root}` : ''
+  return fails.length ? `setup still open: ${fails.map(i => `${i.name}${i.why ? ` (${i.why})` : ''}`).join('; ')}${at}`.replaceAll(`${await h.home()}/`, '~/') : null
 }
 // ---- the watchdog (the 5 s tick): a run whose main has been quiet for a while is checked as if Claude had stopped. A missed turn end (live: a run sat in "running"
 // with nothing working) still ends in a follow-up or the dialog. Quiet = no turn on for 60 s, or a turn on with no step or tool call for 10 minutes. ----

@@ -59,8 +59,16 @@ describe('init checks (ADR 0010): read-only, one per phase', () => {
     const { h, files, calls } = mk({ repo: false, branches: [], mission: false, journal: false })
     expect(await items(h)).toEqual({ repository: 'fail: no git repository yet', 'task store': 'todo: after the steps above', mission: 'fail: no mission yet', 'build and test commands': 'fail: no packages in .cadre/config.json',
       'commands pass on a clean checkout': 'todo: after the steps above', workflow: 'ok', changelog: 'fail: CHANGELOG.md is missing', 'safety settings': 'todo: after the steps above' })
-    expect(files).toEqual({}); expect(calls.filter(a => a[0] !== 'git' || !/rev-parse/.test(a.join(' ')))).toEqual([])
+    expect(files).toEqual({}); expect(calls.filter(a => a[0] !== 'find' && (a[0] !== 'git' || !/rev-parse/.test(a.join(' '))))).toEqual([])   // find: the stray .cadre look, read-only
     expect(banned(Object.values(await items(h)))).toEqual([])   // what a follow-up may quote
+  })
+  test('a .cadre folder below the root (made from a shell in a package folder) is a red item naming it and its delete; node_modules and .git are not searched', async () => {
+    const { h, calls } = mk({ files: READY, extra: a => (a[0] === 'find' && a[1] === ROOT ? { exitCode: 0, stdout: `${ROOT}/kit/.cadre\n` } : jailed()(a)) })
+    const its = await initItems(h, { quick: true }), st = its.find(i => i.name === 'no setup folder outside the root')
+    expect(st).toEqual({ name: 'no setup folder outside the root', st: 'fail', why: `kit/.cadre is not the project root's: delete it (rm -rf ${ROOT}/kit/.cadre)` })
+    expect(calls.find(a => a[0] === 'find')!.join(' ')).toContain('-name .git -o -name node_modules ) -prune')
+    await h.secret.update(x => ({ ...x, run: { kind: 'init' as const, at: 0, turns: 0, follow: 0, guide: 'g' } })); expect(await redNote(h)).toContain('no setup folder outside the root (kit/.cadre')
+    expect((await items(mk({ files: READY }).h))['no setup folder outside the root']).toBeUndefined()   // none: no row at all
   })
   test('repository: unborn HEAD, a missing dev branch, a missing exclude line, unset main are each named', async () => {
     expect((await items(mk({ branches: [], files: READY }).h)).repository).toBe('fail: no first commit yet')
@@ -112,7 +120,7 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     expect(t).toBe('init: Claude is on it · progress in the cadre pane')
     expect(sent).toEqual([]); expect((await h.secret.read()).run?.brief).toContain('guides/init.md')   // a command frame cannot submit (live 0.7.0): the brief waits for the timer
     await tick(); expect((await h.secret.read()).run?.brief).toBeUndefined()
-    expect(sent).toEqual([`Set up cadre in this project. Follow ${PLUG}/guides/init.md step by step.`]); expect(banned(t, sent)).toEqual([])
+    expect(sent).toEqual([`Set up cadre in this project. Follow ${PLUG}/guides/init.md step by step. The project root is ${ROOT}: start every Bash call with cd "${ROOT}" && and give files there by their full path.`]); expect(banned(t, sent)).toEqual([])
     expect((await h.secret.read()).run).toMatchObject({ kind: 'init', turns: 0, follow: 0, guide: `${PLUG}/guides/init.md` })
     const d = (await card(h))!; expect(d.title).toBe('init · 1/8 done · Claude is on it'); expect(d.lines).toContain('✗ repository: no git repository yet'); expect(d.lines).toContain('· task store: after the steps above')
     expect(d.options.map(o => o.label)).toEqual(['Cancel'])
@@ -207,6 +215,8 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     await start(h, 'init'); calls.length = 0
     expect(await redNote(h)).toBe('setup still open: mission (no mission yet); changelog (CHANGELOG.md is missing)')
     expect(calls.some(a => a[0] === 'bwrap')).toBe(false)
+    h.shell = async () => `${ROOT}/kit`; expect(await redNote(h)).toBe(`setup still open: mission (no mission yet); changelog (CHANGELOG.md is missing) · your shell is in ${ROOT}/kit; the project root is ${ROOT}`)   // main's Bash was left in a package folder
+    h.shell = async () => ROOT; expect(await redNote(h)).not.toContain('your shell')
     files[`${ROOT}/CHANGELOG.md`] = skeleton(); await h.board.update(b => ({ ...b, mission: 'ship it' })); expect(await redNote(h)).toBeNull()
   })
   test('Let Claude try again: the same run, the goal still queued', async () => {
@@ -354,7 +364,7 @@ describe('onboarding: /cadre <goal> in a repo cadre is not set up in', () => {
     expect((await goal(h, 'fix the login bug')).text).toBe('cadre is not set up here yet · answer the dialog (press 1)'); await seen()
     const d = (await card(h, 'init:goal'))!; expect(d.title).toBe("cadre isn't set up here. Set it up and plan this goal?"); expect(d.options.map(o => o.label)).toEqual(['Set up', 'Not now'])
     expect((await decide(h, d.id, 's', d.hash)).text).toBe('init: Claude is on it · progress in the cadre pane · then your goal'); await tick()
-    expect(sent[0]).toBe(`Set up cadre in this project, then plan the user's goal (it comes next). Follow ${PLUG}/guides/init.md step by step. Skip the mission question: you draft the mission together with the plan.`)
+    expect(sent[0]).toBe(`Set up cadre in this project, then plan the user's goal (it comes next). Follow ${PLUG}/guides/init.md step by step. The project root is ${ROOT}: start every Bash call with cd "${ROOT}" && and give files there by their full path. Skip the mission question: you draft the mission together with the plan.`)
     expect((await card(h))!.lines).toContain('✓ mission: you approve it with the plan'); expect(await card(h, 'init:goal')).toBeUndefined()
     files[CFG] = READY[CFG]; await turnEnd(h, {}); await tick(); await seen()   // Claude wrote the config (phase 1, 4); the rest already holds
     expect((await card(h))!.quiet).toBe(true)   // the checklist never pops in a goal run: only the safety card does
