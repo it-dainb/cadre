@@ -20,6 +20,16 @@ describe('briefs: goldens per role (4.2), static header first, variable task dat
     const a = brief('worker', { ...base, id: 'x-1' }), b = brief('worker', { ...base, id: 'y-9', title: 'Other' })
     expect(a.split('\n\n')[0]).toBe(b.split('\n\n')[0]); expect(a.split('\n\n')[0].length).toBeLessThan(1500); expect(a.indexOf('# TASK-x-1')).toBeGreaterThan(a.indexOf('Worker brief'))
   })
+  test('the task\'s declared paths go in the task block of every role; the reviewer flags a change outside them as a finding; the header stays static', async () => {
+    const paths = ['src/index.js', 'test/title.test.js']
+    for (const role of ['tester', 'worker', 'reviewer'] as const) {
+      const b = brief(role, { ...base, ...extra[role], paths }), head = b.split('\n\n')[0]
+      expect(b).toContain('Files: src/index.js, test/title.test.js'); expect(head).toBe(brief(role, { ...base, ...extra[role] }).split('\n\n')[0])
+      expect(b.indexOf('Files:')).toBeLessThan(b.indexOf('## '))   // right under the task heading
+    }
+    expect(brief('reviewer', { ...base, paths })).toContain('a change outside these files is a finding, not a fail on its own')
+    expect(brief('worker', { ...base, paths: [] })).not.toContain('Files:')
+  })
   test('caps: notes 500, spec 4 KB, context 3 KB, diff 3 KB; empty sections are dropped', async () => {
     const w = brief('worker', { ...base, notes: 'n'.repeat(900), description: 'd'.repeat(9000), findings: ['f'.repeat(9000)] })
     expect(w.split('## Notes\n')[1].length).toBeLessThanOrEqual(500)

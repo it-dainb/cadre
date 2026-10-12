@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { clearKnownRed, confirm, initItems, repoKeyOf, rootFor, wire } from '../commands/init'
 import { load } from '../config/index'
-import { QUIET, cancel, halt, pump, recheck, redNote, seen, start, stopCheck, turnEnd, watch } from '../commands/agentrun'
+import { GOAL_FOLLOW, QUIET, cancel, halt, pump, recheck, redNote, seen, start, stopCheck, turnEnd, watch } from '../commands/agentrun'
 import { band2 } from '../ui/v2/band'
 import { txt } from '../ui/model'
 import { SETTING_UP, decide, run as cadreRun, status as statusLine } from '../commands/cadre'
@@ -14,6 +14,7 @@ import { BUDGET } from './fixtures/budget.generated'
 import type { Host } from '../types'
 import { banned } from './fixtures/wording'
 import { answer as taskCall } from '../native/tasks'
+import { goal as goalBrief } from '../core/lanes'
 
 type R = { exitCode: number; stdout?: string; stderr?: string }
 const ROOT = '/repo', HOME = '/hm/u', RK = repoKeyOf(ROOT), PLUG = '/plug', CFG = `${ROOT}/.cadre/config.json`
@@ -463,4 +464,38 @@ test('the run that starts the task store keeps the .gitignore bytes (bd adds to 
   expect((await a.h.secret.read()).run?.gi).toEqual({ had: true, text: 'node_modules/\n' })
   const b = mk({ files: READY, journal: false }); await start(b.h, 'init'); expect((await b.h.secret.read()).run?.gi).toEqual({ had: false, text: '' })
   const c = mk({ files: READY }); await c.h.board.update(x => ({ ...x, plan: { id: 'm', slug: 'mission', state: 'draft', epicBranch: '' } })); await start(c.h, 'init'); expect((await c.h.secret.read()).run).toBeDefined(); expect((await c.h.secret.read()).run?.gi).toBeUndefined()
+})
+
+// live (quick tier, a folder with no git, Esc mid-setup): after setup main chose the lane, said "next is step 2" and stopped; nothing pushed it and no plan came.
+// The setup run's stop check now covers a goal run until its lane's step is done, at most twice; a stop right after a question to the user goes through.
+describe('a goal run: main does not stop before the lane\'s step', () => {
+  const G = { ...READY, [`${PLUG}/guides/goal.md`]: (BUDGET.guides as Record<string, string>).goal }
+  const lite = { tool: 'TaskCreate', tool_use_id: 'u', subject: 'Add titleCase', description: 'src/index.js', metadata: { kind: 'plan', lane: 'lite', reason: 'one function', type: 'feature', changelog: { category: 'Added', entry: 'titleCase' } } }
+  const on = async () => { const m = mk({ files: G }); Object.assign(m.h, { taskStore: async () => m.s }); await warm(m.h); await goalBrief(m.h, 'add titleCase(s)'); expect(await stopCheck(m.h, {})).toBeNull(); await m.tick(); return m }   // not refused before main has the brief
+  test('a stop with no plan is refused twice with the missing step; the third goes through and the band says the plan was not drafted', async () => {
+    const { h } = await on()
+    for (let i = 0; i < GOAL_FOLLOW; i++) { const t = await stopCheck(h, {}); expect(t).toMatch(/^The goal is not planned yet: draft the plan now\. TaskCreate/); expect(banned(t!)).toEqual([]); await seen(h, { tool: true, name: 'Read' }) }
+    expect(await stopCheck(h, {})).toBeNull(); expect((await h.secret.read()).goalRun).toBeUndefined()
+    expect((await h.ui.read()).halt).toBe("the plan wasn't drafted · /cadre add titleCase(s) to try again")
+    expect(txt(band2({ b: await h.board.read(), ui: await h.ui.read(), sec: await h.secret.read() } as any, 100, {} as any)).join('\n')).toContain("the plan wasn't drafted")
+    await goalBrief(h, 'add titleCase(s)'); expect((await h.ui.read()).halt).toBeUndefined()   // trying again clears it
+  })
+  test('the plan drafted (lite): the stop goes through and the run ends; an Agent spawned (ask) too', async () => {
+    const { h } = await on(); expect(await stopCheck(h, {})).not.toBeNull()
+    await taskCall(h, lite, async () => 'NEXT'); expect(await stopCheck(h, {})).toBeNull(); expect((await h.secret.read()).goalRun).toBeUndefined()
+    const a = await on(); await seen(a.h, { name: 'Agent' }); expect(await stopCheck(a.h, {})).toBeNull()
+  })
+  test('a full plan with no tasks yet: refused naming the tasks', async () => {
+    const { h } = await on(); await taskCall(h, { ...lite, metadata: { kind: 'plan', lane: 'full', reason: 'a feature' } }, async () => 'NEXT')
+    expect(await stopCheck(h, {})).toMatch(/^Plan \S+ has no tasks yet: draft them now, one TaskCreate per task/)
+  })
+  test('a stop right after a question to the user is not refused and not counted', async () => {
+    const { h } = await on(); await seen(h, { name: 'AskUserQuestion' }); expect(await stopCheck(h, {})).toBeNull()
+    expect((await h.secret.read()).goalRun).toMatchObject({ follow: 0 }); await seen(h, { name: 'Read' }); expect(await stopCheck(h, {})).not.toBeNull()
+  })
+  test('the watchdog: a quiet main with no plan gets the missing step as its next brief', async () => {
+    const m = await on(); let t = await m.h.now(); Object.assign(m.h, { now: async () => t }); await seen(m.h); m.sent.length = 0
+    t += QUIET.idle - 1; await watch(m.h); await m.tick(); expect(m.sent).toEqual([])
+    t += 2; await watch(m.h); await m.tick(); expect(m.sent).toEqual([expect.stringMatching(/^The goal is not planned yet/)])
+  })
 })
