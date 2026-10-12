@@ -1,5 +1,5 @@
 // Dev-only UI loop (docs/dev/ui-dev.md): draws the REAL ui/ renderers (band + pane + Needs you + timeline) for a scenario in your terminal, hot-reloads on save.
-//   node --experimental-transform-types scripts/ui-dev.mjs [scenario] [--width N] [--tab epic|plan|doctor|settings] [--once] [--all] | --dump <scenario> (JSON for harness/tui.sh --scenario)
+//   node --experimental-transform-types scripts/ui-dev.mjs [scenario] [--width N] [--tab epic|plan|doctor|settings] [--once] [--all] [--v1] | --dump <scenario> (JSON for harness/tui.sh --scenario)
 // Each frame renders in a fresh child process (clean module cache = hot reload for free; a broken file draws a red frame instead of killing the loop).
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, watch, writeFileSync } from 'node:fs'
@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path'
 const ME = fileURLToPath(import.meta.url), ROOT = join(dirname(ME), '..')
 const WIDTHS = [40, 60, 80, 120, 160], TABS = { 1: 'epic', 7: 'plan', 8: 'doctor', 9: 'settings' }
 const ALLTABS = [...new Set([...Object.values(TABS), 'graph', 'timeline', 'activity'])]   // v2 tabs join as they land; a tab a version does not know draws its default view
+const V1 = process.argv.includes('--v1')
 const FLAGS = ['--experimental-transform-types', '--no-warnings']
 
 // ---------- child: render one frame, print JSON ----------
@@ -28,7 +29,7 @@ async function child(req) {
   let idx = req.idx ?? (v.t === null ? n : ring.filter(e => e.at <= v.t).length)
   idx = Math.max(0, Math.min(n, idx))
   v.t = idx >= n ? null : idx === 0 ? (ring[0]?.at ?? v.now) - 1 : ring[idx - 1].at
-  v.ui = { ...v.ui, ...req.ui }
+  v.ui = { ...v.ui, ...req.ui, ...(req.v1 ? {} : { cfg: { ...v.ui.cfg, v2: true } }) }   // v2 renderers unless --v1
   v.ui.tab = req.tab ?? v.ui.tab ?? s.tab ?? 'epic'
   const w = req.w ?? s.width ?? 120, rows = [], patch = {}
   const said = []
@@ -43,7 +44,17 @@ async function child(req) {
   const body = seg => (seg.inp ? `${seg.il ?? 'task id'}: ${seg.iv ?? ''}▏` : seg.hk ? `${seg.hk}: ${seg.t}` : seg.t)
   const paint = l => l.map(seg => sgr([...(seg.b ? [1] : []), ...(seg.d ? [2] : []), ...(seg.i ? [7] : []), ...(ANSI[seg.c] ? [ANSI[seg.c]] : [])], body(seg))).join('')
   const plainOf = l => l.map(body).join('').trimEnd()
-  const tlRows = (p.tl?.rows ?? []).map(r => ({ a: [...r].map(ch => sgr(RASTER[ch] ? [RASTER[ch]] : [], M.T(v.c, ch))).join(''), p: M.T(v.c, r).trimEnd() }))
+  // v2: the Raster arrives as base64 of Uint32 [codePoint, fg, bg] cells; v1: p.tl.rows
+  const rows2 = p.raster ? (() => {
+    const u = new Uint32Array(Uint8Array.from(Buffer.from(p.raster.cells, 'base64')).buffer), out = []
+    for (let y = 0; y < p.raster.rows; y++) {
+      let a = '', pl = ''
+      for (let x = 0; x < p.raster.cols; x++) { const i = (y * p.raster.cols + x) * 3, ch = String.fromCodePoint(u[i]), fg = u[i + 1]; pl += ch; a += fg === 0x01000000 ? ch : sgr(['38', '2', (fg >> 16) & 255, (fg >> 8) & 255, fg & 255], ch) }
+      out.push({ a, p: pl.trimEnd() })
+    }
+    return out
+  })() : null
+  const tlRows = rows2 ?? (p.tl?.rows ?? []).map(r => ({ a: [...r].map(ch => sgr(RASTER[ch] ? [RASTER[ch]] : [], M.T(v.c, ch))).join(''), p: M.T(v.c, r).trimEnd() }))
   const ev = idx === 0 ? 'before the first event' : `${ring[idx - 1].type}${ring[idx - 1].taskId ? ` ${ring[idx - 1].taskId}` : ''}`
   const head = `▌ ${req.name} · w${w} · tab ${v.ui.tab} · event ${idx}/${n} ${idx >= n ? '[LIVE]' : `[${ev}]`}`
   const frame = [{ a: sgr([2], head), p: head }, ...bandLines.map(l => ({ a: paint(l), p: plainOf(l) })), { a: sgr([2], '─'.repeat(w)), p: '─'.repeat(w) },
@@ -70,13 +81,13 @@ const names = () => readdirSync(join(ROOT, 'scenarios')).filter(f => f.endsWith(
 async function main(argv) {
   const opt = (k, d) => { const i = argv.indexOf(k); return i < 0 ? d : argv[i + 1] }
   const has = k => argv.includes(k), pos = argv.filter((a, i) => !a.startsWith('--') && !['--width', '--tab'].includes(argv[i - 1]))[0]
-  let st = { name: pos ?? 'epic-p3', w: opt('--width') ? Number(opt('--width')) : undefined, tab: opt('--tab'), idx: undefined, ui: {} }
+  let st = { v1: V1, name: pos ?? 'epic-p3', w: opt('--width') ? Number(opt('--width')) : undefined, tab: opt('--tab'), idx: undefined, ui: {} }
   if (argv[0] === '--dump') { const r = await run({ name: argv[1], dump: true }); if (r.error) { console.error(r.error); process.exit(1) } console.log(JSON.stringify(r)); return }
   if (has('--all')) {   // CI: every scenario x tab x width renders, and no line is wider than bodyColumns
     let bad = 0, n = 0
     const jobs = names().flatMap(name => WIDTHS.flatMap(w => ALLTABS.map(tab => ({ name, w, tab }))))
     for (let i = 0; i < jobs.length; i += 8) await Promise.all(jobs.slice(i, i + 8).map(async j => {   // 8 child processes at a time
-      const r = await run(j); n++
+      const r = await run({ ...j, v1: V1 }); n++
       if (r.error) { bad++; console.error(`FAIL ${j.name} ${j.tab} ${j.w}\n${r.error}`) }
       else if (r.over.length) { bad++; console.error(`OVERFLOW ${j.name} ${j.tab} ${j.w}\n  ${r.over.join('\n  ')}`) }
     }))
