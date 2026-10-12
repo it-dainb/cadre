@@ -29,7 +29,6 @@ async function child(req) {
   v.t = idx >= n ? null : idx === 0 ? (ring[0]?.at ?? v.now) - 1 : ring[idx - 1].at
   v.ui = { ...v.ui, ...req.ui }
   v.ui.tab = req.tab ?? v.ui.tab ?? s.tab ?? defaultTab(v)
-  if (req.skipEmpty && (v.ui.tab === 'epic' || v.ui.tab === 'card' && !decisions(v).length) && !v.b.tasks.length) return { ansi: [], plain: [], status: '', patch: {}, idx, n, w: 0, tab: 'epic', buttons: [] }   // known: ui/epic.ts dag() throws on a task-less epic tab (RangeError); --all skips it
   const w = req.w ?? s.width ?? 120, rows = [], patch = {}
   const said = []
   const dc = (id, key) => { const d = (v.b.decisions ?? []).find(x => x.id === id), o = d?.options.find(x => x.key === key); return o ? (o.fill ? `prefill composer: ${o.fill}` : `/cadre ${(o.run ?? '').replace('{code}', v.sec.dcode?.[id] ?? '<code>')}`) : `press ${id} ${key}` }
@@ -74,7 +73,7 @@ async function main(argv) {
   if (has('--all')) {   // CI: every scenario x tab x {60,120} renders
     let bad = 0
     for (const name of names()) for (const w of [60, 120]) for (const tab of ['epic', 'plan', 'doctor', 'card']) {
-      const r = await run({ name, w, tab, skipEmpty: true }); if (r.error) { bad++; console.error(`FAIL ${name} ${tab} ${w}\n${r.error}`) }
+      const r = await run({ name, w, tab }); if (r.error) { bad++; console.error(`FAIL ${name} ${tab} ${w}\n${r.error}`) }
     }
     console.log(bad ? `${bad} failed` : `ok: ${names().length} scenarios`); process.exit(bad ? 1 : 0)
   }

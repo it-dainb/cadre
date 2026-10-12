@@ -23,7 +23,7 @@ node --experimental-transform-types scripts/ui-dev.mjs [scenario] [--width N] [-
 
 To add one: create the file, add it to `scenarios/index.ts` (the kit has no fs), run it. `tests/ui-dev.test.ts` renders every indexed scenario's band and all tabs at 60 and 120, so a broken scenario fails the gate.
 
-Known gap the kit found: the Epic tab throws (`RangeError` in `ui/epic.ts` `dag`) when the epic has no tasks; the loop and the test skip that case.
+An empty board (fresh init) draws "no tasks yet · /cadre <goal> to start" on every tab (regression test in tests/ui-dev.test.ts).
 
 ## See it in the real engine (follow-up)
 `harness/tui.sh start <name> --scenario <scenario>` writes `scenarios/<scenario>.ts` as JSON (`ui-dev.mjs --dump`) into the container's working dir and sets `CADRE_DEV=1 CADRE_DEV_SCENARIO=<file>`. For Claude Code to draw it, `session.start` needs a guarded block (only when `CADRE_DEV` is `1`) that reads that file and seeds the atoms: `board = b`, `events = { seq, epics: { [b.epic ?? '']: ring } }`, `secret = sec`, `ui = ui`. The flag side is in place; the `hooks/register.ts` block is not wired yet.

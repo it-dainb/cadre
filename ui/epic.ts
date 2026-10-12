@@ -22,7 +22,9 @@ const rail = (p: Plan, c: Cfg, rel?: unknown) => [(p.epicBranch || `epic/${p.id}
 
 // DAG as segments: gutters plain, nodes colored by tag, each node's id row a Button (engine focus ring: Up/Down/Enter)
 export function dag(v: View, sel: string, flash: string[], a: Acts): Line[] {
-  const b = at(v), ts = b.tasks, cs = cols(ts), c = v.c, h = Math.max(1, ...cs.map(x => x.length)) * ROWS - 1
+  const b = at(v), ts = b.tasks
+  if (!ts.length) return [L('')]   // empty board (fresh init): no columns, no rail geometry; the detail column says what to do
+  const cs = cols(ts), c = v.c, h = Math.max(1, ...cs.map(x => x.length)) * ROWS - 1
   const rx = cs.length * STRIDE - 3, rl = b.plan ? rail(b.plan, c, v.ui.rel) : []
   const width = rx + (rl.length ? 14 : 0), grid: string[][] = Array.from({ length: Math.max(h, rl.length * ROWS - 2) }, () => Array(width).fill(' '))
   const own: (string | null)[][] = grid.map(r => r.map(() => null)), pos = new Map<string, [number, number]>(), cells = new Map<string, Cell>()
@@ -100,7 +102,7 @@ export function log(v: View, n: number, w: number): Line[] {
 
 export function detail(v: View, id: string, w: number, compact: boolean): Line[] {
   const b = at(v), ts = b.tasks, t = ts.find(x => x.id === id) ?? ts[0], c = v.c, now = v.t ?? v.now
-  if (!t) return [L('no tasks yet', 'inactive')]
+  if (!t) return [L('no tasks yet · /cadre <goal> to start', 'inactive')]
   const k = kindOf(t, ts), mk = marks(t), names: Record<string, string> = { tester: 'spec', red: 'red', worker: 'impl', green: 'green', reviewer: 'review', merge: 'merged', explorer: 'explore', report: 'report' }
   const rework = v.ring.some(e => e.taskId === t.id && e.at <= now && e.type === 'task.transitioned' && e.data.from === 'review' && e.data.to === 'active') ? '   (rework)' : ''
   const pipe = T(c, stepsOf(t).map((s, i) => `${names[s]}${mk[i]}`).join(' ')).split(' ')

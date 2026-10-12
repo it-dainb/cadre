@@ -2,7 +2,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { SCENARIOS } from '../scenarios/index'
 import { band } from '../ui/band'
-import { decisions } from '../ui/card'
 import { pane } from '../ui/pane'
 import { txt } from '../ui/model'
 import { NOOP } from './fixtures/ui/epic'
@@ -13,11 +12,17 @@ describe('ui-dev scenarios', () => {
     for (const w of [60, 120]) {
       txt(band(s, w, NOOP))
       for (const tab of ['epic', 'plan', 'doctor', 'card']) {
-        // known gap: the Epic tab (and a card tab with no decision) throws on a task-less epic (ui/epic.ts dag); the dev loop skips it too
-        if (!s.b.tasks.length && (tab === 'epic' || tab === 'card' && !decisions(s).length)) continue
         const p = pane({ ...s, ui: { ...s.ui, tab } }, w, 40, NOOP)
         expect(txt([...p.before, ...p.after]).length > 0).toBe(true)
       }
     }
   })
+})
+
+test('regression: an empty board (fresh init) draws the epic and card tabs at 60 and 120', () => {
+  const s = SCENARIOS['empty-dormant']
+  for (const w of [60, 120]) for (const tab of ['epic', 'card']) {
+    const t = txt(pane({ ...s, ui: { tab } }, w, 40, NOOP).before).join('\n')
+    expect(t).toContain('no tasks yet')
+  }
 })
