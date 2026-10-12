@@ -35,7 +35,7 @@ if (cmd === 'plan') {
   for (const c of cells) for (const [t, p] of tasks) for (let k = 1; k <= (g.n ?? 3); k++) {
     console.log(`${c.name}|${t}|${k}|${JSON.stringify(c.roles)}`); n++
     const per = EST.main + ['worker', 'tester', 'reviewer'].reduce((a, x) => a + EST[x][c.roles[x].tier] * EFF[c.roles[x].effort], 0)
-    usdSum += per * p.tasks.length; min += 8 * p.tasks.length
+    usdSum += per * p.tasks.length; min += 2.5 * p.tasks.length   // pilot: ~2.2 min per task run
   }
   const j = +(process.env.J ?? 4)
   console.error(`${cells.length} cells x ${tasks.length} tasks x N=${g.n ?? 3} = ${n} runs · about US$${Math.round(usdSum * 0.7)}-${Math.round(usdSum * 1.3)} · about ${Math.round(min / j / 60 * 10) / 10} h with -j ${j} (${Math.round(min / 60)} h serial)`)
