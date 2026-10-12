@@ -26,6 +26,7 @@ export function laneOf(asked: Lane, drafts: Task[], reg: TypeRegistry): { lane: 
 // task lane: 'lite' drops tester/red (registry.pipeOf); 'lite+tdd' (a bug a test reproduces) keeps the type's full pipeline
 const taskLane = (lane: Lane, t: Task, reg: TypeRegistry) => (lane !== 'lite' ? '' : t.meta['cadre.repro'] === 'true' && reg[t.type]?.pipeline.includes('tester') ? 'lite+tdd' : 'lite')
 
+const MODE_TTL = 3_600_000
 // after any draft change of a first draft (native/tasks, before touched): the effective lane onto the board and the tasks
 export async function relane(h: Host, store: TaskStore, reg: TypeRegistry): Promise<void> {
   const p = (await h.board.read()).plan; if (!p || p.slug === 'mission' || p.state !== 'draft' || p.approvedAt) return
@@ -33,7 +34,8 @@ export async function relane(h: Host, store: TaskStore, reg: TypeRegistry): Prom
   let mode = epic.meta['cadre.mode'] as 'auto' | 'yolo' | undefined
   if (!mode) {   // the mode of the goal that started it (`/cadre yolo <goal>`), taken once; a plan main starts on its own is auto
     const def = (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto'   // drive.mode: the user's default (a repo file can only force auto)
-    await h.ui.update(u => { mode = u.mode === 'yolo' || u.mode === 'auto' ? u.mode : def; const { mode: _m, ...rest } = u; return rest })   // ponytail: the next plan takes it, even when the goal went to the ask lane first
+    const now = await h.now()
+    await h.ui.update(u => { const fresh = typeof u.modeAt === 'number' && now - u.modeAt < MODE_TTL; mode = fresh && (u.mode === 'yolo' || u.mode === 'auto') ? u.mode : def; const { mode: _m, modeAt: _a, ...rest } = u; return rest })   // ponytail: the next plan within the hour takes it (the goal may go to the ask lane first); an older one is stale, never a plan main starts later on its own
     await store.setMeta(p.id, { 'cadre.mode': mode! }, 'human')
   }
   for (const t of drafts) { const l = taskLane(r.lane, t, reg); if ((t.meta['cadre.lane'] ?? '') !== l) await store.setMeta(t.id, { 'cadre.lane': l }, 'main') }
@@ -84,7 +86,7 @@ export async function sendBrief(h: Host): Promise<void> {
 export async function goal(h: Host, text: string, mode: 'auto' | 'yolo' = 'auto'): Promise<string> {
   const g = await h.readText(`${(await h.root?.()) ?? '.'}/guides/goal.md`)
   if (!g) return 'the goal guide is missing from the plugin; ask the human to reinstall it'
-  await h.ui.update(u => ({ ...u, mode }))   // relane stamps it on the plan this goal drafts
+  const at = await h.now(); await h.ui.update(u => ({ ...u, mode, modeAt: at }))   // relane stamps it on the plan this goal drafts (within MODE_TTL)
   await queueBrief(h, `Goal from the user: ${text.slice(0, 1000)}\n\n${g}`)
   return `goal${mode === 'yolo' ? ' (yolo)' : ''}: Claude is on it · the plan comes up for approval${mode === 'yolo' ? ' · after that nothing is asked until it lands on dev' : ''}`
 }

@@ -22,7 +22,7 @@ async function go(mode: 'auto' | 'yolo', approve = true) {
   const w = await world(), submitted: string[] = [], answered: string[] = [], files: Record<string, string> = { [SET]: '{}' }
   Object.assign(w.h, { sendTo: async () => ({ isDelivered: true }), submit: async (t: string) => { submitted.push(t) }, usage: async () => ({ cost: { usd: 1 } }), readText: async (p: string) => files[p] ?? null })
   if (mode === 'yolo') await w.h.board.update(b => ({ ...b, containment: { state: 'contained', unsandboxed: 0 } }))   // yolo runs contained only
-  await w.h.ui.update(u => ({ ...u, mode }))   // what `/cadre yolo <goal>` leaves for the plan it drafts
+  await w.h.ui.update(u => ({ ...u, mode, modeAt: 0 }))   // what `/cadre yolo <goal>` leaves for the plan it drafts
   await w.call('TaskCreate', { subject: 'Fix paging', description: 'off-by-one in src/page.ts', metadata: LITE })
   const s = await w.h.board.read(), id = s.plan!.id, t = s.tasks[0].id
   if (approve) { const d = s.decisions!.find(x => x.id === `plan:${id}`)!; expect((await decide(w.h, d.id, 'a', d.hash)).text).toContain(`drive ${mode} on`) }
@@ -63,6 +63,8 @@ describe('T6.1 /cadre yolo <goal>: the mode rides on the plan', () => {
     expect((await y.board()).plan!.mode).toBe('yolo'); expect(d.lines[0]).toBe('yolo · lite · 1 task · fix · one small fix in src/a.ts')
     expect((await y.h.ui.read()).mode).toBeUndefined(); expect((await y.store.get(y.id)).meta['cadre.mode']).toBe('yolo')
     const w = await world(); await w.call('TaskCreate', { subject: 'Fix paging', description: 'd', metadata: LITE }); expect((await w.h.board.read()).plan!.mode).toBe('auto')
+    const z = await world(); await z.h.ui.update(u => ({ ...u, mode: 'yolo', modeAt: 0 })); Object.assign(z.h, { now: async () => 3_600_001 })   // a yolo goal that drafted no plan, an hour ago
+    await z.call('TaskCreate', { subject: 'Fix paging', description: 'd', metadata: LITE }); expect((await z.h.board.read()).plan!.mode).toBe('auto'); expect((await z.h.ui.read()).mode).toBeUndefined()
   })
 })
 
