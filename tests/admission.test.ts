@@ -190,6 +190,10 @@ describe('review spawn', () => {
   test('a rejected review spawn drops its reservation', async () => {
     const { h, d, id } = await inReview('reviewer'); await admitWith(h, d, spawn(id), async () => ({ deny: 'no' })); expect(await h.bind.read()).toEqual({})
   })
+  test('a reviewer launch that returns no agent id leaves no owner: the next step is still "spawn the reviewer"', async () => {
+    const { h, d, id } = await inReview('reviewer'); await admitWith(h, d, spawn(id), async () => ({ model: 'sonnet' }))
+    expect(await h.bind.read()).toEqual({}); expect((await h.board.read()).tasks.find(t => t.id === id)!.owner).toBeUndefined()
+  })
 })
 
 describe('multi-session leases (two hosts, one store)', () => {
