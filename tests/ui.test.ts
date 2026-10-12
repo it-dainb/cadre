@@ -88,7 +88,9 @@ describe('notification policy (UI-DESIGN 4)', () => {
   test('matrix: level and dedupe key per event', async () => {
     for (const [type, data, lvl, key] of rows) { const e = ev(type, data, { taskId: data.taskId as string | undefined }); expect([type, levelOf(e)]).toEqual([type, lvl]); expect(textOf(e)?.key).toBe(key) }
     expect(textOf(ev('approval.pending', { planId: 'p3', missing: [] }))!.text).toBe('Plan p3 ready for approval · press 1')
-    expect(textOf(ev('drive.status', { state: 'finished' }))!.text).toBe('Epic landed on dev ✓')
+    expect(textOf(ev('drive.status', { state: 'finished' }))!.text).toBe('Landed on dev ✓')
+    expect([levelOf(ev('plan.landed', { planId: 'e2', sha: 'x', on: 'milestone/m1-accounts' })), textOf(ev('plan.landed', { planId: 'e2', sha: 'x', on: 'milestone/m1-accounts' }))!.text]).toEqual([2, 'Epic e2 landed on milestone/m1-accounts ✓'])
+    expect(levelOf(ev('plan.landed', { planId: 'm1', sha: 'x' }))).toBe(0)
     expect(textOf(ev('drive.status', { state: 'stopped', reason: 'turn limit' }))!.text).toBe('drive stopped · turn limit · 0: resume')
     expect(textOf(ev('drive.status', { state: 'stopped', reason: 'a very long reason that does not fit in a toast at all, really' }))!.text.length).toBeLessThanOrEqual(60)
   })

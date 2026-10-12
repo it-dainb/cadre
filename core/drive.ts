@@ -15,7 +15,7 @@ import { BLOCKING, apply } from './machine'
 import { queueBrief } from './lanes'
 import { modelText } from './say'
 import { specAsk } from './tdd'
-import { stopEpic } from './milestone'
+import { isMs, stopEpic } from './milestone'
 
 export const LEASE = 600_000
 export type Mode = 'auto' | 'yolo'
@@ -131,7 +131,7 @@ export async function drive(h: Host, cfg: any, usd: number | undefined) {
     const took = n ? ` · ${n} decision${n === 1 ? '' : 's'} taken for you (Doctor lists them)` : ''
     await h.board.update(x => ({ ...x, drive: { ...x.drive, on: false, paused: undefined } })); await driveEvent(h, 'finished', `landed on dev${took}${mode === 'yolo' ? '; the release is yours' : ''}`)
     await casDrive(h, store, r => r && { ...r, on: false, lease: { session: '', until: 0 } })
-    return void h.toast(`epic ${s.plan.id} landed on dev; drive finished${took}${mode === 'yolo' ? ' · the release is yours' : ''}`)   // the /clear hint is the drain's (7)
+    return void h.toast(`${isMs(s.plan) ? 'milestone' : 'epic'} ${s.plan.id} landed on dev; drive finished${took}${mode === 'yolo' ? ' · the release is yours' : ''}`)   // the /clear hint is the drain's (7)
   }
   const store = await storeOf(h), me = await sessionOf(h), now = await h.now(), dc = scaled(cfg.drive, s)
   const rec = await casDrive(h, store, () => undefined)

@@ -18,6 +18,7 @@ export function levelOf(e: CadreEvent, yolo = false): Level {
     case 'sync.state_changed': return st === 'ok' && !d.conflicts ? 1 : 2
     case 'drive.status': return st === 'paused' || st === 'finished' || st === 'stopped' ? 3 : 0
     case 'agent.unbound': return d.reason === 'stale' ? 1 : 0
+    case 'plan.landed': return d.on ? 2 : 0   // an epic of a milestone landed on the milestone branch (the milestone's own landing is drive's toast)
     case 'init.stage': return st === 'proposed' ? 2 : 1   // done / Claude working: in the log, no toast
     case 'cost.updated': return d.threshold ? 2 : 0
     default: return e.needsHuman ? 3 : e.severity === 'crit' ? 2 : 0
@@ -32,7 +33,8 @@ export function textOf(e: CadreEvent): { text: string; key: string } | undefined
     case 'flag.raised': return { text: `${id} flagged ${d.flag} · press 1`, key: `flag:${id}:${d.flag}` }
     case 'sync.state_changed': return st === 'ok' ? { text: `${d.target} reconnected${d.conflicts ? ` · ${d.conflicts} conflict` : ''}`, key: `off:${d.target}` } : { text: `${d.target} ${st} · retrying`, key: `off:${d.target}` }
     case 'drive.status': if (st === 'stopped') return { text: clip(`drive stopped${d.reason ? ` · ${d.reason}` : ''} · 0: resume`, 60), key: `drive:stopped:${e.at}` }   // one toast per stop
-      return st === 'paused' || st === 'finished' ? { text: st === 'paused' ? `Drive paused${d.reason ? `: ${d.reason}` : ''}` : 'Epic landed on dev ✓', key: `drive:${st}` } : undefined
+      return st === 'paused' || st === 'finished' ? { text: st === 'paused' ? `Drive paused${d.reason ? `: ${d.reason}` : ''}` : 'Landed on dev ✓', key: `drive:${st}` } : undefined
+    case 'plan.landed': return d.on ? { text: `Epic ${d.planId} landed on ${d.on} ✓`, key: `landed:${d.planId}` } : undefined
     case 'cost.updated': return d.threshold ? { text: `Drive at ${d.threshold}% of token budget`, key: `cost:${d.threshold}` } : undefined
     case 'init.stage': return st === 'proposed' ? { text: 'Init diff ready · /cadre open init', key: `init:${d.stage}` } : undefined
     default: return undefined
