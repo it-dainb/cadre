@@ -4,7 +4,7 @@ import { modelText } from './say'
 import type { DecisionOption, Host, Plan } from '../types'
 import type { Task, TaskStore } from '../task-management/store'
 import { defaults, kindOf, type TypeRegistry } from '../task-management/registry'
-import { draftsOf, touched } from './dispatch'
+import { cfgOf, draftsOf, touched } from './dispatch'
 import { plural, settleIf } from './decide'
 
 export type Lane = 'ask' | 'lite' | 'full'
@@ -32,7 +32,8 @@ export async function relane(h: Host, store: TaskStore, reg: TypeRegistry): Prom
   const epic = await store.get(p.id), asked = (epic.meta['cadre.lane'] || 'full') as Lane, drafts = await draftsOf(store, p.id), r = laneOf(asked, drafts, reg)
   let mode = epic.meta['cadre.mode'] as 'auto' | 'yolo' | undefined
   if (!mode) {   // the mode of the goal that started it (`/cadre yolo <goal>`), taken once; a plan main starts on its own is auto
-    await h.ui.update(u => { mode = u.mode === 'yolo' ? 'yolo' : 'auto'; const { mode: _m, ...rest } = u; return rest })   // ponytail: the next plan takes it, even when the goal went to the ask lane first
+    const def = (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto'   // drive.mode: the user's default (a repo file can only force auto)
+    await h.ui.update(u => { mode = u.mode === 'yolo' || u.mode === 'auto' ? u.mode : def; const { mode: _m, ...rest } = u; return rest })   // ponytail: the next plan takes it, even when the goal went to the ask lane first
     await store.setMeta(p.id, { 'cadre.mode': mode! }, 'human')
   }
   for (const t of drafts) { const l = taskLane(r.lane, t, reg); if ((t.meta['cadre.lane'] ?? '') !== l) await store.setMeta(t.id, { 'cadre.lane': l }, 'main') }

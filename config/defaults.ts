@@ -15,7 +15,7 @@ export const defaults = () => ({
   adapters: {} as Record<string, unknown>,
   store: { kind: 'beads', bin: 'bd', dir: '', timeoutMs: 45000, pollMs: 10000 },
   worktrees: { root: '' },                                    // '' = ${XDG_CACHE_HOME:-$HOME/.cache}/cadre/wt
-  drive: { level: 'epic', maxTurns: 100, maxCostUsd: 20, maxWallMinutes: 240, noProgressTurns: 3 },
+  drive: { mode: 'auto', level: 'epic', maxTurns: 100, maxCostUsd: 20, maxWallMinutes: 240, noProgressTurns: 3 },
   cost: { prices: null as unknown, clearHintPct: 40, compactPct: 60 },
   sync: {} as Record<string, unknown>,
   types: typeDefaults() as unknown, packages: [] as { root: string; knownRed?: string[]; [k: string]: unknown }[],
@@ -31,7 +31,7 @@ export type Config = ReturnType<typeof defaults>
 // Longest dotted prefix wins. Anything not listed is O.
 export const CLASS: Record<string, Cls> = {
   strictness: 'S', mcpAllow: 'S', jail: 'S', jailWritable: 'S', effectCheck: 'S', 'roles.testerView': 'S',
-  adapters: 'U', store: 'U', 'store.timeoutMs': 'O', 'store.pollMs': 'O', worktrees: 'U', drive: 'U', 'cost.prices': 'U', disable: 'U',
+  adapters: 'U', store: 'U', 'store.timeoutMs': 'O', 'store.pollMs': 'O', worktrees: 'U', drive: 'U', 'drive.mode': 'S', 'cost.prices': 'U', disable: 'U',
 }
 // Free-form subtrees: keys under them are not validated against the defaults.
 export const OPEN = ['adapters', 'sync', 'types', 'packages', 'cost.prices']
@@ -40,4 +40,5 @@ export const TIGHTEN: Record<string, ['bool', boolean] | ['enum', ...string[]] |
   strictness: ['enum', 'advisory', 'strict'], mcpAllow: ['list'],
   jail: ['enum', 'off', 'auto', 'on'], jailWritable: ['list'], effectCheck: ['enum', 'off', 'auto', 'always'],
   'roles.testerView': ['enum', 'full', 'view'],
+  'drive.mode': ['enum', 'yolo', 'auto'],   // ADR 0013: yolo relaxes the human gates, so a repo file may only force auto
 }

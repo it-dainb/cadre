@@ -15,6 +15,7 @@ const C = await import('../../core/close.ts')
 const { handleWith } = await import('../../tools/index.ts')
 const { ROUTES } = await import('../../core/dispatch.ts')
 const { setPolicy } = await import('../../policy/guards.ts')
+const { nextAction } = await import('../../core/render.ts')
 
 const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: o.cwd }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()
@@ -48,8 +49,10 @@ test('lifecycle: claim -> report done -> review -> pass@C -> TaskUpdate complete
   const out = await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' }); assert.match(out, /report accepted: commit \w{7}, 1 files/)
   let t = (await h.board.read()).tasks[0]; assert.deepEqual([t.state, t.step], ['review', 'reviewer']); assert.match(t.card, /next: spawn TASK-m-2 \(reviewer\)/)
   const C0 = (await store.get(id)).meta['cadre.sourceCommit']; assert.equal(sh(wt, 'rev-parse', 'HEAD'), C0); assert.equal((await store.get(id)).category, 'review')
+  assert.equal(t.owner, undefined); assert.match(nextAction(await h.board.read()), new RegExp(`spawn TASK-${id} \\(reviewer\\)`))   // no reviewer yet: main is told to spawn one, never "running"
   assert.match(String(await C.closeTask(h, w.dep, id)), /review-passed/)
   await w.spawn(id)   // fresh reviewer (admission)
+  assert.ok((await h.board.read()).tasks[0].owner); assert.doesNotMatch(nextAction(await h.board.read()), /reviewer/)
   assert.match(await w.rep('ag2', w.pass), /pass@/)
   t = (await h.board.read()).tasks[0]; assert.deepEqual([t.state, t.step], ['review', 'merge'])
   const old = sh(d, 'rev-parse', 'epic/p1-x'); assert.equal(await C.closeTask(h, w.dep, id), null)

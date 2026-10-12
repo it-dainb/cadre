@@ -47,6 +47,13 @@ describe('T6.1 /cadre yolo <goal>: the mode rides on the plan', () => {
     expect((await run(h, { args: 'yolo fix it', origin: { kind: 'composer' } }, () => ({}))).text).toBe('goal (yolo): Claude is on it · the plan comes up for approval · after that nothing is asked until it lands on dev')
     expect((await h.ui.read()).mode).toBe('yolo'); expect(String((await h.ui.read()).goal)).toMatch(/^Goal from the user: fix it/)
   })
+  test('drive.mode yolo (user setting): `/cadre <goal>` is yolo; flag decisions say each fact once', async () => {
+    const c = defaults(); c.drive.mode = 'yolo'
+    const h = Object.assign(fakeHost({ files: { '/plug/guides/goal.md': (BUDGET.guides as Record<string, string>).goal } }), { root: async () => '/plug', config: async () => c })
+    expect((await run(h, { args: 'fix it', origin: { kind: 'composer' } }, () => ({}))).text).toMatch(/^goal \(yolo\): /); expect((await h.ui.read()).mode).toBe('yolo')
+    const d = flagDecision('a2', 'conflict', 'a2')!; expect(d.lines.join('\n')).not.toMatch(/a2 a2/); expect(d.lines.filter(l => l.includes('a2'))).toEqual([])
+    expect(flagDecision('a2', 'conflict', 'Session refresh')!.lines[0]).toBe('Session refresh')
+  })
   test('the plan gets the mode (taken once); the approval dialog line starts with it; a plain plan is auto', async () => {
     const y = await go('yolo', false), d = (await y.board()).decisions!.find(x => x.kind === 'plan')!
     expect((await y.board()).plan!.mode).toBe('yolo'); expect(d.lines[0]).toBe('yolo · lite · 1 task · fix · one small fix in src/a.ts')

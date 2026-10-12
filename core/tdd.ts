@@ -143,7 +143,7 @@ export async function testerDone(h: Host, d: Deps, task: Task, wt: string, view:
 // the spec_change card (the worker's reason on it); also re-asked after /clear from the task's own record (core/session)
 export async function specAsk(h: Host, id: string, why: string): Promise<void> {
   const f = 'spec_change', r = (how: string) => `resolve ${id} ${how}`
-  await ask(h, { id: `flag:${id}:${f}`, kind: 'flag', title: `${id} flagged ${f}`, tab: 'epic', sel: id, hash: fnv1a64(why), lines: [`${id}: the worker asks to change the locked spec`, ...why.slice(0, 400).split('\n').filter(Boolean), 'Accept: the tester amends it and a new red follows. Reject: it conforms to the locked tests.'],
+  await ask(h, { id: `flag:${id}:${f}`, kind: 'flag', title: `${id} flagged ${f}`, tab: 'epic', sel: id, hash: fnv1a64(why), lines: ['the worker asks to change the locked spec', ...why.slice(0, 400).split('\n').filter(Boolean), 'Accept: the tester amends it and a new red follows. Reject: it conforms to the locked tests.'],
     options: [{ key: 'a', label: 'Accept', verb: 'accept', run: r('accept') }, { key: 'x', label: 'Reject', verb: 'reject', run: r('reject') }] })   // the reason is on the card; emit's generic flag decision then keeps this one
 }
 export async function specChange(h: Host, d: Deps, id: string, why: string): Promise<void> {

@@ -39,6 +39,7 @@ Then, inside Claude Code:
 4. **After you approve, it runs by itself.** Two modes:
    - **auto** (`/cadre <goal>`): Claude carries the plan until it lands on dev and asks you only at the critical points: a change to the agreed spec, a question only you can answer, an integration that fails twice, a protected branch moved outside cadre, and the release.
    - **yolo** (`/cadre yolo <goal>`): after the approval nothing is asked. Claude decides spec changes and blocked questions itself and each decision is recorded (Activity, Doctor) for you to review. It stops, never releases, when the plan lands on dev.
+   To make yolo your default, set **Drive → mode** to `yolo` in Settings (`9`); a repo's committed config can only force `auto`.
    Both stop by themselves when an agent moves a protected branch, the sandbox settings change, or a bound is hit (100 turns, $20, 240 minutes, or 3 turns without progress; Settings → Drive). The band shows `auto · turn 12/100 · $1.20 · 2: stop`; `2` stops and resumes.
 
 `/cadre` alone opens the pane. Those six forms (`/cadre`, `/cadre <goal>`, `/cadre yolo <goal>`, `setup`, `init`, `doctor`) are all you type; every decision is answered in a dialog. It opens once by itself; after that `1` (on the band or in the pane) opens it again, and the pane lists everything that needs you.

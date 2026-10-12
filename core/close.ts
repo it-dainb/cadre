@@ -94,6 +94,7 @@ async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any, aut
   }
   const st = await numstat(h, wt, `${base}..${C}`), p = pipe(d)(t.type, t.lane), at = await h.now()
   for (let i = p.indexOf('worker'); p[i] !== 'reviewer'; i++) { const m = await apply(h, { kind: 'advance', id: t.id, at, actor: 'mod' }, pipe(d)); if (!m.ok) throw new Error(m.error) }
+  await patch(h, t.id, x => ({ ...x, owner: undefined }))   // no one reviews it yet: the next step is "spawn the reviewer", not "running" (live 0.9.0: main waited on a reviewer that never existed)
   await d.store.setMeta(t.id, { 'cadre.sourceCommit': C, 'cadre.step': 'reviewer', 'cadre.report': JSON.stringify({ summary: r.summary, risks: r.risks, questions: r.questions }).slice(0, 1500), 'cadre.checks': green ? 'verify' : '', 'cadre.nudge': '' }, d.actor)
   await d.store.move(t.id, 'review', d.actor)
   await record(h, d, t.id, 'report', 'worker', { commit: C, ...st, green: green ? `${green.ok ? 'pass' : 'fail'} (${green.secs}s)` : 'n/a', auto }, { outcome: 'done', summary: r.summary, risks: r.risks })
@@ -200,7 +201,7 @@ export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
       await patch(h, t.id, x => ({ ...x, card: noReportCard(x, b.role, b.step) }))   // (wrap builds the same card for the Agent result, which returns before this stop is observed)
       return
     }
-    if (b.role === 'reviewer') return unbind(h, e.agentId, 'stopped', t.id)   // a verdict is never invented; main spawns a fresh reviewer
+    if (b.role === 'reviewer') { await patch(h, t.id, x => ({ ...x, owner: undefined })); return unbind(h, e.agentId, 'stopped', t.id) }   // a verdict is never invented; main spawns a fresh reviewer
     const text = String(e.answer ?? '').slice(0, b.role === 'explorer' ? 2000 : 300)
     try {
       if (b.role === 'worker') await workerDone(h, d, t, b, { summary: `(auto-report: stopped without report) ${text}` }, true)
@@ -209,7 +210,7 @@ export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
     } catch (x) { await release(h, d, t, b, e.agentId, `auto-report failed: ${(x as Error).message}`.slice(0, 200)) }
     return
   }
-  if (b.role === 'reviewer') return unbind(h, e.agentId, 'stopped', t.id)
+  if (b.role === 'reviewer') { await patch(h, t.id, x => ({ ...x, owner: undefined })); return unbind(h, e.agentId, 'stopped', t.id) }
   await release(h, d, t, b, e.agentId, String(e.reason ?? 'stopped'))
 }
 export async function observeWith(h: Host, d: Deps, e: any, next: (e: any) => any): Promise<any> {

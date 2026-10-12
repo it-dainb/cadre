@@ -10,6 +10,8 @@ Status: accepted (0.9.0). User decisions, 2026-10-12 (plan `cadre-0.9.0-ui`, Tra
 ### Decision
 **Two modes, chosen when the goal is typed.** `/cadre <goal>` = **auto**; `/cadre yolo <goal>` = **yolo** (`commands/cadre.parse`; bare `yolo` is a usage hint; composer origin and an active repo, as any goal). `core/lanes.goal` leaves the mode in `ui.mode`; `relane` takes it once onto the plan it drafts (epic meta `cadre.mode`, `board.plan.mode`); a plan main starts on its own is auto. The approval dialog's first line starts with it (`yolo · lite · 1 task · fix · …`), inside the content hash.
 
+**Default mode: `drive.mode`** (`auto` | `yolo`, default `auto`; user decision, supersedes the first draft's "no default-mode key"). With `yolo`, `/cadre <goal>` is `/cadre yolo <goal>`; `/cadre yolo <goal>` is always yolo; a plan main starts on its own takes it too. Yolo relaxes human gates, so the key is class S with the tighten rule `['enum', 'yolo', 'auto']`: the committed `.cadre/config.json` may only force `auto` (a repo `yolo` is ignored with the diagnostic `drive.mode: the repo file may only tighten this key`); only the user layer (`~/.claude/cadre.json`, the Settings tab) chooses yolo. The approval dialog's first line names the effective mode, so it is never invisible.
+
 **Drive is armed at approval, in both modes, never before.** `dispatch.approve` (first approval only) calls `drive.arm(h, plan.mode)` through the `DRIVE` hook (a static import would be a load cycle). The 0.8.0 approval brief stays as drive's first push (main is idle after a dialog answer, so no turn end would start it); from then on drive submits `Continue: <next>` at every main `turn.complete` (#1, after `next`) until the plan lands on dev. Drive never answers a dialog: it only reads gates. After any dialog answer `dispatch.answer` calls `DRIVE.kick`: a drive paused on a gate that is now gone queues `Continue: <next>` for main.
 
 **Gate policy** (`core/drive.gate`, plus the hooks named):
@@ -31,6 +33,12 @@ Status: accepted (0.9.0). User decisions, 2026-10-12 (plan `cadre-0.9.0-ui`, Tra
 **Recorded decisions.** `drive.decided(h, kind, text, taskId?)`: a beads decision record `<mode>: <text>` linked to the plan, and the event `drive.decided {kind: spec|question|rework|integration, text, taskId?}` (actor main for main's decisions). Activity and Doctor read them.
 
 **Board state for the UI** (read-only): `drive {on, level, epicId, mode?, turns, costUsd, startedAt, maxTurns?, maxUsd?, maxMinutes?, paused?, stopped?, heldBy?}`; `drive.status {state: armed|running|paused|stopped|resumed|finished, reason?}`.
+
+### Live fixes (0.9.0 runs)
+- After Reject in an auto spec-change dialog main was idle and the worker waited: `resolveSpec` reject now queues the worker's resume and the answer queues `Continue: <result>` for main.
+- After the worker's report the task kept its claimer as `owner`, so main's context said the reviewer was running and `nextAction` never said "spawn the reviewer"; main waited on a reviewer that never existed. `owner` is now whoever works the current step: cleared at the worker's report and when a reviewer stops without a verdict, set when admission spawns the reviewer.
+- The 5 s heartbeat renewed leases of tasks in review; bd refused it and the failure was logged every tick. Only `active` tasks are beaten.
+- Flag decisions repeated the task id (`a2 flagged conflict` / `a2 a2`): the body line is the task title only.
 
 ### Consequences
 - Fixed on the way: `/goal` was noted in `ui.goal`, the slot of the queued brief: a queued brief paused drive as "two loop owners" and a seen `/goal` could be submitted as `true`. It is `ui.loop` now. `tdd.resolveSpec` now moves beads out of `blocked` as `unblock` does, or the worker's next report could not move the task.

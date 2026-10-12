@@ -25,7 +25,7 @@ export async function route(h: Host, c: Command): Promise<Out> {   // every disp
       return { text }
     }
     case 'doctor': return { text: await doctor(h) }
-    case 'goal': case 'yolo': return { text: c.origin.kind === 'composer' ? await goal(h, a ?? '', c.cmd === 'yolo' ? 'yolo' : 'auto') : `refused: origin ${c.origin.kind} cannot start a goal; type it in the prompt` }   // the human's own words only
+    case 'goal': case 'yolo': return { text: c.origin.kind === 'composer' ? await goal(h, a ?? '', c.cmd === 'yolo' || (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto') : `refused: origin ${c.origin.kind} cannot start a goal; type it in the prompt` }   // the human's own words only
     case 'lane': { const why = isHuman(c.origin); return { text: why ? `refused: ${why}` : await changeLane(h, await storeOf(h), await registryOf(h), a ?? '') } }
     case 'config': if (!a || a === 'show') return { text: configText(await cfgOf(h), c.args[1]) }
   }

@@ -200,7 +200,9 @@ async function review(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
   const wt = task.meta['cadre.worktree'] ?? wtPath(d.wtRoot, d.key, t.id), base = task.meta['cadre.base'] ?? src, undo = async () => { await unbindAgent(h, `~${t.id}`) }
   try {
     const diffStat = await G.diffStat(h.run, wt, `${base}..${src}`), diff = await G.diffPatch(h.run, wt, `${base}..${src}`)
-    return await launch(h, d, e, next, t, 'reviewer', brief('reviewer', briefOf(s, t, task, e, d, 'reviewer', { sourceCommit: src, diffStat, diff, report: task.meta['cadre.report'], flags: t.flags })), wt, 'reviewer', wt, undo, task)
+    const r = await launch(h, d, e, next, t, 'reviewer', brief('reviewer', briefOf(s, t, task, e, d, 'reviewer', { sourceCommit: src, diffStat, diff, report: task.meta['cadre.report'], flags: t.flags })), wt, 'reviewer', wt, undo, task)
+    if (!r?.deny) await commit(h, b => ({ ...b, tasks: b.tasks.map(x => (x.id === t.id ? { ...x, owner: d.actor } : x)) }))   // the reviewer runs the step now (close clears it at the worker's report)
+    return r
   } catch (err) { await undo(); throw err }
 }
 
@@ -208,7 +210,7 @@ async function review(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
 export async function beat(h: Host, d: Deps, every = 120_000): Promise<void> {
   const [bind, now] = [await h.bind.read(), await h.now()]
   for (const [a, b] of Object.entries(bind)) {
-    if (a.startsWith('~') || b.sessionId !== d.session) continue
+    if (a.startsWith('~') || b.sessionId !== d.session || (await h.board.read()).tasks.find(t => t.id === b.taskId)?.state !== 'active') continue   // only a claimed (in progress) task has a lease to renew; review/blocked/done are refused every tick
     const k = `cadre:${d.key}:hb:${b.taskId}`
     if (now - (((await h.store.get(k)) as number | undefined) ?? 0) < every) continue
     await d.store.heartbeat(b.taskId).catch(err => h.log(`heartbeat ${b.taskId} failed: ${err}`)); await h.store.set(k, now)

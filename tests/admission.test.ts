@@ -208,6 +208,8 @@ describe('multi-session leases (two hosts, one store)', () => {
     const beats: string[] = []; const spy = (d: Deps): Deps => ({ ...d, store: Object.assign(Object.create(d.store), { heartbeat: async (id: string) => { beats.push(id) } }) })
     await beat(a.h, spy(a.d)); await beat(a.h, spy(a.d)); expect(beats).toEqual([ids[0]])
     w.clock.now += 121_000; await beat(a.h, spy(a.d)); expect(beats).toEqual([ids[0], ids[0]]); await beat(b.h, spy(b.d)); expect(beats).toHaveLength(2)
+    await a.h.board.update(s => ({ ...s, tasks: s.tasks.map(t => (t.id === ids[0] ? { ...t, state: 'review', step: 'reviewer' } : t)) }))   // in review: no lease to renew (bd refuses it every tick)
+    w.clock.now += 121_000; await beat(a.h, spy(a.d)); expect(beats).toHaveLength(2)
   })
 })
 
