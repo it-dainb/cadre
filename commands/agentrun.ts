@@ -16,8 +16,13 @@ const finished = (its: Item[]) => its.every(i => i.st === 'ok' || i.st === 'warn
 const WHAT = { setup: 'Set up cadre on this machine', init: 'Set up cadre in this project' }
 
 const end = (h: Host) => h.secret.update(({ run: _r, ...s }) => s)
-// $.prompt.submit is refused while a command holds the turn (PC-05): a timer has no hook frame, so the brief goes from there; it starts once the session is idle
-const send = (h: Host, text: string) => { const go = () => h.submit?.(text); if (h.ops) h.ops.after(1, go); else void Promise.resolve().then(go).catch(() => {}) }
+// $.prompt.submit is refused from a command or a press frame, and $.clock.after inherits that frame (live, 0.7.0). So a brief waits in the run (`brief`)
+// and goes out from main's turn end or the session's 5 s timer (pump); it starts once the session is idle.
+const send = (h: Host, brief: string) => h.secret.update(s => (s.run ? { ...s, run: { ...s.run, brief } } : s))
+export async function pump(h: Host): Promise<void> {
+  let text: string | undefined; await h.secret.update(s => { text = s.run?.brief; return text ? { ...s, run: { ...s.run!, brief: undefined } } : s })
+  if (text) await h.submit?.(text).catch((e: Error) => h.log(`cadre: could not hand the step to Claude: ${e.message.slice(0, 120)}`))
+}
 
 async function draw(h: Host, k: Kind, its: Item[], state: 'on' | 'stopped' | 'done', note?: string): Promise<void> {
   const n = its.filter(i => i.st === 'ok' || i.st === 'warn').length, human = !its.some(i => i.st === 'fail') && its.some(i => i.st === 'wait')
@@ -38,7 +43,7 @@ export async function start(h: Host, k: Kind): Promise<string> {
   const guide = `${(await h.root?.()) ?? '.'}/guides/${k}.md`
   const at = await h.now(); await h.secret.update(s => ({ ...s, run: { kind: k, at, turns: 0, follow: 0, guide } }))
   await draw(h, k, its, 'on')
-  send(h, `${WHAT[k]}. Follow ${guide} step by step.`)
+  await send(h, `${WHAT[k]}. Follow ${guide} step by step.`)
   return `${k}: Claude is on it · progress on the cadre card`
 }
 // re-check now (a main turn ended, or the human answered a gate on its card): done ends the run; a failure Claude owns gets a follow-up; the limits stop it
@@ -50,7 +55,8 @@ export async function recheck(h: Host, turn = false): Promise<string> {
   if (out || (fails.length && r.follow >= LIMIT.follow)) { await end(h); await draw(h, k, its, 'stopped', out ? 'the time or turn limit was reached' : 'Claude stopped with steps still open'); return `${k}: stopped · see the card` }
   await h.secret.update(s => ({ ...s, run: { ...r, turns, follow: r.follow + (fails.length ? 1 : 0) } }))
   await draw(h, k, its, 'on')
-  if (fails.length) send(h, await followUp(h, k, fails, r.guide))
+  if (fails.length) await send(h, await followUp(h, k, fails, r.guide))
+  if (turn) await pump(h)
   return `${k}: ${fails.length ? 'Claude is on it' : 'waiting for you on the card'}`
 }
 // main's turn.complete (register.ts): works in dormant repos too

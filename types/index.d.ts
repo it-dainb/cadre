@@ -58,7 +58,7 @@ export interface Secret {
   dcode?: Record<string, string>                      // decision id -> the code its run/fallback templates need
   nonce?: string; initNonce?: string; token?: string; adoptTried?: boolean; active?: boolean; root?: string   // root: the main session's cwd, set at session.start
   session?: string                                      // this session's id (core/admission.sessionOf; resume queue key)
-  run?: { kind: 'setup' | 'init'; at: number; turns: number; follow: number; guide: string }   // an agent-run setup/init (ADR 0010): started at, main turns since, follow-ups sent, the guide main follows (its folder is readable under the lease)
+  run?: { kind: 'setup' | 'init'; at: number; turns: number; follow: number; guide: string; brief?: string }   // an agent-run setup/init (ADR 0010): started at, main turns since, follow-ups sent, the guide main follows (its folder is readable under the lease), a brief waiting to be sent (commands/agentrun.pump)
   ctx?: { key: string; card?: string }                  // main context: last-sent diff key; a queued one-time resume card (core/briefs)
 }
 export interface Binding {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { confirm, initItems, repoKeyOf, rootFor, wire } from '../commands/init'
-import { recheck, start, turnEnd } from '../commands/agentrun'
+import { pump, recheck, start, turnEnd } from '../commands/agentrun'
 import { press, run as cadreRun } from '../commands/cadre'
 import { guard, policyOf, setPolicy, LIMIT } from '../policy/guards'
 import { wake } from '../core/session'
@@ -44,7 +44,7 @@ function mk(o: { repo?: boolean; branches?: string[]; files?: Record<string, str
   const s = new MemoryStore(); wire.store = async () => s; if (o.journal !== false) void s.init({ journal: true } as any)
   if (o.mission !== false) void h.board.update(b => ({ ...b, mission: 'ship it' }))
   const code = async () => (await h.secret.read()).initConfirm?.code as string
-  const tick = () => new Promise(r => setTimeout(r, 0))
+  const tick = () => pump(h)   // the session's 5 s timer sends a waiting brief
   return { h, files, g, calls, code, sent, tick, s }
 }
 const items = async (h: Host) => Object.fromEntries((await initItems(h)).map(i => [i.name, `${i.st}${i.why ? `: ${i.why}` : ''}`]))
@@ -106,7 +106,9 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
   test('/cadre init from the composer: ONE line, a short brief that points at the guide, the run (lease) starts, the checklist card shows', async () => {
     const { h, sent, tick } = mk({ repo: false, branches: [], mission: false })
     const t = (await cadreRun(h, { args: 'init', origin: { kind: 'composer' } }, () => ({}))).text
-    expect(t).toBe('init: Claude is on it · progress on the cadre card'); await tick()
+    expect(t).toBe('init: Claude is on it · progress on the cadre card')
+    expect(sent).toEqual([]); expect((await h.secret.read()).run?.brief).toContain('guides/init.md')   // a command frame cannot submit (live 0.7.0): the brief waits for the timer
+    await tick(); expect((await h.secret.read()).run?.brief).toBeUndefined()
     expect(sent).toEqual([`Set up cadre in this project. Follow ${PLUG}/guides/init.md step by step.`]); expect(banned(t, sent)).toEqual([])
     expect((await h.secret.read()).run).toMatchObject({ kind: 'init', turns: 0, follow: 0, guide: `${PLUG}/guides/init.md` })
     const d = (await card(h))!; expect(d.title).toBe('init · 1/8 done · Claude is on it'); expect(d.lines).toContain('✗ repository: no git repository yet'); expect(d.lines).toContain('· task store: after the steps above')

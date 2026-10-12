@@ -20,7 +20,7 @@ import { handle, SPECS } from '../tools/index'
 import { context, attachment } from '../core/briefs'
 import { press, run } from '../commands/cadre'
 import { nudge } from '../commands/doctor'
-import { turnEnd } from '../commands/agentrun'
+import { pump, turnEnd } from '../commands/agentrun'
 import { tick } from '../task-management/sync-engine/loop'
 import { onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapCard, resumeBanner } from '../ui/index'
 import { load } from '../config/index'
@@ -128,7 +128,7 @@ export const register: Register = (on, opts) => {
     await wake(host($)).catch(e => $.ui.log(`cadre: session start: ${e}`))   // active repos only: $.store 'policy' + cadre.ui.cfg + containment band (agents ship as agents/*.md files, A28)
     for (const t of SPECS) await $.tool.register(t)   // report, inspect, run_check: isDeferred:false (5.2)
     { const h = host($); if (await wake(h).catch(() => false)) await nudge(h).catch(() => {}) }   // active repos only: no setup stamp for this Claude Code build -> one toast
-    $.clock.every(5000, () => { const h = host($); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
+    $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
     $.clock.every(30_000, () => { const h = host($); void wake(h).then(act => act && tickUi(h)).catch(() => {}) })   // live timeline cursor (blit, no re-render)
     return next(e)
   })
