@@ -29,7 +29,7 @@ export interface BriefIn {
   id: string; title: string; type: string; description?: string; scenarios?: string; contract?: string; notes?: string
   testPaths?: string[]; locked?: string[]; redCard?: string; greenCard?: string; deps?: { id: string; title: string; out?: string }[]
   findings?: string[]; decisions?: string[]; handoff?: string; others?: string[]; protectedPaths?: string[]; shared?: string
-  sourceCommit?: string; diffStat?: string; diff?: string; audit?: string; report?: string; changelog?: string; flags?: string[]; question?: string
+  sourceCommit?: string; diffStat?: string; diff?: string; audit?: string; report?: string; changelog?: string; flags?: string[]; question?: string; focus?: string
 }
 // contract JSON ({symbols:[{name,kind,params,returns,errors?,doc?,status}]} | {none,reason}) -> compact lines
 export function renderContract(design?: string): string {
@@ -53,7 +53,7 @@ export function brief(role: Role, b: BriefIn): string {
   if (role === 'reviewer')
     return join([head, `# REVIEW TASK-${b.id}`, sec('Source commit', b.sourceCommit), sec('Diff', [b.diffStat ?? '', cap(b.diff ?? '', 3072)]),
       spec([sec('Scenarios', b.scenarios), contract, sec('Spec tests', b.locked)]),
-      ctx([sec('Red/green cards', [b.redCard ?? '', b.greenCard ?? '']), sec('Tester audit', b.audit), sec('Worker report', b.report), sec('Changelog and commit header', b.changelog), sec('Flags', b.flags)]), notes])
+      ctx([sec('Red/green cards', [b.redCard ?? '', b.greenCard ?? '']), sec('Tester audit', b.audit), sec('Worker report', b.report), sec('Check', b.focus), sec('Changelog and commit header', b.changelog), sec('Flags', b.flags)]), notes])
   return join([head, `# TASK-${b.id} ${b.title} (${b.type})`, spec([sec('Description', b.description), sec('Scenarios', b.scenarios), contract]),
     ctx([sec('Locked spec tests', [...(b.locked ?? []), b.redCard ?? '']), sec('Direct dependencies', (b.deps ?? []).map(d => `- ${d.id} ${d.title}${d.out ? `: ${d.out}` : ''}`)),
       sec('Findings / checks', [...(b.findings ?? []), b.greenCard ?? '']), sec('Decisions', b.decisions), sec('Handoff', b.handoff),

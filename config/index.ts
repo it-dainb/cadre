@@ -21,6 +21,8 @@ export function tighten(path: string, base: unknown, val: unknown): unknown {
   const r = TIGHTEN[path]; if (!r) return base
   if (r[0] === 'bool') return val === r[1] ? val : base
   if (r[0] === 'enum') { const o = r.slice(1); return o.indexOf(String(val)) > o.indexOf(String(base)) ? val : base }
+  if (r[0] === 'min') return typeof val === 'number' && val < (base as number) ? val : base
+  if (r[0] === 'grow') return Array.isArray(base) && Array.isArray(val) ? [...new Set([...base, ...val])] : base
   return Array.isArray(base) && Array.isArray(val) ? base.filter(x => val.includes(x)) : base
 }
 

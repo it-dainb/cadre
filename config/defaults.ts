@@ -20,7 +20,7 @@ export const defaults = () => ({
   sync: {} as Record<string, unknown>,
   types: typeDefaults() as unknown, packages: [] as { root: string; knownRed?: string[]; [k: string]: unknown }[],
   suites: { integration: 'all' },
-  review: { deepLabels: ['security', 'breaking'], maxRework: 3 }, limits: { reportRetries: 3 },
+  review: { deepLabels: ['security', 'breaking'], maxRework: 3, tiers: { light: { files: 5, lines: 100 }, thorough: { files: 20, lines: 500 }, risky: ['**/auth/**', '**/security/**', '**/crypto/**', '**/permission*/**', '**/migrations/**', '.github/**', '.gitlab-ci.yml', 'Dockerfile', '**/package.json', '**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/go.mod', '**/Cargo.toml', '**/pyproject.toml', '**/requirements*.txt'] } }, limits: { reportRetries: 3 },
   branches: { main: '', dev: 'dev', epicPrefix: 'epic/' }, release: { onEpicDone: 'propose' },
   ui: { glyphs: 'unicode', flash: true, density: 'normal' },
   maxParallel: 3, milestone: { maxEpics: 2 }, maxRows: 6,   // maxParallel/maxEpics 0 = no cadre cap (drive bounds still apply); milestone.maxEpics is stored for the milestone lane (ADR 0014)
@@ -37,7 +37,8 @@ export const CLASS: Record<string, Cls> = {
 // Free-form subtrees: keys under them are not validated against the defaults.
 export const OPEN = ['adapters', 'sync', 'types', 'packages', 'cost.prices']
 // Tighten rule per S key (repo layer): bool -> only the strict value; enum -> the stricter (later) value; list -> intersection.
-export const TIGHTEN: Record<string, ['bool', boolean] | ['enum', ...string[]] | ['list']> = {
+export const TIGHTEN: Record<string, ['bool', boolean] | ['enum', ...string[]] | ['list'] | ['min'] | ['grow']> = {
+  'review.tiers.light.files': ['min'], 'review.tiers.light.lines': ['min'], 'review.tiers.thorough.files': ['min'], 'review.tiers.thorough.lines': ['min'], 'review.tiers.risky': ['grow'],   // ADR 0016: a repo may only send more changes to the deeper review
   strictness: ['enum', 'advisory', 'strict'], mcpAllow: ['list'],
   jail: ['enum', 'off', 'auto', 'on'], jailWritable: ['list'], effectCheck: ['enum', 'off', 'auto', 'always'],
   'roles.testerView': ['enum', 'full', 'view'],

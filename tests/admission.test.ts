@@ -14,12 +14,13 @@ import type { Host, SnapTask } from '../types'
 const T0 = 1_700_000_000_000
 // One world = one MemoryStore + a git script. `session(n)` = one more session over the same store (own board, bindings, $.state).
 function world(types: Record<string, string> = {}) {
-  const clock = { now: T0 }, store = new MemoryStore(() => clock.now), calls: string[][] = [], refs = new Set(['epic/p1-x', 'dev']), dirs = new Set<string>()
+  const clock = { now: T0 }, numstat = { out: '' }, store = new MemoryStore(() => clock.now), calls: string[][] = [], refs = new Set(['epic/p1-x', 'dev']), dirs = new Set<string>()
   const run = async (argv: readonly string[]) => {
     calls.push([...argv]); const a = argv.slice(3), out = (stdout = '', exitCode = 0) => ({ exitCode, stdout, stderr: '' })
     if (a[0] === 'rev-parse') return a.includes('--quiet') ? out('', refs.has(a[a.length - 1].replace('^{commit}', '')) ? 0 : 1) : out('abc1234\n')
     if (a[0] === 'worktree' && a[1] === 'add') { dirs.add(a.includes('-b') ? a[4] : a[2]); if (a.includes('-b')) refs.add(a[3]) }
     if (a[0] === 'worktree' && a[1] === 'remove') dirs.delete(a[a.length - 1])
+    if (a[0] === 'diff' && a[1] === '--numstat') return out(numstat.out)
     if (a[0] === 'diff' && a[1] === '--stat') return out(' a.ts | 1 +\n')
     return out()
   }
@@ -38,7 +39,7 @@ function world(types: Record<string, string> = {}) {
     const ts = await Promise.all(ids.map(async (id, i) => { const t = await store.get(id); return task(id, { title: t.title, type: t.type, deps: t.deps.filter(x => ['blocks', 'waits-for', 'conditional-blocks'].includes(x.type)) as any, ...over[i] }) }))
     await h.board.update(s => ({ ...s, seq: 1, epic, plan: { id: 'p1', slug: 'x', state: 'approved', epicBranch: 'epic/p1-x' }, tasks: ts }))
   }
-  return { clock, store, calls, refs, dirs, mk, plan, board }
+  return { clock, numstat, store, calls, refs, dirs, mk, plan, board }
 }
 const spawn = (prompt: string, o: object = {}) => ({ prompt, description: 'd', subagentType: 'general-purpose', background: true, fork: false, ...o })
 const ok = (agentId = 'ag1') => { const seen: any[] = []; const next = async (e: any) => (seen.push(e), { model: 'sonnet', agentId }); return { next, seen } }
@@ -183,6 +184,19 @@ describe('review spawn', () => {
     expect(((await admitWith(h, d, spawn(id), next)) as any).agentId).toBe('rv1')
     expect(seen[0]).toMatchObject({ subagentType: 'cadre:reviewer', model: 'opus', cwd: `/wt/repo-1/${id}` }); expect(seen[0].prompt).toContain('# REVIEW TASK'); expect(seen[0].prompt).toContain('deadbee'); expect(seen[0].prompt).toContain('a.ts | 1 +')
     expect(((await admitWith(h, d, spawn(id), ok('rv2').next)) as any).deny).toContain('has a reviewer'); expect(Object.keys(await h.bind.read())).toEqual(['rv1'])
+  })
+  test('risk-sized reviewer: tiny change is light (sonnet), mid is standard (sonnet), large or risky is thorough (opus); recorded on the task and the bound event', async () => {
+    for (const [stat, tier, model, labels] of [['1\t1\tsrc/a.ts\n', 'light', 'sonnet', []], ['60\t50\tsrc/a.ts\n', 'standard', 'sonnet', []], ['1\t1\tsrc/auth/x.ts\n', 'thorough', 'opus', []], ['1\t1\tsrc/a.ts\n', 'thorough', 'opus', ['security']]] as const) {
+      const { w, h, d, id } = await inReview('reviewer'); await w.store.update(id, { labels: [...labels] }, d.actor); w.numstat.out = stat
+      const { next, seen } = ok('rv1'); await admitWith(h, d, spawn(id), next)
+      expect(seen[0].model).toBe(model); expect((await w.store.get(id)).meta['cadre.reviewTier']).toBe(tier)
+      expect(ofEpic(await h.events.read(), (await h.board.read()).epic!).some(e => e.type === 'agent.bound' && e.data.tier === tier)).toBe(true)
+      expect(/\b(light|thorough|tier)\b/i.test(seen[0].prompt.replace(/Small change|Large or sensitive change/g, ''))).toBe(false)
+    }
+  })
+  test('never below sonnet: a fast reviewer tier is raised to standard', async () => {
+    const { w, h, d, id } = await inReview('reviewer'); await w.store.update(id, { labels: [] }, d.actor); d.cfg.roles.reviewer.tier = 'fast'
+    const { next, seen } = ok('rv1'); await admitWith(h, d, spawn(id), next); expect(seen[0].model).toBe('sonnet')
   })
   test('review-passed (merge) is main\'s to complete; no sourceCommit yet is refused', async () => {
     const m = await inReview('merge'); expect(((await admitWith(m.h, m.d, spawn(m.id), ok().next)) as any).deny).toContain('TaskUpdate completed')
