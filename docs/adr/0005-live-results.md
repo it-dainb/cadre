@@ -200,3 +200,6 @@ The second run confirmed all five.
 
 ### One output contract: a background marker-less explorer (0.7.0)
 `tui.sh`, haiku, scaffold `evals/execute-p1-ts`. Main was asked to spawn a background Agent with "Reply with the single word PONG … Do not call any tool." Admission retyped it as an ask (`ask-21c881`). The explorer still followed its brief and called `report{answer:"PONG"}` (answer recorded). The engine's queue record kept the raw `<task-notification>…<result>PONG</result>`, but the user message main's turn received was the card: `Result of ask-21c881: EXPLORER ask-21c881 "…" · explorer → answered (0 citations) · flags: none · answer: PONG · next: full answer: TaskGet ask-21c881`. Main answered from the card. The stop-without-report path (nudge ×2, then auto-report) is kit-tested only, because the model could not be made to skip report live.
+
+### Dev scenario seeding (0.7.0)
+`harness/tui.sh start scen --scenario epic-p3`, haiku. The first try failed: the pane hooks errored because the dump's times are relative to the scenario's own `now`. The seed now moves `at`/`approvedAt`/`phaseSince`/`startedAt` to the real clock and puts the scenario config in `ui.cfg`. `/cadre open` then drew the p3 epic (4/7 done, depths 0 to 2, the a2 selection, LOG and TIMELINE) with no hook failures in the debug log.
