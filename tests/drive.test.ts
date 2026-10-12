@@ -17,7 +17,7 @@ const SET = '/hm/u/.claude/settings.json'
 // a lite plan drafted under `mode`, optionally approved in the dialog; main's turn ends through #1 (drain); submits and dialog answers are recorded
 async function go(mode: 'auto' | 'yolo', approve = true) {
   const w = await world(), submitted: string[] = [], answered: string[] = [], files: Record<string, string> = { [SET]: '{}' }
-  Object.assign(w.h, { submit: async (t: string) => { submitted.push(t) }, usage: async () => ({ cost: { usd: 1 } }), readText: async (p: string) => files[p] ?? null })
+  Object.assign(w.h, { sendTo: async () => ({ isDelivered: true }), submit: async (t: string) => { submitted.push(t) }, usage: async () => ({ cost: { usd: 1 } }), readText: async (p: string) => files[p] ?? null })
   await w.h.ui.update(u => ({ ...u, mode }))   // what `/cadre yolo <goal>` leaves for the plan it drafts
   await w.call('TaskCreate', { subject: 'Fix paging', description: 'off-by-one in src/page.ts', metadata: LITE })
   const s = await w.h.board.read(), id = s.plan!.id, t = s.tasks[0].id
@@ -30,7 +30,8 @@ async function go(mode: 'auto' | 'yolo', approve = true) {
 }
 const bindWorker = async (w: Awaited<ReturnType<typeof go>>) => {
   await w.store.claim(w.t, (await resolveDeps(w.h)).actor); await w.setTask({ state: 'active', step: 'worker', owner: 'ag1' })
-  await w.h.bind.update(b => ({ ...b, ag1: { taskId: w.t, role: 'worker', step: 'worker', worktree: '/wt/t', sessionId: 's', ctxTokens: 0, startedAt: 0 } }))
+  const me = (await w.h.secret.read()).session!
+  await w.h.bind.update(b => ({ ...b, ag1: { taskId: w.t, role: 'worker', step: 'worker', worktree: '/wt/t', sessionId: me, ctxTokens: 0, startedAt: 0 } }))
 }
 
 describe('T6.1 /cadre yolo <goal>: the mode rides on the plan', () => {
@@ -108,11 +109,14 @@ describe('T6.3 gate policy', () => {
     expect((await w.evs()).filter(e => e.type === 'drive.decided').map(e => [e.data.kind, e.actor])).toEqual([['spec', 'main'], ['question', 'main']])
     expect((await w.store.list({})).filter(x => x.title.startsWith('yolo: ')).map(x => x.title)).toEqual([`yolo: ${w.t}: spec change rejected: the tests match the API docs`, `yolo: ${w.t}: 50, because the API caps pages at 50`])
   })
-  test('auto: a spec change is a dialog and main cannot decide it', async () => {
+  test('auto: a spec change is a dialog and main cannot decide it; the answer resumes the worker and tells main', async () => {
     const w = await go('auto'); await bindWorker(w)
     await report(w.h, await resolveDeps(w.h), 'ag1', { role: 'worker', outcome: 'spec_change', reason: 'pages start at 1' })
     expect((await w.board()).decisions!.map(d => d.id)).toEqual([`flag:${w.t}:spec_change`])
     expect((await w.call('TaskUpdate', { taskId: w.t, metadata: { decision: 'reject: no' } })).result.error).toContain('the human accepts or rejects it')
+    await w.h.ui.update(({ goal: _g, ...u }) => u)
+    const d = (await w.board()).decisions![0]; await decide(w.h, d.id, 'x', d.hash)   // the human rejects in the dialog: the worker is resumed and main, idle, is told
+    expect((await w.board()).resumesQueued).toBe(1); expect((await w.h.ui.read()).goal).toBe(`Continue: ${w.t}: rejected; the worker is resumed to conform to the locked tests`)
   })
   test('rework past the cap while driving: cancelled and recorded; a task others need stops the run instead', async () => {
     for (const critical of [false, true]) {

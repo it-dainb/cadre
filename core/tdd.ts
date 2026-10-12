@@ -11,6 +11,7 @@ import { fnv1a64 } from './board'
 import * as G from './git'
 import { auditView, matches, modeOf, pkgOf, rootOf, type Pkg } from './specview'
 import { policyOf, setPolicy } from '../policy/guards'
+import { queueResume } from './reuse'
 
 export interface Gate { ok: boolean; why?: string; card: string; tests?: string[] }
 export interface Case { name: string; status: 'passed' | 'failure' | 'error' | 'skipped'; text: string }
@@ -164,5 +165,7 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
   await d.store.resume(id, d.actor)   // beads follows the board out of blocked (as unblock does), or the next report cannot move it
   const note = acc ? `spec change accepted: ${task!.meta['cadre.specChange'] ?? ''}` : 'spec change rejected: the locked tests stay; conform to them'
   await d.store.setMeta(id, { 'cadre.blocked': '', 'cadre.decision': note.slice(0, 1500) }, d.actor); await d.store.comment(id, `[cadre:decision v1] ${note}`, d.actor)
-  return { text: acc ? `${id}: accepted; spawn it for the tester to amend the spec (new red, amended specCommit)` : `${id}: rejected; spawn it to resume the worker` }
+  const bind = await h.bind.read(), w = acc ? undefined : Object.keys(bind).find(a => !a.startsWith('~') && bind[a].taskId === id && bind[a].role === 'worker')
+  if (w) await queueResume(h, { agentId: w, taskId: id, text: 'The spec change was rejected: the locked tests stay. Make them pass, then report done.' })   // as unblock does: the worker that asked is waiting
+  return { text: acc ? `${id}: accepted; spawn it for the tester to amend the spec (new red, amended specCommit)` : w ? `${id}: rejected; the worker is resumed to conform to the locked tests` : `${id}: rejected; spawn it to resume the worker` }
 }

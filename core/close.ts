@@ -19,6 +19,7 @@ import { green as tddGreen, lockedViolations, verifyOf, resolveSpec, specChange,
 import { modeOf, pkgOf } from './specview'
 import * as G from './git'
 import { decided, stop } from './drive'
+import { queueBrief } from './lanes'
 import { yoloOn } from './decide'
 
 
@@ -348,7 +349,12 @@ ROUTES.resolve = async (h, c) => {
   if (!t || !['keep', 'accept', 'reject', 'cancel'].includes(b)) return { text: 'usage: /cadre resolve <taskId> keep|accept|reject|cancel · /cadre resolve git keep|restore' }
   const out = async (e: Promise<string | null>) => ({ text: (await e) ?? `${a}: ${b} done` })
   if (b === 'cancel' || (b === 'reject' && t.flags.some(x => x.startsWith('rework:')))) return out(cancelTask(h, d, a, 'ended by the human'))
-  if (t.flags.includes('spec_change') && (b === 'accept' || b === 'reject')) { const r = await resolveSpec(h, a, b); if (/accepted|rejected/.test(r.text)) await clear(h, a, 'spec_change'); return r }
+  if (t.flags.includes('spec_change') && (b === 'accept' || b === 'reject')) {
+    const r = await resolveSpec(h, a, b); if (!/accepted|rejected/.test(r.text)) return r
+    await clear(h, a, 'spec_change'); const dr = (await h.board.read()).drive
+    if (dr.on && !dr.stopped) await queueBrief(h, `Continue: ${r.text}`)   // the human answered in the dialog; main is idle and acts on it (ADR 0013)
+    return r
+  }
   if (b === 'accept' && t.flags.some(x => x === 'conflict' || x === 'drift')) { const e = await acceptRemote(h, d, t); if (e) return { text: `refused: ${e}` } }
   await patch(h, a, x => ({ ...x, flags: x.flags.filter(y => y.startsWith('git:')) })); await emit(h, 'flag.resolved', { taskId: a, flag: t.flags.join(',') || b }, { taskId: a })   // keep: accept the state, clear the task's flags
   return { text: `${a}: flags cleared (${b})` }
