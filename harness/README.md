@@ -39,7 +39,7 @@ Real users broke what clean single-package runs never did (a monorepo, `/clear` 
 
 ```
 harness/matrix.sh quick -n                 # list the cells + cost/time estimate, run nothing
-harness/matrix.sh quick [-j 3]             # every release: 6 cells in parallel containers, prints the verdict table (exit 1 if any cell fails)
+harness/matrix.sh quick [-j 3]             # every release: 7 cells in parallel containers, prints the verdict table (exit 1 if any cell fails)
 SPIKE=/path/to/other/checkout harness/matrix.sh quick    # judge another commit (git archive HEAD of that checkout)
 FILTER='user1|ccr' harness/matrix.sh full  # the cross product (manual runs), a subset by cell name
 harness/cell.sh <name> "<fixtures>" <scenario>          # one cell, e.g. cell.sh x "monorepo leftover" user1 (env: MODEL CC_VERSION VIA LAZY FAULT CWD BUDGET LANDED)
