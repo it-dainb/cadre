@@ -53,6 +53,9 @@ describe('clarify gate (default on)', () => {
     expect(await clarifyCall(w.h, { tool: 'AskUserQuestion', tool_use_id: 'q1', questions: [{}, {}] })).toBeUndefined(); await seen(w.h, { name: 'AskUserQuestion' })   // the same call at tool.call: not judged again (live: refused as a second round)
     expect(await stopCheck(w.h, {})).toBeNull()   // a stop right after the question passes
     expect(ctx(await w.askQ(1))).toBe('you asked already: draft the plan now with the answers you have.')
+    expect(await clarifyCheck(w.h, { tool: 'AskUserQuestion', tool_use_id: 'p', input: { questions: [{}] } }, { plugin: 'cadre' })).toBeUndefined()   // cadre's own dialog (the plan approval) is never refused (live)
+    expect(await clarifyCall(w.h, { tool: 'AskUserQuestion', tool_use_id: 'p', questions: [{}] }, { plugin: 'cadre' })).toBeUndefined()
+    expect(ctx(await clarifyCall(w.h, { tool: 'AskUserQuestion', tool_use_id: 'm', questions: [{}] }, { plugin: 'engine' }))).toMatch(/^you asked already/)   // the model's own call keeps its check
     expect(ctx(await w.clarity(CLEAR))).toMatch(/clear\. Draft the plan now\.$/)
     await w.call({ tool: 'TaskCreate', subject: 'Add a Timeline section', description: 'components/Timeline', metadata: { kind: 'plan', lane: 'lite', reason: 'one section', type: 'feature', changelog: { category: 'Added', entry: 'timeline' } } })
     expect(await stopCheck(w.h, {})).toBeNull(); expect((await w.h.secret.read()).goalRun).toBeUndefined()

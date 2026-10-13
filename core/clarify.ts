@@ -51,11 +51,12 @@ async function askGate(h: Host, q: unknown, tu: string | undefined, p: P, g: G):
   const why = askRefusal(Array.isArray(q) ? q.length : 1, p, g); if (why) return why
   await setRun(h, x => ({ ...x, asked: (x.asked ?? 0) + 1, ...(tu ? { askTu: tu } : {}) })); return null
 }
+const byPlugin = (o?: { plugin?: string }) => !!o?.plugin && o.plugin !== 'engine'   // next.origin: 'engine' = the model's own call
 const deny = (t: string) => ({ deny: modelText('deny', t) })
 const setRun = (h: Host, f: (g: G) => G) => h.secret.update(s => (s.goalRun ? { ...s, goalRun: f(s.goalRun) } : s))
 // tool.call slot 5 (hooks/register, active repo, before the guards): main's clarity record, its questions, a second explorer, a yolo plan without its assumptions
-export async function clarifyCall(h: Host, e: any): Promise<unknown | undefined> {
-  if (e.agentId) return undefined
+export async function clarifyCall(h: Host, e: any, origin?: { plugin?: string }): Promise<unknown | undefined> {
+  if (e.agentId || byPlugin(origin)) return undefined   // only main's own calls; a plugin's (cadre's dialogs) pass
   const kind = e.tool === 'TaskCreate' ? e.metadata?.kind : undefined
   if (e.tool !== 'AskUserQuestion' && kind !== 'clarity' && kind !== 'plan' && e.tool !== 'Agent') return undefined
   const g = (await h.secret.read()).goalRun
@@ -73,8 +74,8 @@ export async function clarifyCall(h: Host, e: any): Promise<unknown | undefined>
   return { result: modelData('tool-result', { task: { id: 'clarity', subject: 'clarity' } }), context: [modelText('context', r.text)] }
 }
 // tool.check (hooks/register slot 4): the question dialog opens at the permission step, before tool.call, so a refused question is refused here first (live: the user answered, then main was refused)
-export async function clarifyCheck(h: Host, e: any): Promise<unknown | undefined> {
-  if (e.agentId || e.tool !== 'AskUserQuestion') return undefined
+export async function clarifyCheck(h: Host, e: any, origin?: { plugin?: string }): Promise<unknown | undefined> {
+  if (e.agentId || byPlugin(origin) || e.tool !== 'AskUserQuestion') return undefined   // origin.plugin: cadre's own decision dialog (live: the plan approval was refused)
   const g = (await h.secret.read()).goalRun; if (!g?.on) return undefined
   const why = await askGate(h, e.input?.questions, e.tool_use_id, (await cfgOf(h)).planning, g)
   return why ? { decision: 'deny', reason: modelText('deny', why) } : undefined

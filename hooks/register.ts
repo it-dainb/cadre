@@ -178,9 +178,9 @@ export const register: Register = (on, opts) => {
   // 3. admission
   on('agent.spawn', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return admit(host($), e, next) }).catch(denySpawn)
   // 4. tool.check allow
-  on('tool.check', async ($, e, next) => { if (!(await wake(host($)))) return next(e); await warm(host($)); const cl = await clarifyCheck(host($), e); if (cl) return cl; return check(host($), e, next) }).catch(denyCheck)
+  on('tool.check', async ($, e, next) => { if (!(await wake(host($)))) return next(e); await warm(host($)); const cl = await clarifyCheck(host($), e, next.origin); if (cl) return cl; return check(host($), e, next) }).catch(denyCheck)
   // 5. guards (L1, fence, Task* answers, MCP pre-checks): guards judge first, then main's Task* answers
-  on('tool.call', { tool: /./ }, async ($, e, next) => { const h = host($); const pr = await prefsCall(h, e); if (pr) return pr; if (!(await wake(h))) return (await h.secret.read()).run ? settingsOnly(h, e, next) : next(e); await warm(h); const cl = await clarifyCall(h, e); if (cl) return cl; return guard(h, e, e2 => answer(host($), e2, next)) }).catch(denyCall)
+  on('tool.call', { tool: /./ }, async ($, e, next) => { const h = host($); const pr = await prefsCall(h, e); if (pr) return pr; if (!(await wake(h))) return (await h.secret.read()).run ? settingsOnly(h, e, next) : next(e); await warm(h); const cl = await clarifyCall(h, e, next.origin); if (cl) return cl; return guard(h, e, e2 => answer(host($), e2, next)) }).catch(denyCall)
   // 6. wrap (L3 per-call fingerprint, delta drain, result card, tester log); then our own MCP tools answer innermost
   on('tool.call', { tool: /^/ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return wrap(host($), e, next) }).catch(denyCall)
   on('tool.call', { tool: /^mcp__cadre__/ }, ($, e, next) => handle(host($), e, next)).catch(denyCall)
