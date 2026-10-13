@@ -28,6 +28,7 @@ harness/tui.sh resize <name> 60 40                     # re-run the layout at an
 harness/tui.sh stop <name>                             # evidence stays in /tmp/cadre-tui/<name> (TUI_DIR)
 ```
 Layout of `$TUI_DIR/<name>/`: `plug/` (the plugin = `git archive HEAD` of `cadre/`), `work/` (cwd, the scaffolded repo), `projects/` (session transcripts, subagents under `<session>/subagents/`), `out/debug.log`.
+**Commit first.** A cell runs `git archive HEAD`, so uncommitted edits are NOT tested: commit (on a branch) before you judge a fix.
 
 First-run dialogs: `~/.claude.json` is pre-seeded (onboarding done, dark theme, `/work/run` trusted) so none appear with `--permission-mode bypassPermissions`; `start` still answers any trust/theme/accept prompt with Enter (the bypass-mode warning gets Down+Enter) until the composer shows, and fails with the pane text if it never does.
 
