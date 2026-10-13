@@ -72,8 +72,10 @@ Evidence per cell: `harness/out/matrix/<tier>-<stamp>/<cell>/` (gitignored): `dr
 | `fault-not-injected` | a cell run with `FAULT=…` actually injected it (else it tested nothing) | driver.log |
 | `token-leak` | no OAuth token in a mounted dir (work, out, projects) or the evidence | cell.sh `leak` list |
 | `not-landed` | (`LANDED=1`) the plan landed on dev | dev's log |
+| `clarify` | (`CLARIFY=ask\|none\|assumed\|deep`) main spawned one explorer (Agent type Explore); ask: one question dialog of 1-3 questions; none: no question; assumed: none, and the plan dialog shows `assumed:`; deep: 1-8 dialogs of one question | main's transcript + panes |
 
 **Add a fixture**: `fixtures/<name>.sh` sourcing `_base.sh`; a base makes the repo, an overlay changes it (guard git steps with `[ -d .git ]`). Use it in a cell: `"single <name>"`.
 **Add a scenario**: `scenarios/<name>.sh` with the steps above; end with `until_plan` (or rely on `LANDED=1`). A new perturbation that needs a key or command the steps lack: add one line to the steps block in `cell.sh`.
 **Add an invariant**: one numbered block in `oracle.mjs` calling `fail('<id>', evidence)`; add its row above. Prove it: a cell that should break it must FAIL on a commit with the bug.
+**Clarify tier** (`harness/matrix.sh clarify`, ADR 0020, about US$5): a vague goal on the `landing` fixture (auto, yolo, deep) and the clear titleCase goal. Not in quick: four extra sonnet cells per release.
 **Add a cell to a tier**: one line `name|fixtures|scenario|ENV=…` in `quick()` in `matrix.sh` (`full()` is generated).

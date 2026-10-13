@@ -14,6 +14,13 @@ single-via-ccr|single|goal|MODEL=opus CC_VERSION=2.1.296 VIA=ccr
 kill-mid-setup|nogit|kill|MODEL=sonnet CC_VERSION=2.1.296 FAULT=kill
 EOF
 }
+clarify() { cat <<'EOF'
+clarify-vague|single ready landing|vague|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=ask
+clarify-yolo|single ready landing|vague-yolo|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=assumed
+clarify-deep|single ready landing|deep|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=deep ORACLE_DIALOGS=10 ORACLE_TURNS=20 BUDGET=900
+clarify-clear|single ready|goal|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=none
+EOF
+}
 full() {   # the cross product, minus cells that cannot exist (user1 needs kit/, continue needs a set-up repo)
   local f s m v via lz e
   for f in single monorepo nogit "single gitignore" "single legacy-beads" "single red" "single ready leftover" "monorepo red"; do
