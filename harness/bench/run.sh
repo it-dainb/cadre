@@ -2,7 +2,9 @@
 # Model x effort bench: runs a grid of (task, worker, tester, reviewer) x N headless through harness/run.sh (Docker, only the creds mount), judges each run, prints the table.
 #   harness/bench/run.sh <grid.json> [-j N] [-n] [--go]    -n: cells + estimate only. A grid estimated over $5 runs only with --go.
 # Env: MAIN_MODEL (sonnet), BUDGET (s per run, 1800; core plans x2), SPIKE (plugin checkout, default this repo: git archive HEAD),
-#      CAP (US$: no new run starts once the judged runs spent this much; default: the estimate's upper bound).
+#      CAP (US$: no new run starts once the judged runs spent this much; default: the estimate's upper bound),
+#      INPUT=stream (the prompt as one stream-json user line on stdin, held open until every task of the plan is closed, the stream is idle IDLE s (600), or BUDGET),
+#      SPAWN=mod|main (-e CADRE_SPAWN; mod: cadre spawns the agents itself, main is only told to report).
 H=$(cd "$(dirname "$0")/.." && pwd); B=$H/bench; G=$1; shift; J=4; DRY=; GO=
 while [ $# -gt 0 ]; do case $1 in -j) J=$2; shift;; -n) DRY=1;; --go) GO=1;; esac; shift; done
 [ -f "$G" ] || { echo "usage: run.sh <grid.json> [-j N] [-n] [--go]"; exit 2; }
@@ -15,7 +17,7 @@ SRC=${SPIKE:-$(dirname "$H")}; OUTD=${RESUME:+$(realpath "$RESUME")}; OUTD=${OUT
 # the plugin snapshot lives outside the repo: `plugin test .` would collect its tests
 PLUG=$(mktemp -d "${TMPDIR:-/tmp}/cadre-bench-plug-XXXX"); git -C "$SRC" archive HEAD | tar -x -C "$PLUG"; git -C "$SRC" rev-parse HEAD >"$OUTD/plugin-commit"
 echo "plugin $(git -C "$SRC" rev-parse --short HEAD) · evidence $OUTD"
-export H B OUTD PLUG CAP=${CAP:-$HI}
+export H B OUTD PLUG INPUT SPAWN IDLE BUDGET MAIN_MODEL CAP=${CAP:-$HI}
 one() {   # <cell>|<task>|<k>|<roles json>
   IFS='|' read -r cell task k roles <<<"$1"; D=$OUTD/$cell/$task-$k
   # resumed: only a run whose result.json says invalid is redone; anything else that exists is kept (never delete evidence we cannot judge)
@@ -27,11 +29,17 @@ one() {   # <cell>|<task>|<k>|<roles json>
   (cd "$D/work" && node "$B/scaffold.mjs" "$B/tasks/$task" "$roles" >"$D/scaffold.json" 2>"$D/scaffold.err") || { echo "$cell $task#$k scaffold failed"; return; }
   n=$(node -p "require('$B/tasks/$task/plan.json').tasks.length"); bud=$(( ${BUDGET:-1800} * (n > 1 ? 2 : 1) )); name=bench-$$-$RANDOM
   P="Plan p-p1 is approved. Execute it: spawn the agent for each task as the board directs, close each task once its review passes, then tell me where things stand. Spawn every agent in the foreground (run_in_background false) and wait for its result: this is a headless run that ends when your turn ends."
-  t0=$(date +%s%3N)
-  WORK=$D/work OUT=$D/out SPIKE=$PLUG PROJECTS=$D/projects EXTRA_DOCKER="--name $name" timeout -k 10 "$bud" "$H/run.sh" -p "$P" --plugin-dir /work/spike --model "${MAIN_MODEL:-sonnet}" \
-    --permission-mode bypassPermissions --debug-file /out/debug.log --output-format stream-json --verbose >"$D/stream.jsonl" 2>"$D/stderr.log"; ex=$?
+  [ "$SPAWN" = mod ] && P="Plan p-p1 is approved. Tell me where things stand when it lands."
+  t0=$(date +%s%3N); X="--name $name${SPAWN:+ -e CADRE_SPAWN=$SPAWN}"; A=(--plugin-dir /work/spike --model "${MAIN_MODEL:-sonnet}" --permission-mode bypassPermissions --debug-file /out/debug.log --output-format stream-json --verbose)
+  if [ "$INPUT" = stream ]; then   # stdin stays open while agents run: a one-shot -p exits once no agent is left, before a turn-end hook can start the next one
+    feed() { node -e 'console.log(JSON.stringify({ type: "user", message: { role: "user", content: process.argv[1] } }))' "$P"
+      while sleep 15; do [ "$(node "$B/bench.mjs" open "$D")" = 0 ] && { sleep 30; break; }; [ $(( $(date +%s) - $(stat -c %Y "$D/stream.jsonl") )) -gt "${IDLE:-600}" ] && break; done; }
+    feed | WORK=$D/work OUT=$D/out SPIKE=$PLUG PROJECTS=$D/projects EXTRA_DOCKER="$X" timeout -k 10 "$bud" "$H/run.sh" -p --input-format stream-json "${A[@]}" >"$D/stream.jsonl" 2>"$D/stderr.log"; ex=${PIPESTATUS[1]}
+  else
+    WORK=$D/work OUT=$D/out SPIKE=$PLUG PROJECTS=$D/projects EXTRA_DOCKER="$X" timeout -k 10 "$bud" "$H/run.sh" -p "$P" "${A[@]}" >"$D/stream.jsonl" 2>"$D/stderr.log"; ex=$?
+  fi
   [ $ex = 124 ] && docker kill "$name" >/dev/null 2>&1
-  printf '{"cell":"%s","task":"%s","k":%s,"t0":%s,"t1":%s,"exit":%s}\n' "$cell" "$task" "$k" "$t0" "$(date +%s%3N)" "$ex" >"$D/meta.json"
+  printf '{"cell":"%s","task":"%s","k":%s,"t0":%s,"t1":%s,"exit":%s,"input":"%s","spawn":"%s"}\n' "$cell" "$task" "$k" "$t0" "$(date +%s%3N)" "$ex" "${INPUT:-p}" "${SPAWN:-default}" >"$D/meta.json"
   node "$B/bench.mjs" judge "$D" 2>>"$D/judge.err" || echo "$cell $task#$k judge failed"
   grep -q '"invalid": "usage limit"' "$D/result.json" 2>/dev/null && grep -ho 'resets [^"]*' "$D/stream.jsonl" | head -1 >"$OUTD/LIMIT"
 }

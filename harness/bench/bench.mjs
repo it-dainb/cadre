@@ -100,6 +100,10 @@ function judge(dir) {
     usd: { ...Object.fromEntries(Object.entries(roles).map(([k, v]) => [k, +v.toFixed(4)])), total: +Object.values(roles).reduce((a, b) => a + b, 0).toFixed(4) } }
   writeFileSync(join(dir, 'result.json'), JSON.stringify(res, null, 1)); return res
 }
+// open <run dir>: how many of the plan's tasks are not closed yet (stream mode's end condition); -1 when the store cannot be read
+if (cmd === 'open') { const ids = Object.values(JSON.parse(read(join(arg, 'scaffold.json')) || '{}').tasks ?? {}), env = { ...process.env, BEADS_DIR: join(arg, 'work/.cadre/store') }
+  const st = id => { try { const j = JSON.parse(execFileSync('bd', ['show', id, '--json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env })); return ((Array.isArray(j?.data ?? j) ? (j.data ?? j)[0] : j?.data ?? j) ?? {}).status } catch { return null } }
+  const s = ids.map(st); console.log(!ids.length || s.includes(null) ? -1 : s.filter(x => x !== 'closed').length) }
 if (cmd === 'spent') console.log(walk(arg).filter(f => basename(f) === 'result.json').reduce((a, f) => a + JSON.parse(read(f)).usd.total, 0).toFixed(2))
 if (cmd === 'judge') { const r = judge(arg); console.log(`${r.cell} ${r.task}#${r.k}${r.invalid ? ` INVALID ${r.invalid}` : ''} landed ${r.tasks.filter(t => t.landed).length}/${r.tasks.length} first-try ${r.tasks.filter(t => t.firstTry).length} rework ${r.tasks.reduce((a, t) => a + t.rework, 0)} $${r.usd.total} ${r.secs}s`) }
 
