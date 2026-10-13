@@ -65,7 +65,9 @@ export async function held(h: Host, s?: string): Promise<'here' | 'other' | 'gon
   return pid && host === (await pidOf(h)).split(' ')[0] && (await h.run(['sh', '-c', 'kill -0 "$1"', 'sh', pid]).catch(() => ({ exitCode: 0 }))).exitCode ? 'gone' : 'other'
 }
 // session.end on a quit (not /clear or /resume: the process and its agents go on): this process's stamps go, so a session started right after can continue at once
+export const life = { ending: false }   // a quit has begun: the spawner starts nothing more (core/spawner)
 export async function quit(h: Host): Promise<void> {
+  life.ending = true
   const k = await scoped(h, 'alive'), a = ((await h.store.get(k)) as Alive | undefined) ?? {}
   await h.store.set(k, Object.fromEntries(Object.entries(a).filter(([, v]) => v.p !== procOf(h))))
 }

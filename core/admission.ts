@@ -76,6 +76,7 @@ async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTa
   const forced = env.CLAUDE_CODE_SUBAGENT_MODEL || env.CLAUDE_CODE_EFFORT_LEVEL ? `${env.CLAUDE_CODE_SUBAGENT_MODEL ?? ''}/${env.CLAUDE_CODE_EFFORT_LEVEL ?? ''}` : undefined
   const run = { role, model: env.CLAUDE_CODE_SUBAGENT_MODEL || r0.model || 'default', effort: env.CLAUDE_CODE_EFFORT_LEVEL || r0.effort || 'default', risk, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }
   let r: any
+  await h.store.set(`cadre:${d.key}:hb:${t.id}`, { s: d.session, at: 0 })   // the owner first: a session that dies mid-spawn (a quit right after a turn end, ADR 0018) leaves a claim the next session can tell is gone
   try { r = await next({ ...e, subagentType: `cadre:${role}`, prompt: modelText('agent-brief', prompt), ...(r0.model ? { model: r0.model } : {}), cwd }) } catch (err) { await undo(); throw err }
   if (r?.deny) { await undo(); return r }
   await unbindAgent(h, `~${t.id}`)

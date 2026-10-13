@@ -11,6 +11,7 @@ import { closeTask } from './close'
 import { integrateEpic } from './integrate'
 import { resolveDeps } from './admission'
 import { sendQueued } from './reuse'
+import { life } from './session'
 import { emit } from './events'
 import { modelText } from './say'
 
@@ -72,6 +73,7 @@ async function landAll(h: Host): Promise<boolean> {
 export const told = (h: Host, line: string) => h.ui.update(u => ({ ...u, digest: [...((u.digest as string[]) ?? []), line].slice(-20) }))
 
 async function one(h: Host, id: string, role: string) {
+  if (life.ending) return   // the session is quitting: an agent started now would die with it, its claim left behind
   inflight.add(id)
   try {
     const r = await h.spawnAgent!({ prompt: modelText('agent-brief', `TASK-${id}`), description: `${role === 'claim' ? 'start' : role} ${id}` })

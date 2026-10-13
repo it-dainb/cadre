@@ -16,7 +16,7 @@ const { arm, kick, watchdog, IDLE } = await import('../../core/drive.ts')
 const { stopped } = await import('../../core/close.ts')
 const { spawnStep, spawnMode } = await import('../../core/spawner.ts')
 const { queueResume } = await import('../../core/reuse.ts')
-const { continueRun } = await import('../../core/session.ts')
+const { continueRun, life } = await import('../../core/session.ts')
 const { contextLine } = await import('../../core/render.ts')
 const { modelView } = await import('../../core/board.ts')
 
@@ -181,4 +181,11 @@ test('/cadre continue in mod mode: no step of main\'s -> no brief from a frame t
   const w = await world(1); await arm(w.h, 'auto')
   await continueRun(w.h); assert.equal((await w.h.ui.read()).goal, undefined)
   const { spawnAgent, ...press } = w.h; Object.setPrototypeOf(press, Object.getPrototypeOf(w.h)); await continueRun(press); assert.equal((await w.h.ui.read()).goal, IDLE)
+})
+
+test('a quit under way starts nothing; the owner is recorded before the spawn, so a session that dies mid-spawn reads as gone', async () => {
+  const w = await world(2), [a, b] = w.ids; await arm(w.h, 'auto')
+  let seen; w.h.spawnAgent = async x => { seen = await w.h.store.get(`cadre:k:hb:${a}`); return admitWith(w.h, w.dep, { ...x, background: true }, Object.assign(async () => { throw new Error('killed') }, { origin: { plugin: 'cadre' } })) }
+  await w.turn(); assert.deepEqual(seen, { s: 's1', at: 0 })
+  life.ending = true; try { w.h.spawnAgent = async () => assert.fail('spawned while quitting'); await w.turn() } finally { life.ending = false }
 })
