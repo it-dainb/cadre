@@ -99,3 +99,31 @@ test('lint: one spawn site. $.agent.spawn only in register.ts spawner(); spawner
   for (const l of lines.filter(l => /\bspawner\(\$/.test(l) && !/^function /.test(l))) assert.match(l, /^\s*on\('(turn\.complete|command\.run)'/, `spawner() outside a turn.complete/command.run registration: ${l.slice(0, 80)}`)
   assert.ok(!lines.some(l => /clock\.(every|after)/.test(l) && /spawner\(|spawnStep|agent\.spawn/.test(l)), 'a timer never spawns')
 })
+
+test('lifecycle with zero main turns: workers start, report, reviewers start, a pass lands (actor mod), the plan completes; main only gets digest lines', async () => {
+  const w = await world(2), { h, store, d } = w, [a, b] = w.ids; await arm(h, 'auto')
+  await w.turn(); assert.deepEqual(w.spawned.map(x => [x[0], x[2]]), [['ag1', 'cadre:worker'], ['ag2', 'cadre:worker']])
+  edit(await w.wt(a)); edit(await w.wt(b), 'c.txt')
+  assert.match(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did a' }), /report accepted/); await w.turn()
+  assert.deepEqual([w.spawned[2][0], w.spawned[2][2]], ['ag3', 'cadre:reviewer']); assert.match(w.spawned[2][1], new RegExp(`REVIEW TASK-${a}`))
+  assert.match(await w.rep('ag3', w.pass), /pass@/); await w.turn()
+  assert.equal((await h.board.read()).tasks.find(t => t.id === a).state, 'done'); assert.equal(sh(d, 'show', 'epic/p1-x:b.txt'), 'b')
+  const evs = Object.values((await h.events.read()).epics).flat().filter(e => e.type === 'task.transitioned' && e.taskId === a && e.data.to === 'done'); assert.equal(evs[0].actor, 'mod')
+  assert.deepEqual((await h.ui.read()).digest, [`${a} "task 0" landed`])
+  await w.rep('ag2', { role: 'worker', outcome: 'done', summary: 'did b' }); await w.turn(); assert.equal(w.spawned[3][2], 'cadre:reviewer')
+  await w.rep('ag4', w.pass); await w.turn()
+  const s = await h.board.read(); assert.deepEqual(s.tasks.map(t => t.state), ['done', 'done'])
+  assert.equal(s.plan.state, 'done-on-dev'); assert.ok(s.plan.landed); assert.equal(sh(d, 'show', 'dev:c.txt'), 'b')
+  assert.deepEqual((await h.ui.read()).digest, [`${a} "task 0" landed`, `${b} "task 1" landed`, `plan ${w.epic} completed`])
+  assert.equal(s.drive.on, false); assert.equal(s.drive.turns, 4)   // the run finished; its four spawns were its four steps
+  assert.deepEqual(w.submitted, []); assert.equal(w.spawned.length, 4)
+})
+
+test('rework stays as it was: changes -> the worker step, no worker bound -> the spawner starts a worker again (rebind with the handoff)', async () => {
+  const w = await world(1), id = w.ids[0]; await arm(w.h, 'auto'); await w.turn(); edit(await w.wt(id))
+  await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }); await w.turn()
+  await w.h.bind.update(x => { const { ag1, ...r } = x; return r })   // the worker is gone (its run ended)
+  assert.match(await w.rep('ag2', { ...w.pass, verdict: 'changes', findings: [{ severity: 'major', file: 'b.txt', issue: 'wrong' }] }), /changes \(1\/3\)/)
+  await w.turn(); assert.equal(w.spawned[2][2], 'cadre:worker'); assert.match(w.spawned[2][1], /## Handoff\n[\s\S]*Review of \w+ asks for changes|## Handoff/)
+  assert.equal((await w.store.get(id)).meta['cadre.rework'], '1')
+})

@@ -240,7 +240,7 @@ async function cleanup(h: Host, d: Deps, id: string, task: Task, keep?: string) 
 }
 // the close of the plan's last open task nudges main once (the card's next line) to complete the plan, so it lands and a new goal is accepted
 export const lastNext = async (h: Host, plan: string | undefined, or: string, epic?: string) => { const b = await h.board.read(); return plan && b.plan?.id === plan && b.plan.state === 'approved' && b.tasks.every(x => (epic && x.epic !== epic) || x.state === 'done' || x.state === 'cancelled') ? `every task ${epic ? `of epic ${epic} ` : ''}is done: complete ${epic ? 'it' : 'the plan'} (TaskUpdate ${epic ?? plan} completed)` : or }
-export async function closeTask(h: Host, d: Deps, id: string): Promise<string | null> {
+export async function closeTask(h: Host, d: Deps, id: string, actor: 'main' | 'mod' = 'main'): Promise<string | null> {   // 'mod': the spawner closes it (ADR 0018)
   const t = (await h.board.read()).tasks.find(x => x.id === id)
   if (!t) return `no task ${id}`
   if (!(t.state === 'review' && t.step === 'merge')) return `${id} is ${t.state}${t.step ? `·${t.step}` : ''}: only a review-passed task (review✓) can be completed`
@@ -278,7 +278,7 @@ export async function closeTask(h: Host, d: Deps, id: string): Promise<string | 
     if (r.s) sha = r.s; else if (r.fail) { await back(); return moved(r.flag === 'merge-red' ? 'red' : 'conflict', r.tip!, [], r.flag === 'merge-red' ? r.fail : '') } else fail = 'the epic moved twice while squashing'
   }
   if (!sha) { await back(); await blockTask(h, d, t, fail, 'conflict', {}); return fail }
-  const at = await h.now(), m = await apply(h, { kind: 'close', id, at, actor: 'main' }, pipe(d)); if (!m.ok) return m.error
+  const at = await h.now(), m = await apply(h, { kind: 'close', id, at, actor }, pipe(d)); if (!m.ok) return m.error
   await d.store.close(id, { outcome: 'done', note: `squashed ${sha7(sha)} into ${br}`, session: d.session })
   await record(h, d, id, 'close', 'mod', { squash: sha, epic: br, reviewed: C })
   const next = await lastNext(h, plan.id, 'wait', t.epic)
