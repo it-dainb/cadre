@@ -81,7 +81,8 @@ function judge(dir) {
     const check = tip ? sh('node', ['--test', ...(multi ? [`--test-name-pattern=^${t.key}\\.`] : []), 'test/zz-bench-check.test.mjs'], { cwd: tip }) !== null : false
     const closed = x.status === 'closed', landed = closed && check
     return { key: t.key, id, status: x.status ?? 'missing', closed, check, landed, rework, workerRuns: runs.filter(r => r.role === 'worker').length, escalations: runs.filter(r => r.escalated).length, runs,
-      firstTry: landed && rework === 0 && runs.filter(r => r.role === 'worker').length <= 1 }
+      firstTry: landed && rework === 0 && runs.filter(r => r.role === 'worker').length <= 1,
+      stall: !closed && runs.length > 0 && !runs.some(r => r.role === 'worker') }   // main stopped after the tester step without spawning the worker: a driver stall, not the roles' doing
   })
   if (tip) rmSync(tip, { recursive: true, force: true })
   const roles = {}; for (const [k, v] of Object.entries(byRole)) { const r = k.split(':')[0]; roles[r] = (roles[r] ?? 0) + v.usd }
@@ -105,9 +106,9 @@ if (cmd === 'table') {
     const ts = v.flatMap(r => r.tasks), landed = ts.filter(t => t.landed).length, spent = v.reduce((a, r) => a + r.usd.total, 0), roleUsd = v.reduce((a, r) => a + r.usd.total - (r.usd.main ?? 0), 0)
     const [tier, cell] = k.split('|')
     return [tier, cell, `${v.length}`, `${landed}/${ts.length}`, `${Math.round(100 * ts.filter(t => t.firstTry).length / ts.length)}%`, (ts.reduce((a, t) => a + t.rework, 0) / ts.length).toFixed(2), `${ts.reduce((a, t) => a + t.escalations, 0)}`,
-      landed ? `$${(spent / landed).toFixed(2)}` : '-', landed ? `$${(roleUsd / landed).toFixed(2)}` : '-', `${(v.reduce((a, r) => a + r.secs, 0) / v.length / 60).toFixed(1)}`, `${v.filter(r => r.offPath?.some(f => f.startsWith('src/'))).length}/${v.length}`]
+      landed ? `$${(spent / landed).toFixed(2)}` : '-', landed ? `$${(roleUsd / landed).toFixed(2)}` : '-', `${(v.reduce((a, r) => a + r.secs, 0) / v.length / 60).toFixed(1)}`, `${v.filter(r => r.offPath?.some(f => f.startsWith('src/'))).length}/${v.length}`, `${ts.filter(t => t.stall).length}`]
   })
-  const head = ['tier', 'cell (worker_tester_reviewer)', 'runs', 'landed', 'first-try', 'mean rework', 'escalations', '$/landed (all)', '$/landed (roles)', 'min/run', 'src off declared paths']
+  const head = ['tier', 'cell (worker_tester_reviewer)', 'runs', 'landed', 'first-try', 'mean rework', 'escalations', '$/landed (all)', '$/landed (roles)', 'min/run', 'src off declared paths', 'main stalls']
   if (process.argv.includes('--md')) { console.log(`| ${head.join(' | ')} |\n|${head.map(() => '---').join('|')}|`); for (const r of rows) console.log(`| ${r.join(' | ')} |`) }
   else { const w = head.map((h, i) => Math.max(h.length, ...rows.map(r => r[i].length))); for (const r of [head, ...rows]) console.log(r.map((x, i) => x.padEnd(w[i])).join('  ')) }
   const rej = rs.flatMap(r => r.rejections.map(x => `${r.cell} ${r.task}: ${x.slice(0, 160)}`)); if (rej.length) console.log(`\nreview rejections (${rej.length}):\n${rej.slice(0, 40).join('\n')}`)

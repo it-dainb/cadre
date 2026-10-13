@@ -1,0 +1,1 @@
+{ "tiers": ["standard"], "only": ["s2-transfer"], "n": 3, "cells": [{ "worker": { "tier": "haiku", "effort": "high" }, "tester": { "tier": "haiku", "effort": "high" }, "reviewer": { "tier": "sonnet", "effort": "high" } }] }

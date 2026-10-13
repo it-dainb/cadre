@@ -52,6 +52,47 @@ Effort verified on the wire (passthrough proxy, `harness/bench/effort-proxy.mjs`
 Main is ~65% of all $ and depends on cache warmth across parallel runs. So `$/landed (roles)` is the comparison that tracks the role choice: haiku worker + haiku tester $0.07–0.08 vs sonnet/sonnet $0.13–0.21.
 Pilot N=1 cannot separate the cells on quality (light/standard are easy for every config); the focus pass decides.
 
-### Focus pass
+### Focus pass (2026-10-13): plugin 42c2ebb, N=3
 
-(pending: 2–3 cells x 7 tasks x N=3, chosen by the user)
+Cells: **A** worker haiku/high (+ escalate to sonnet after 1 failed round), tester haiku/high · **B** worker haiku/high (+ escalate), tester sonnet/medium · **C** worker sonnet/medium, tester sonnet/medium. Reviewer sonnet/high; risk sizing (ADR 0016) sends thorough tasks to opus/high. Main sonnet. $30.28 spent of the $35 cap. Ran at -j 2 after a subscription usage limit (429) cut the first attempt; runs it hit were invalid and re-run.
+
+| tier | cell | runs | landed | first try | escalations | $/landed (roles) | $/landed (all) | min/run | main stalls |
+|---|---|---|---|---|---|---|---|---|---|
+| light | A haiku / haiku | 12 | 12/12 | 100% | 0 | $0.07 | $0.29 | 2.0 | 0 |
+| light | B haiku / sonnet.med | 12 | 12/12 | 100% | 0 | $0.10 | $0.32 | 2.0 | 0 |
+| light | C sonnet.med / sonnet.med | 12 | 9/12 | 75% | 0 | $0.15 | $0.44 | 1.7 | 3 |
+| standard | A haiku / haiku | 9 + 3 | 8/9 + 1/3 | 75% | 0 | $0.08–0.11 | $0.33–0.82 | 2.1 | 1 (+1 likely) |
+| standard | B haiku / sonnet.med | 9 | 9/9 | 100% | 0 | $0.13 | $0.49 | 2.2 | 0 |
+| standard | C sonnet.med / sonnet.med | 9 | 9/9 | 100% | 0 | $0.16 | $0.38 | 2.1 | 0 |
+| thorough | A haiku / haiku | 6 | 3/6 | 50% | 0 | $0.44 | $0.91 | 2.8 | 0 |
+| thorough | B haiku / sonnet.med | 6 | 6/6 | 83% | 1 (landed) | $0.37 | $0.66 | 3.2 | 0 |
+
+(A standard: 9 runs in the first grid, plus 3 more on s2-transfer to probe its one miss. The first grid's A and B-light rows come from its run log: a resume bug, now fixed, deleted that grid's per-run evidence after it was judged.)
+
+**Why tasks did not land**
+- **Main stalls (driver, independent of the roles): 4, plus 1 likely.** After the tester step, main read the card "next: spawn TASK-… (worker)" but sent SendMessage to the finished tester instead of spawning the worker. It then decided the "worker" had returned nothing and ended its turn. Every C-light miss was this; it is not a sonnet-worker failure. Fix in the main-facing card or guide.
+- **Haiku tester writes a wrong locked test (A only): 2.** t1 assumed a 3-part token (JWT habit) where the spec says 2; s2 had tests that fail in their own setup. The worker correctly raised spec_change, and the task blocked for a human.
+- **Haiku tester misses scenarios, and review passes it (A only): 2.** In t2-migration, S3 (an existing currency is kept) and S4 (order regardless of list order) were untested and unimplemented. The **opus** reviewer passed both, so the hidden check is what caught them.
+- **Review rejection (1, B thorough, t1):** "the expiry check fails open: `now` is never validated (`{now: null}` → never expires)". The next round escalated the worker to sonnet, the fix was accepted, and the task landed. Escalation worked the one time it fired.
+- The pilot's changelog false-reject is gone (42c2ebb). No runs went outside the declared paths (briefs carry Files since 8a0f148).
+
+**Reading.** On light/standard/thorough tasks, the tester is the role whose model matters. A Haiku worker is enough when a sonnet tester writes the locked tests and the review gate plus escalation catch the rest. A Haiku tester is fine on light tasks but writes wrong or weak specs from standard upward, and review does not reliably catch a weak spec. Sonnet workers (C) bought nothing over Haiku workers (B) at about 20–25% more role cost. Main is 55–75% of all spend whatever the roles are.
+
+### Recommended routing (for the user to lock)
+
+| role | light | standard | thorough | core |
+|---|---|---|---|---|
+| worker | haiku/high, escalate after 1 → sonnet | haiku/high, escalate after 1 → sonnet | haiku/high, escalate after 1 → sonnet | not measured: keep sonnet/high until a core pass runs |
+| tester | haiku/high | sonnet/medium | sonnet/medium | sonnet/medium |
+| reviewer | sonnet/high | sonnet/high | opus/high (ADR 0016 deep tier) | opus/high |
+
+As config:
+```json
+{ "roles": {
+  "worker":   { "tier": "haiku", "effort": "high", "escalate": { "after": 1, "to": "sonnet" }, "byRisk": { "thorough": {} } },
+  "tester":   { "tier": "sonnet", "effort": "medium", "byRisk": { "light": { "tier": "haiku", "effort": "high" } } },
+  "reviewer": { "tier": "sonnet", "effort": "high" } } }
+```
+A core task routes as thorough (`taskRisk`); to keep a sonnet worker there until core is measured, set `worker.byRisk.thorough = {tier: "sonnet", effort: "high"}`. That trades the measured thorough saving for caution.
+
+**Caveats.** n is small: 6 runs per thorough cell and 2 thorough tasks; core and opus workers were not measured (the second pass needs its own go). Hidden checks catch behaviour, not code quality. Light is easy for every cell. Main stalls must be fixed before rates below about 95% mean anything at scale.
