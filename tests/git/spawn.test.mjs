@@ -55,7 +55,7 @@ const edit = (wt, f = 'b.txt', body = 'b\n') => writeFileSync(join(wt, f), body)
 
 test('mode: CADRE_SPAWN beats all; a non-interactive session is main\'s; else drive.spawn', async () => {
   const h = fakeHost(); h.config = async () => defaults()
-  assert.deepEqual((await spawnMode(h)).mode, 'main')
+  assert.equal((await spawnMode(h)).mode, 'mod')   // the default
   await h.ui.update(u => ({ ...u, headless: true })); h.config = async () => { const c = defaults(); c.drive.spawn = 'mod'; return c }
   assert.equal((await spawnMode(h)).mode, 'main'); await h.ui.update(u => ({ ...u, headless: undefined })); assert.equal((await spawnMode(h)).mode, 'mod')
   h.env = async () => ({ CADRE_SPAWN: 'main' }); assert.equal((await spawnMode(h)).mode, 'main')

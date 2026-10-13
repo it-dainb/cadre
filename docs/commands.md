@@ -73,6 +73,7 @@ Layers, low → high: built-in defaults → plugin `userConfig` → `~/.claude/c
 | `store.kind`, `store.bin`, `store.dir` | U | `beads`, `bd`, repo |
 | `worktrees.root` | U | `${XDG_CACHE_HOME:-$HOME/.cache}/cadre/wt` |
 | `drive.{level,maxTurns,maxCostUsd,maxWallMinutes,noProgressTurns}` | U | `epic`, 100, 20, 240, 3 |
+| `drive.spawn` | U | `mod`: cadre starts, closes and lands the plan's tasks itself; main plans and talks (ADR 0018). `main`: main spawns each step. Env `CADRE_SPAWN=mod\|main` beats it; a non-interactive session (`-p`) runs `main` |
 | `cost.prices`, `disable` | U | none, `false` |
 | `store.timeoutMs`, `store.pollMs` | O | 45000, 10000 |
 | `types` | O | feature/bug/refactor/docs/test/spike |

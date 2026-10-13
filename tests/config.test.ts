@@ -10,7 +10,7 @@ describe('defaults (DESIGN 12)', () => {
   test('golden values', async () => {
     const d = defaults()
     expect([d.strictness, d.mcpAllow, d.jail, d.effectCheck, d.roles.testerView, d.roles.tdd.author]).toEqual(['strict', [], 'auto', 'auto', 'view', 'separate'])
-    expect([d.store.bin, d.store.timeoutMs, d.store.pollMs, d.drive, d.cost.clearHintPct, d.cost.compactPct]).toEqual(['bd', 45000, 10000, { mode: 'auto', spawn: 'main', level: 'epic', maxTurns: 100, maxCostUsd: 20, maxWallMinutes: 240, noProgressTurns: 3 }, 40, 60])
+    expect([d.store.bin, d.store.timeoutMs, d.store.pollMs, d.drive, d.cost.clearHintPct, d.cost.compactPct]).toEqual(['bd', 45000, 10000, { mode: 'auto', spawn: 'mod', level: 'epic', maxTurns: 100, maxCostUsd: 20, maxWallMinutes: 240, noProgressTurns: 3 }, 40, 60])
     expect([d.maxParallel, d.maxRows, d.reuse, d.review, d.limits.reportRetries, d.models, d.ui.glyphs, d.branches.dev, d.branches.epicPrefix, d.release.onEpicDone, d.changelog.path])
       .toEqual([3, 6, { maxContextPct: 60, cacheTtlMs: 3_600_000 }, { ...d.review }, 3, { fast: 'haiku', standard: 'sonnet', deep: 'opus' }, 'unicode', 'dev', 'epic/', 'propose', 'CHANGELOG.md'])
     expect(Object.keys((d.types as object))).toEqual(['feature', 'bug', 'refactor', 'docs', 'test', 'spike'])
