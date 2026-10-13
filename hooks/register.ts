@@ -7,7 +7,7 @@ import type { Host } from '../types'
 import { UI, emptySnapshot } from '../core/board'
 import { emptyRing, subscribe } from '../core/events'
 import { drain, step, compact, submit } from '../core/reuse'
-import { goal } from '../core/drive'
+import { goal, watchdog } from '../core/drive'
 import { FRAMES, spawnStep, syncMode } from '../core/spawner'
 import { quit, wake, warm } from '../core/session'
 import '../config/route'   // registers ROUTES.config
@@ -161,7 +161,7 @@ export const register: Register = (on, opts) => {
     await wake(host($)).catch(e => $.ui.log(`session start: ${e}`)); await halt(host($)).catch(() => {}); await syncMode(host($)).catch(() => {})   // a setup cut short in an earlier session: the band says so   // active repos only: $.store 'policy' + cadre.ui.cfg + containment band (agents ship as agents/*.md files, A28)
     for (const t of SPECS) await $.tool.register(t)   // report, inspect, run_check: isDeferred:false (5.2)
     { const h = host($); if (await wake(h).catch(() => false)) await nudge(h).catch(() => {}) }   // active repos only: no setup stamp for this Claude Code build -> one toast
-    $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void watch(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
+    $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void watch(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}); void watchdog(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
     $.clock.every(30_000, () => { const h = host($); void wake(h).then(act => act && tickUi(h)).catch(() => {}) })   // live timeline cursor (blit, no re-render)
     return next(e)
   })
@@ -195,7 +195,7 @@ export const register: Register = (on, opts) => {
   on('prompt.attachment', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return attachment(host($), e, next) })
   on('turn.step', async function* ($, e, next) { const h = host($); if (!(await wake(h))) return yield* next(e); return yield* step(h, e, next) })
   on('session.compact', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return compact(host($), e, next) }).catch(passOn)
-  on('command.run', { command: 'cadre' }, async ($, e, next) => { const h = host($); await ack(h).catch(() => {}); return run(h, e, next) }).catch(denyCmd)
+  on('command.run', { command: 'cadre' }, async ($, e, next) => { const h = spawner($, next); await ack(h).catch(() => {}); const r = await run(h, e, next); if (await wake(h).catch(() => false)) await spawnStep(h, next.event).catch(x => $.ui.log(`spawner: ${x}`)); return r }).catch(denyCmd)   // a typed /cadre (continue) is a frame to start agents from (core/spawner)
   on('command.run', { command: 'goal' }, ($, e, next) => goal(host($), e, next)).catch(passOn)   // observer only: pass-through, never rewritten (9)
   on('config.set', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return configSet(host($), e, next) }).catch(denySpawn)
   // ui (UI-DESIGN): every ui.render hook names its component (U7); render is pure, state is written from handlers only

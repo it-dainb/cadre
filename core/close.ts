@@ -18,7 +18,7 @@ import { integrateEpic } from './integrate'
 import { green as tddGreen, lockedViolations, verifyOf, resolveSpec, specChange, testerDone } from './tdd'
 import { modeOf, pkgOf } from './specview'
 import * as G from './git'
-import { decided, hardStop, stop } from './drive'
+import { decided, hardStop, limited, stop } from './drive'
 import { queueBrief } from './lanes'
 import { yoloOn } from './decide'
 import { ROUNDS, capAsk, coreLanded, refresh, rework, trial } from './rebase'
@@ -220,6 +220,7 @@ export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
     } catch (x) { await release(h, d, t, b, e.agentId, `auto-report failed: ${(x as Error).message}`.slice(0, 200)) }
     return
   }
+  if (await limited(h, e)) { await unbind(h, e.agentId, 'stopped', t.id); if (b.role === 'reviewer') return patch(h, t.id, x => ({ ...x, owner: undefined })); await apply(h, { kind: 'release', id: t.id, at: await h.now(), actor: 'mod' }, pipe(d)); return void (await d.store.release(t.id, d.actor, 'usage limit')) }   // not an attempt: the drive waits for the reset
   if (b.role === 'reviewer') { await patch(h, t.id, x => ({ ...x, owner: undefined })); return unbind(h, e.agentId, 'stopped', t.id) }
   await release(h, d, t, b, e.agentId, String(e.reason ?? 'stopped'))
 }

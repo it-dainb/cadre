@@ -12,7 +12,8 @@ const { defaults } = await import('../../config/index.ts')
 const { MemoryStore } = await import('../../task-management/adapters/memory/store.ts')
 const { admitWith } = await import('../../core/admission.ts')
 const { handleWith } = await import('../../tools/index.ts')
-const { arm } = await import('../../core/drive.ts')
+const { arm, kick, watchdog, IDLE } = await import('../../core/drive.ts')
+const { stopped } = await import('../../core/close.ts')
 const { spawnStep, spawnMode } = await import('../../core/spawner.ts')
 const { contextLine } = await import('../../core/render.ts')
 const { modelView } = await import('../../core/board.ts')
@@ -133,4 +134,36 @@ test('yolo: a blocked task\'s question goes to main once from the spawner, not a
   assert.match(await w.rep('ag1', { role: 'worker', outcome: 'blocked', summary: 's', reason: 'which db?' }), /blocked recorded/)
   await w.turn(); await w.turn()
   assert.equal(w.submitted.length, 1); assert.match(w.submitted[0], new RegExp(`Task ${a} is blocked[\\s\\S]*which db\\?`))
+})
+
+test('idle fallback: a dialog answer with nothing running hands main one short turn; with an agent at work, none', async () => {
+  const w = await world(2, { maxParallel: 1 }); await arm(w.h, 'auto')
+  await w.h.board.update(b => ({ ...b, drive: { ...b.drive, paused: 'resolve x' } })); await kick(w.h)
+  assert.equal((await w.h.ui.read()).goal, IDLE); await w.h.ui.update(u => ({ ...u, goal: undefined }))
+  await w.turn(); assert.equal(w.spawned.length, 1)   // the main turn's end: the spawner starts the first task
+  await w.h.board.update(b => ({ ...b, drive: { ...b.drive, paused: 'resolve x' } })); await kick(w.h); assert.equal((await w.h.ui.read()).goal, undefined)
+})
+
+test('/cadre (a command frame) starts agents at once and drops the queued idle turn; it never submits', async () => {
+  const w = await world(1); await arm(w.h, 'auto'); await w.h.ui.update(u => ({ ...u, goal: IDLE }))
+  await spawnStep(w.h, 'command.run'); assert.equal(w.spawned.length, 1); assert.equal((await w.h.ui.read()).goal, undefined); assert.deepEqual(w.submitted, [])
+})
+
+test('watchdog: nothing running with work to start -> the idle turn, at most every 2 minutes, counted as a turn', async () => {
+  const w = await world(1); await arm(w.h, 'auto'); const t0 = (await w.h.board.read()).drive.turns
+  await watchdog(w.h); assert.equal((await w.h.ui.read()).goal, IDLE); await w.h.ui.update(u => ({ ...u, goal: undefined }))
+  await watchdog(w.h); assert.equal((await w.h.ui.read()).goal, undefined)   // within the window
+  assert.equal((await w.h.board.read()).drive.turns, t0 + 1)
+  await w.turn(); await w.h.ui.update(u => ({ ...u, idleAt: undefined })); await watchdog(w.h); assert.equal((await w.h.ui.read()).goal, undefined)   // an agent runs: no kick
+})
+
+test('usage limit: the agent\'s task goes back without an attempt, drive pauses until the reset, nothing starts meanwhile', async () => {
+  const w = await world(1), id = w.ids[0]; await arm(w.h, 'auto'); await w.turn()
+  let now = 0; const reset = new Date(Date.now() + 3_600_000).toISOString()
+  w.h.usage = async () => ({ cost: { usd: 0 }, rateLimits: [{ kind: 'five_hour', percentUsed: 100, resetsAt: reset }] })
+  await stopped(w.h, w.dep, { agentId: 'ag1', reason: 'error', answer: 'API Error' })
+  const t = (await w.h.board.read()).tasks[0]; assert.equal(t.state, 'todo'); assert.equal((await w.store.get(id)).meta['cadre.attempts'], undefined)
+  assert.match((await w.h.board.read()).drive.paused, /usage limit until/); assert.deepEqual(await w.h.bind.read(), {})
+  await w.turn(); assert.equal(w.spawned.length, 1)
+  await w.h.ui.update(u => ({ ...u, limit: 1 })); await w.turn(); assert.equal(w.spawned.length, 2)   // past the reset: it starts again
 })

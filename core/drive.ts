@@ -9,7 +9,7 @@ import { pipeOf } from '../task-management/registry'
 import { DRIVE, ROUTES, cfgOf, mirror, registryOf, storeOf } from './dispatch'
 import { fnv1a64, modelView, safe, sessionOf } from './board'
 import { emit, subscribe } from './events'
-import { RUNS, nextAction } from './render'
+import { RUNS, nextAction, spawnable } from './render'
 import { ask, flagDecision, holds, yoloOn } from './decide'
 import { BLOCKING, apply } from './machine'
 import { queueBrief } from './lanes'
@@ -93,6 +93,7 @@ type Gate = { pause?: string; stop?: string } | null
 async function gate(h: Host, s: Snapshot, mode: Mode): Promise<Gate> {
   const y = mode === 'yolo', hold = (why: string): Gate => (y ? { stop: why } : { pause: why })
   if (s.approval.planId) return { pause: `approve ${s.approval.planId}` }
+  const lim = Number((await h.ui.read()).limit) || 0; if (lim > (await h.now())) return { pause: `usage limit until ${new Date(lim).toISOString().slice(11, 16)} UTC` }   // both modes; it lifts by itself (the watchdog kicks)
   const gf = Object.keys((await h.git.read()).flags ?? {}).filter(k => k.startsWith('git:') || k.startsWith('quarantine'))
   if (gf[0]) return hold(`resolve ${gf[0]}`)
   const stuck = new Set(s.tasks.filter(t => t.state === 'blocked').map(t => t.id))   // a blocked task parks: while other work does not depend on it, the run goes on (ADR 0014 G); it holds once nothing else can move
@@ -182,6 +183,28 @@ export async function drive(h: Host, cfg: any, usd: number | undefined, quiet = 
 // mod mode (ADR 0018) is on for this run: cadre spawns, closes and completes; main plans and talks to the user
 export const modOn = (s: Pick<Snapshot, 'drive'>) => !!(s.drive.on && !s.drive.stopped && s.drive.spawn === 'mod')
 
+// mod mode (ADR 0018): only a turn end starts agents, and a dialog answer, a press or the timer is no frame to spawn from. With nothing running and work to
+// start, main gets one short turn whose end lets the spawner go (the idle fallback; the watchdog uses it too).
+export const IDLE = "Nothing for you to do: the plan's tasks go on by themselves. Reply in one line and stop."
+export async function idle(h: Host): Promise<boolean> {
+  const s = await h.board.read(), bind = await h.bind.read()
+  return modOn(s) && !Object.keys(bind).some(a => !a.startsWith('~')) && spawnable(modelView(s), bind).length > 0
+}
+// the timer (5 s): mod mode stalled with work to start (an agent that died without a turn end, a lease that lapsed, a usage limit that reset): the idle fallback, at most every 2 min, counted as a turn (the no-progress bound ends a loop of them)
+export async function watchdog(h: Host): Promise<void> {
+  const now = await h.now(), u = await h.ui.read()
+  if (u.goal || (u.idleAt !== undefined && now - Number(u.idleAt) < 120_000) || !(await idle(h)) || !(await ready(h)) || !(await tally(h, await cfgOf(h), undefined, 1))) return
+  await h.ui.update(x => ({ ...x, idleAt: now })); await queueBrief(h, IDLE)
+}
+// an agent's turn that died on an API error while a usage window is full (or says so): the reset time, else null. Not an attempt: the drive pauses until then.
+export async function limited(h: Host, e: { reason?: string; answer?: string }): Promise<number | null> {
+  if (e.reason !== 'error') return null
+  const hit = ((await h.usage?.().catch(() => undefined))?.rateLimits ?? []).filter(r => r.percentUsed >= 100), now = await h.now()
+  if (!hit.length && !/usage limit|rate limit|\b429\b/i.test(String(e.answer ?? ''))) return null
+  const until = Math.max(now + 15 * 60_000, ...hit.map(r => Date.parse(r.resetsAt ?? '') || 0))
+  await h.ui.update(u => ({ ...u, limit: until })); await pause(h, `usage limit until ${new Date(until).toISOString().slice(11, 16)} UTC`); return until
+}
+
 // arm at approval (core/dispatch.approve, both modes). Submits nothing: the approval brief starts main, drive continues at each turn.complete.
 export async function arm(h: Host, mode: Mode): Promise<string> {
   const s = await h.board.read(); if (!s.epic || !s.plan || s.plan.state === 'draft' || s.plan.slug === 'mission') return 'drive needs an approved plan'
@@ -202,9 +225,9 @@ export async function kick(h: Host, force = false): Promise<void> {
   const why = (await hardStop(h, rec)) ?? (rec ? boundOf(rec, scaled((await cfgOf(h)).drive, s), rec.cost ?? 0, rec.idle, await h.now()) : null); if (why) return stop(h, why)
   const g = await gate(h, s, d.mode ?? 'auto'); if (g?.stop) return stop(h, g.stop); if (g?.pause) return pause(h, g.pause)   // the gate still stands: say so (a resume that stalls quietly reads as running)
   if (d.paused) { await h.board.update(x => ({ ...x, drive: { ...x.drive, paused: undefined } })); await driveEvent(h, 'running') }
-  const nx = nextAction(modelView(s)); if (nx === 'wait' || (await h.ui.read()).goal) return
+  const nx = nextAction(modelView(s), modOn(s)), own = nx !== 'wait' && nx !== RUNS; if ((await h.ui.read()).goal || (!own && !(await idle(h)))) return
   const n = await casDrive(h, store, r => r && { ...r, turns: r.turns + 1 }); await h.board.update(x => ({ ...x, drive: { ...x.drive, turns: n?.turns ?? x.drive.turns } }))   // a push is a turn: the bound counts it
-  await queueBrief(h, `Continue: ${nx}`)
+  await queueBrief(h, own ? `Continue: ${nx}` : IDLE)
 }
 export async function resume(h: Host): Promise<string> {
   const s = await h.board.read(), d = s.drive

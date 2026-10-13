@@ -6,7 +6,7 @@ import type { Host } from '../types'
 import { DRIVE, cfgOf, storeOf } from './dispatch'
 import { modelView } from './board'
 import { spawnable } from './render'
-import { drive, modOn, ready, stop, tally } from './drive'
+import { IDLE, drive, modOn, ready, stop, tally } from './drive'
 import { closeTask } from './close'
 import { integrateEpic } from './integrate'
 import { resolveDeps } from './admission'
@@ -42,7 +42,8 @@ export async function spawnStep(h: Host, event: string): Promise<void> {
   let free = cfg.maxParallel > 0 ? cfg.maxParallel - s.tasks.filter(t => t.state === 'active').length : Infinity
   const go = spawnable(modelView(s), await h.bind.read()).filter(x => !inflight.has(x.id) && (x.role !== 'claim' || free-- > 0))
   if (go.length && (await tally(h, cfg, usd, go.length))) for (const x of go) await one(h, x.id, x.role)
-  await drive(h, cfg, usd, true)   // what is main's own, if anything: one turn
+  if (go.length && (await h.ui.read()).goal === IDLE) await h.ui.update(u => ({ ...u, goal: undefined }))   // the idle fallback is not needed: agents run
+  if (event === 'turn.complete') await drive(h, cfg, usd, true)   // what is main's own, if anything: one turn (a command frame may not submit)
 }
 // close every task whose review passed (squash into its epic, actor mod), then complete what is done: an epic of a milestone, the milestone, or the plan.
 // A close that fails (conflict, red on the plan tip) goes the usual way: its worker reworks it, past the cap it waits for the user. True when anything landed.

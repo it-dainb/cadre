@@ -10,10 +10,10 @@ import { specAsk } from './tdd'
 import { propose } from './integrate'
 import { UI, agentsOf, isCold, leaseLive, modelView, safe, sessionOf, stamp, unbindAgent } from './board'
 import { ring } from './events'
-import { nextAction } from './render'
+import { RUNS, nextAction } from './render'
 import { queueCard, renderCard } from './briefs'
-import { LEASE, arm, casDrive, hardStop, stop } from './drive'
-import { ROUTES } from './dispatch'
+import { IDLE, LEASE, arm, casDrive, hardStop, idle, modOn, stop } from './drive'
+import { DRIVE, ROUTES } from './dispatch'
 import { queueBrief } from './lanes'
 import { modelText } from './say'
 import { realRoot, setPolicy } from '../policy/guards'
@@ -177,13 +177,14 @@ export async function continueRun(h: Host): Promise<string> {
   if (rec?.on && rec.epicId === p.id) {   // the run goes on in its mode, budget and baseline; a hard stop that happened meanwhile still stops it
     const r = (await casDrive(h, store, x => (x?.on && x.epicId === p.id && x.lease.session === rec.lease.session ? { ...x, lease: { session: me, until: now + LEASE } } : undefined)))!, dc = (await cfgOf(h)).drive
     await h.board.update(x => ({ ...x, drive: { on: true, level: 'epic', epicId: p.id, mode: r.mode, turns: r.turns, costUsd: r.cost ?? 0, startedAt: r.startedAt, stopped: r.stopped, maxTurns: dc.maxTurns, maxUsd: dc.maxCostUsd, maxMinutes: dc.maxWallMinutes } }))
+    await DRIVE.sync?.(h)   // which mode starts the agents (core/spawner)
     const why = r.stopped ? null : await hardStop(h, r); if (why) await stop(h, why)
     const d = (await h.board.read()).drive
     drv = d.stopped ? `drive stopped: ${d.stopped} · 0: resume` : `drive ${d.mode ?? 'auto'}`
   } else drv = await arm(h, p.mode ?? 'auto')
   await h.ui.update(u => ({ ...u, cont: undefined }))
-  const steps = [...new Set([...go, ...nextAction(modelView(await h.board.read())).split('; ').filter(x => x !== 'wait')])]
-  if (steps.length) await queueBrief(h, `Continue plan ${p.id}: ${steps.join('; ')}.`)
+  const b2 = await h.board.read(), self = modOn(b2), steps = [...new Set([...(self ? [] : go), ...nextAction(modelView(b2), self).split('; ').filter(x => x !== 'wait' && x !== RUNS)])]   // mod mode: the spawner starts them (ADR 0018)
+  if (steps.length) await queueBrief(h, `Continue plan ${p.id}: ${steps.join('; ')}.`); else if (await idle(h)) await queueBrief(h, IDLE)   // typed /cadre: its frame spawns at once and drops this brief (hooks/register.ts)
   await savePointer(h)
   const n = `${s.tasks.filter(t => t.state === 'done').length}/${s.tasks.length} done`
   return [took.length ? `Picking up ${took.join(', ')}` : 'Nothing was in flight', drv, `${p.id} ${p.slug} ${n}`, ...(other.length ? [`${other.join(', ')} stay with another session`] : [])].join(' · ') + more   // the action first: the band press shows it as a short toast

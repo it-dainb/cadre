@@ -121,7 +121,7 @@ export interface Host {
   answer?(id: string, key: string, hash: string, vals?: Record<string, string>): Promise<{ text: string }>   // the dialog's answer to decision `id`, option `key`, asked with `hash` (+ field values): stale = refused; else the option's command runs as origin dialog (core/dispatch.answer, ADR 0012)
   ask?(question: string, options: string[]): Promise<string>   // $.ui.ask (AskUserQuestion dialog): the chosen label or the free text; rejects in -p / on dismiss. The only way a decision is answered (ADR 0012)
   spawnAgent?(a: { prompt: string; description?: string }): Promise<{ agentId?: string; deny?: string }>   // $.agent.spawn: only in a turn.complete / command.run frame (core/spawner)
-  submit?(text: string): Promise<unknown>; usage?(): Promise<{ context?: { percent?: number }; cost?: { usd: number } }>   // $.prompt.submit (drive, #1 only) · $.session.usage
+  submit?(text: string): Promise<unknown>; usage?(): Promise<{ context?: { percent?: number }; cost?: { usd: number }; rateLimits?: { kind: string; percentUsed: number; resetsAt?: string }[] }>   // $.prompt.submit (drive, #1 only) · $.session.usage
   root?(): Promise<string>                              // $.plugin.root: the plugin's folder (guides/ for agent-run setup/init, ADR 0010)
   shell?(): Promise<string>                             // $.session.cwd(): where main's Bash is now (it follows a `cd`); never the repo root (that is cwd())
 }
