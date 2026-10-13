@@ -73,7 +73,9 @@ describe("the planner's report: main's draft checks, rounds, auto-approval", () 
     expect(s.plan!.epics![0].state).toBe('running'); expect(ts.map(t => [t.title, t.state])).toEqual([['Writer', 'todo'], ['Command', 'todo']]); expect(ts[1].deps.map(x => x.id)).toEqual([ts[0].id])
     expect(await w.records()).toContain(`auto: plan ${a} approved automatically for milestone ${w.m} · drafted by the planner`)
     expect((await ev(w)).some(e => e.type === 'drive.decided' && e.data.kind === 'plan' && /drafted by the planner/.test(e.data.text))).toBe(true)
-    expect((await w.h.bind.read()).ag1).toBeUndefined(); expect(w.submitted).toEqual([])
+    expect((await w.h.bind.read()).ag1.step).toBe('done')   // bound until its turn ends: its last requests keep the routed effort
+    await stopped(w.h, w.d, { agentId: 'ag1', reason: 'answer' }); expect((await w.h.bind.read()).ag1).toBeUndefined(); expect((await w.store.get(a)).meta['cadre.planRounds']).toBe('2')   // its turn end is no extra round
+    expect(w.submitted).toEqual([])
     expect(spawnable(modelView(s), await w.h.bind.read()).filter(x => x.role === 'claim').map(x => x.id)).toEqual([ts[0].id])
   })
   test('the path overlap of main\'s missing list: two tasks on one file need an order', async () => {
@@ -87,7 +89,7 @@ describe("the planner's report: main's draft checks, rounds, auto-approval", () 
     expect(await w.rep('ag1', { tasks: [] })).toBe('the plan was refused too often; the user takes over. Stop.')
     let s = await w.board(); expect(s.plan!.epics!.map(e => e.state)).toEqual(['stopped', 'ready'])
     const dc = s.decisions!.find(x => x.id === `flag:${a}:stopped`)!; expect(dc.lines.join('\n')).toContain('its task plan was refused 2 times')
-    expect((await w.h.bind.read()).ag1).toBeUndefined()
+    await stopped(w.h, w.d, { agentId: 'ag1', reason: 'answer' }); expect((await w.h.bind.read()).ag1).toBeUndefined(); expect((await w.store.get(a)).meta['cadre.planRounds']).toBe('2')
     await w.h.board.update(x => ({ ...x, drive: { ...x.drive, paused: 'x' } })); await kick(w.h); expect((await w.board()).drive.paused).toContain(`epic ${a} stopped`)
     await decide(w.h, dc.id, 'r', dc.hash); s = await w.board(); expect(s.plan!.epics![0].state).toBe('ready'); expect((await w.store.get(a)).meta['cadre.planRounds']).toBe('')
     await w.turn(); expect(w.spawned.filter(e => e.subagentType === 'cadre:planner').length).toBe(3)   // a fresh planner for the retried epic

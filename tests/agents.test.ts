@@ -38,7 +38,7 @@ describe('roster (DESIGN 4.1, A28)', () => {
     expect(Object.keys(BUDGET.agents)).toEqual(['explorer', 'planner', 'reviewer', 'tester', 'worker'])
     for (const r of ROLES) expect((BUDGET.agents as Record<string, string>)[r]).toBe(file(r))
     for (const r of ['worker', 'tester', 'reviewer', 'planner'] as const) expect(file(r)).toContain('experimental:\n  cacheTtl: 1h\n')
-    expect(file('explorer')).toContain('experimental:\n  cacheTtl: 5m\n'); expect(file('explorer')).toContain('effort: low')
+    expect(file('explorer')).toContain('experimental:\n  cacheTtl: 5m\n'); expect(file('explorer')).toContain('effort: low'); expect(file('planner')).toContain('effort: high')
     expect(file('worker').endsWith(`---\n${PROMPTS.worker}\n`)).toBe(true)
   })
   test('capabilities: only the worker has a shell; reviewer/explorer cannot write; the tester cannot shell', async () => {

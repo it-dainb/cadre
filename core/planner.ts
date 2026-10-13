@@ -34,12 +34,14 @@ export async function plannerBrief(h: Host, d: Deps, s: Snapshot, ep: MEpic): Pr
 }
 
 const unbind = async (h: Host, agentId: string, id: string, reason: string) => { await unbindAgent(h, agentId); await emit(h, 'agent.unbound', { agentId, reason }, { agentId, taskId: id }) }
+// its answer is in: the binding stays until its turn ends (planStopped), so the requests it still makes keep the routed effort (live: unbound -> the file's effort)
+const done = (h: Host, agentId: string) => h.bind.update(b => (b[agentId] ? { ...b, [agentId]: { ...b[agentId], step: 'done' } } : b))
 // one refused round; the last one stops the epic. Returns what the planner reads.
 async function refused(h: Host, d: Deps, id: string, why: string, agentId?: string): Promise<string> {
   const n = (Number((await d.store.get(id)).meta['cadre.planRounds']) || 0) + 1, max = d.cfg.planner.maxRounds
   await d.store.setMeta(id, { 'cadre.planRounds': String(n) }, d.actor)
   if (n < max) return `error: ${why} (round ${n}/${max}): fix it and report the whole task list again`
-  if (agentId) await unbind(h, agentId, id, 'stopped')
+  if (agentId) await done(h, agentId)
   await stopEpic(h, id, `its task plan was refused ${n} times: ${why}`)
   return 'the plan was refused too often; the user takes over. Stop.'
 }
@@ -47,15 +49,15 @@ async function refused(h: Host, d: Deps, id: string, why: string, agentId?: stri
 // report{role:"planner"} (tools/index): draft, check, approve. A round replaces the drafts of the round before.
 export async function planned(h: Host, d: Deps, agentId: string, r: { tasks?: unknown }): Promise<string> {
   const id = (await h.bind.read())[agentId].taskId, e = epicOf(await h.board.read(), id)
-  if (!e || (e.state !== 'ready' && e.state !== 'planning')) { await unbind(h, agentId, id, 'answer'); return `${id} needs no plan now. Stop.` }
+  if (!e || (e.state !== 'ready' && e.state !== 'planning')) { await done(h, agentId); return `${id} needs no plan now. Stop.` }
   const why = await draft(h, d.store, await registryOf(h), id, r.tasks)
   if (why) return refused(h, d, id, why, agentId)
-  await unbind(h, agentId, id, 'answer'); return `plan accepted: ${(r.tasks as unknown[]).length} tasks approved; they start by themselves. Stop.`
+  await done(h, agentId); return `plan accepted: ${(r.tasks as unknown[]).length} tasks approved; they start by themselves. Stop.`
 }
-// the planner's turn ended with its binding still there: no plan was accepted (a usage limit is not its fault). The spawner starts a fresh one.
+// the planner's turn ended: unbind. Without an answer (no accepted plan, no last refusal) it is a round, unless a usage limit stopped it; the spawner starts a fresh one.
 export async function planStopped(h: Host, d: Deps, e: { agentId: string }): Promise<void> {
-  const id = (await h.bind.read())[e.agentId].taskId
-  await unbind(h, e.agentId, id, 'stopped'); if (!(await limited(h, e))) await refused(h, d, id, 'the planner stopped without a plan')
+  const b = (await h.bind.read())[e.agentId]
+  await unbind(h, e.agentId, b.taskId, b.step === 'done' ? 'answer' : 'stopped'); if (b.step !== 'done' && !(await limited(h, e))) await refused(h, d, b.taskId, 'the planner stopped without a plan')
 }
 
 async function draft(h: Host, store: TaskStore, reg: TypeRegistry, id: string, tasks: unknown): Promise<string | null> {

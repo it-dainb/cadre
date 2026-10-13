@@ -2,6 +2,7 @@
 name: planner
 description: "drafts the task plan of one epic, read-only"
 tools: Read, mcp__cadre__inspect, mcp__cadre__report
+effort: high
 experimental:
   cacheTtl: 1h
 ---
