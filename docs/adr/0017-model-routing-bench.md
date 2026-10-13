@@ -1,6 +1,6 @@
 # 0017: model x effort routing, decided by a bench
 
-Status: proposed (0.11.0). Nothing is locked until the user reads the results below.
+Status: accepted (0.11.0). Routing locked by the user on 2026-10-13 from the results below.
 
 **Knob.** `roles.<worker|tester|reviewer>` = `{tier, effort, byRisk, escalate}` (config, user or repo layer):
 - `tier`: a tier name (`fast`/`standard`/`deep` via `models`) or a model alias (`haiku`, `sonnet`, `opus`); `effort`: `low`..`max` or `default` (the agent file's frontmatter).
@@ -78,21 +78,32 @@ Cells: **A** worker haiku/high (+ escalate to sonnet after 1 failed round), test
 
 **Reading.** On light/standard/thorough tasks, the tester is the role whose model matters. A Haiku worker is enough when a sonnet tester writes the locked tests and the review gate plus escalation catch the rest. A Haiku tester is fine on light tasks but writes wrong or weak specs from standard upward, and review does not reliably catch a weak spec. Sonnet workers (C) bought nothing over Haiku workers (B) at about 20–25% more role cost. Main is 55–75% of all spend whatever the roles are.
 
-### Recommended routing (for the user to lock)
+### Core pass (2026-10-13): plugin 42c2ebb, N=3, $5.23
+
+One plan = 3 tasks: a key-value Store interface (the core task), then ledger persistence and report totals, which both build on it. Tester sonnet/medium, reviewer sonnet/high.
+Routing at 42c2ebb: the core task's worker/tester risk is thorough (`taskRisk`: `cadre.core`), but the cells set no `byRisk`, so models are as configured. The reviewer tier comes from the diff: the core's own review is light (its paths become core paths only when it lands). A dependent goes to opus only if its diff touches the core's files. None did, so every review ran on sonnet/high.
+
+| tier | worker | runs | tasks landed | first try | rework | escalations | $/landed (roles) | $/landed (all) | min/run | dependents touching the core |
+|---|---|---|---|---|---|---|---|---|---|---|
+| core | haiku/high + escalate → sonnet | 3 | 9/9 | 100% | 0 | 0 | $0.12 | $0.25 | 4.9 | 0/6 |
+| core | sonnet/high | 3 | 9/9 | 89% | 0.11 | 0 | $0.17 | $0.33 | 5.3 | 0/6 |
+
+The core lock held: in all 12 dependent tasks the squash commit changed only the dependent's own files (`src/ledger.mjs` or `src/report.mjs` plus its test), never `src/store.mjs`, and no core patch was needed. The one rejection (sonnet worker, report totals) was a sound one: the commit duplicated `toCents` into report.mjs. It was fixed in one rework.
+
+### Locked routing (user, 2026-10-13)
 
 | role | light | standard | thorough | core |
 |---|---|---|---|---|
-| worker | haiku/high, escalate after 1 → sonnet | haiku/high, escalate after 1 → sonnet | haiku/high, escalate after 1 → sonnet | not measured: keep sonnet/high until a core pass runs |
+| worker | haiku/high, escalate after 1 → sonnet | same | same | same (measured: 9/9) |
 | tester | haiku/high | sonnet/medium | sonnet/medium | sonnet/medium |
-| reviewer | sonnet/high | sonnet/high | opus/high (ADR 0016 deep tier) | opus/high |
+| reviewer | sonnet/high | sonnet/high | opus/high (ADR 0016 deep tier, by diff) | sonnet/high; opus/high when a dependent touches the core (by diff) |
 
-As config:
 ```json
 { "roles": {
-  "worker":   { "tier": "haiku", "effort": "high", "escalate": { "after": 1, "to": "sonnet" } },
+  "worker":   { "tier": "haiku",  "effort": "high", "escalate": { "after": 1, "to": "sonnet" } },
   "tester":   { "tier": "sonnet", "effort": "medium", "byRisk": { "light": { "tier": "haiku", "effort": "high" } } },
   "reviewer": { "tier": "sonnet", "effort": "high" } } }
 ```
-A core task routes as thorough (`taskRisk`); to keep a sonnet worker there until core is measured, set `worker.byRisk.thorough = {tier: "sonnet", effort: "high"}`. That trades the measured thorough saving for caution.
+The thorough/core reviewer escalation to opus needs no config: `route()` sends the diff-thorough tier to `models.deep`.
 
-**Caveats.** n is small: 6 runs per thorough cell and 2 thorough tasks; core and opus workers were not measured (the second pass needs its own go). Hidden checks catch behaviour, not code quality. Light is easy for every cell. Main stalls must be fixed before rates below about 95% mean anything at scale.
+**Caveats.** n is small: 6 runs per thorough cell, 2 thorough tasks, 1 core plan (3 runs per cell); opus workers were not measured. Hidden checks catch behaviour, not code quality. Light is easy for every cell. Main stalls must be fixed before rates below about 95% mean anything at scale.
