@@ -32,3 +32,6 @@ In a milestone, main drafted every epic's task plan when the next: line named th
 
 ## Live
 See the results section below (filled from the harness runs).
+
+## Release note (0.12.0, 2026-10-13)
+Released on offline gates only (kit 892, git+protocol 103, validate --strict, ui-dev 4480 frames, model-text diff, leak scan) by user decision: the account quota was exhausted. The last live tiers ran on 468a442: clarify 4/4, milestone 1/1, quick 5/7. Both quick failures were root-caused and fixed in ba525ce (setup retries refilled the stop budget; the oracle judged Claude's own early "press 1" text). The quick tier on ba525ce is still owed and runs when quota resets; a failure ships as 0.12.1. Core cap raised to 6000 (user decision).
