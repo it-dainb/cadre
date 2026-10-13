@@ -1,7 +1,7 @@
 // Clarify before a goal's plan, and /cadre deep (ADR 0020): one explorer, a recorded clarity, at most N informed questions in one round (yolo: assumptions
 // in the dialog), the deep loop's rounds, and the goal-run stop check telling the explorer from the ask step.
 import { describe, expect, test } from 'claude-code/testing'
-import { clarifyCall, deepLine, guideOf, nextStep } from '../core/clarify'
+import { clarifyCall, clarifyCheck, deepLine, guideOf, nextStep } from '../core/clarify'
 import { goal, sendBrief } from '../core/lanes'
 import { seen, stopCheck } from '../commands/agentrun'
 import { parse, status } from '../commands/cadre'
@@ -57,6 +57,7 @@ describe('clarify gate (default on)', () => {
   })
   test('a clear goal: no questions', async () => {
     const w = await on(); await w.explore(); await w.answered()
+    expect(await clarifyCheck(w.h, { tool: 'AskUserQuestion', input: { questions: [{}] } })).toEqual({ decision: 'deny', reason: expect.stringMatching(/^record the clarity first/) })   // the dialog opens at the permission step: refused before the user sees it (live)
     expect(ctx(await w.clarity(CLEAR))).toBe('clarity: outcome 0.9 · scope 0.8 · acceptance 0.9 · constraints 0.8 · clear. Draft the plan now.')
     expect(ctx(await w.askQ(1))).toBe('the goal is clear enough: draft the plan now.')
   })
@@ -73,6 +74,12 @@ describe('clarify gate (default on)', () => {
   test('clarify off: no clarity step, questions as before', async () => {
     const w = await on({ cfg: c => { c.planning.clarify.enabled = false } }); await w.explore()
     expect(ctx(await w.clarity(VAGUE))).toBe('no clarity record is needed here: draft the plan'); expect(await w.askQ(4)).toBe('PASS')
+  })
+  test('a stop after each new missing step is refused on its own count (a lazy main: not planned x2, then a plan with no task)', async () => {
+    const w = await on()
+    for (let i = 0; i < 2; i++) expect(await stopCheck(w.h, {})).toMatch(/^The goal is not planned yet/)
+    await w.call({ tool: 'TaskCreate', subject: 'Add a Timeline section', description: 'd', metadata: { kind: 'plan', lane: 'full', reason: 'a feature' } })
+    expect(await stopCheck(w.h, {})).toMatch(/^Plan \S+ has no tasks yet/)
   })
   test('the ask step: an Agent without the explorer type ends the goal run\'s check', async () => {
     const w = await on(); await seen(w.h, { name: 'Agent' }); expect(await stopCheck(w.h, {})).toBeNull()

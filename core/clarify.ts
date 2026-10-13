@@ -69,5 +69,12 @@ export async function clarifyCall(h: Host, e: any): Promise<unknown | undefined>
   h.toast(`clarity · ${scoreLine(c)}`)
   return { result: modelData('tool-result', { task: { id: 'clarity', subject: 'clarity' } }), context: [modelText('context', r.text)] }
 }
+// tool.check (hooks/register slot 4): the question dialog opens at the permission step, before tool.call, so a refused question is refused here first (live: the user answered, then main was refused)
+export async function clarifyCheck(h: Host, e: any): Promise<unknown | undefined> {
+  if (e.agentId || e.tool !== 'AskUserQuestion') return undefined
+  const g = (await h.secret.read()).goalRun; if (!g?.on) return undefined
+  const q = e.input?.questions, why = askRefusal(Array.isArray(q) ? q.length : 1, (await cfgOf(h)).planning, g)
+  return why ? { decision: 'deny', reason: modelText('deny', why) } : undefined
+}
 // the status line while a deep talk runs (commands/cadre.status)
 export const deepLine = (g: G | undefined, p: P): string | null => (g?.on && g.deep ? `talking it through · round ${Math.min((g.asked ?? 0) + 1, p.deep.maxRounds)}/${p.deep.maxRounds}${g.clarity ? ` · ${scoreLine(g.clarity)}` : ''} · answer Claude's question` : null)

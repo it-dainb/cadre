@@ -154,7 +154,8 @@ async function goalStop(h: Host): Promise<string | null> {
   const g = (await h.secret.read()).goalRun; if (!g?.on || g.last === 'AskUserQuestion') return null   // it asked the user: their answer comes next
   if (g.explored && !g.spawned && Object.values(((await h.ui.read()).asks ?? {}) as Record<string, { answer?: string }>).some(a => a.answer === undefined)) return null   // its explorer is still answering: the answer brings the next turn
   const miss = g.spawned ? null : await goalMissing(h)
-  if (miss && g.follow < GOAL_FOLLOW) { await h.secret.update(s => (s.goalRun ? { ...s, goalRun: { ...s.goalRun, follow: s.goalRun.follow + 1 } } : s)); return miss }
+  const f = miss && g.missed !== miss ? 0 : g.follow   // a new missing step (it moved on: drafted the plan, still no task) gets its own refusals; the clarify step adds a stop point (live: a lazy main spent both on "not planned")
+  if (miss && f < GOAL_FOLLOW) { await h.secret.update(s => (s.goalRun ? { ...s, goalRun: { ...s.goalRun, follow: f + 1, missed: miss } } : s)); return miss }
   await h.secret.update(({ goalRun: _g, ...s }) => s)
   if (miss) await h.ui.update(u => ({ ...u, halt: `the plan wasn't drafted · /cadre ${g.text.slice(0, 80)} to try again` }))   // the band (ui/v2/band); the goal's words stay there
   return null
