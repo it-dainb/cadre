@@ -238,5 +238,6 @@ export async function answer(h: Host, id: string, key: string, hash: string, rou
   const d = ((await h.board.read()).decisions ?? []).find(x => x.id === id), o = d?.options.find(x => x.key === key)?.run
   if (!d || d.hash !== hash || !o) return refuse('it changed; review again')   // nothing runs
   const [cmd, ...args] = o.split(/\s+/).filter(Boolean).flatMap(a => (a === '{fields}' ? (d.fields ?? []).map(f => `${f.key}=${vals[f.key] ?? f.value ?? ''}`) : [a]))   // fields as k=v argv elements
-  try { const out = await dispatch(h, { schemaVersion: 1, cmd, args, origin: { kind: 'dialog' } }, route); await DRIVE.kick?.(h).catch(e => h.log(`drive: ${e}`)); return out } catch (x) { return { text: `cadre: ${(x as Error).message}` } }
+  await h.ui.update(u => ({ ...u, answering: id }))   // while its command runs (an approval: seconds of store calls) no surface offers "press 1" on it again (ui/model.attention)
+  try { const out = await dispatch(h, { schemaVersion: 1, cmd, args, origin: { kind: 'dialog' } }, route); await DRIVE.kick?.(h).catch(e => h.log(`drive: ${e}`)); return out } catch (x) { return { text: `cadre: ${(x as Error).message}` } } finally { await h.ui.update(u => ({ ...u, answering: undefined })) }
 }

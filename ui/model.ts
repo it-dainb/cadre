@@ -79,7 +79,7 @@ export const t0 = (v: View) => v.b.plan?.approvedAt ?? v.ring[0]?.at ?? v.now
 // attention = the pending decisions (board.decisions, oldest first; ONE record kind, answered in the dialog, listed by ui/needs) + two states that are not decisions
 export type Item = { key: string; tag: TagK; text: string; short?: string; tab: string; sel?: string; d?: Decision }
 export function attention(v: View): Item[] {
-  const b = v.b, out: Item[] = (b.decisions ?? []).map(d => ({ key: `dec:${d.id}`, tag: d.crit ? 'crit' : d.kind === 'flag' ? 'warn' : 'attn', text: plain(d.title), short: d.short && plain(d.short), tab: d.tab ?? 'epic', sel: d.sel, d }))
+  const b = v.b, out: Item[] = (b.decisions ?? []).filter(d => d.id !== v.ui?.answering).map(d => ({ key: `dec:${d.id}`, tag: d.crit ? 'crit' : d.kind === 'flag' ? 'warn' : 'attn', text: plain(d.title), short: d.short && plain(d.short), tab: d.tab ?? 'epic', sel: d.sel, d }))
   if (b.containment.state === 'degraded') out.push({ key: 'mode:containment', tag: 'crit', text: 'Containment degraded · run /cadre init', tab: 'epic' })
   // a blocked task's question is the human's only when a human is asked: not under yolo (main answers) and not when its own decision already stands
   const yolo = b.drive.on && (b.drive.mode ?? b.plan?.mode) === 'yolo'

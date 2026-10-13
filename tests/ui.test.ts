@@ -131,6 +131,8 @@ describe('notification policy (UI-DESIGN 4)', () => {
     const b = mk(); await seed(b.h, view(62)); await onEvent(b.h, ev('task.phase_changed', { taskId: 'a2', from: 'a', to: 'b' }, { at: 0 })); expect(b.of('status').pop()).toBeUndefined()
     const c = mk(); await seed(c.h, view(62)); await c.h.board.update(x => ({ ...x, containment: { state: 'degraded', unsandboxed: 1 } })); await onEvent(c.h, ev('task.phase_changed', { taskId: 'a2', from: 'a', to: 'b' }, { at: 0 }))
     expect(c.of('status').pop()).toBe('Containment degraded · run /cadre init')   // a state, not a decision: no dialog would open, so no "press 1"
+    const d = mk(); await seed(d.h, view(82)); await onEvent(d.h, ev('flag.raised', { taskId: 'a6', flag: 'git:dev:agent' }, { taskId: 'a6', at: 0 })); const top = attention(await read(d.h))[0]
+    await d.h.ui.update(u => ({ ...u, answering: top.d!.id })); expect(attention(await read(d.h)).map(i => i.key)).not.toContain(top.key)   // answered: its command runs, nothing offers it again (live: an approval's seconds of store calls)
   })
 })
 
