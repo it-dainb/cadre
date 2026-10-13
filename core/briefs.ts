@@ -3,7 +3,7 @@
 import { modelText } from './say'
 import type { Hook, Host, Role } from '../types'
 import { scoped } from '../commands/init'
-import { modelView, viewHash } from './board'
+import { idleOf, modelView, viewHash } from './board'
 import { contextLine } from './render'
 
 const cap = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
@@ -83,7 +83,7 @@ export const context: Hook = async (h, e, next) => {
   const [s, sc] = [await h.board.read(), await h.secret.read()], card = sc.ctx?.card, key = viewHash(s)
   if (!card && (!s.plan || sc.ctx?.key === key)) return next(e)
   await h.secret.update(x => ({ ...x, ctx: { key } }))
-  return next({ ...e, context: [...(e.context ?? []), ...(card ? [modelText('context', card)] : []), ...(s.plan ? [modelText('context', contextLine(modelView(s)))] : [])] })
+  return next({ ...e, context: [...(e.context ?? []), ...(card ? [modelText('context', card)] : []), ...(s.plan ? [modelText('context', contextLine(modelView(s), await idleOf(h, s)))] : [])] })
 }
 // prompt.attachment: native todo/task reminders are noise next to the board line (BT-23, PC-11)
 export const attachment: Hook = (h, e, next) => (e.type === 'todo_reminder' || e.type === 'task_reminder' ? { text: null } : next(e))

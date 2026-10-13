@@ -10,7 +10,7 @@ import { resolveDeps, type Deps } from './admission'
 import { agentsOf, unbindAgent } from './board'
 import { apply, STEP_CAT, transition } from './machine'
 import { emit } from './events'
-import { card, comment, commitMessage, noReportCard, type Rec } from './render'
+import { card, comment, commitMessage, noReportCard, startNew, type Rec } from './render'
 import { queueResume } from './reuse'
 import { checkpoint, resolveGit, sweep } from './effect'
 import { policyOf } from '../policy/guards'
@@ -112,7 +112,7 @@ async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any, aut
   if (!rv) await patch(h, t.id, x => ({ ...x, owner: undefined }))   // no reviewer yet: the next step is "spawn the reviewer", not "running" (live: main waited on a reviewer that never existed); a bound one is resumed below
   if (rv) await queueResume(h, { agentId: rv, taskId: t.id, text: `Re-review ${t.id}: the worker reworked. Review ${last ? `${sha7(last)}..` : ''}${sha7(C)} (sourceCommit ${C}) and report your verdict.` })
   const flags = ((await h.board.read()).tasks.find(x => x.id === t.id)?.flags) ?? []
-  await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'worker', to: 'review', green, ...st, commit: C, flags, next: rv ? 'reviewer resumed' : `spawn TASK-${t.id} (reviewer)` }) }))
+  await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'worker', to: 'review', green, ...st, commit: C, flags, next: rv ? 'reviewer resumed' : startNew(t.id, 'reviewer', 'worker') }) }))
   return `report accepted: commit ${sha7(C)}, ${st.files} files (+${st.add} −${st.del})${green ? `, verify ${green.ok ? '✓' : '✗'}` : ''}. Now in review; stop and wait.`
 }
 
@@ -157,7 +157,7 @@ async function verdict(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
   const bind = await h.bind.read(), w = ownerOf(bind, t.id, 'worker')
   const text = `Review of ${sha7(C)} asks for changes (${n}/${max}):\n${r.summary}\n${findings.map(f => `- [${f.severity}] ${f.file}${f.line ? `:${f.line}` : ''} ${f.issue}${f.fix ? ` (fix: ${f.fix})` : ''}`).join('\n')}\nFix them, then report done again.`.slice(0, 3000)
   if (w) await queueResume(h, { agentId: w, taskId: t.id, text })
-  await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'reviewer', to: 'worker', commit: C, flags: x.flags, next: w ? 'worker resumed' : `spawn TASK-${t.id} (worker)` }) }))
+  await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'reviewer', to: 'worker', commit: C, flags: x.flags, next: w ? 'worker resumed' : startNew(t.id, 'worker', 'reviewer') }) }))
   return `verdict accepted: changes (${n}/${max}). Stop.`
 }
 
@@ -181,7 +181,7 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
   if (r.role === 'tester') {
     const task = await d.store.get(t.id), g = await testerDone(h, d, task, task.meta['cadre.worktree'], b.worktree, r.tests, agentId)
     if (!g.ok) throw new Error(`red gate refused: ${g.why}\n${g.card}`)
-    await record(h, d, t.id, 'red', 'tester', { gate: 'red ✓' }, { summary: r.summary, tests: r.tests }); await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'tester', to: 'worker', flags: x.flags, next: `spawn TASK-${t.id} (worker)` }) }))
+    await record(h, d, t.id, 'red', 'tester', { gate: 'red ✓' }, { summary: r.summary, tests: r.tests }); await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'tester', to: 'worker', flags: x.flags, next: startNew(t.id, 'worker', 'tester') }) }))
     return `${g.card}\nred accepted; stop.`
   }
   if (r.role === 'explorer') return explorerDone(h, d, t, agentId!, r)

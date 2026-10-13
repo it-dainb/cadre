@@ -7,7 +7,7 @@ import { StoreError, type TaskStore } from '../task-management/store'
 import { controlOf } from '../task-management/sync-engine/loop'
 import { pipeOf } from '../task-management/registry'
 import { DRIVE, ROUTES, cfgOf, mirror, registryOf, storeOf } from './dispatch'
-import { fnv1a64, modelView, safe, sessionOf } from './board'
+import { fnv1a64, idleOf, modelView, safe, sessionOf } from './board'
 import { emit, subscribe } from './events'
 import { nextAction } from './render'
 import { ask, flagDecision, holds, yoloOn } from './decide'
@@ -144,7 +144,7 @@ export async function drive(h: Host, cfg: any, usd: number | undefined) {
   if (g?.pause) return pause(h, g.pause)
   if (d.paused) { await h.board.update(x => ({ ...x, drive: { ...x.drive, paused: undefined } })); await driveEvent(h, 'running') }
   if ((await h.ui.read()).goal) return   // a queued brief goes out first (commands/agentrun.pump)
-  const nx = nextAction(modelView(s)), text = [nx !== 'wait' ? `Continue: ${nx}` : '', ...(mode === 'yolo' ? await yoloAsks(store, s) : [])].filter(Boolean).join('\n')
+  const nx = nextAction(modelView(s), await idleOf(h, s)), text = [nx !== 'wait' ? `Continue: ${nx}` : '', ...(mode === 'yolo' ? await yoloAsks(store, s) : [])].filter(Boolean).join('\n')
   const evs = (await h.events.read()).epics[s.epic] ?? [], seq = evs.filter(x => x.type === 'task.transitioned').reduce((m, x) => Math.max(m, x.seq), 0)
   const o = { bound: null as string | null, go: false, cost: d.costUsd, turns: d.turns, idle: [] as string[] }   // what the CAS attempt that stood decided
   const tx = (id: string) => evs.filter(x => x.type === 'task.transitioned' && s.tasks.find(t => t.id === x.taskId)?.epic === id).reduce((m, x) => Math.max(m, x.seq), 0)
@@ -188,7 +188,7 @@ export async function kick(h: Host, force = false): Promise<void> {
   const why = (await hardStop(h, rec)) ?? (rec ? boundOf(rec, scaled((await cfgOf(h)).drive, s), rec.cost ?? 0, rec.idle, await h.now()) : null); if (why) return stop(h, why)
   const g = await gate(h, s, d.mode ?? 'auto'); if (g?.stop) return stop(h, g.stop); if (g?.pause) return pause(h, g.pause)   // the gate still stands: say so (a resume that stalls quietly reads as running)
   if (d.paused) { await h.board.update(x => ({ ...x, drive: { ...x.drive, paused: undefined } })); await driveEvent(h, 'running') }
-  const nx = nextAction(modelView(s)); if (nx === 'wait' || (await h.ui.read()).goal) return
+  const nx = nextAction(modelView(s), await idleOf(h, s)); if (nx === 'wait' || (await h.ui.read()).goal) return
   const n = await casDrive(h, store, r => r && { ...r, turns: r.turns + 1 }); await h.board.update(x => ({ ...x, drive: { ...x.drive, turns: n?.turns ?? x.drive.turns } }))   // a push is a turn: the bound counts it
   await queueBrief(h, `Continue: ${nx}`)
 }

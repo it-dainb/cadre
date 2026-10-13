@@ -89,7 +89,7 @@ Cells: **A** worker haiku/high (+ escalate to sonnet after 1 failed round), test
 As config:
 ```json
 { "roles": {
-  "worker":   { "tier": "haiku", "effort": "high", "escalate": { "after": 1, "to": "sonnet" }, "byRisk": { "thorough": {} } },
+  "worker":   { "tier": "haiku", "effort": "high", "escalate": { "after": 1, "to": "sonnet" } },
   "tester":   { "tier": "sonnet", "effort": "medium", "byRisk": { "light": { "tier": "haiku", "effort": "high" } } },
   "reviewer": { "tier": "sonnet", "effort": "high" } } }
 ```

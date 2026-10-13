@@ -24,6 +24,9 @@ export interface Card { id: string; title: string; role: string; to: string; gre
 // an agent that stopped without calling report: the mod resumes it right after its stop (core/reuse drain, live: ~2 s), so main must not spawn it again and must not end the turn (a headless run would end with it)
 export const noReportCard = (t: { id: string; title: string; flags?: string[] }, role: string, step: string): string =>
   card({ id: t.id, title: t.title, role, to: step, flags: t.flags, next: `wait: the ${role} is finishing its report. Do not spawn it again; call TaskList until ${t.id} leaves ${step}` })
+// the next step after an agent finished: a NEW agent. Live (bench, sonnet main): "next: spawn TASK-x (worker)" under a tester's card read as the worker's own
+// empty report; main messaged the finished tester and ended its turn. So the line says who finished and the exact call. No ';' (nextAction joins on it).
+export const startNew = (id: string, step: string, done?: string): string => `${done ? `the ${done} has finished (do not message it). Now ` : ''}start a NEW agent for the ${step} step: Agent tool, prompt "TASK-${id}"`
 export const card = (c: Card): string => [
   `TASK ${c.id} "${c.title}"`, `${c.role} → ${c.to}`,
   c.green && `green ${c.green.ok ? '✓' : '✗'} (${c.green.check} ${c.green.secs}s)`,
@@ -61,23 +64,25 @@ const LETTER: Record<string, string> = { tester: 't', worker: 'w', reviewer: 'r'
 const closed = (t?: SnapTask) => t?.state === 'done' || t?.state === 'cancelled'
 // ready, derived from the snapshot alone (bd ready is the truth; this is only for the hint): todo + every blocking dep satisfied
 const isReady = (t: SnapTask, all: SnapTask[]) => t.state === 'todo' && t.deps.every(d => (d.type === 'conditional-blocks' ? all.find(x => x.id === d.id)?.state === 'cancelled' : closed(all.find(x => x.id === d.id))))
-export function contextLine(s: Omit<Snapshot, 'seq' | 'cost'>): string {
+// idle: active tasks at an agent step with no agent bound for it (session.idleOf), e.g. right after the tester reported. Not running; next names the step.
+export function contextLine(s: Omit<Snapshot, 'seq' | 'cost'>, idle: string[] = []): string {
   if (!s.plan) return ''
   const ts = s.tasks as SnapTask[]
-  const ready = ts.filter(t => isReady(t, ts)), running = ts.filter(t => t.owner && (t.state === 'active' || (t.state === 'review' && t.step === 'reviewer')))
+  const ready = ts.filter(t => isReady(t, ts)), running = ts.filter(t => t.owner && !idle.includes(t.id) && (t.state === 'active' || (t.state === 'review' && t.step === 'reviewer')))
   const parts = [`${s.plan.lane === 'milestone' ? 'milestone' : 'plan'} ${s.plan.id} ${s.plan.state}`, s.plan.epicBranch, s.plan.epics?.length && `epics: ${s.plan.epics.map(e => `${e.id} ${e.state}`).join(' ')}`, ready.length && `ready: ${ready.map(t => t.id).join(' ')}`, running.length && `running: ${running.map(t => `${t.id}(${LETTER[t.step] ?? '?'})`).join(' ')}`,
     ...ts.filter(t => !running.includes(t) && ['review', 'blocked'].includes(t.state)).map(t => `${t.id} ${tag(t)}`),
     ...s.sync.filter(x => x.state !== 'ok').map(x => `sync: ${x.target} ${x.state} (${x.pending})`)]
   if (s.approval.missing.length) parts.push(`missing: ${s.approval.missing.join('; ')}`)
-  return `${parts.filter(Boolean).join(' · ').slice(0, 1000)}\nnext: ${nextAction(s)}`
+  return `${parts.filter(Boolean).join(' · ').slice(0, 1000)}\nnext: ${nextAction(s, idle)}`
 }
-export function nextAction(s: Omit<Snapshot, 'seq' | 'cost'>): string {
+export function nextAction(s: Omit<Snapshot, 'seq' | 'cost'>, idle: string[] = []): string {
   const ts = s.tasks as SnapTask[], a: string[] = []
   if (s.plan?.state === 'draft') return s.approval.missing.length ? 'complete the draft plan (see missing)' : `ask the human to approve ${s.plan.id}`
   a.push(...ts.filter(t => t.state === 'review' && t.step === 'merge').map(t => `complete TASK-${t.id}`))
   const y = s.drive?.on && !s.drive.stopped && s.drive.mode === 'yolo'   // yolo: main answers blocked tasks itself (core/drive)
   a.push(...ts.filter(t => t.state === 'blocked').map(t => (y ? `decide ${t.id} yourself (TaskUpdate ${t.id} metadata.decision)` : t.flags.includes('spec_change') ? `wait: the user decides the spec change of ${t.id} in its own dialog` : `${t.id} waits for the user (go on with the rest)`)))   // live: main asked the spec change a second time
   a.push(...ts.filter(t => t.state === 'review' && t.step === 'reviewer' && !t.owner).map(t => `spawn TASK-${t.id} (reviewer)`))
+  a.push(...ts.filter(t => t.state === 'active' && idle.includes(t.id)).map(t => startNew(t.id, t.step)))
   const es = s.plan?.epics ?? [], live = (t: SnapTask) => !t.epic || es.find(e => e.id === t.epic)?.state === 'running'   // milestone (ADR 0015): a stopped epic's tasks wait
   const r = ts.find(t => isReady(t, ts) && live(t)); if (r) a.push(`spawn TASK-${r.id}`)   // one per turn; the ready list on the line says the rest
   for (const e of es) {

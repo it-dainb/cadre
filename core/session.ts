@@ -8,7 +8,7 @@ import { cfgOf, gateDraw, mirror, missionOf, redraw, registryOf, storeOf } from 
 import { ask, flagDecision, holds } from './decide'
 import { specAsk } from './tdd'
 import { propose } from './integrate'
-import { UI, agentsOf, isCold, leaseLive, modelView, safe, sessionOf, stamp, unbindAgent } from './board'
+import { UI, agentsOf, idleOf, isCold, leaseLive, modelView, safe, sessionOf, stamp, unbindAgent } from './board'
 import { ring } from './events'
 import { nextAction } from './render'
 import { queueCard, renderCard } from './briefs'
@@ -30,7 +30,7 @@ export async function cardOf(h: Host, s: Snapshot, store?: TaskStore): Promise<{
   const dec = store ? await safe(h, 'decisions', async () => (await store.list({})).filter(t => t.type === 'decision').sort((a, b) => a.updatedAt.localeCompare(b.updatedAt)).map(t => t.title)) : undefined
   const d = s.drive, drive = d.on ? (d.stopped ? `stopped (${d.stopped})` : d.paused ? `paused (${d.paused})` : `on ${d.turns} turns`) : 'off'
   const text = renderCard({ mission: s.mission, epic: s.plan && { id: s.plan.id, title: s.plan.slug, intent: s.plan.state }, decisions: dec ?? [], questions: s.tasks.filter(t => t.state === 'blocked').map(t => `${t.id}: blocked`),
-    inflight: s.tasks.filter(t => t.state === 'active' || t.state === 'review').map(t => ({ id: t.id, step: t.step, owner: t.owner })), drive, next: nextAction(modelView(s)) })
+    inflight: s.tasks.filter(t => t.state === 'active' || t.state === 'review').map(t => ({ id: t.id, step: t.step, owner: t.owner })), drive, next: nextAction(modelView(s), await idleOf(h, s)) })
   return { text, decisions: dec?.length ?? 0 }
 }
 
