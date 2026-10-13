@@ -124,11 +124,11 @@ if (wantLanded && !drv.some(e => e.kind === 'landed')) fail('not-landed', `dev: 
 // 11. routing: every agent request (PROXY=1 cells: effort.jsonl) runs on a model and effort the settings allow for its role (harness/expect-routing.mjs
 //     computes them with cadre's own config + route code). ponytail: per role, not per task; a request is matched to its role by its system prompt.
 {
-  // Claude Code's own side requests in an agent's context (source=agent_summary: the progress line) are not the agent's work: only the requests the debug
-  // log names `source=agent:custom:cadre:<role>` (matched by time, 300 ms) count; without a debug log, every request the system prompt names
+  // An agent's request = its system prompt names the role AND the debug log has a `source=agent:custom:cadre:<role>` request within 300 ms. That drops Claude Code's
+  // own side requests in an agent's context (source=agent_summary: the progress line) and never relabels main's request that happened at the same moment.
   const src = dlines.filter(l => /\[API REQUEST\] \/v1\/messages source=/.test(l)).map(l => [ts(l), l.match(/source=(\S+)/)[1]])
   const req = read(join(dir, 'effort.jsonl')).split('\n').filter(Boolean).map(l => JSON.parse(l))
-    .map(r => { const m = src.filter(([t]) => Math.abs(t - r.at) < 300).sort((a, b) => Math.abs(a[0] - r.at) - Math.abs(b[0] - r.at))[0]; return m ? { ...r, role: m[1].match(/^agent:custom:cadre:(\w+)$/)?.[1] ?? 'main' } : r })
+    .filter(r => !src.length || src.some(([t, s]) => Math.abs(t - r.at) < 300 && s === `agent:custom:cadre:${r.role}`))
     .filter(r => r.role !== 'main')
   if (req.length) {
     const repo = dirname(dirname(new URL(import.meta.url).pathname)), exp = JSON.parse(execFileSync(process.execPath, ['--experimental-transform-types', '--no-warnings', '--import', `${repo}/tests/dev/register.mjs`, `${repo}/harness/expect-routing.mjs`, repo, join(dir, 'cadre-config.json')], { encoding: 'utf8' }))
