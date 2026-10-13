@@ -73,11 +73,23 @@ describe('buttons', () => {
     expect(JSON.parse(files[HOME]).maxParallel).toBe(7); expect((await h.board.read()).decisions ?? []).toEqual([])
     expect(banned(d.title, d.lines, d.options.map(o => o.label))).toEqual([])
   })
-  test('save to repo: O keys only, never S or U', async () => {
+  test('save to repo: O keys; S keys tighten-only against the user/default value (both directions); never U', async () => {
     const { h, files } = await hostWith()
     expect((await configPress(h, 'repo review.maxRework 8')).text).toBe('review.maxRework = 8 · saved to the repo'); expect(JSON.parse(files[REPO])).toEqual({ review: { maxRework: 8 } })
-    for (const k of ['strictness strict', 'jail on', 'drive.maxTurns 5']) expect((await configPress(h, `repo ${k}`)).text).toMatch(/refused: .* key: save it for you, not in the repo file/)
-    expect(Object.keys(files)).toEqual([REPO])
+    expect((await configPress(h, 'repo drive.maxTurns 5')).text).toBe('refused: drive.maxTurns is a user-level key: save it for you, not in the repo file')
+    expect((await configPress(h, 'repo jail on')).text).toBe('jail = "on" · saved to the repo')   // auto -> on: stricter
+    expect((await configPress(h, 'repo effectCheck off')).text).toBe('refused: effectCheck: the repo file may only make it stricter than auto')
+    expect((await configPress(h, 'repo strictness advisory')).text).toBe('refused: strictness: the repo file may only make it stricter than strict')
+    expect((await configPress(h, 'repo review.tiers.light.files 9')).text).toBe('refused: review.tiers.light.files: the repo file may only make it stricter than 5')
+    expect((await configPress(h, 'repo review.tiers.light.files 3')).text).toBe('review.tiers.light.files = 3 · saved to the repo')
+    expect(JSON.parse(files[REPO])).toEqual({ review: { maxRework: 8, tiers: { light: { files: 3 } } }, jail: 'on' }); expect(Object.keys(files)).toEqual([REPO, `${REPO}.bak`])   // never the user file
+  })
+  test('S tighten is judged against the user value: a user that relaxed strictness may get strict back from the repo; the card lists only stricter values', async () => {
+    const { h, files } = await hostWith({ [HOME]: '{"strictness":"advisory","jail":"off"}' })
+    expect((await configPress(h, 'repo strictness strict')).text).toBe('strictness = "strict" · saved to the repo')
+    expect((await configPress(h, 'repo jail auto')).text).toBe('jail = "auto" · saved to the repo'); expect(JSON.parse(files[REPO])).toEqual({ strictness: 'strict', jail: 'auto' })
+    await configPress(h, 'edit jail'); const d = ((await h.board.read()).decisions ?? []).find((x: any) => x.id === 'cfg:jail')!
+    expect(d.lines.join('\n')).toContain('safety key: the repo file may only make it stricter than off (auto, on)'); expect(d.options.map((o: any) => o.label)).toEqual(['Save for me', 'Save to repo', 'Cancel'])
   })
   test('strictness change is refused while a task runs; other keys are not', async () => {
     const { h, files } = await hostWith()

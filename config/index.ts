@@ -94,6 +94,11 @@ export async function cfgOf(h: Host): Promise<Config> {
 }
 export const strictOf = async (h: Host): Promise<string> => (await cfgOf(h).catch(() => undefined))?.strictness ?? 'strict'
 
+// what the repo file's own refusals are (unknown key, bad value or type, a safety key loosened, a user-level key): init re-checks them after every write (ADR 0019)
+export async function repoFileDiag(h: Host): Promise<string[]> {
+  const root = await h.cwd(), n = '.cadre/config.json: '
+  return resolve(await layersOf(h, { home: await h.home(), root, repoKey: repoKeyOf(root) })).diagnostics.filter(d => d.startsWith(n)).map(d => d.slice(n.length))
+}
 // Claude Code env vars that beat cadre's routing (it applies them whatever cadre passes): FORCE=1 puts every agent on CLAUDE_CODE_SUBAGENT_MODEL (unset: main's model);
 // CLAUDE_CODE_EFFORT_LEVEL beats every effort. CLAUDE_CODE_SUBAGENT_MODEL alone is only a default: cadre's agent.spawn model wins over it.
 export function forcedOf(env: Record<string, string | undefined>): { model?: string; effort?: string } {

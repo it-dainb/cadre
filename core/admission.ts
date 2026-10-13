@@ -80,8 +80,9 @@ async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTa
   if (r?.deny) { await undo(); return r }
   await unbindAgent(h, `~${t.id}`)
   if (r?.agentId) {
+    if (typeof r.model === 'string' && r.model !== run.model) Object.assign(run, { ran: r.model })   // the id Claude Code resolved the alias to (its agent.spawn result)
     await bindAgent(h, r.agentId, { taskId: t.id, role, step, worktree: wt, sessionId: d.session, ctxTokens: 0, startedAt: await h.now(), ...(r0.effort ? { effort: r0.effort } : {}) })
-    await emit(h, 'agent.bound', { agentId: r.agentId, taskId: t.id, role, ...(rt ? { tier: rt } : {}), model: run.model, effort: run.effort, setting: r0.setting, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }, { agentId: r.agentId, taskId: t.id, actor: 'mod' })
+    await emit(h, 'agent.bound', { agentId: r.agentId, taskId: t.id, role, ...(rt ? { tier: rt } : {}), model: run.model, ...((run as any).ran ? { ran: (run as any).ran } : {}), effort: run.effort, setting: r0.setting, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }, { agentId: r.agentId, taskId: t.id, actor: 'mod' })
     if (task) await safe(h, 'runs', async () => { let a: unknown[] = []; try { a = JSON.parse((await d.store.get(t.id)).meta['cadre.runs'] || '[]') } catch {}; await d.store.setMeta(t.id, { 'cadre.runs': JSON.stringify([...a, run].slice(-20)) }, d.actor) })
     await h.store.set(`cadre:${d.key}:hb:${t.id}`, { s: d.session, at: 0 })   // the owner session (core/session.ownerOf): another session judges the claim by it; at 0: the next tick renews the claim
     await safe(h, 'pointer', () => savePointer(h))   // S22: a /clear before main's next turn.complete must still find this binding (the pointer was saved only there)

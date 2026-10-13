@@ -5,7 +5,7 @@ import { DRIVE, ROUTES, dispatch, isHuman } from '../core/dispatch'
 import { ask, settle } from '../core/decide'
 import { start } from '../core/session'
 import { repoKeyOf } from '../commands/init'
-import { check, layersOf, resolve, rows } from './index'
+import { REG, check, layersOf, resolve, rows, tighten } from './index'
 import { LIMIT } from '../policy/guards'
 import { PROTECTED } from '../core/git'
 import { RETRIES } from '../core/validate'
@@ -44,12 +44,16 @@ function coerce(row: Row, raw: string): unknown | Error {
 }
 
 // the decision of one key: a field prefilled with the value; the same id is asked again with the refusal as `error` (the dialog re-asks it)
+// a key's value from every layer below the repo file (defaults, user): what a repo value may only tighten (ADR 0019)
+const below = async (h: any) => { const ls = await layersOf(h, await ctx(h)); return resolve(ls.slice(0, ls.findIndex(l => l.trust === 'repo'))).config }
+const toRepo = (row: Row) => row.cls === 'O' || (row.cls === 'S' && !!REG[row.key]?.tighten)
 async function editCard(h: any, row: Row, error?: string): Promise<void> {
-  const note = row.cls === 'S' ? 'security key: the repo file may only tighten it' : row.cls === 'U' ? 'user-level only: never read from the repo file' : 'a repo value is shared with the team',
+  const b = at(await below(h), row.key.split('.')), st = row.opts?.slice(row.opts.indexOf(String(b)) + 1)
+  const note = row.cls === 'S' ? `safety key: the repo file may only make it stricter than ${show(b) || '(empty)'}${REG[row.key]?.tighten === 'enum' ? ` (${st?.length ? st.join(', ') : 'nothing stricter'})` : ''}` : row.cls === 'U' ? 'user-level only: never read from the repo file' : 'a repo value is shared with the team',
     hint = row.kind === 'list' ? 'a comma-separated list' : row.kind === 'number' ? 'a number' : row.kind === 'json' ? 'JSON' : 'text'
   await ask(h, { id: ID(row.key), kind: 'config', title: `edit ${row.key}`, lines: [row.desc, `now ${show(row.value) || '(empty)'} [${row.src}] · default ${show(row.def) || '(empty)'}`, `${note} · ${hint}`, ...(row.warn ? [row.warn] : [])], hash: `${row.key}|${show(row.value)}|${error ?? ''}`, tab: 'settings',
     fields: [{ key: 'value', label: row.key, value: show(row.value) }], ...(error ? { error } : {}),
-    options: [{ key: 'a', label: 'Save for me', verb: 'approve', run: `config set ${row.key} {fields}` }, ...(row.cls === 'O' ? [{ key: 'r', label: 'Save to repo', verb: 'approve', run: `config repo ${row.key} {fields}` }] : []), { key: 'x', label: 'Cancel', verb: 'reject', run: `config cancel ${row.key}` }] })
+    options: [{ key: 'a', label: 'Save for me', verb: 'approve', run: `config set ${row.key} {fields}` }, ...(toRepo(row) ? [{ key: 'r', label: 'Save to repo', verb: 'approve', run: `config repo ${row.key} {fields}` }] : []), { key: 'x', label: 'Cancel', verb: 'reject', run: `config cancel ${row.key}` }] })
 }
 const back = (h: any, key: string) => settle(h, ID(key))
 
@@ -57,16 +61,17 @@ async function save(h: any, scope: 'user' | 'repo', key: string, raw: string): P
   const row = (await settingsRows(h)).find(r => r.key === key)
   const no = async (why: string) => { if (row && ((await h.board.read()).decisions ?? []).some((d: any) => d.id === ID(key))) await editCard(h, row, why); return { text: `refused: ${why}` } }
   if (!row || row.src === 'fixed') return { text: `refused: ${key} is not a setting` }
-  if (scope === 'repo' && row.cls !== 'O') return no(`${key} is ${row.cls === 'S' ? 'a security' : 'a user-level'} key: save it for you, not in the repo file`)
+  if (scope === 'repo' && !toRepo(row)) return no(`${key} is a user-level key: save it for you, not in the repo file`)
   if (key === 'strictness' && (await h.board.read()).tasks.some((t: any) => t.state === 'active' || t.state === 'review')) return no('strictness cannot change while tasks are running; retry when they finish')
   const val = coerce(row, raw); if (val instanceof Error) return no(val.message)
+  if (scope === 'repo' && REG[key]?.tighten) { const b = at(await below(h), key.split('.')); if (JSON.stringify(tighten(key, b, val)) !== JSON.stringify(val)) return no(`${key}: the repo file may only make it stricter than ${show(b) || '(empty)'}`) }
   const { root, home, rk } = await ctx(h), path = scope === 'repo' ? `${root}/.cadre/config.json` : `${home}/.claude/cadre.json`, ks = key.split('.')
   let cur: any; try { cur = JSON.parse((await h.readText(path)) ?? '{}') } catch { return no(`${scope === 'repo' ? '.cadre/config.json' : '~/.claude/cadre.json'} is not valid JSON`) }
   if (!plain(cur)) return no('the settings file is not an object')
   const sec = scope === 'user' && plain(cur.repos?.[rk]) && at(cur.repos[rk], ks) !== undefined ? cur.repos[rk] : cur   // a key already set in this repo's section stays there, or it would be shadowed
   let o = sec; for (const k of ks.slice(0, -1)) o = o[k] = plain(o[k]) ? o[k] : {}
   o[ks[ks.length - 1]] = val
-  const bad = resolve([{ name: 'set', trust: scope === 'repo' ? 'repo' : 'user', value: (({ repos: _r, ...x }) => x)(sec) }]).diagnostics.filter(d => d.includes(key))
+  const bad = resolve([{ name: 'set', trust: scope === 'repo' ? 'repo' : 'user', value: (({ repos: _r, ...x }) => x)(sec) }]).diagnostics.filter(d => d.includes(key) && !(scope === 'repo' && d.endsWith('may only tighten this key')))   // tightening is judged against the user's value just above
   if (bad.length) return no(bad.join('; '))
   const text = `${JSON.stringify(cur, null, 2)}\n`, old = await h.readText(path)
   if (old !== null && old !== text) await h.write(`${path}.bak`, old)

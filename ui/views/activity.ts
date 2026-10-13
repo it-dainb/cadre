@@ -15,7 +15,7 @@ export function say(e: CadreEvent, v: View): Say | undefined {
       if (to === 'done') return { text: t?.kind === 'spike' ? `${name} reported` : `${name} passed review and merged`, k: 'done' }
       if (d.from === 'review' && to === 'active') return { text: `review asked for changes on ${id}` }
       return to === 'blocked' ? { text: `${id} is blocked and needs an answer`, k: 'attn' } : undefined
-    case 'agent.bound': return { text: `${id} ${d.role} on ${d.model}/${d.effort}${SEP}${d.forced ? 'forced by your environment' : d.setting ?? ''}${d.escalated ? ' after a failed round' : ''}` }   // the setting it came from (ADR 0019)
+    case 'agent.bound': return { text: `${id} ${d.role} on ${d.ran ?? d.model}/${d.effort}${SEP}${d.forced ? 'forced by your environment' : d.setting ?? ''}${d.escalated ? ' after a failed round' : ''}` }   // the setting it came from (ADR 0019)
     case 'task.skipped': return { text: `${id} skipped`, k: 'skip' }
     case 'check.ran': if (d.ok) return undefined   // a passing check is not a human-level event
       return { text: `${id} ${d.phase ?? d.name} check ${d.ok ? 'passed' : 'did not pass'}`, ...(d.ok ? {} : { k: 'fail' as GlyphK }) }

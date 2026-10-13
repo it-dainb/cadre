@@ -106,3 +106,13 @@ describe('validation and provenance (ADR 0019)', () => {
     expect(d.length).toBe(2 + (await settingsRows(h)).length); expect(text).toContain('ok setting fixed.setupLease = 20 turns / 30 min · fixed')
   })
 })
+
+import { say } from '../ui/views/activity'
+describe('the Activity line names the model the agent runs on and the setting it came from (ADR 0019)', () => {
+  test('resolved id when Claude Code reports one, else the alias; forced and escalated say so', () => {
+    const v = { b: { tasks: [] } } as any, line = (data: object) => say({ type: 'agent.bound', taskId: 'a1', at: 0, data: { agentId: 'x', taskId: 'a1', role: 'reviewer', ...data } } as any, v)?.text
+    expect(line({ model: 'opus', ran: 'claude-opus-5-5', effort: 'high', setting: 'roles.reviewer.byRisk.thorough' })).toBe('a1 reviewer on claude-opus-5-5/high · roles.reviewer.byRisk.thorough')
+    expect(line({ model: 'sonnet', effort: 'high', setting: 'roles.worker.byRisk.light.escalate', escalated: true })).toBe('a1 reviewer on sonnet/high · roles.worker.byRisk.light.escalate after a failed round')
+    expect(line({ model: 'haiku', effort: 'low', forced: 'haiku/low', setting: 'roles.reviewer.byRisk.light' })).toBe('a1 reviewer on haiku/low · forced by your environment')
+  })
+})

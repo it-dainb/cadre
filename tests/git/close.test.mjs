@@ -47,7 +47,7 @@ test('lifecycle: claim -> report done -> review -> pass@C -> TaskUpdate complete
   const w = await world(), id = w.ids[0], { h, store, d } = w
   const a = await w.spawn(id); const wt = (await store.get(id)).meta['cadre.worktree']; assert.equal(a.agentId, 'ag1'); edit(wt)
   const out = await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' }); assert.match(out, /report accepted: commit \w{7}, 1 files/)
-  let t = (await h.board.read()).tasks[0]; assert.deepEqual([t.state, t.step], ['review', 'reviewer']); assert.match(t.card, /next: spawn TASK-m-2 \(reviewer\)/)
+  let t = (await h.board.read()).tasks[0]; assert.deepEqual([t.state, t.step], ['review', 'reviewer']); assert.match(t.card, /next: the worker has finished \(do not message it\)\. Now start a NEW agent for the reviewer step: Agent tool, prompt "TASK-m-2"/)
   const C0 = (await store.get(id)).meta['cadre.sourceCommit']; assert.equal(sh(wt, 'rev-parse', 'HEAD'), C0); assert.equal((await store.get(id)).category, 'review')
   assert.equal(t.owner, undefined); assert.match(nextAction(await h.board.read()), new RegExp(`spawn TASK-${id} \\(reviewer\\)`))   // no reviewer yet: main is told to spawn one, never "running"
   assert.match(String(await C.closeTask(h, w.dep, id)), /review-passed/)
