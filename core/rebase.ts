@@ -1,6 +1,6 @@
 // Parallel tasks in one plan (ADR 0014 G). A task whose squash would conflict, or whose checks go red on the moved plan branch, is reworked by the SAME worker on
 // the new tip (the mod merges the tip into its branch under git.op, conflicts left in its tree; locked spec tests keep this task's version), then green -> re-review
-// -> squash again. At most ROUNDS per task; then the caller blocks it (auto: a dialog; yolo: the rest of the plan goes on, core/drive). Running siblings get the new
+// -> squash again. At most limits.rebaseRounds per task; then the caller blocks it (auto: a dialog; yolo: the rest of the plan goes on, core/drive). Running siblings get the new
 // tip merged in after every squash, and a trial merge (git merge-tree, >= 2.38) warns two running workers early when their changes collide.
 import { modelText } from './say'
 import type { Host, SnapTask } from '../types'
@@ -21,7 +21,6 @@ import { policyOf, setPolicy } from '../policy/guards'
 import { overlap, pathsOf } from './validate'
 import * as G from './git'
 
-export const ROUNDS = 2
 const num = (v?: string) => Number(v ?? 0) || 0
 const sha7 = (s: string) => s.slice(0, 7)
 const lines = (s: string) => s.split('\n').filter(Boolean)
@@ -38,7 +37,7 @@ const landed = async (h: Host, root: string, from: string, to: string, files: st
 
 // One rework round. Returns the text for main, or null when the cap is reached (the caller blocks the task and asks).
 export async function rework(h: Host, d: Deps, t: SnapTask, task: Task, tip: string, why: 'conflict' | 'red', detail = ''): Promise<string | null> {
-  const n = num(task.meta['cadre.rebase']) + 1, wt = task.meta['cadre.worktree'], br = task.meta['cadre.branch'], base = task.meta['cadre.base'] ?? tip
+  const n = num(task.meta['cadre.rebase']) + 1, ROUNDS = d.cfg.limits.rebaseRounds, wt = task.meta['cadre.worktree'], br = task.meta['cadre.branch'], base = task.meta['cadre.base'] ?? tip
   if (n > ROUNDS || !wt || !br) return null
   const locked = ((await policyOf(h)).locks?.[t.id] ?? []).map(p => p.slice(wt.length + 1))
   const conf = await G.op(h, async () => {
@@ -63,7 +62,7 @@ export async function rework(h: Host, d: Deps, t: SnapTask, task: Task, tip: str
 // past the cap: the human sees both sides (auto: the dialog; yolo: the task stays blocked while the rest goes on, core/drive)
 export async function capAsk(h: Host, d: Deps, t: SnapTask, task: Task, tip: string, files: string[]): Promise<void> {
   const by = await landed(h, d.root, task.meta['cadre.base'] ?? tip, tip, files)
-  await ask(h, { id: `flag:${t.id}:conflict`, kind: 'flag', title: `${t.id} still conflicts after ${ROUNDS} reworks`, short: `${t.id} conflict`, hash: `conflict:${sha7(tip)}`, tab: 'epic', sel: t.id,
+  await ask(h, { id: `flag:${t.id}:conflict`, kind: 'flag', title: `${t.id} still conflicts after ${d.cfg.limits.rebaseRounds} reworks`, short: `${t.id} conflict`, hash: `conflict:${sha7(tip)}`, tab: 'epic', sel: t.id,
     lines: [t.title, `with ${by.join(', ') || 'work that landed'} on ${files.slice(0, 4).join(', ') || 'the merged tree'}`, 'Retry: one more rework round by its worker. Cancel task: end it, the rest of the plan goes on.'],
     options: [{ key: 'r', label: 'Retry', verb: 'change', run: `resolve ${t.id} rebase` }, { key: 'x', label: 'Cancel task', verb: 'cancel', run: `resolve ${t.id} cancel` }] })
 }
@@ -150,7 +149,7 @@ export async function refreshEpics(h: Host, d: Deps, msTip: string, landedId: st
 // an epic (or a single plan) does not merge into its target: ONE refactor task in that epic whose tree holds the merge in progress (both sides, conflict markers);
 // green, review and the squash land the resolution on the epic branch, then main completes the epic again. At most ROUNDS per epic; null = past the cap
 export async function resolveTask(h: Host, d: Deps, epicId: string, from: string, onto: string, files: string[]): Promise<string | null> {
-  const e = await d.store.get(epicId), n = num(e.meta['cadre.resolves']) + 1, s = await h.board.read(); if (n > ROUNDS) return null
+  const e = await d.store.get(epicId), n = num(e.meta['cadre.resolves']) + 1, ROUNDS = d.cfg.limits.rebaseRounds, s = await h.board.read(); if (n > ROUNDS) return null
   const title = `Resolve the merge conflict with ${onto}`, landed = (s.plan?.epics ?? []).filter(x => x.state === 'landed').map(x => `- ${x.id} ${x.title}`)
   const t = await d.store.createDraft({ title, type: 'refactor', parent: epicId, meta: { 'cadre.lane': 'lite', 'cadre.resolve': onto, 'cadre.changelog': JSON.stringify({ none: true, reason: 'merge resolution' }) },
     description: [`Your working tree holds an unfinished merge of ${onto} into this branch${files.length ? `; the conflicts are marked in ${files.join(', ')}` : ''}. Resolve it so that both sides keep working, and keep every test green.`, `This side: ${e.title}\n${e.description.slice(0, 600)}`, ...(landed.length ? [`The other side (already on ${onto}):\n${landed.join('\n')}`] : [])].join('\n\n') })

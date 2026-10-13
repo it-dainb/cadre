@@ -5,32 +5,42 @@ import { DRIVE, ROUTES, dispatch, isHuman } from '../core/dispatch'
 import { ask, settle } from '../core/decide'
 import { start } from '../core/session'
 import { repoKeyOf } from '../commands/init'
-import { layersOf, resolve, rows } from './index'
+import { check, layersOf, resolve, rows } from './index'
+import { LIMIT } from '../policy/guards'
+import { PROTECTED } from '../core/git'
+import { RETRIES } from '../core/validate'
+import { LEASE } from '../core/drive'
+import { CATS } from './index'
 import type { Row } from './index'
 
 const plain = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v)
 const at = (o: unknown, ks: string[]) => ks.reduce((a: any, k) => a?.[k], o)
-export const show = (v: unknown): string => (Array.isArray(v) ? v.join(', ') : String(v))
+export const show = (v: unknown): string => (Array.isArray(v) ? v.join(', ') : v && typeof v === 'object' ? JSON.stringify(v) : String(v))
 const ID = (key: string) => `cfg:${key}`
 
 const ctx = async (h: any) => { const root = await h.cwd(), home = await h.home(); return { root, home, rk: repoKeyOf(root) } }
-export const settingsRows = async (h: any): Promise<Row[]> => rows(await layersOf(h, await ctx(h)))
+// fixed invariants (ADR 0019): shown with their value, never settable
+const fx = (key: string, cat: Row['cat'], value: unknown, desc: string): Row => ({ key, cat, cls: 'S', desc, safety: true, value, def: value, src: 'fixed', kind: 'text' })
+const FIXED = (): Row[] => [fx('fixed.setupLease', 'Safety and containment', `${LIMIT.turns} turns / ${LIMIT.ms / 60_000} min`, 'Claude may edit setup files only within a setup run this long'),
+  fx('fixed.protected', 'Safety and containment', PROTECTED, 'paths no task agent may change'), fx('fixed.draftRetries', 'Planning', RETRIES, 'refused plan drafts before cadre asks you'),
+  fx('fixed.driveLease', 'Drive and autonomy', `${LEASE / 60_000} min`, 'a drive whose session is silent this long can be taken over')]
+export const settingsRows = async (h: any): Promise<Row[]> => { const r = [...rows(await layersOf(h, await ctx(h)), await h.env()), ...FIXED()]; return r.sort((a, b) => CATS.indexOf(a.cat) - CATS.indexOf(b.cat)) }
 // the pane cannot read files: its rows ride in the ui atom (like the doctor rows)
 export const refreshSettings = async (h: any): Promise<void> => { const r = await settingsRows(h); await h.ui.update((u: any) => ({ ...u, 'settings.rows': r })) }
 
 function coerce(row: Row, raw: string): unknown | Error {
   if (row.kind === 'bool') return raw === 'true' ? true : raw === 'false' ? false : new Error('expected true or false')
-  if (row.kind === 'number') { const n = Number(raw.trim()); return raw.trim() !== '' && Number.isFinite(n) && n >= 0 ? n : new Error('expected a number, 0 or more') }
+  if (row.kind === 'number') { const n = raw.trim() === '' ? NaN : Number(raw.trim()), bad = check(row.key, n); return bad ? new Error(bad) : n }
   if (row.kind === 'list') { try { const j = raw.trim().startsWith('[') ? JSON.parse(raw) : raw.split(',').map(x => x.trim()).filter(Boolean); return Array.isArray(j) && j.every(x => typeof x === 'string') ? j : new Error('expected a comma-separated list') } catch { return new Error('expected a comma-separated list') } }
-  if (row.opts && !row.opts.includes(raw)) return new Error(`expected one of: ${row.opts.join(', ')}`)
-  return raw
+  if (row.kind === 'json') { try { return JSON.parse(raw) } catch { return new Error('expected JSON') } }
+  const bad = check(row.key, raw); return bad ? new Error(bad) : raw
 }
 
 // the decision of one key: a field prefilled with the value; the same id is asked again with the refusal as `error` (the dialog re-asks it)
 async function editCard(h: any, row: Row, error?: string): Promise<void> {
   const note = row.cls === 'S' ? 'security key: the repo file may only tighten it' : row.cls === 'U' ? 'user-level only: never read from the repo file' : 'a repo value is shared with the team',
-    hint = row.kind === 'list' ? 'a comma-separated list' : row.kind === 'number' ? 'a number' : 'text'
-  await ask(h, { id: ID(row.key), kind: 'config', title: `edit ${row.key}`, lines: [`now ${show(row.value) || '(empty)'} [${row.src}] · default ${show(row.def) || '(empty)'}`, `${note} · ${hint}`], hash: `${row.key}|${show(row.value)}|${error ?? ''}`, tab: 'settings',
+    hint = row.kind === 'list' ? 'a comma-separated list' : row.kind === 'number' ? 'a number' : row.kind === 'json' ? 'JSON' : 'text'
+  await ask(h, { id: ID(row.key), kind: 'config', title: `edit ${row.key}`, lines: [row.desc, `now ${show(row.value) || '(empty)'} [${row.src}] · default ${show(row.def) || '(empty)'}`, `${note} · ${hint}`, ...(row.warn ? [row.warn] : [])], hash: `${row.key}|${show(row.value)}|${error ?? ''}`, tab: 'settings',
     fields: [{ key: 'value', label: row.key, value: show(row.value) }], ...(error ? { error } : {}),
     options: [{ key: 'a', label: 'Save for me', verb: 'approve', run: `config set ${row.key} {fields}` }, ...(row.cls === 'O' ? [{ key: 'r', label: 'Save to repo', verb: 'approve', run: `config repo ${row.key} {fields}` }] : []), { key: 'x', label: 'Cancel', verb: 'reject', run: `config cancel ${row.key}` }] })
 }
@@ -39,7 +49,7 @@ const back = (h: any, key: string) => settle(h, ID(key))
 async function save(h: any, scope: 'user' | 'repo', key: string, raw: string): Promise<{ text: string }> {
   const row = (await settingsRows(h)).find(r => r.key === key)
   const no = async (why: string) => { if (row && ((await h.board.read()).decisions ?? []).some((d: any) => d.id === ID(key))) await editCard(h, row, why); return { text: `refused: ${why}` } }
-  if (!row) return { text: `refused: ${key} is not a setting` }
+  if (!row || row.src === 'fixed') return { text: `refused: ${key} is not a setting` }
   if (scope === 'repo' && row.cls !== 'O') return no(`${key} is ${row.cls === 'S' ? 'a security' : 'a user-level'} key: save it for you, not in the repo file`)
   if (key === 'strictness' && (await h.board.read()).tasks.some((t: any) => t.state === 'active' || t.state === 'review')) return no('strictness cannot change while tasks are running; retry when they finish')
   const val = coerce(row, raw); if (val instanceof Error) return no(val.message)
@@ -67,7 +77,7 @@ ROUTES.config = async (h, c) => {
   const why = isHuman(c.origin); if (why) return { text: `refused: ${why}` }
   if (sub === 'sel') { await h.ui.update((u: any) => ({ ...u, ssel: Math.max(0, Number(u.ssel ?? 0) + Number(key)) })); return { text: '' } }
   if (sub === 'cancel') { await back(h, key); return { text: `${key}: unchanged` } }
-  if (sub === 'edit') { const row = (await settingsRows(h)).find(r => r.key === key); if (!row) return { text: `refused: ${key} is not a setting` }; await editCard(h, row); return { text: `edit ${key}` } }
+  if (sub === 'edit') { const row = (await settingsRows(h)).find(r => r.key === key); if (!row || row.src === 'fixed') return { text: `refused: ${key} is not a setting` }; await editCard(h, row); return { text: `edit ${key}` } }
   return save(h, sub as 'set' | 'repo', key, v.join(' ').replace(/^value=/, ''))
 }
 

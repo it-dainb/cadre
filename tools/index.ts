@@ -6,7 +6,7 @@ import { resolveDeps, type Deps } from '../core/admission'
 import { raise, report, runCheck } from '../core/close'
 import { warm } from '../core/session'
 import { askAnswer, askOf } from '../core/asks'
-import { RETRIES, refuse, clearRetries, validateReport } from '../core/validate'
+import { refuse, clearRetries, validateReport } from '../core/validate'
 import * as G from '../core/git'
 
 export const TOOLS = ['report', 'inspect', 'run_check'] as const
@@ -33,7 +33,7 @@ async function onReport(h: Host, d: Deps, agentId: string | undefined, r: any): 
   } catch (x) {
     const msg = (x as Error).message, n = (((await h.ui.read()).retries as Record<string, number>) ?? {})[key] ?? 0
     // semantic (6.3) failures only; after limits.reportRetries the report is accepted unvalidated + flagged
-    if (n >= Math.min(RETRIES, d.cfg.limits.reportRetries) && /^(findings|coverage|contractStatus|verdict)/.test(msg)) {
+    if (n >= d.cfg.limits.reportRetries && /^(findings|coverage|contractStatus|verdict)/.test(msg)) {
       const b = (await h.bind.read())[agentId]; if (b) await raise(h, b.taskId, 'report-unvalidated')
       const text = await report(h, d, agentId, r, { lax: true }); await clearRetries(h, key); return text
     }

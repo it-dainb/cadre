@@ -10,9 +10,9 @@ describe('defaults (DESIGN 12)', () => {
   test('golden values', async () => {
     const d = defaults()
     expect([d.strictness, d.mcpAllow, d.jail, d.effectCheck, d.roles.testerView, d.roles.tdd.author]).toEqual(['strict', [], 'auto', 'auto', 'view', 'separate'])
-    expect([d.store.bin, d.store.timeoutMs, d.store.pollMs, d.drive, d.cost.clearHintPct, d.cost.compactPct]).toEqual(['bd', 45000, 10000, { mode: 'auto', level: 'epic', maxTurns: 100, maxCostUsd: 20, maxWallMinutes: 240, noProgressTurns: 3 }, 40, 60])
-    expect([d.maxParallel, d.maxRows, d.reuse, d.review, d.limits.reportRetries, d.models, d.ui.glyphs, d.branches.dev, d.branches.epicPrefix, d.release.onEpicDone, d.changelog.path])
-      .toEqual([3, 6, { maxContextPct: 60, cacheTtlMs: 3_600_000 }, { ...d.review }, 3, { fast: 'haiku', standard: 'sonnet', deep: 'opus' }, 'unicode', 'dev', 'epic/', 'propose', 'CHANGELOG.md'])
+    expect([d.store.bin, d.store.timeoutMs, d.drive, d.cost.clearHintPct, d.cost.compactPct]).toEqual(['bd', 45000, { mode: 'auto', maxTurns: 100, maxCostUsd: 20, maxWallMinutes: 240, noProgressTurns: 3 }, 40, 60])
+    expect([d.maxParallel, d.review.maxRework, d.reuse, d.review, d.limits.reportRetries, d.models, d.ui.glyphs, d.branches.dev, d.branches.epicPrefix, d.release.onEpicDone, d.changelog.path])
+      .toEqual([3, 3, { maxContextPct: 60, cacheTtlMs: 3_600_000 }, { ...d.review }, 3, { fast: 'haiku', standard: 'sonnet', deep: 'opus' }, 'unicode', 'dev', 'epic/', 'propose', 'CHANGELOG.md'])
     expect(Object.keys((d.types as object))).toEqual(['feature', 'bug', 'refactor', 'docs', 'test', 'spike'])
     expect(d.roles.explorer).toEqual({ tier: 'fast', effort: 'low' })
   })
@@ -23,7 +23,7 @@ describe('classes', () => {
   test('S / U / O by longest prefix', async () => {
     for (const k of ['strictness', 'mcpAllow', 'jail', 'jailWritable', 'effectCheck', 'roles.testerView']) expect(classOf(k)).toBe('S')
     for (const k of ['adapters.pm.command', 'store.bin', 'store.dir', 'store.kind', 'worktrees.root', 'drive.maxTurns', 'cost.prices', 'disable']) expect(classOf(k)).toBe('U')
-    for (const k of ['store.timeoutMs', 'store.pollMs', 'changelog.path', 'cost.clearHintPct', 'types', 'packages', 'sync.pm', 'review.maxRework', 'maxParallel', 'ui.glyphs', 'roles.worker.tier', 'roles.tdd.author', 'models.fast']) expect(classOf(k)).toBe('O')
+    for (const k of ['store.timeoutMs', 'changelog.path', 'cost.clearHintPct', 'types', 'packages', 'sync.pm', 'review.maxRework', 'maxParallel', 'ui.glyphs', 'roles.worker.tier', 'roles.tdd.author', 'models.fast']) expect(classOf(k)).toBe('O')
   })
   test('tighten: bool takes only the strict value, enum the stricter, list the intersection', async () => {
     expect(tighten('jail', 'auto', 'on')).toBe('on')
@@ -60,9 +60,9 @@ describe('layers', () => {
     expect([r.config.strictness, r.config.roles.testerView]).toEqual(['advisory', 'full'])
   })
   test('repo cannot set U keys but can set O siblings (store.timeoutMs vs store.bin)', async () => {
-    const r = resolve([repo({ store: { bin: '/evil/bd', timeoutMs: 1000 }, drive: { maxCostUsd: 9999 }, adapters: { x: { command: ['y'] } }, worktrees: { root: '/tmp' }, maxRows: 9 })])
+    const r = resolve([repo({ store: { bin: '/evil/bd', timeoutMs: 1000 }, drive: { maxCostUsd: 9999 }, adapters: { x: { command: ['y'] } }, worktrees: { root: '/tmp' }, maxParallel: 9 })])
     expect(r.config.store).toMatchObject({ bin: 'bd', timeoutMs: 1000 }); expect(r.config.drive.maxCostUsd).toBe(20)
-    expect(r.config.adapters).toEqual({}); expect(r.config.worktrees.root).toBe(''); expect(r.config.maxRows).toBe(9)
+    expect(r.config.adapters).toEqual({}); expect(r.config.worktrees.root).toBe(''); expect(r.config.maxParallel).toBe(9)
     expect(r.diagnostics.sort()).toEqual(['repo: adapters: user-level only, ignored in the repo file', 'repo: drive.maxCostUsd: user-level only, ignored in the repo file', 'repo: store.bin: user-level only, ignored in the repo file', 'repo: worktrees.root: user-level only, ignored in the repo file'])
   })
   test('packages[].knownRed: a repo package keeps only what the user layer granted', async () => {
@@ -84,10 +84,10 @@ describe('layers', () => {
   test('load() reads home file (+ per-repo section), repo file, env and userConfig through the Host', async () => {
     const h = fakeHost({
       options: { strictness: 'advisory' }, env: { CADRE_STORE: 'memory' },
-      files: { '/hm/u/.claude/cadre.json': JSON.stringify({ maxParallel: 4, repos: { 'r-1': { maxParallel: 5, drive: { maxTurns: 7 } }, other: { maxParallel: 99 } } }), '/repo/.cadre/config.json': JSON.stringify({ maxRows: 8, strictness: 'advisory' }) },
+      files: { '/hm/u/.claude/cadre.json': JSON.stringify({ maxParallel: 4, repos: { 'r-1': { maxParallel: 5, drive: { maxTurns: 7 } }, other: { maxParallel: 99 } } }), '/repo/.cadre/config.json': JSON.stringify({ review: { maxRework: 8 }, strictness: 'advisory' }) },
     })
     const { config, diagnostics } = await load(h, { home: '/hm/u', root: '/repo', repoKey: 'r-1' })
-    expect([config.maxParallel, config.drive.maxTurns, config.maxRows, config.store.kind]).toEqual([5, 7, 8, 'memory'])
+    expect([config.maxParallel, config.drive.maxTurns, config.review.maxRework, config.store.kind]).toEqual([5, 7, 8, 'memory'])
     expect(config.strictness).toBe('advisory'); expect(diagnostics).toEqual([])
     const bad = await load(fakeHost({ files: { '/repo/.cadre/config.json': '{oops' } }), { home: '/h', root: '/repo', repoKey: 'k' })
     expect(bad.diagnostics).toEqual(['.cadre/config.json: not an object, skipped'])

@@ -61,7 +61,7 @@ describe('claim (3.4)', () => {
     const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}); await w.board(h, epic, ids)
     const { next, seen } = ok(); const r = await admitWith(h, d, spawn(`please do TASK-${ids[0]} carefully`), next)
     expect(r).toEqual({ model: 'sonnet', agentId: 'ag1' }); expect(seen).toHaveLength(1)
-    expect(seen[0]).toMatchObject({ subagentType: 'cadre:worker', model: 'sonnet', cwd: `/wt/repo-1/${ids[0]}` })
+    expect(seen[0]).toMatchObject({ subagentType: 'cadre:worker', model: 'haiku', cwd: `/wt/repo-1/${ids[0]}` })
     expect(seen[0].prompt).toContain(`# TASK-${ids[0]} task 0 (feature)`); expect(seen[0].prompt).toContain('S1: Given x When y Then z'); expect(seen[0].prompt).toContain('## Notes')
     expect((await h.board.read()).tasks[0]).toMatchObject({ state: 'active', step: 'worker', owner: 'cadre/u/aaaaaa' })   // tester/red skipped until M5
     expect(await w.store.get(ids[0])).toMatchObject({ category: 'active', assignee: 'cadre/u/aaaaaa' })

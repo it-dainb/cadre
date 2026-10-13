@@ -3,6 +3,7 @@
 import { modelText } from './say'
 import type { Binding, Hook, Host, Role, Snapshot, SnapTask } from '../types'
 import type { Config } from '../config/defaults'
+import { forcedOf } from '../config/index'
 import { StoreError, type Task, type TaskStore } from '../task-management/store'
 import { kindOf, pipeOf, type TypeRegistry } from '../task-management/registry'
 import { repoKeyOf } from '../commands/init'
@@ -42,7 +43,7 @@ export async function resolveDeps(h: Host): Promise<Deps> {
 }
 export const admit: Hook = async (h, e, next) => { await warm(h); return admitWith(h, await resolveDeps(h), e, next) }
 
-// model x effort for a run (core/risk.route); env overrides beat cadre and are recorded as forced (Claude Code applies them anyway)
+// model x effort for a run (core/risk.route); env overrides that beat cadre (config/forcedOf) are recorded as forced (Claude Code applies them anyway)
 const rounds = (task?: { meta: Record<string, string> }) => (+(task?.meta['cadre.rework'] ?? 0) || 0) + (+(task?.meta['cadre.rebase'] ?? 0) || 0)
 const routeOf = (d: Deps, role: Role, risk: Tier, n = 0) => route(d.cfg.roles[role] as RoleRoute, d.cfg.models, risk, n, role === 'reviewer')
 const stepsOf = (d: Deps) => (type: string, lane?: string) => { const p = pipeOf(d.reg)(type, lane); return d.view ? p : p.filter(s => s !== 'tester' && s !== 'red') }   // no view builder: tester/red skipped
@@ -72,8 +73,8 @@ export async function admitWith(h: Host, d: Deps, e: any, next: (e: any) => any)
 async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTask, role: Role, prompt: string, cwd: string, step: string, wt: string, undo: () => Promise<void>, rt?: Tier, task?: Task) {
   const risk = rt ?? taskRisk(d.cfg.review.tiers, pathsOf(task), !!task?.labels.some(l => d.cfg.review.deepLabels.includes(l)) || task?.meta['cadre.core'] === 'true', [], task?.meta['cadre.risk'])
   const r0 = routeOf(d, step === 'tester' ? 'tester' : role, risk, rounds(task)), env = await h.env()
-  const forced = env.CLAUDE_CODE_SUBAGENT_MODEL || env.CLAUDE_CODE_EFFORT_LEVEL ? `${env.CLAUDE_CODE_SUBAGENT_MODEL ?? ''}/${env.CLAUDE_CODE_EFFORT_LEVEL ?? ''}` : undefined
-  const run = { role, model: env.CLAUDE_CODE_SUBAGENT_MODEL || r0.model || 'default', effort: env.CLAUDE_CODE_EFFORT_LEVEL || r0.effort || 'default', risk, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }
+  const fo = forcedOf(env), forced = fo.model || fo.effort ? `${fo.model ?? ''}/${fo.effort ?? ''}` : undefined
+  const run = { role, model: fo.model || r0.model || 'default', effort: fo.effort || r0.effort || 'default', risk, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }
   let r: any
   try { r = await next({ ...e, subagentType: `cadre:${role}`, prompt: modelText('agent-brief', prompt), ...(r0.model ? { model: r0.model } : {}), cwd }) } catch (err) { await undo(); throw err }
   if (r?.deny) { await undo(); return r }

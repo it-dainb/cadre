@@ -4,6 +4,7 @@ import { modelText } from './say'
 import type { DecisionOption, Host, Plan } from '../types'
 import type { Task, TaskStore } from '../task-management/store'
 import { defaults, kindOf, type TypeRegistry } from '../task-management/registry'
+import { defaults as cfgDefaults } from '../config/index'
 import { cfgOf, draftsOf, missionOf, storeOf, touched } from './dispatch'
 import { plural, settleIf } from './decide'
 import { MS } from './milestone'
@@ -14,12 +15,13 @@ export const LANES: readonly Lane[] = ['ask', 'lite', 'full']
 const isPublic = (t: Task) => { try { const c = JSON.parse(t.design || 'null'); return !!c && !c.none && (c.symbols ?? []).some((s: any) => s.status === 'new' || s.status === 'changed') } catch { return false } }
 
 // the lane a draft plan gets: main's (or the human's) pick, overridden to full by risk or size; an ask plan holding a code change becomes lite (one task) or full
-export function laneOf(asked: Lane, drafts: Task[], reg: TypeRegistry): { lane: Lane; why?: string } {
+type Lim = { fullAt: number; milestoneAt: number }   // config lanes.*
+export function laneOf(asked: Lane, drafts: Task[], reg: TypeRegistry, lim: Lim = cfgDefaults().lanes): { lane: Lane; why?: string } {
   if (asked === 'milestone') return { lane: 'milestone' }   // a roadmap of epics (ADR 0015): never overridden down
-  const big = drafts.length > 7, why = big ? `${drafts.length} tasks: a milestone fits` : drafts.some(t => t.meta['cadre.breaking'] === 'true') ? 'a task is breaking'
+  const big = drafts.length >= lim.milestoneAt, why = big ? `${drafts.length} tasks: a milestone fits` : drafts.some(t => t.meta['cadre.breaking'] === 'true') ? 'a task is breaking'
     : drafts.some(t => t.labels?.includes('security') || t.meta['cadre.scope'] === 'security') ? 'a task touches security'
     : drafts.some(isPublic) ? 'a public contract is new or changed'
-    : drafts.length >= 3 ? `${drafts.length} tasks`
+    : drafts.length >= lim.fullAt ? `${drafts.length} tasks`
     : asked === 'lite' && drafts.length > 1 ? 'lite is one task' : ''
   if (why) return asked === 'full' && !big ? { lane: 'full' } : { lane: 'full', why }
   const code = drafts.some(t => { const s = reg[t.type]; return !s || kindOf(s) !== 'spike' })
@@ -33,7 +35,7 @@ const MODE_TTL = 3_600_000
 // after any draft change of a first draft (native/tasks, before touched): the effective lane onto the board and the tasks
 export async function relane(h: Host, store: TaskStore, reg: TypeRegistry): Promise<void> {
   const p = (await h.board.read()).plan; if (!p || p.slug === 'mission' || p.state !== 'draft' || p.approvedAt) return
-  const epic = await store.get(p.id), asked = (epic.meta['cadre.lane'] || 'full') as Lane, drafts = await draftsOf(store, p.id), r = laneOf(asked, drafts, reg)
+  const epic = await store.get(p.id), asked = (epic.meta['cadre.lane'] || 'full') as Lane, drafts = await draftsOf(store, p.id), r = laneOf(asked, drafts, reg, (await cfgOf(h)).lanes)
   let mode = epic.meta['cadre.mode'] as 'auto' | 'yolo' | undefined
   if (!mode) {   // the mode of the goal that started it (`/cadre yolo <goal>`), taken once; a plan main starts on its own is auto
     const def = (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto'   // drive.mode: the user's default (a repo file can only force auto)
@@ -61,20 +63,20 @@ export function laneLine(plan: Plan | null, drafts: Task[], reg: TypeRegistry = 
   return [plan.mode ?? 'auto', plan.lane, n, ty, plan.laneOverride ? `${plan.laneOverride} → ${plan.lane}` : '', plan.laneReason ?? ''].filter(Boolean).join(' · ').slice(0, 160)
 }
 // the Lane → <next> option: ask → lite → full → ask, skipping a lane the plan cannot take; null when there is nothing to change
-export function nextLane(plan: Plan, drafts: Task[], reg: TypeRegistry): Lane {
-  if (plan.lane === 'milestone') return 'full'; if (drafts.length > 7) return 'milestone'   // more than 7 tasks: offer the milestone lane; a roadmap goes back to one plan
+export function nextLane(plan: Plan, drafts: Task[], reg: TypeRegistry, lim: Lim = cfgDefaults().lanes): Lane {
+  if (plan.lane === 'milestone') return 'full'; if (drafts.length >= lim.milestoneAt) return 'milestone'   // lanes.milestoneAt tasks: offer the milestone lane; a roadmap goes back to one plan
   const from = LANES.indexOf(plan.lane ?? 'full')
-  for (let i = 1; i < 3; i++) { const l = LANES[(from + i) % 3]; if (l === 'ask' || laneOf(l, drafts, reg).lane === l) return l }
+  for (let i = 1; i < 3; i++) { const l = LANES[(from + i) % 3]; if (l === 'ask' || laneOf(l, drafts, reg, lim).lane === l) return l }
   return 'ask'
 }
-export const laneOption = (plan: Plan | null, drafts: Task[], reg: TypeRegistry = defaults()): DecisionOption | null =>
-  plan?.lane && plan.state === 'draft' && !plan.approvedAt ? { key: 'l', label: `Lane → ${nextLane(plan, drafts, reg)}`, verb: 'change', run: `lane ${plan.id}` } : null
+export const laneOption = (plan: Plan | null, drafts: Task[], reg: TypeRegistry = defaults(), lim?: Lim): DecisionOption | null =>
+  plan?.lane && plan.state === 'draft' && !plan.approvedAt ? { key: 'l', label: `Lane → ${nextLane(plan, drafts, reg, lim)}`, verb: 'change', run: `lane ${plan.id}` } : null
 
 // `lane <planId>` (the plan decision's Lane option, dialog only: commands/cadre). ask drops the draft plan and asks main to spawn the question; full asks main for the missing fields.
 export async function changeLane(h: Host, store: TaskStore, reg: TypeRegistry, planId: string): Promise<string> {
   const p = (await h.board.read()).plan
   if (!p || p.id !== planId || !laneOption(p, [], reg)) return `refused: no first draft plan ${planId}`
-  const drafts = await draftsOf(store, p.id), to = nextLane(p, drafts, reg), epic = await store.get(p.id)
+  const drafts = await draftsOf(store, p.id), to = nextLane(p, drafts, reg, (await cfgOf(h)).lanes), epic = await store.get(p.id)
   if (to === 'ask') {
     await store.dropDrafts([...drafts.map(t => t.id), p.id])
     await store.record('decision', `Plan ${p.id} moved to the ask lane`, epic.title)

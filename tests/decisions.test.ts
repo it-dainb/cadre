@@ -121,7 +121,7 @@ describe('fields: asked one by one in the dialog, validated, re-asked with the e
     await configPress(w.h, 'edit maxParallel'); expect((await top(w.h)).fields).toEqual([{ key: 'value', label: 'maxParallel', value: '3' }])
     await answerDialog(w.h)
     expect(u.asked.map(a => a.labels)).toEqual([['Keep 3', 'Cancel'], ['Save for me', 'Save to repo', 'Cancel'], ['Keep 3', 'Cancel'], ['Save for me', 'Save to repo', 'Cancel']])
-    expect(u.asked[3].q).toContain('! expected a number'); expect((w.h as any).logs.filter((l: string) => !l.includes('prune'))).toEqual(['refused: expected a number, 0 or more', 'maxParallel = 7 · saved for you'])
+    expect(u.asked[3].q).toContain('! expected a number'); expect((w.h as any).logs.filter((l: string) => !l.includes('prune'))).toEqual(['refused: expected a number from 0 to 100', 'maxParallel = 7 · saved for you'])
     expect(JSON.parse((await w.h.readText('/hm/u/.claude/cadre.json'))!).maxParallel).toBe(7); expect(decisions(await read(w.h))).toEqual([])
   })
   test('Cancel at a field decides nothing', async () => {

@@ -4,11 +4,12 @@ import { type Line, S } from '../model'
 import { clip, padL, padR } from '../layout'
 import { INDENT, SEP, glyph } from '../tokens'
 import { actOf, groupOf, rowsOf, val } from '../settings'
+import type { Row } from '../../config/index'
 import { type Renderer, joinSections, keyLine, muted, relax, title, ucfg, win } from './types'
 
-const WORD = { bool: 'toggle', enum: 'cycle', number: 'change', text: 'change', list: 'change' } as const
-const KEY_NOTE: Record<string, string> = { 'drive.mode': 'yolo: no questions after approval', maxParallel: '0 = no cap', 'milestone.maxEpics': `used by milestones${SEP}0 = no cap` }
-const NOTE = (cls: string, key = '') => [KEY_NOTE[key], cls === 'S' ? 'tighten-only from repo' : cls === 'U' ? 'user-level only' : ''].filter(Boolean).join(SEP)
+const WORD = { bool: 'toggle', enum: 'cycle', number: 'change', text: 'change', list: 'change', json: 'change' } as const
+// the selected row's note: an env var that overrides it (warning), the layer rule, then what it does
+const NOTE = (r: Row) => [r.warn && `! ${r.warn}`, r.src === 'fixed' ? 'fixed' : r.cls === 'S' ? 'tighten-only from repo' : r.cls === 'U' ? 'user-level only' : '', r.desc].filter(Boolean).join(SEP)
 
 export const settings: Renderer = (v, cols, rows, a) => {
   const w = Math.min(cols, 80)   // keys and values stay close together on a wide pane
@@ -23,11 +24,11 @@ export const settings: Renderer = (v, cols, rows, a) => {
     const at = secs.at(-1)!
     at.push(i === sel ? [S(glyph('run', c.ascii) + text.slice(1) + t, undefined, { i: true })] : [S(text), muted(t)])
   })
-  const r = rs[sel], note = NOTE(r.cls, r.key)
+  const r = rs[sel], note = NOTE(r)
   const all = joinSections(secs.map(s => relax(s, c.density)), c.density), body = win(all, all.findIndex(l => l.some(x => x.i)), Math.max(2, rows - 1))
   // a section title whose rows were all cut off is not drawn: the "+n more" line is the tail
   const n = body.length
   if (n > 1 && /^\s*\+\d+ more$/.test(body[n - 1][0]?.t ?? '') && body[n - 2].length === 1 && body[n - 2][0].b) body.splice(n - 2, 1)
   return { lines: [...body, [muted(clip(`${' '.repeat(INDENT)}default ${val({ ...r, value: r.def })}${note ? `${SEP}${note}` : ''}`, w))]],
-    keys: keyLine(live ? [['e', WORD[r.kind], () => a.run?.(actOf(r))], ['n', 'next', () => a.run?.('sel 1')], ['p', 'prev', () => a.run?.('sel -1')]] : []) }
+    keys: keyLine(live ? [...(r.src === 'fixed' ? [] : [['e', WORD[r.kind], () => a.run?.(actOf(r))] as const]), ['n', 'next', () => a.run?.('sel 1')], ['p', 'prev', () => a.run?.('sel -1')]] : []) }
 }

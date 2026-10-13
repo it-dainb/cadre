@@ -334,7 +334,7 @@ describe('drive done / plan flags (9)', () => {
 
 describe('round 2: effort, pruning, tester deny log', () => {
   test('turn.step applies roles.<role>.effort (tester profile in the tester step); default leaves the frontmatter', async () => {
-    const { h, a } = await mk({ cfg: c => { c.roles.tester.effort = 'high' } })
+    const { h, a } = await mk({ cfg: c => { c.roles.tester.effort = 'high'; c.roles.worker.effort = 'default' } })
     await h.bind.update(() => ({ t1: B(a, 'S1', { step: 'tester' }), w1: B(a, 'S1') }))
     const seen: any[] = []
     const run = async (agentId: string) => { const g = step(h, { agentId }, async function* (e: any) { seen.push(e); return { usage: null } } as any); let r = await g.next(); while (!r.done) r = await g.next() }

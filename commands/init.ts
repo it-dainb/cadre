@@ -5,7 +5,7 @@ import { canon, fnv1a64 } from '../core/board'
 import { DRIVE, initConfirm, initPropose, missionOf } from '../core/dispatch'
 import { op } from '../core/git'
 import { settle } from '../core/decide'
-import { load } from '../config'
+import { cfgOf } from '../config/index'
 import type { Config } from '../config'
 import { diff as jdiff } from '../policy/settings'
 import { assess } from '../policy/containment'
@@ -165,7 +165,7 @@ export async function clearKnownRed(h: Host, green: Red[], planId: string): Prom
 
 const ctxOf = async (h: Host): Promise<Ctx> => {
   const root = await h.cwd(), home = await h.home(), rk = repoKeyOf(root)
-  return { h, root, home, rk, cfg: (await load(h, { home, root, repoKey: rk })).config }
+  return { h, root, home, rk, cfg: await cfgOf(h) }
 }
 const it = (name: string, why: string | null, blocked = false): Item => (blocked ? { name, st: 'todo', why: 'after the steps above' } : why ? { name, st: 'fail', why } : { name, st: 'ok' })
 // The checklist (also doctor's project rows). Later phases that need an earlier one wait as `todo`; containment is proposed on its card once the rest passes.
