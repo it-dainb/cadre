@@ -1,0 +1,40 @@
+                        │                                                                                             ✕
+           Claude Code  │1: Board  2: Graph  3: Timeline  4: Activity  8: Doctor  9: Settings
+ ▐▛███▛█   v2.1.296     │no plan yet                                                                                live
+▝▜██████▀  Sonnet 5.5   │
+ ▝▝   ▝▝   Claude Max   │Ready when you are · /cadre <goal> to start · /cadre yolo <goal> to run it without questions
+           /work/run    │
+                        │k: keys
+  Get to finished work  │
+  sooner with Opus 5.5. │
+  Switch anytime with   │
+  /model.               │
+  2 more notices hidden │
+                        │
+❯ /cadre                │
+  ⎿ cadre: Setup was    │
+    interrupted · /cadre│
+    add titleCase(s) to │
+    the library:        │
+    capitalise the first│
+    letter of each      │
+    word, with  to pick │
+    it up               │
+                        │
+                        │
+                        │
+                        │
+                        │
+                        │
+                        │
+                        │
+                        │
+                        │
+                        │
+                        │
+· Setup was inter…  [-] │
+                        │
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents

@@ -20,8 +20,13 @@ const debug = readdirSync(dir).filter(f => /^debug.*\.log$/.test(f)).sort().map(
 const ts = l => Date.parse(l.slice(0, 24))
 const dlines = debug.flat().filter(l => /^\d{4}-/.test(l))
 
+// a pane docked at the right shares every row: cut its column (the │ at one index on a third of the rows or more), as the watcher's dialog title does
+const left = p => { const L = p.split('\n'), n = {}; for (const l of L) { const i = l.indexOf('│'); if (i > 0) n[i] = (n[i] ?? 0) + 1 }
+  const [c, k] = Object.entries(n).sort((a, b) => b[1] - a[1])[0] ?? []; return k >= L.length / 3 ? L.map(l => (l.indexOf('│') === +c ? l.slice(0, +c).trimEnd() : l)).join('\n') : p }
+// the transcript with a reply wrapped onto indented rows joined back into one line (a docked pane narrows it: "Setup was" / "interrupted · /cadre …")
+const flow = p => left(p).split('\n').reduce((o, l) => (o.length && /^ {3,}\S/.test(l) && !/^\s*[⎿●❯]/.test(l) && o.at(-1).trim() ? [...o.slice(0, -1), `${o.at(-1).trimEnd()} ${l.trim()}`] : [...o, l]), []).join('\n')
 // the band (from the row ending in the fold button [-] down to the composer) + the status line under it: the same cut as the watcher's
-const band = p => { const L = p.split('\n'), b = L.flatMap((l, i) => (/^─{20}/.test(l) ? [i] : [])); if (b.length < 2) return ''
+const band = q => { const p = left(q), L = p.split('\n'), b = L.flatMap((l, i) => (/^─{20}/.test(l) ? [i] : [])); if (b.length < 2) return ''
   const t = b.at(-2), s = L.slice(Math.max(0, t - 8), t).findLastIndex(l => /\[-\] *$/.test(l)); return [...(s < 0 ? [] : L.slice(Math.max(0, t - 8) + s, t)), ...L.slice(b.at(-1) + 1)].join('\n') }
 const isDialog = p => p.includes('Enter to select')
 // main's turns: [start, end] from the debug log (a restart starts a new log; an open turn at the end runs to tEnd)
@@ -107,9 +112,9 @@ for (const e of drv.filter(e => e.kind === 'press1')) {
     if (g) fail('gone-session', g.text.split('\n').find(l => /running in another session/.test(l)))
     const ask = drv.find(e => e.kind === 'send' && e.t > r.t && e.text.trim() === '/cadre')
     if (ask) {
-      const win = panes.filter(p => p.t >= ask.t && p.t <= ask.t + 15000).map(p => p.text).join('\n')
+      const win = panes.filter(p => p.t >= ask.t && p.t <= ask.t + 15000).map(p => flow(p.text)).join('\n')
       const what = /(interrupted|unfinished|stopped)[^\n]*(setup|init|plan\b|p-\w+|run-\w+)|(setup|init|plan\b|p-\w+|run-\w+)[^\n]*(interrupted|unfinished|stopped)/i, next = /\/cadre \S|press [0-9]|[0-9]: (continue|answer)/
-      if (!(what.test(win) && next.test(win))) fail('restart-named', `after the restart a bare /cadre said: ${(panes.find(p => p.t >= ask.t)?.text ?? '').split('\n').filter(l => /cadre:/.test(l)).slice(-1)[0] ?? '(nothing)'}`)
+      if (!(what.test(win) && next.test(win))) fail('restart-named', `after the restart a bare /cadre said: ${flow(panes.find(p => p.t >= ask.t)?.text ?? '').split('\n').filter(l => /cadre:/.test(l)).slice(-1)[0] ?? '(nothing)'}`)
     }
   }
 }

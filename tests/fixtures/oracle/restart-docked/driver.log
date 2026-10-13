@@ -1,0 +1,11 @@
+1791858512618 start fixtures=[nogit] scenario=kill model=sonnet cc=2.1.296 via=direct lazy=0 cwd=. fault=kill
+1791858516537 send /cadre add titleCase(s) to the library: capitalise the first letter of each word, with node:test tests
+1791858519012 dialog cadre isn't set up here. Set it up and plan this goal? add titleCase(s) to the library: capitalise the first letter of e
+1791858521409 answer cadre isn't set up here. Set it up and plan this goal? add titleCase(s) to the library: capitalise the first letter of e
+1791858538752 fault kill (SIGKILL of Claude Code after main's 2nd Bash call in the setup run, then started again)
+1791858551503 send /cadre
+1791858569035 send /cadre add titleCase(s) to the library: capitalise the first letter of each word, with node:test tests
+1791858612815 dialog init · safety settings · confirm cadre writes these
+1791858615025 answer init · safety settings · confirm cadre writes these
+1791858636150 plan approve the mission and plan run-w0k mission: Add
+1791858640907 end

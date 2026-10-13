@@ -67,7 +67,7 @@ Evidence per cell: `harness/out/matrix/<tier>-<stamp>/<cell>/` (gitignored): `dr
 | `errors` | no `NotInitialized`, uncaught errors, `hook failed:` | debug log + panes |
 | `no-plan` / `dialog-budget` / `turn-budget` | the goal reaches the plan dialog, with ≤ 3 dialogs (`ORACLE_DIALOGS`) and ≤ 10 main turns (`ORACLE_TURNS`) | driver.log + debug |
 | `wrong-root` | no `.cadre/` or `.beads/` below the repo top level | work dir |
-| `gone-session` / `restart-named` | after a quit or a crash (`restart`, `FAULT=kill`): nothing says the plan is "running in another session" (a cell has one); the first bare `/cadre` names the unfinished setup or plan and the next step | panes after the restart |
+| `gone-session` / `restart-named` | after a quit or a crash (`restart`, `FAULT=kill`): nothing says the plan is "running in another session" (a cell has one); the first bare `/cadre` names the unfinished setup or plan and the next step | panes after the restart (a docked pane's column cut, a wrapped reply joined; the band too) |
 | `fault-not-injected` | a cell run with `FAULT=…` actually injected it (else it tested nothing) | driver.log |
 | `token-leak` | no OAuth token in a mounted dir (work, out, projects) or the evidence | cell.sh `leak` list |
 | `not-landed` | (`LANDED=1`) the plan landed on dev | dev's log |
