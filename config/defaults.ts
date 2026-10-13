@@ -27,12 +27,13 @@ export const defaults = () => ({
   sync: {} as Record<string, unknown>,
   types: typeDefaults() as unknown, packages: [] as { root: string; knownRed?: string[]; [k: string]: unknown }[],
   suites: { integration: 'all' as string | string[] },
-  review: { deepLabels: ['security', 'breaking'], maxRework: 3, coreTask: 'core', coreDiff: 'thorough', tiers: { light: { files: 5, lines: 100, paths: 2 }, thorough: { files: 20, lines: 500 }, risky: ['**/auth/**', '**/security/**', '**/crypto/**', '**/permission*/**', '**/migrations/**', '.github/**', '.gitlab-ci.yml', 'Dockerfile', '**/package.json', '**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/go.mod', '**/Cargo.toml', '**/pyproject.toml', '**/requirements*.txt'] } },
+  review: { coverage: { enforce: true }, deepLabels: ['security', 'breaking'], maxRework: 3, coreTask: 'core', coreDiff: 'thorough', tiers: { light: { files: 5, lines: 100, paths: 2 }, thorough: { files: 20, lines: 500 }, risky: ['**/auth/**', '**/security/**', '**/crypto/**', '**/permission*/**', '**/migrations/**', '.github/**', '.gitlab-ci.yml', 'Dockerfile', '**/package.json', '**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/go.mod', '**/Cargo.toml', '**/pyproject.toml', '**/requirements*.txt'] } },
   limits: { reportRetries: 3, nudges: 2, attempts: 3, rebaseRounds: 2 },
   lanes: { fullAt: 3, milestoneAt: 8 },
   branches: { main: '', dev: 'dev', epicPrefix: 'epic/' }, release: { onEpicDone: 'propose' },
   ui: { glyphs: 'unicode', flash: true, density: 'normal', notify: 'on', escalateAfterMs: 120_000 },
   maxParallel: 3, milestone: { maxEpics: 2, epicPlanner: 'agent' as 'agent' | 'main' }, planner: { maxRounds: 3 },   // 0 = no cadre cap (drive bounds still apply)
+  notes: { slice: true },   // ADR 0022
   reuse: { maxContextPct: 60, cacheTtlMs: 3_600_000 },   // 1h: roles ship as agent files with experimental.cacheTtl 1h (A28, ADR 0001 S44)
   disable: false,
 })
@@ -69,6 +70,8 @@ export const REG: Record<string, Meta> = {
   'review.tiers.light.files': m(R, 'at most this many files: light review', { tighten: 'min', ...N(0) }), 'review.tiers.light.lines': m(R, 'at most this many lines: light review', { tighten: 'min', ...N(0) }),
   'review.tiers.thorough.files': m(R, 'more files than this: thorough review', { tighten: 'min', ...N(0) }), 'review.tiers.thorough.lines': m(R, 'more lines than this: thorough review', { tighten: 'min', ...N(0) }),
   'review.tiers.light.paths': m(R, 'at claim, a task declaring at most this many paths is light risk', { tighten: 'min', ...N(0, 100) }),
+  'review.coverage.enforce': m(R, "every scenario needs a spec test named after it, and the reviewer's coverage must be ok for each; off: the reviewer's word decides"),
+  'notes.slice': m(PL, "each task's brief carries only the plan notes on its paths (notes without paths go to every task); off: every note goes to every task"),
   'review.coreTask': m(R, 'the risk of a task in the core epic', { opts: RISK }), 'review.coreDiff': m(R, "the risk of a change that touches the landed core's paths", { opts: RISK }),
   'review.tiers.risky': m(R, 'paths whose change always gets the thorough review', { tighten: 'grow', ok: strs }),
   'limits.reportRetries': m(R, 'refused reports before one is accepted unvalidated and flagged', N(1, 3)),

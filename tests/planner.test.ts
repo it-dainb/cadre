@@ -49,7 +49,7 @@ describe('the planner is started by the spawner; main is not asked to plan', () 
     await w.turn()
     expect(w.spawned.map(e => [e.subagentType, e.model, e.cwd])).toEqual([['cadre:planner', 'sonnet', '/repo'], ['cadre:planner', 'sonnet', '/repo']])
     const br = w.spawned[0].prompt as string
-    expect(br.indexOf('# Roadmap of milestone')).toBe(0); expect(br).toContain(`# PLAN-${a} Add export`); expect(br).toContain('Goal: users can export a data file'); expect(br).toContain('files src/export/')
+    expect(br.startsWith('# PLAN\n')).toBe(true); expect(br).toContain('# Roadmap of milestone'); expect(br).toContain(`# PLAN-${a} Add export`); expect(br).toContain('Goal: users can export a data file'); expect(br).toContain('files src/export/')
     expect(w.spawned[1].prompt.split('# PLAN-')[0]).toBe(br.split('# PLAN-')[0])   // the roadmap block is the same bytes for every planner of the milestone
     const bind = await w.h.bind.read(); expect(Object.values(bind).map(x => [x.taskId, x.role, x.effort])).toEqual([[a, 'planner', 'high'], [b, 'planner', 'high']])
     expect((await ev(w)).filter(e => e.type === 'agent.bound').map(e => [e.data.role, e.data.setting])).toEqual([['planner', 'roles.planner'], ['planner', 'roles.planner']])

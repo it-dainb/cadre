@@ -57,6 +57,13 @@ describe('known-id matcher goldens (4.6)', () => {
 })
 
 describe('claim (3.4)', () => {
+  test('Notes: the spawner\'s bare TASK-<id> adds no Notes section; main\'s own words stay (a leading id stripped)', async () => {
+    for (const [said, want] of [[(id: string) => `TASK-${id}`, null], [(id: string) => `  ${id}  `, null], [(id: string) => `TASK-${id}: start with the happy path`, 'start with the happy path']] as const) {
+      const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}); await w.board(h, epic, ids)
+      const { next, seen } = ok(); await admitWith(h, d, spawn(said(ids[0])), next)
+      const b = String(seen[0].prompt); if (want) expect(b.endsWith(`## Notes\n${want}`)).toBe(true); else expect(b).not.toContain('## Notes\n')
+    }
+  })
   test('happy path: reserve -> store.claim -> worktree -> brief -> retype -> model -> cwd -> bind', async () => {
     const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}); await w.board(h, epic, ids)
     const { next, seen } = ok(); const r = await admitWith(h, d, spawn(`please do TASK-${ids[0]} carefully`), next)

@@ -28,7 +28,7 @@ const HEAD: Record<Role, string> = {
 export interface BriefIn {
   id: string; title: string; type: string; description?: string; scenarios?: string; contract?: string; notes?: string
   paths?: string[]; testPaths?: string[]; locked?: string[]; redCard?: string; greenCard?: string; deps?: { id: string; title: string; out?: string }[]
-  findings?: string[]; decisions?: string[]; handoff?: string; others?: string[]; protectedPaths?: string[]; shared?: string
+  findings?: string[]; decisions?: string[]; handoff?: string; others?: string[]; protectedPaths?: string[]; shared?: string; mission?: string; core?: string; slice?: string; uncovered?: string[]   // uncovered: set when the coverage rule is on (review.coverage.enforce); the scenario ids no locked test name carries
   sourceCommit?: string; diffStat?: string; diff?: string; audit?: string; report?: string; changelog?: string; flags?: string[]; question?: string; focus?: string
 }
 // contract JSON ({symbols:[{name,kind,params,returns,errors?,doc?,status}]} | {none,reason}) -> compact lines
@@ -43,22 +43,31 @@ export function renderContract(design?: string): string {
 const sec = (title: string, body?: string | string[]) => { const b = Array.isArray(body) ? body.join('\n') : body; return b?.trim() ? `## ${title}\n${b.trim()}` : '' }
 const join = (xs: string[]) => xs.filter(Boolean).join('\n\n')
 
+// Cache layout (ADR 0022): [plan block][task block]. The plan block holds only plan-level data (mission, protected paths, the landed core's interface,
+// the notes without paths), so it is byte-identical for every agent of the plan; ids, paths, notes slices and anything volatile go in the task block.
+export const planBlock = (b: Pick<BriefIn, 'mission' | 'protectedPaths' | 'core' | 'shared'>): string => {
+  const body = join([sec('Mission', b.mission), sec('Protected paths (never change them)', b.protectedPaths), sec('Shared core interface (landed; build on it, do not change it)', renderContract(b.core)), sec('Shared notes', cap(b.shared ?? '', 1000))])
+  return body ? `# PLAN\nContext shared by every task of this plan; your own task follows.\n\n${body}` : ''
+}
 export function brief(role: Role, b: BriefIn): string {
   const spec = (s: string[]) => cap(join(s), 4096), ctx = (s: string[]) => cap(join(s), 3072)
-  const notes = sec('Notes', cap(b.notes ?? '', 500)), head = HEAD[role]
+  const notes = sec('Notes', cap(b.notes ?? '', 500)), head = HEAD[role], plan = planBlock(b), mine = sec('Notes on your files', cap(b.slice ?? '', 1000))
   const contract = sec('Contract', renderContract(b.contract)), files = (why: string) => (b.paths?.length ? `\nFiles: ${b.paths.join(', ')}${why}` : '')   // the task's declared paths, in the task block
-  if (role === 'explorer') return join([head, `# ${b.question !== undefined ? 'QUESTION' : `TASK-${b.id}`}\n${b.question ?? b.title}`, sec('Scope', 'read-only; no edits, no shell'), notes])
+  if (role === 'explorer') return join([plan, head, `# ${b.question !== undefined ? 'QUESTION' : `TASK-${b.id}`}\n${b.question ?? b.title}`, sec('Scope', 'read-only; no edits, no shell'), mine, notes])
   if (role === 'tester')
-    return join([head, `# SPEC TASK-${b.id}${files(' (the code this task changes)')}`, spec([sec('Scenarios', b.scenarios), contract]), sec('Test paths', b.testPaths), sec('Shared notes', cap(b.shared ?? '', 1000)), sec('Folder', 'tests only; read FILES.md first: it lists what you can see (you cannot list directories)'), notes])
+    return join([plan, head, `# SPEC TASK-${b.id}${files(' (the code this task changes)')}`, spec([sec('Scenarios', b.scenarios), contract]), sec('Test paths', b.testPaths), mine, sec('Folder', 'tests only; read FILES.md first: it lists what you can see (you cannot list directories)'), notes])
   if (role === 'reviewer')
-    return join([head, `# REVIEW TASK-${b.id}${files(' (a change outside these files is a finding, not a fail on its own)')}`, sec('Source commit', b.sourceCommit), sec('Diff', [b.diffStat ?? '', cap(b.diff ?? '', 3072)]),
+    return join([plan, head, `# REVIEW TASK-${b.id}${files(' (a change outside these files is a finding, not a fail on its own)')}`, sec('Source commit', b.sourceCommit), sec('Diff', [b.diffStat ?? '', cap(b.diff ?? '', 3072)]),
       spec([sec('Scenarios', b.scenarios), contract, sec('Spec tests', b.locked)]),
-      ctx([sec('Red/green cards', [b.redCard ?? '', b.greenCard ?? '']), sec('Tester audit', b.audit), sec('Worker report', b.report), sec('Check', b.focus), sec('Changelog entry (context, written at merge) and commit header', b.changelog), sec('Flags', b.flags)]), notes])
-  return join([head, `# TASK-${b.id} ${b.title} (${b.type})${files(' (make your changes there)')}`, spec([sec('Description', b.description), sec('Scenarios', b.scenarios), contract]),
+      sec('Scenario coverage', b.uncovered && [COVER, ...(b.uncovered.length ? [`No spec test is named after: ${b.uncovered.join(', ')}. That alone means verdict changes.`] : [])]),
+      ctx([sec('Red/green cards', [b.redCard ?? '', b.greenCard ?? '']), sec('Tester audit', b.audit), sec('Worker report', b.report), sec('Check', b.focus), sec('Changelog entry (context, written at merge) and commit header', b.changelog), sec('Flags', b.flags)]), mine, notes])
+  return join([plan, head, `# TASK-${b.id} ${b.title} (${b.type})${files(' (make your changes there)')}`, spec([sec('Description', b.description), sec('Scenarios', b.scenarios), contract]),
     ctx([sec('Locked spec tests', [...(b.locked ?? []), b.redCard ?? '']), sec('Direct dependencies', (b.deps ?? []).map(d => `- ${d.id} ${d.title}${d.out ? `: ${d.out}` : ''}`)),
       sec('Findings / checks', [...(b.findings ?? []), b.greenCard ?? '']), sec('Decisions', b.decisions), sec('Handoff', b.handoff),
-      sec('Paths of other active tasks', (b.others ?? []).slice(0, 10)), sec('Protected paths', b.protectedPaths), sec('Shared notes', cap(b.shared ?? '', 1000))]), notes])
+      sec('Paths of other active tasks', (b.others ?? []).slice(0, 10))]), mine, notes])
 }
+// the reviewer's coverage rule (ADR 0022), task language: enforced by close (a pass with a missing or weak scenario is refused)
+export const COVER = 'Every scenario needs a spec test named after its id that really checks it. In coverage, give each scenario its test and ok:true only when that test truly checks the behavior; a scenario with no test, or a weak one (ok:false), means verdict changes with a major finding for it.'
 // ---- deltas (4.3): <= 1 KB per bound agentId, drained by the tool.call wrap into context, or by a queued resume ----
 const dk = (h: Host, agentId: string) => scoped(h, `deltas:${agentId}`)
 export async function pushDelta(h: Host, agentId: string, text: string): Promise<void> { const q = ((await h.store.get(await dk(h, agentId))) as string[] | undefined) ?? []; await h.store.set(await dk(h, agentId), [...q, text]) }

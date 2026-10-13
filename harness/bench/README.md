@@ -21,6 +21,7 @@ node harness/bench/bench.mjs table harness/out/bench/<grid>-<stamp> [--md]
 | `scaffold.mjs` | builds one run's repo: fixture, `.cadre/config.json` with the cell's `roles`, git main/dev/epic, the store with the plan approved |
 | `run.sh` | expands the grid, prints runs + $ + time, runs each headless via `harness/run.sh` (own `PROJECTS` dir per run, timeout `BUDGET`), judges, prints the table |
 | `bench.mjs` | `plan` (grid -> runs, estimate), `judge` (one run -> `result.json`), `table` |
+| `cache.mjs` | `node harness/bench/cache.mjs <evidence dir>`: the prompt-cache read share of every agent's first request, from the transcripts (grid `cache.json`, ADR 0022) |
 | `pass1.json`, `pass2.json`, `smoke.json`, `focus*.json` | grids: `tiers`, `n`, `only` (task ids), and either `workers`/`testers`/`reviewers` (cross product) or `cells: [{worker, tester, reviewer}]`, each `{tier: model, effort, escalate?}`; a haiku worker gets `escalate {after: 1, to: sonnet}` unless `escalateHaiku: false` |
 
 **Landed** = the task is closed in the store AND its hidden check passes on the epic branch. **First try** = landed with 0 rework rounds (`cadre.rework` + `cadre.rebase`) and one worker run. **Escalations** = runs recorded with `escalated` in task meta `cadre.runs`. **Review rejections** = the reviewer's `report` with verdict `changes` (its findings).

@@ -120,10 +120,10 @@ export async function watch(h: Host, d: Deps): Promise<void> {
 }
 
 // the core task landed: its files are locked for every other task of the plan (write jail); a needed change comes back as a blocked report, then a core-patch task
-export async function coreLanded(h: Host, d: Deps, files: string[]): Promise<void> {
+export async function coreLanded(h: Host, d: Deps, files: string[], contract?: string): Promise<void> {   // contract: the core task's interface, the plan block of every later brief (ADR 0022)
   const epic = (await h.board.read()).epic; if (!epic) return
   const all = [...new Set([...pathsOf({ meta: { 'cadre.paths': (await d.store.get(epic)).meta['cadre.corePaths'] ?? '' } }), ...files])]
-  await d.store.setMeta(epic, { 'cadre.corePaths': JSON.stringify(all) }, d.actor); await lockCore(h, d)
+  await d.store.setMeta(epic, { 'cadre.corePaths': JSON.stringify(all), ...(contract ? { 'cadre.coreContract': contract } : {}) }, d.actor); await lockCore(h, d)
 }
 export async function lockCore(h: Host, d: Deps, only?: string): Promise<void> {
   const s = await h.board.read(), files = s.epic ? pathsOf({ meta: { 'cadre.paths': (await d.store.get(s.epic)).meta['cadre.corePaths'] ?? '' } }) : []; if (!files.length) return

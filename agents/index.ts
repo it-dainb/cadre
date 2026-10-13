@@ -32,7 +32,9 @@ export function spec(role: Role, cfg: { roles: Roles; mcpAllow: readonly string[
   return { name: role, description: DESC[role], prompt: modelText('agent-brief', PROMPTS[role]), tools: allowlist(role, cfg.mcpAllow), ...(r.model ? { model: r.model } : {}), ...(r.effort && r.effort !== 'default' ? { effort: r.effort } : {}) }
 }
 // The plugin agent file agents/<role>.md, byte for byte (tests compare it with the shipped file). No model: admission sets it per spawn from config.
-// 1h cache TTL for worker/tester/reviewer/planner (A28, S44; a milestone's planners start minutes apart); the one-shot explorer keeps the 5 min default and low effort.
+// Prompt-cache TTL per role (A28, S44, ADR 0022): 1h for worker/tester/reviewer (same-role spawns are 5-60 min apart) and the planner (a milestone's planners
+// start minutes apart, ADR 0021); the one-shot explorer an explicit 5m (cheaper writes). Shipped in the files, so it is a fixed row in settings (config/route), not a knob. The explorer also keeps low effort.
+export const TTL: Record<Role, '5m' | '1h'> = { worker: '1h', tester: '1h', reviewer: '1h', explorer: '5m', planner: '1h' }
 export const ROLES: readonly Role[] = ['worker', 'tester', 'reviewer', 'explorer', 'planner']
 export const file = (role: Role): string => ['---', `name: ${role}`, `description: "${DESC[role]}"`, `tools: ${TOOLS[role].join(', ')}`,
-  ...(role === 'explorer' ? ['effort: low'] : ['experimental:', '  cacheTtl: 1h']), '---', PROMPTS[role], ''].join('\n')
+  ...(role === 'explorer' ? ['effort: low'] : []), 'experimental:', `  cacheTtl: ${TTL[role]}`, '---', PROMPTS[role], ''].join('\n')

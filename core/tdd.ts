@@ -10,6 +10,7 @@ import { ask, yoloOn } from './decide'
 import { fnv1a64 } from './board'
 import * as G from './git'
 import { auditView, matches, modeOf, pkgOf, rootOf, type Pkg } from './specview'
+import { untested } from './validate'
 import { policyOf, setPolicy } from '../policy/guards'
 import { queueResume } from './reuse'
 
@@ -154,6 +155,8 @@ export async function testerDone(h: Host, d: Deps, task: Task, wt: string, view:
   try { spec = await copyIn(h, d, task, wt, view, pkg) } catch (e) { await undo(); return { ok: false, why: String((e as Error).message), card: `red ✗ ${(e as Error).message}` } }
   const g = await red(h, d, task, wt, pkg, tests, !hasRed), card = `${g.card}\n${au.text}`
   if (!g.ok) { await undo(); return { ...g, card } }
+  const miss = d.cfg.review.coverage.enforce ? untested(task.acceptance, g.tests ?? []) : []   // ADR 0022: a scenario no test is named after never reaches the worker
+  if (miss.length) { await undo(); return { ok: false, why: `no test is named after ${miss.join(', ')}: write a test for every scenario and name it after the scenario id (e.g. "${miss[0]}: …")`, card: `red ✗ no test for ${miss.join(', ')}` } }
   const base = task.meta['cadre.base'] ?? spec, locked = await lockedOf(h.run, wt, base, spec, pkg)
   await setLocks(h, task.id, locked.map(p => `${wt}/${p}`))
   await d.store.setMeta(task.id, { 'cadre.specCommit': spec, 'cadre.red': card, 'cadre.specTests': JSON.stringify(g.tests ?? []), 'cadre.locked': JSON.stringify(locked), ...(steps.includes('worker') ? {} : { 'cadre.sourceCommit': spec }) }, d.actor)

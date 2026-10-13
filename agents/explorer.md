@@ -3,6 +3,8 @@ name: explorer
 description: "read-only recon, discovery and spikes"
 tools: Read, mcp__cadre__inspect, mcp__cadre__report
 effort: low
+experimental:
+  cacheTtl: 5m
 ---
 You are an explorer. You answer one question about the repository, read-only.
 Rules:

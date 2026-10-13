@@ -6,34 +6,30 @@
 import type { Host, MEpic, Snapshot } from '../types'
 import type { Task, TaskStore } from '../task-management/store'
 import type { TypeRegistry } from '../task-management/registry'
-import type { Deps } from './admission'
+import { protectedOf, type Deps } from './admission'
+import { planBlock } from './briefs'
 import { unbindAgent } from './board'
 import { emit } from './events'
 import { draftsOf, registryOf } from './dispatch'
 import { retouch } from './lanes'
 import { epicOf, planEpic, stopEpic } from './milestone'
-import { overlap, pathsOf, validateFields } from './validate'
+import { notesOf, pathsOf, sliceNotes, validateFields } from './validate'
 import { fieldsOf, twinOf } from '../native/tasks'
 import { limited } from './drive'
 
 const syms = (t: Task) => { try { const s = (JSON.parse(t.design || '{}').symbols ?? []).filter((x: any) => x.status !== 'unchanged'); return s.length ? ` · interface ${s.map((x: any) => `${x.name}(${(x.params ?? []).join(', ')}) -> ${x.returns}`).join('; ')}` : '' } catch { return '' } }
-// the plan's notes for these files: notes keyed by paths keep the overlapping ones (a note without paths is for every task); plain text is kept whole
-const notesFor = (raw: string | undefined, mine: string[]): string => {
-  if (!raw) return ''
-  try { const a = JSON.parse(raw); if (Array.isArray(a)) return a.filter(n => !n?.paths?.length || n.paths.some((p: string) => mine.some(q => overlap(p, q)))).map(n => `- ${n.text}`).join('\n') } catch {}
-  return raw
-}
-// the brief: the roadmap first (the same bytes for every planner of the milestone), then this epic, what landed before it, the locked files, its notes, the task types
+// the brief, in cache order: the plan block (the task agents' own: mission, protected paths, the landed core's interface, the notes without paths), the roadmap
+// (the same bytes for every planner of the milestone), then this epic, what landed before it, the locked files, the notes on its files, the task types
 export async function plannerBrief(h: Host, d: Deps, s: Snapshot, ep: MEpic): Promise<string> {
   const get = (id: string) => d.store.get(id).catch(() => null), es = s.plan?.epics ?? [], me = await d.store.get(ep.id), ms = s.epic ? await get(s.epic) : null, mine = pathsOf(me)
   const road = await Promise.all(es.map(async e => { const t = await get(e.id), p = pathsOf(t ?? undefined); return `- ${e.id} ${e.title}: ${t?.description.trim() ?? ''}${e.core ? ' · core' : ''}${e.deps.length ? ` · after ${e.deps.join(', ')}` : ''}${p.length ? ` · files ${p.join(', ')}` : ''}` }))
   const seen = new Set<string>(), walk = (id: string): void => { for (const x of epicOf(s, id)?.deps ?? []) if (!seen.has(x)) { seen.add(x); walk(x) } }; walk(ep.id)
   const landed = await Promise.all(es.filter(e => seen.has(e.id) && e.state === 'landed').map(async e => [`- ${e.id} ${e.title}`, ...(await d.store.list({ parent: e.id })).filter(t => t.category === 'done').map(t => `  - ${t.title}: files ${pathsOf(t).join(', ') || 'not declared'}${syms(t)}`)].join('\n')))
-  const locked = pathsOf({ meta: { 'cadre.paths': ms?.meta['cadre.corePaths'] ?? '' } }), notes = notesFor(ms?.meta['cadre.notes'], mine), reg = await registryOf(h)
-  return [`# Roadmap of milestone ${s.plan?.id}`, ...road,
+  const locked = pathsOf({ meta: { 'cadre.paths': ms?.meta['cadre.corePaths'] ?? '' } }), n = sliceNotes(notesOf(ms?.meta['cadre.notes']), mine, d.cfg.notes.slice), reg = await registryOf(h)
+  return [planBlock({ mission: s.mission ?? undefined, protectedPaths: protectedOf(d), core: ms?.meta['cadre.coreContract'] || undefined, shared: n.shared }), `# Roadmap of milestone ${s.plan?.id}`, ...road,
     `# PLAN-${ep.id} ${ep.title}`, `Goal: ${me.description.trim()}`, `Size: about ${ep.size ?? 'a few'} tasks${mine.length ? ` · files ${mine.join(', ')}` : ''}${ep.core ? ' · the core epic: the epics after it share its code, so keep it thin' : ''}`,
     landed.length ? `## Already landed (build on it)\n${landed.join('\n')}` : '', locked.length ? `## Locked files (shared code that landed; never plan a change to them)\n${locked.map(p => `- ${p}`).join('\n')}` : '',
-    notes ? `## Notes for these files\n${notes}` : '', `## Task types\n${Object.entries(reg).map(([t, x]) => `${t} ${x.pipeline.join('>')}`).join('; ')}`,
+    n.slice ? `## Notes for these files\n${n.slice}` : '', `## Task types\n${Object.entries(reg).map(([t, x]) => `${t} ${x.pipeline.join('>')}`).join('; ')}`,
   ].filter(Boolean).join('\n').slice(0, 8000)
 }
 
