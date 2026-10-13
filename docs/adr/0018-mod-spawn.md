@@ -1,12 +1,12 @@
 # 0018: cadre starts the task agents itself ($.agent.spawn)
 
-Status: accepted behind `drive.spawn` (default `main` until the gates below are met; see "Default").
+Status: accepted; `drive.spawn` defaults to `mod` since the gates below were met (see "Default" and "Results").
 
 ## Decision
 
 While drive runs a plan, cadre starts every task agent itself with `$.agent.spawn`, closes a task once its review passes, and completes a done
 epic, milestone or plan. Main is out of the per-step loop: it plans, talks to the user, and hears one line per landing on its next turn.
-`drive.spawn: 'mod' | 'main'` (user config, default `main`); the env `CADRE_SPAWN=mod|main` beats it; a non-interactive session runs `main`.
+`drive.spawn: 'mod' | 'main'` (user config, default `mod`); the env `CADRE_SPAWN=mod|main` beats it; a non-interactive session runs `main`.
 
 Why: in main mode every step is a main turn (`Continue: spawn TASK-x`), and each main turn re-reads ~100k of context. The bench put most of a
 landed task's cost on main, and it found main stalls (main messaged a finished tester instead of spawning the worker). Shorter relay prompts
@@ -83,10 +83,60 @@ Each agent's turn end runs the spawner again. Rework, escalation, effort, nudges
 
 ## Default
 
-`main` until: kit/git gates green, `SPIKE=<branch> harness/matrix.sh quick` 7/7, a mod-mode cell landing with no main stall, and a bench smoke
+Flipped to `mod` (9918502) once these held: kit/git gates green, `SPIKE=<branch> harness/matrix.sh quick` 7/7, a mod-mode cell landing with no main stall, and a bench smoke
 (main $ per landed task and main's share, before/after on the same grid). Success: main share < 25 %, no main-stall cells, the oracle's
 token-leak/guard checks clean. Results below.
 
 ## Results
 
-(filled at the flip)
+### Bench smoke (2026-10-13, `harness/probes/spawn/smoke.sh`, plugin ae06e6b, main sonnet, worker haiku·high, tester sonnet·medium, reviewer sonnet·high)
+
+Each run is one pre-approved bench plan (`harness/bench/scaffold.mjs`) judged by `harness/bench/bench.mjs judge` (landed = closed and the hidden
+check passes; cost from every transcript at the 5.5 prices). main = the bench's own way (`-p`, main spawns every step in the foreground);
+mod = stream-json stdin held open, the user types `/cadre continue` (a command frame: drive arms and cadre starts the agents).
+
+| task | mode | landed | main $ | roles $ | total $ | main share | s |
+|---|---|---|---|---|---|---|---|
+| l1-slug-max | main | 1/1 | 0.2109 | 0.0909 | 0.3017 | 70 % | 112 |
+| l1-slug-max | mod | 1/1 | 0 | 0.1006 | 0.1006 | 0 % | 121 |
+| l2-title-case | main | 1/1 | 0.2083 | 0.0998 | 0.3081 | 68 % | 127 |
+| l2-title-case | mod | 1/1 | 0 | 0.0819 | 0.0819 | 0 % | 126 |
+| s2-transfer | main | 1/1 | 0.2265 | 0.1316 | 0.3580 | 63 % | 134 |
+| s2-transfer | mod | 1/1 | 0 | 0.1292 | 0.1292 | 0 % | 141 |
+
+Main $ per landed task: $0.215 → $0 while the plan runs; total per landed task $0.32 → $0.10 (−68 %); wall time the same. Interactively main still
+takes one short turn per approval (it tells the user the plan runs: about one context read, $0.06 at 166k cached tokens in the first smoke, which
+had that turn by mistake) and reads the digest on its next turn; spread over a plan's tasks that keeps main's share under 25 % for plans of 3+
+light tasks and stays far below main mode's ~70 % for any size. The bench's own stdin change (a grid in both modes) is queued with the bench
+worker for after its focus pass.
+
+### Live cells (tui, sonnet, `single ready` + goal, LANDED=1)
+
+- mod1–mod3 (CADRE_SPAWN=mod) found and fixed, each with a test: the sweep racing a close; `$.process.run` in a removed worktree; the rework resume
+  nobody sent; the watchdog firing during main's approval turn (see Failure modes). mod3 landed on dev 1 min after approval (worker, reviewer).
+- No main stall: in mod1 the tester of p-xy2.2 finished and cadre itself started its worker (`$.agent.spawn (cadre)` … `worker p-xy2.2`); main's
+  transcript after approval holds only the approval briefs, no SendMessage and no spawn. The bench's stall (main messaging a finished tester instead
+  of spawning the worker) cannot happen: main is not in that loop.
+- The planning-phase goal-stop check is kept as it was (it refuses main's stop before a plan exists); after approval main's early stop no longer
+  matters, since nothing waits on it.
+
+### Matrix quick
+
+- `CADRE_SPAWN=mod` on cc44c4a: 6/7. continue-after-quit failed: the quit hit while admission was claiming for the spawner (owner written too late)
+  and the status line said "press 1" on the containment state (no dialog behind it; main idles at once in mod mode). Both fixed (b453d6f);
+  continue-after-quit then PASSED (landed in 3 min, $1.87).
+- On the flip commit 9918502 (default `mod`, no override), `harness/matrix.sh quick -j 3`, then the one flake rerun alone:
+
+| cell | verdict | failing invariant | s to plan | dialogs | turns | US$ | min |
+|---|---|---|---|---|---|---|---|
+| continue-after-quit | PASS | | 52 | 1 | 1 | 1.34 | 3 |
+| kill-mid-setup | FAIL → PASS on rerun | restart-named (layout flake) | 124 / 112 | 3 | 3 | 1.10 / 1.07 | 2 |
+| leftover-pointer | PASS | | 49 | 1 | 1 | 0.20 | 1 |
+| single-295-sonnet | PASS | | 88 | 3 | 2 | 1.23 | 2 |
+| single-via-ccr | PASS | | 105 | 3 | 2 | 0.29 | 2 |
+| user1-mono-clear-cd-retype | PASS | | 111 | 3 | 4 | 3.07 | 2 |
+| user2-nogit-lazy-interrupt | PASS | | 98 | 3 | 3 | 2.60 | 2 |
+
+  total $9.83 + $1.07. kill-mid-setup's first run: the `/cadre` answer was right ("Setup was interrupted · /cadre …") but the docked pane wrapped it
+  over two lines and the oracle's one-line pattern missed it (setup phase, no drive: the spawner is not involved); it passed alone. No token-leak,
+  error or refusal-loop invariant failed in any cell.
