@@ -23,11 +23,11 @@ const DESC: Record<Role, string> = {
 // allowlist for a role: its tools, plus the user's mcpAllow for the worker (SA: user-level S key)
 export const allowlist = (role: Role, mcpAllow: readonly string[] = []): string[] => [...TOOLS[role], ...(role === 'worker' ? mcpAllow : [])]
 
-export interface Roles { [k: string]: { tier?: string; effort?: string } }
-// A role's spec as config resolves it (init stage 6 renders one per role); model/effort come from config roles + models (tier -> alias), 'default' effort left out.
-export function spec(role: Role, cfg: { roles: Roles; models: Record<string, string>; mcpAllow: readonly string[] }) {
-  const r = cfg.roles[role] ?? {}
-  return { name: role, description: DESC[role], prompt: modelText('agent-brief', PROMPTS[role]), tools: allowlist(role, cfg.mcpAllow), ...(r.tier ? { model: cfg.models[r.tier] ?? r.tier } : {}), ...(r.effort && r.effort !== 'default' ? { effort: r.effort } : {}) }
+export interface Roles { [k: string]: { model?: string; effort?: string; byRisk?: Record<string, { model?: string; effort?: string }> } }
+// A role's spec as config resolves it (init stage 6 renders one per role): model/effort of its standard-risk cell (explorer: its own), 'default' effort left out.
+export function spec(role: Role, cfg: { roles: Roles; mcpAllow: readonly string[] }) {
+  const r0 = cfg.roles[role] ?? {}, r = r0.byRisk?.standard ?? r0
+  return { name: role, description: DESC[role], prompt: modelText('agent-brief', PROMPTS[role]), tools: allowlist(role, cfg.mcpAllow), ...(r.model ? { model: r.model } : {}), ...(r.effort && r.effort !== 'default' ? { effort: r.effort } : {}) }
 }
 // The plugin agent file agents/<role>.md, byte for byte (tests compare it with the shipped file). No model: admission sets it per spawn from config.
 // 1h cache TTL for worker/tester/reviewer (A28, S44); the one-shot explorer keeps the 5 min default and low effort.

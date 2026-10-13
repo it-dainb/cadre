@@ -21,6 +21,12 @@ const usd = (m, u) => { const [i, o, r] = PRICE[fam(m)]; return (u.in * i + u.ou
 // ---- plan: grid -> runs ----
 const tag = r => r ? `${r.tier}.${r.effort ?? 'default'}${r.escalate?.after ? `+esc.${r.escalate.to}` : ''}` : '-'
 const role = r => ({ tier: r.tier, effort: r.effort ?? 'default', ...(r.escalate ? { escalate: r.escalate } : {}) })
+// a grid's roles -> the config's explicit cells (ADR 0019): the cell's model/effort at every risk, its escalation on each; the reviewer keeps the deep review on
+// thorough (opus), as the bench measured it before routing was explicit
+const cfgRoles = roles => Object.fromEntries(Object.entries(roles).map(([x, r]) => [x, { byRisk: Object.fromEntries(['light', 'standard', 'thorough', 'core'].map(k => {
+  const m = x === 'reviewer' && k === 'thorough' ? 'opus' : r.tier
+  return [k, { model: m, effort: r.effort, escalate: r.escalate?.after ? { after: r.escalate.after, model: r.escalate.to, effort: r.effort } : { after: 0, model: m, effort: r.effort } }]
+})) }]))
 // $ per task by role and model, from the pilot's means (2026-10-12; main runs warm across parallel runs, a cold one costs ~3x)
 const EST = { main: 0.3, worker: { haiku: 0.005, sonnet: 0.05, opus: 0.15 }, tester: { haiku: 0.005, sonnet: 0.045, opus: 0.12 }, reviewer: { haiku: 0.01, sonnet: 0.075, opus: 0.2 } }
 const EFF = { low: 0.6, medium: 0.8, high: 1, xhigh: 1.4, max: 1.8, default: 1 }
@@ -33,7 +39,7 @@ if (cmd === 'plan') {
   }
   let usdSum = 0, min = 0, n = 0
   for (const c of cells) for (const [t, p] of tasks) for (let k = 1; k <= (g.n ?? 3); k++) {
-    console.log(`${c.name}|${t}|${k}|${JSON.stringify(c.roles)}`); n++
+    console.log(`${c.name}|${t}|${k}|${JSON.stringify(cfgRoles(c.roles))}`); n++
     const per = EST.main + ['worker', 'tester', 'reviewer'].reduce((a, x) => a + EST[x][c.roles[x].tier] * EFF[c.roles[x].effort], 0)
     usdSum += per * p.tasks.length; min += 2.5 * p.tasks.length   // pilot: ~2.2 min per task run
   }
@@ -75,13 +81,19 @@ function judge(dir) {
   const multi = p.tasks.length > 1
   // files the plan changed outside every declared path (CHANGELOG.md is cadre's own): reported, not failed
   const declared = new Set(['CHANGELOG.md', ...p.tasks.flatMap(t => t.paths)]), offPath = ref ? (sh('git', ['-C', work, 'diff', '--name-only', 'main', ref]) ?? '').split('\n').filter(f => f && !declared.has(f)) : []
+  // each task's squash commit on the checked ref (subject "<type>: <title>"): the files it changed; a dependent that changed the core's source files = the core lock did not hold
+  const log = ref ? (sh('git', ['-C', work, 'log', '--format=%H%x09%s', ref]) ?? '').split('\n').map(l => l.split('\t')) : []
+  const filesOf = t => { const c = log.find(([, s]) => s?.endsWith(`: ${t.title}`))?.[0]; return c ? (sh('git', ['-C', work, 'show', '--name-only', '--format=', c]) ?? '').split('\n').filter(Boolean) : null }
+  const coreSrc = p.tasks.filter(t => t.core).flatMap(t => t.paths.filter(x => !x.startsWith('test/')))
   const tasks = p.tasks.map(t => {
     const id = ids[t.key], j = JSON.parse(sh('bd', ['show', id, '--json']) ?? 'null'), x = (Array.isArray(j?.data ?? j) ? (j.data ?? j)[0] : j?.data ?? j) ?? {}, meta = x.metadata ?? {}
     const runs = (() => { try { return JSON.parse(meta['cadre.runs'] ?? '[]') } catch { return [] } })(), rework = (+meta['cadre.rework'] || 0) + (+meta['cadre.rebase'] || 0)
     const check = tip ? sh('node', ['--test', ...(multi ? [`--test-name-pattern=^${t.key}\\.`] : []), 'test/zz-bench-check.test.mjs'], { cwd: tip }) !== null : false
     const closed = x.status === 'closed', landed = closed && check
-    return { key: t.key, id, status: x.status ?? 'missing', closed, check, landed, rework, workerRuns: runs.filter(r => r.role === 'worker').length, escalations: runs.filter(r => r.escalated).length, runs,
-      firstTry: landed && rework === 0 && runs.filter(r => r.role === 'worker').length <= 1 }
+    const files = filesOf(t)
+    return { key: t.key, id, status: x.status ?? 'missing', files, ...(coreSrc.length && !t.core ? { touchesCore: !!files?.some(f => coreSrc.includes(f)) } : {}), reviewer: runs.filter(r => r.role === 'reviewer').map(r => `${r.model}/${r.effort}`), closed, check, landed, rework, workerRuns: runs.filter(r => r.role === 'worker').length, escalations: runs.filter(r => r.escalated).length, runs,
+      firstTry: landed && rework === 0 && runs.filter(r => r.role === 'worker').length <= 1,
+      stall: !closed && runs.length > 0 && !runs.some(r => r.role === 'worker') }   // main stopped after the tester step without spawning the worker: a driver stall, not the roles' doing
   })
   if (tip) rmSync(tip, { recursive: true, force: true })
   const roles = {}; for (const [k, v] of Object.entries(byRole)) { const r = k.split(':')[0]; roles[r] = (roles[r] ?? 0) + v.usd }
@@ -94,6 +106,10 @@ function judge(dir) {
     usd: { ...Object.fromEntries(Object.entries(roles).map(([k, v]) => [k, +v.toFixed(4)])), total: +Object.values(roles).reduce((a, b) => a + b, 0).toFixed(4) } }
   writeFileSync(join(dir, 'result.json'), JSON.stringify(res, null, 1)); return res
 }
+// open <run dir>: how many of the plan's tasks are not closed yet (stream mode's end condition); -1 when the store cannot be read
+if (cmd === 'open') { const ids = Object.values(JSON.parse(read(join(arg, 'scaffold.json')) || '{}').tasks ?? {}), env = { ...process.env, BEADS_DIR: join(arg, 'work/.cadre/store') }
+  const st = id => { try { const j = JSON.parse(execFileSync('bd', ['show', id, '--json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env })); return ((Array.isArray(j?.data ?? j) ? (j.data ?? j)[0] : j?.data ?? j) ?? {}).status } catch { return null } }
+  const s = ids.map(st); console.log(!ids.length || s.includes(null) ? -1 : s.filter(x => x !== 'closed').length) }
 if (cmd === 'spent') console.log(walk(arg).filter(f => basename(f) === 'result.json').reduce((a, f) => a + JSON.parse(read(f)).usd.total, 0).toFixed(2))
 if (cmd === 'judge') { const r = judge(arg); console.log(`${r.cell} ${r.task}#${r.k}${r.invalid ? ` INVALID ${r.invalid}` : ''} landed ${r.tasks.filter(t => t.landed).length}/${r.tasks.length} first-try ${r.tasks.filter(t => t.firstTry).length} rework ${r.tasks.reduce((a, t) => a + t.rework, 0)} $${r.usd.total} ${r.secs}s`) }
 
@@ -105,9 +121,9 @@ if (cmd === 'table') {
     const ts = v.flatMap(r => r.tasks), landed = ts.filter(t => t.landed).length, spent = v.reduce((a, r) => a + r.usd.total, 0), roleUsd = v.reduce((a, r) => a + r.usd.total - (r.usd.main ?? 0), 0)
     const [tier, cell] = k.split('|')
     return [tier, cell, `${v.length}`, `${landed}/${ts.length}`, `${Math.round(100 * ts.filter(t => t.firstTry).length / ts.length)}%`, (ts.reduce((a, t) => a + t.rework, 0) / ts.length).toFixed(2), `${ts.reduce((a, t) => a + t.escalations, 0)}`,
-      landed ? `$${(spent / landed).toFixed(2)}` : '-', landed ? `$${(roleUsd / landed).toFixed(2)}` : '-', `${(v.reduce((a, r) => a + r.secs, 0) / v.length / 60).toFixed(1)}`, `${v.filter(r => r.offPath?.some(f => f.startsWith('src/'))).length}/${v.length}`]
+      landed ? `$${(spent / landed).toFixed(2)}` : '-', landed ? `$${(roleUsd / landed).toFixed(2)}` : '-', `${(v.reduce((a, r) => a + r.secs, 0) / v.length / 60).toFixed(1)}`, `${v.filter(r => r.offPath?.some(f => f.startsWith('src/'))).length}/${v.length}`, `${ts.filter(t => t.stall).length}`]
   })
-  const head = ['tier', 'cell (worker_tester_reviewer)', 'runs', 'landed', 'first-try', 'mean rework', 'escalations', '$/landed (all)', '$/landed (roles)', 'min/run', 'src off declared paths']
+  const head = ['tier', 'cell (worker_tester_reviewer)', 'runs', 'landed', 'first-try', 'mean rework', 'escalations', '$/landed (all)', '$/landed (roles)', 'min/run', 'src off declared paths', 'main stalls']
   if (process.argv.includes('--md')) { console.log(`| ${head.join(' | ')} |\n|${head.map(() => '---').join('|')}|`); for (const r of rows) console.log(`| ${r.join(' | ')} |`) }
   else { const w = head.map((h, i) => Math.max(h.length, ...rows.map(r => r[i].length))); for (const r of [head, ...rows]) console.log(r.map((x, i) => x.padEnd(w[i])).join('  ')) }
   const rej = rs.flatMap(r => r.rejections.map(x => `${r.cell} ${r.task}: ${x.slice(0, 160)}`)); if (rej.length) console.log(`\nreview rejections (${rej.length}):\n${rej.slice(0, 40).join('\n')}`)

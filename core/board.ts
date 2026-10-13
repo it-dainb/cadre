@@ -1,6 +1,7 @@
 // Read model (DESIGN 2.5): snapshot, model/human views, CAS helper, binding table. Snapshot types live in types/index.d.ts.
 import type { Binding, Host, Snapshot, SnapTask } from '../types'
 import type { Task } from '../task-management/store'
+import { scoped } from '../commands/init'
 
 export const emptySnapshot = (repo = ''): Snapshot => ({
   schemaVersion: 1, seq: 0, repo, mission: null, epic: null, plan: null, tasks: [],
@@ -48,6 +49,17 @@ export const bindAgent = (h: Host, agentId: string, b: Binding) => h.bind.update
 export const unbindAgent = (h: Host, agentId: string) => h.bind.update(({ [agentId]: _gone, ...rest }) => rest)
 export const bindingOf = (t: Record<string, Binding>, agentId?: string): Binding | undefined => (agentId ? t[agentId] : undefined)
 export const agentsOf = (t: Record<string, Binding>, taskId: string): string[] => Object.keys(t).filter(a => t[a].taskId === taskId)
+// active tasks of this session at an agent step that no live agent runs (the tester reported: the worker is not spawned yet). The context line and drive name
+// the step for them instead of "running · wait" (live: main stalled there). Another session's claim (its hb owner) is never idle here.
+export async function idleOf(h: Host, s?: Snapshot): Promise<string[]> {
+  s ??= await h.board.read(); const b = Object.values(await h.bind.read()), me = await sessionOf(h), out: string[] = []
+  for (const t of s.tasks) {
+    if (t.state !== 'active' || !['tester', 'worker', 'explorer'].includes(t.step) || b.some(x => x.taskId === t.id && !x.retired && (x.step === t.step || !x.step))) continue   // no step: a spawn in flight
+    const o = (await h.store.get(await scoped(h, `hb:${t.id}`))) as { s?: string } | number | undefined
+    if (typeof o !== 'object' || !o?.s || o.s === me) out.push(t.id)
+  }
+  return out
+}
 
 // ui/ hooks register here at load (core never imports ui/, DESIGN 2.3): register.ts sets them.
 export const UI: { mapCard?: (h: Host, toolUseId: string, taskId: string) => Promise<unknown>; banner?: (h: Host, o: { decisions?: number; next?: string; stale?: number }) => Promise<void> } = {}

@@ -7,7 +7,8 @@ Metric: **cost per LANDED task** (all $ the runs spent / tasks landed), first-tr
 harness/bench/verify-refs.sh                 # no model: each hidden check fails on the fixture and passes with the reference solution
 harness/bench/run.sh harness/bench/pass1.json -n          # runs + estimate only
 harness/bench/run.sh harness/bench/pass1.json -j 4 --go   # a grid over $5 needs --go
-RESUME=harness/out/bench/<grid>-<stamp> harness/bench/run.sh <grid> --go   # redo only the invalid (budget, usage limit, harness) runs, same plugin commit
+RESUME=harness/out/bench/<grid>-<stamp> harness/bench/run.sh <grid> --go
+INPUT=stream SPAWN=mod SPIKE=<checkout> harness/bench/run.sh <grid> --go   # prompt on stdin (stream-json), held open until the plan's tasks are closed; mod = cadre spawns the agents   # redo only the invalid (budget, usage limit, harness) runs, same plugin commit
 node harness/bench/bench.mjs table harness/out/bench/<grid>-<stamp> [--md]
 ```
 

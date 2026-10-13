@@ -5,8 +5,7 @@ import type { Task, TaskStore } from '../task-management/store'
 import { StoreError } from '../task-management/store'
 import { defaults as typeDefaults, kindOf, merges, pipeOf } from '../task-management/registry'
 import type { TypeRegistry } from '../task-management/registry'
-import { defaults as cfgDefaults, resolve, envLayer } from '../config/index'
-import type { Config } from '../config/index'
+import { cfgOf } from '../config/index'
 import { canon, fnv1a64, stamp, withConditions } from './board'
 import { emit } from './events'
 import { ask, plural, settle, settleIf } from './decide'
@@ -27,10 +26,7 @@ export const ROUTES: Record<string, Route> = {}
 
 // store + config arrive through two optional Host members that register.ts wires (CONTRACTS)
 export const storeOf = (h: Host): Promise<TaskStore> => { const f = (h as any).taskStore; if (!f) throw new StoreError('Unavailable', 'no task store'); return f() }
-export async function cfgOf(h: Host): Promise<Config> {
-  const f = (h as any).config
-  return f ? f() : resolve([{ name: 'env', trust: 'user', value: envLayer(await h.env()) }]).config
-}
+export { cfgOf }   // the one config read path lives in config/index (ADR 0019)
 export const registryOf = async (h: Host): Promise<TypeRegistry> => ((await cfgOf(h)).types as TypeRegistry) ?? typeDefaults()
 
 // the recorded mission (stage 3 / approve of a mission draft): the newest open milestone. A new session's board is cold, beads is the truth.
@@ -82,7 +78,7 @@ export async function redraw(h: Host, store: TaskStore, reg: TypeRegistry): Prom
   await h.board.update(b => ({ ...b, approval: { planId, missing } }))
   if (!planId || missing.length) await settleIf(h, 'plan:')   // nothing to approve yet
   else {
-    const sc = (t: Task) => (t.acceptance ?? '').split('\n').filter(Boolean).length, m = await missionOf_(store, s), ll = laneLine(s.plan, drafts, reg), lo = laneOption(s.plan, drafts, reg)   // a mission card shows the mission itself
+    const sc = (t: Task) => (t.acceptance ?? '').split('\n').filter(Boolean).length, m = await missionOf_(store, s), ll = laneLine(s.plan, drafts, reg), lo = laneOption(s.plan, drafts, reg, (await cfgOf(h)).lanes)   // a mission card shows the mission itself
     const mis = await withMission(store, s), all = drafts.reduce((n, t) => n + sc(t), 0), k = (drafts.length > 5 ? 4 : 5) - (mis ? 1 : 0)   // body <= 6 lines, each fact once (BRAND P2): the count on the lane line, scenarios per task, none when 0
     await ask(h, { id: `plan:${planId}`, kind: 'plan', title: m ? `approve the mission · ${m.title}` : mis ? `approve the mission and plan ${planId}` : `approve ${isMs(s.plan) ? 'milestone' : 'plan'} ${planId}`, short: m ? 'approve the mission' : mis ? `approve mission + ${planId}` : `approve ${planId}`, tab: m ? 'epic' : 'plan', hash: planHash(drafts, m, (ll ?? '') + mis), change: `Change ${planId}: `,
       lines: m ? (m.description || m.title).split('\n').filter(Boolean).slice(0, 6) : [...(mis ? [`mission: ${goalOf(mis)}`] : []), ll ?? [plural(drafts.length, 'task'), ...(all ? [plural(all, 'scenario')] : [])].join(' · '), ...drafts.slice(0, k).map(t => t.type === 'epic' ? `  ${t.id}${t.meta['cadre.core'] === 'true' ? ' core' : ''} ${t.title} · ${plural(Number(t.meta['cadre.size']) || 0, 'task')}${t.deps.length ? ` · after ${t.deps.map(d => d.id).join(' ')}` : ''}` : `  ${t.id} ${t.type} ${t.title}${sc(t) ? ` · ${plural(sc(t), 'scenario')}` : ''}`), ...(drafts.length > k ? [`  +${drafts.length - k} more on the Board`] : [])],

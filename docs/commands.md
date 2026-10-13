@@ -60,36 +60,9 @@ Sync with an external tracker is separate and optional: `/cadre sync add <adapte
 ## Config
 Layers, low → high: built-in defaults → plugin `userConfig` → `~/.claude/cadre.json` (with per-repo sections) → repo `.cadre/config.json` (main checkout) → env (`CADRE_STRICTNESS`, `CADRE_STORE`, `CADRE_DISABLE`) → the Settings tab. **S** keys: a repo file may only tighten them. **U**: user-level only. **O**: ordinary.
 
-**Settings tab** (pane, hotkey `9`): groups Workflow, Agents & models, Drive, Cost, Sync, UI, Security; one row per key with its value, its source (`[default]` `[user]` `[repo]` `[env]`) and, for S keys, "tighten-only from repo", for U keys "user-level only". `n`/`p` move, `e` acts on the selected row (a bool toggles, an enum cycles, a number, text or list asks the new value in the dialog; a bad value is refused and asked again). Only a human press writes, and cadre writes the file, never Claude: `~/.claude/cadre.json` ("save for me", the default; a key already set in this repo's section stays there), or for O keys also the committed `.cadre/config.json` ("save to repo"). Every write keeps a `.bak` and is read back. S and U keys never go to the repo file; `strictness` cannot change while tasks run.
+**Settings tab** (pane, hotkey `9`): every setting, grouped by category (Drive and autonomy, Parallelism, Models and effort, Review, Planning, Git and branches, Checks and TDD, Safety and containment, Cache and context, Task store and sync, UI), one row per key with its effective value and its source: `default`, `user`, `repo`, `env`, `forced` (a Claude Code variable overrides it: `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` or `CLAUDE_CODE_EFFORT_LEVEL`; the row says what it does) or `fixed` (an invariant shown for transparency, not settable). The selected row shows its default, its layer rule ("tighten-only from repo" for S keys, "user-level only" for U keys) and what it does. `n`/`p` move, `e` acts on the selected row (a bool toggles, an enum cycles, a number, text, list or JSON value asks in the dialog; a bad value is refused with the reason and asked again). Only a human press writes, and cadre writes the file, never Claude: `~/.claude/cadre.json` ("save for me"; a key already set in this repo's section stays there), or for O keys also the committed `.cadre/config.json` ("save to repo"). Every write keeps a `.bak` and is read back. `strictness` cannot change while tasks run.
 
-| Key | Class | Default |
-|---|---|---|
-| `strictness` | S | `strict` (`advisory` turns denials into warnings) |
-| `mcpAllow` | S | `[]` |
-| `jail`, `jailWritable` | S | `auto`, `[]` |
-| `effectCheck` | S | `auto` |
-| `roles.testerView` | S | `view` (`full` = tester sees the worktree) |
-| `adapters.<name>` | U | none |
-| `store.kind`, `store.bin`, `store.dir` | U | `beads`, `bd`, repo |
-| `worktrees.root` | U | `${XDG_CACHE_HOME:-$HOME/.cache}/cadre/wt` |
-| `drive.{level,maxTurns,maxCostUsd,maxWallMinutes,noProgressTurns}` | U | `epic`, 100, 20, 240, 3 |
-| `drive.spawn` | U | `mod`: cadre starts, closes and lands the plan's tasks itself; main plans and talks (ADR 0018). `main`: main spawns each step. Env `CADRE_SPAWN=mod\|main` beats it; a non-interactive session (`-p`) runs `main` |
-| `cost.prices`, `disable` | U | none, `false` |
-| `store.timeoutMs`, `store.pollMs` | O | 45000, 10000 |
-| `types` | O | feature/bug/refactor/docs/test/spike |
-| `roles.<worker\|tester\|reviewer\|explorer>.{tier,effort}` · `roles.tdd.author` | O | standard/default (explorer fast/low) · `separate` |
-| `models` | O | `{fast: haiku, standard: sonnet, deep: opus}` |
-| `packages[]` | O | discovered and validated by `/cadre init` |
-| `suites.integration` | O | `all` |
-| `review.{deepLabels,maxRework}` · `limits.reportRetries` | O | `["security","breaking"]`, 3 · 3 |
-| `changelog.path` | O | `CHANGELOG.md` |
-| `branches.{main,dev,epicPrefix}` | O | init · `dev` · `epic/` |
-| `release.onEpicDone` | O | `propose` |
-| `ui.glyphs` | O | `unicode` (`ascii` for fonts without the glyphs) |
-| `maxParallel`, `maxRows` | O | 3, 6 |
-| `reuse.{maxContextPct,cacheTtlMs}` | O | 60, 3600000 |
-| `cost.{clearHintPct,compactPct}` | O | 40, 60 |
-| `sync.<target>` | O | none |
+The keys, their categories, allowed values, defaults and descriptions live in one table, `REG` in `config/defaults.ts` (ADR 0019); the Settings tab and `/cadre doctor` show it with the effective values. A bad key or value in any file is refused with a reason (doctor lists it) and the rest of the file still applies.
 
 ## Surfaces
 - **Band + `cadre` pane** (`ui/`): Epic and Plan tabs, approval sheet, events, timeline. Read-only clients of one versioned read model.

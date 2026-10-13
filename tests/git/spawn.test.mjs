@@ -28,7 +28,7 @@ const DESIGN = JSON.stringify({ symbols: [{ name: 'f', kind: 'fn', params: [], r
 async function world(n = 1, o = {}) {
   const d = mkdtempSync(join(tmpdir(), 'cadre-spawn-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
   writeFileSync(join(d, 'a.txt'), 'a\n'); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'init'); sh(d, 'branch', 'dev'); sh(d, 'branch', 'epic/p1-x', 'dev')
-  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.jail = 'off'; cfg.maxParallel = o.maxParallel ?? 3; cfg.packages = [{ root: '.', verify: ['verify'], checks: { verify: ['true'] } }]
+  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.jail = 'off'; cfg.maxParallel = o.maxParallel ?? 3; cfg.drive.spawn = o.mode ?? 'mod'; cfg.packages = [{ root: '.', verify: ['verify'], checks: { verify: ['true'] } }]
   const store = new MemoryStore(); await store.init({ types: {}, journal: true })
   const epic = await store.createEpic('E', 'goal'), ids = []
   for (let i = 0; i < n; i++) ids.push((await store.createDraft({ title: `task ${i}`, description: 'd', acceptance: 'S1: Given x When y Then z', design: DESIGN, type: 'refactor', parent: epic, meta: { 'cadre.package': '.', 'cadre.changelog': JSON.stringify({ none: true, reason: 'internal' }) } })).id)
@@ -53,12 +53,16 @@ async function world(n = 1, o = {}) {
 }
 const edit = (wt, f = 'b.txt', body = 'b\n') => writeFileSync(join(wt, f), body)
 
-test('mode: CADRE_SPAWN beats all; a non-interactive session is main\'s; else drive.spawn', async () => {
+test('mode: drive.spawn (CADRE_SPAWN maps onto it); a non-interactive session runs main unless CADRE_SPAWN=mod says so', async () => {
+  const { load } = await import('../../config/index.ts'), { settingsRows } = await import('../../config/route.ts')
   const h = fakeHost(); h.config = async () => defaults()
   assert.equal((await spawnMode(h)).mode, 'mod')   // the default
-  await h.ui.update(u => ({ ...u, headless: true })); h.config = async () => { const c = defaults(); c.drive.spawn = 'mod'; return c }
-  assert.equal((await spawnMode(h)).mode, 'main'); await h.ui.update(u => ({ ...u, headless: undefined })); assert.equal((await spawnMode(h)).mode, 'mod')
-  h.env = async () => ({ CADRE_SPAWN: 'main' }); assert.equal((await spawnMode(h)).mode, 'main')
+  await h.ui.update(u => ({ ...u, headless: true })); assert.equal((await spawnMode(h)).mode, 'main')
+  h.config = async () => { const c = defaults(); c.drive.spawn = 'main'; return c }; await h.ui.update(u => ({ ...u, headless: undefined })); assert.equal((await spawnMode(h)).mode, 'main')
+  h.config = async () => { const c = defaults(); c.drive.spawn = 'mod'; return c }; h.env = async () => ({ CADRE_SPAWN: 'mod' }); await h.ui.update(u => ({ ...u, headless: true })); assert.equal((await spawnMode(h)).mode, 'mod')   // a stream-json driver
+  const e = fakeHost({ env: { CADRE_SPAWN: 'main' } }); assert.equal((await load(e, { home: '/hm', root: '/r', repoKey: 'r' })).config.drive.spawn, 'main')   // env -> config, shown as [env]
+  const q = fakeHost(); delete q.config; await q.ui.update(u => ({ ...u, headless: true })); const row = (await settingsRows(q)).find(r => r.key === 'drive.spawn')
+  assert.deepEqual([row.value, row.src], ['main', 'forced']); assert.match(row.warn, /non-interactive session runs main/)
 })
 
 test('the spawner refuses a frame an agent\'s events are raised under, and a host without the spawn', async () => {

@@ -4,6 +4,7 @@
 // (turn.complete: a subagent's is not nested, probed; command.run). hooks/register.ts gives h.spawnAgent only to those frames; spawnStep refuses any other.
 import type { Host } from '../types'
 import { DRIVE, cfgOf, storeOf } from './dispatch'
+import { headlessMain } from '../config/index'
 import { modelView } from './board'
 import { spawnable } from './render'
 import { IDLE, drive, modOn, ready, stop, tally } from './drive'
@@ -16,12 +17,11 @@ import { emit } from './events'
 import { modelText } from './say'
 
 export const FRAMES = ['turn.complete', 'command.run']
-// the session's mode: CADRE_SPAWN beats all (a bench or a cell); a one-shot `-p` run exits once no agent runs, before an agent's turn end could start the next one, so it is main's; else drive.spawn
+// the session's mode: drive.spawn (CADRE_SPAWN maps onto it: config/index.envLayer); a non-interactive session runs main (config/index.headlessMain)
 export async function spawnMode(h: Host): Promise<{ mode: 'mod' | 'main'; why: string }> {
-  const env = (await h.env()).CADRE_SPAWN
-  if (env === 'mod' || env === 'main') return { mode: env, why: 'CADRE_SPAWN' }
-  if ((await h.ui.read()).headless) return { mode: 'main', why: 'a non-interactive session ends when no agent runs' }
-  return { mode: (await cfgOf(h)).drive.spawn === 'mod' ? 'mod' : 'main', why: 'drive.spawn' }
+  const c = await cfgOf(h), env = await h.env(), mode = c.drive.spawn === 'mod' ? 'mod' as const : 'main' as const
+  if (headlessMain(mode, env, !!(await h.ui.read()).headless)) return { mode: 'main', why: 'a non-interactive session ends when no agent runs' }
+  return { mode, why: env.CADRE_SPAWN ? 'CADRE_SPAWN' : 'drive.spawn' }
 }
 // the board says which mode runs while a run is on (main's context line and admission read it); a change is said once in Activity
 export async function syncMode(h: Host): Promise<void> {

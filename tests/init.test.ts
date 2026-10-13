@@ -512,3 +512,29 @@ describe('a goal run: main does not stop before the lane\'s step', () => {
     t += 2; await watch(m.h); await m.tick(); expect(m.sent).toEqual([expect.stringMatching(/^The goal is not planned yet/)])
   })
 })
+
+// ADR 0019 (user decision): Claude may write .cadre/config.json only in an init run, and cadre re-validates it after every write against the settings
+describe('the project settings file during init', () => {
+  const lease = async () => {
+    const { h, tick, files } = mk({ files: READY }); const EX = ['/', '/repo', '/repo/.cadre', '/hm', '/hm/u', '/hm/u/.claude', `${HOME}/.claude/plugins/store/cadre/guides`]
+    h.stat = async (p: string, o?: { resolve?: boolean }) => (EX.includes(p) || EX.includes(p.slice(0, p.lastIndexOf('/'))) ? { kind: 'file', realPath: o?.resolve ? p : undefined } : undefined)
+    Object.assign(h, { root: async () => `${HOME}/.claude/plugins/store/cadre` }); await setPolicy(h, { repo: ROOT, home: HOME, changelog: 'CHANGELOG.md' })
+    const call = async (tool: string, file_path?: string) => ((await guard(h, { tool, file_path, input: { file_path } }, () => 'ok')) as any)?.deny ?? 'ok'
+    return { h, tick, call, files }
+  }
+  test('Claude writes it in an init run only; a setup run and no run refuse it with where the user changes settings', async () => {
+    const a = await lease(); expect(await a.call('Write', CFG)).toBe('the project settings are changed by the user in the cadre pane (Settings, key 9); do not edit that file')
+    await start(a.h, 'init'); await a.tick(); expect(await a.call('Write', CFG)).toBe('ok')
+    const b = await lease(); await b.h.secret.update(s => ({ ...s, run: { kind: 'setup', at: 0, turns: 0, follow: 0, guide: `${HOME}/.claude/plugins/store/cadre/guides/setup.md`, snap: {} } }))
+    expect(await b.call('Write', CFG)).toBe('the project settings are changed by the user in the cadre pane (Settings, key 9); do not edit that file'); expect(await b.call('Write', `${ROOT}/CHANGELOG.md`)).toBe('ok')
+  })
+  test('a bad write is a red check naming each key and why: the checklist, the tool-result line and the stop refusal; fixing it clears it', async () => {
+    const { h, files } = mk({ files: { ...READY } }); await start(h, 'init')
+    files[CFG] = JSON.stringify({ ...JSON.parse(READY[CFG]), bogus: 1, review: { maxRework: 'many' }, drive: { maxTurns: 5 }, strictness: 'advisory', jail: 'off' })
+    const why = '.cadre/config.json: bogus: unknown key; review.maxRework: expected number; drive.maxTurns: user-level only, ignored in the repo file; strictness: the repo file may only tighten this key; a safety key: the repo file may only tighten this key; fix or remove these keys (the user sets the rest in the cadre pane)'
+    expect((await items(h))['settings file']).toBe(`fail: ${why}`)
+    expect(await redNote(h)).toContain(`settings file (${why})`)
+    expect(await stopCheck(h, {})).toContain(`settings file: ${why}`)
+    files[CFG] = READY[CFG]; expect((await items(h))['settings file']).toBeUndefined()
+  })
+})

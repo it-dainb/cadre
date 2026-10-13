@@ -8,7 +8,7 @@ quick() { cat <<'EOF'
 user1-mono-clear-cd-retype|monorepo leftover|user1|MODEL=opus CC_VERSION=2.1.296
 user2-nogit-lazy-interrupt|nogit|goal|MODEL=opus CC_VERSION=2.1.296 LAZY=1 FAULT=interrupt
 leftover-pointer|single ready leftover|goal|MODEL=sonnet CC_VERSION=2.1.296
-continue-after-quit|single ready|continue|MODEL=sonnet CC_VERSION=2.1.296 LANDED=1 BUDGET=1800
+continue-after-quit|single ready|continue|MODEL=sonnet CC_VERSION=2.1.296 LANDED=1 BUDGET=1800 PROXY=1
 single-295-sonnet|single|goal|MODEL=sonnet CC_VERSION=2.1.295
 single-via-ccr|single|goal|MODEL=opus CC_VERSION=2.1.296 VIA=ccr
 kill-mid-setup|nogit|kill|MODEL=sonnet CC_VERSION=2.1.296 FAULT=kill

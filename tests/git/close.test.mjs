@@ -47,7 +47,7 @@ test('lifecycle: claim -> report done -> review -> pass@C -> TaskUpdate complete
   const w = await world(), id = w.ids[0], { h, store, d } = w
   const a = await w.spawn(id); const wt = (await store.get(id)).meta['cadre.worktree']; assert.equal(a.agentId, 'ag1'); edit(wt)
   const out = await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' }); assert.match(out, /report accepted: commit \w{7}, 1 files/)
-  let t = (await h.board.read()).tasks[0]; assert.deepEqual([t.state, t.step], ['review', 'reviewer']); assert.match(t.card, /next: spawn TASK-m-2 \(reviewer\)/)
+  let t = (await h.board.read()).tasks[0]; assert.deepEqual([t.state, t.step], ['review', 'reviewer']); assert.match(t.card, /next: the worker has finished \(do not message it\)\. Now start a NEW agent for the reviewer step: Agent tool, prompt "TASK-m-2"/)
   const C0 = (await store.get(id)).meta['cadre.sourceCommit']; assert.equal(sh(wt, 'rev-parse', 'HEAD'), C0); assert.equal((await store.get(id)).category, 'review')
   assert.equal(t.owner, undefined); assert.match(nextAction(await h.board.read()), new RegExp(`spawn TASK-${id} \\(reviewer\\)`))   // no reviewer yet: main is told to spawn one, never "running"
   assert.match(String(await C.closeTask(h, w.dep, id)), /review-passed/)
@@ -218,4 +218,29 @@ test('a resolve task: claimed in the worktree that holds the merge; the worker r
   await w.spawn(id); assert.match(await w.rep('ag2', { ...w.pass, coverage: [], contractStatus: [] }), /pass@/)
   assert.equal(await C.closeTask(h, w.dep, id), null); assert.equal(sh(d, 'show', 'epic/p1-x:a.txt'), 'ours\ntheirs'); assert.match(sh(d, 'show', 'epic/p1-x:CHANGELOG.md'), /other \(x-1\)/)
   assert.equal(sh(d, 'merge-tree', '--write-tree', '--name-only', 'dev', 'epic/p1-x').split('\n').length, 1)   // the landing merges cleanly now
+})
+
+// ADR 0019: the limits are settings; changing each one changes the behaviour above
+test('settings: limits.nudges 0 auto-reports at the first stop; limits.attempts 1 blocks at the first failed run', async () => {
+  const w = await world(), id = w.ids[0]; w.dep.cfg.limits.nudges = 0; await w.spawn(id); edit((await w.store.get(id)).meta['cadre.worktree'])
+  await C.observeWith(w.h, w.dep, { agentId: 'ag1', reason: 'answer', answer: 'done' }, e => e)
+  const t = (await w.h.board.read()).tasks[0]; assert.deepEqual([t.state, t.flags.includes('auto-reported')], ['review', true])
+  const w2 = await world(), id2 = w2.ids[0]; w2.dep.cfg.limits.attempts = 1; await w2.spawn(id2); await C.observeWith(w2.h, w2.dep, { agentId: 'ag1', reason: 'error' }, e => e)
+  assert.equal((await w2.h.board.read()).tasks[0].state, 'blocked')
+})
+test('settings: limits.reportRetries 1 accepts the 2nd bad report unvalidated (flagged)', async () => {
+  const w = await world(), id = w.ids[0]; w.dep.cfg.limits.reportRetries = 1; await w.spawn(id); edit((await w.store.get(id)).meta['cadre.worktree']); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }); await w.spawn(id)
+  const bad = { ...w.pass, coverage: [] }
+  assert.match(await w.rep('ag2', bad), /attempt 1\//); assert.match(await w.rep('ag2', bad), /verdict accepted/); assert.ok((await w.h.board.read()).tasks[0].flags.includes('report-unvalidated'))
+})
+test('settings: limits.rebaseRounds 1 blocks a conflicting task after one rework', async () => {
+  const w = await movedEpic('b.txt', 'theirs\n'), { h, store, id } = w; w.dep.cfg.limits.rebaseRounds = 1; await store.setMeta(id, { 'cadre.rebase': '1' }, 'x')
+  assert.match(String(await C.closeTask(h, w.dep, id)), /still conflicts on the plan after 1 reworks/); assert.equal((await h.board.read()).tasks[0].state, 'blocked')
+})
+test('settings: review.maxRework 1 flags non-progress after the 2nd changes verdict', async () => {
+  const w = await world(), id = w.ids[0], { h, store } = w; w.dep.cfg.review.maxRework = 1; await w.spawn(id); const wt = (await store.get(id)).meta['cadre.worktree']
+  edit(wt); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }); await w.spawn(id)
+  const ch = { ...w.pass, verdict: 'changes', summary: 'fix it', findings: [{ severity: 'major', file: 'b.txt', line: 1, issue: 'wrong', fix: 'right' }] }
+  assert.match(await w.rep('ag2', ch), /changes \(1\/1\)/); edit(wt, 'b.txt', 'b1\n'); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'r1' })
+  await w.rep('ag2', ch); assert.ok((await h.board.read()).tasks[0].flags.includes('rework:2/1'))
 })

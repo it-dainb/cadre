@@ -3,9 +3,8 @@
 import type { View } from './model'
 import type { Row } from '../config/index'
 
-const GROUPS = ['Workflow', 'Agents & models', 'Drive', 'Cost', 'Sync', 'UI', 'Security']
-export const groupOf = (r: Row): string => r.cls === 'S' ? 'Security' : /^(roles|models|reuse)\b/.test(r.key) ? 'Agents & models' : r.key.startsWith('drive.') ? 'Drive' : r.key.startsWith('cost.') ? 'Cost' : /^(store|sync)\b/.test(r.key) ? 'Sync' : r.key.startsWith('ui.') ? 'UI' : 'Workflow'
-export const rowsOf = (v: View): Row[] => ((v.ui['settings.rows'] as Row[] | undefined) ?? []).slice().sort((a, b) => GROUPS.indexOf(groupOf(a)) - GROUPS.indexOf(groupOf(b)))   // stable: keeps the key order inside a group
-export const val = (r: Row): string => r.kind === 'list' ? `[${(r.value as unknown[]).join(', ')}]` : r.value === '' ? '(empty)' : String(r.value)
+export const groupOf = (r: Row): string => r.cat   // the registry's category; config/route sends the rows in category order
+export const rowsOf = (v: View): Row[] => (v.ui['settings.rows'] as Row[] | undefined) ?? []
+export const val = (r: Row): string => Array.isArray(r.value) ? `[${r.value.join(', ')}]` : r.value === '' ? '(empty)' : r.value && typeof r.value === 'object' ? JSON.stringify(r.value) : String(r.value)
 // what a press on the row does: the line after `config`
-export const actOf = (r: Row): string => r.kind === 'bool' ? `set ${r.key} ${!r.value}` : r.kind === 'enum' ? `set ${r.key} ${r.opts![(r.opts!.indexOf(String(r.value)) + 1) % r.opts!.length]}` : `edit ${r.key}`
+export const actOf = (r: Row): string => r.src === 'fixed' ? 'refresh' : r.kind === 'bool' ? `set ${r.key} ${!r.value}` : r.kind === 'enum' ? `set ${r.key} ${r.opts![(r.opts!.indexOf(String(r.value)) + 1) % r.opts!.length]}` : `edit ${r.key}`

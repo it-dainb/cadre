@@ -10,7 +10,7 @@ import { resolveDeps, type Deps } from './admission'
 import { agentsOf, unbindAgent } from './board'
 import { apply, STEP_CAT, transition } from './machine'
 import { emit } from './events'
-import { card, comment, commitMessage, noReportCard, type Rec } from './render'
+import { card, comment, commitMessage, noReportCard, startNew, type Rec } from './render'
 import { queueResume } from './reuse'
 import { checkpoint, resolveGit, sweep } from './effect'
 import { policyOf } from '../policy/guards'
@@ -21,7 +21,7 @@ import * as G from './git'
 import { decided, hardStop, limited, stop } from './drive'
 import { queueBrief } from './lanes'
 import { yoloOn } from './decide'
-import { ROUNDS, capAsk, coreLanded, refresh, rework, trial } from './rebase'
+import { capAsk, coreLanded, refresh, rework, trial } from './rebase'
 import { branchOf, epicOf, goOn } from './milestone'
 
 
@@ -112,7 +112,7 @@ async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any, aut
   if (!rv) await patch(h, t.id, x => ({ ...x, owner: undefined }))   // no reviewer yet: the next step is "spawn the reviewer", not "running" (live: main waited on a reviewer that never existed); a bound one is resumed below
   if (rv) await queueResume(h, { agentId: rv, taskId: t.id, text: `Re-review ${t.id}: the worker reworked. Review ${last ? `${sha7(last)}..` : ''}${sha7(C)} (sourceCommit ${C}) and report your verdict.` })
   const flags = ((await h.board.read()).tasks.find(x => x.id === t.id)?.flags) ?? []
-  await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'worker', to: 'review', green, ...st, commit: C, flags, next: rv ? 'reviewer resumed' : `spawn TASK-${t.id} (reviewer)` }) }))
+  await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'worker', to: 'review', green, ...st, commit: C, flags, next: rv ? 'reviewer resumed' : startNew(t.id, 'reviewer', 'worker') }) }))
   return `report accepted: commit ${sha7(C)}, ${st.files} files (+${st.add} −${st.del})${green ? `, verify ${green.ok ? '✓' : '✗'}` : ''}. Now in review; stop and wait.`
 }
 
@@ -157,7 +157,7 @@ async function verdict(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
   const bind = await h.bind.read(), w = ownerOf(bind, t.id, 'worker')
   const text = `Review of ${sha7(C)} asks for changes (${n}/${max}):\n${r.summary}\n${findings.map(f => `- [${f.severity}] ${f.file}${f.line ? `:${f.line}` : ''} ${f.issue}${f.fix ? ` (fix: ${f.fix})` : ''}`).join('\n')}\nFix them, then report done again.`.slice(0, 3000)
   if (w) await queueResume(h, { agentId: w, taskId: t.id, text })
-  await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'reviewer', to: 'worker', commit: C, flags: x.flags, next: w ? 'worker resumed' : `spawn TASK-${t.id} (worker)` }) }))
+  await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'reviewer', to: 'worker', commit: C, flags: x.flags, next: w ? 'worker resumed' : startNew(t.id, 'worker', 'reviewer') }) }))
   return `verdict accepted: changes (${n}/${max}). Stop.`
 }
 
@@ -181,7 +181,7 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
   if (r.role === 'tester') {
     const task = await d.store.get(t.id), g = await testerDone(h, d, task, task.meta['cadre.worktree'], b.worktree, r.tests, agentId)
     if (!g.ok) throw new Error(`red gate refused: ${g.why}\n${g.card}`)
-    await record(h, d, t.id, 'red', 'tester', { gate: 'red ✓' }, { summary: r.summary, tests: r.tests }); await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'tester', to: 'worker', flags: x.flags, next: `spawn TASK-${t.id} (worker)` }) }))
+    await record(h, d, t.id, 'red', 'tester', { gate: 'red ✓' }, { summary: r.summary, tests: r.tests }); await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'tester', to: 'worker', flags: x.flags, next: startNew(t.id, 'worker', 'tester') }) }))
     return `${g.card}\nred accepted; stop.`
   }
   if (r.role === 'explorer') return explorerDone(h, d, t, agentId!, r)
@@ -198,7 +198,7 @@ async function release(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
   const task = await d.store.get(t.id), n = num(task.meta['cadre.attempts']) + 1
   if (b.worktree) await checkpoint(h, d.store, d.actor, t.id, b.worktree).catch(() => {})
   await unbind(h, agentId, 'stopped', t.id); await d.store.setMeta(t.id, { 'cadre.attempts': String(n), 'cadre.nudge': '' }, d.actor)
-  if (n >= 3) { await blockTask(h, d, t, `${n} attempts ended without a report`, 'attempts', {}); return }
+  if (n >= d.cfg.limits.attempts) { await blockTask(h, d, t, `${n} attempts ended without a report`, 'attempts', {}); return }
   await apply(h, { kind: 'release', id: t.id, at: await h.now(), actor: 'mod' }, pipe(d)); await d.store.release(t.id, d.actor, why)
 }
 export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
@@ -206,7 +206,7 @@ export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
   if (!b || !t || !(t.step === b.step && STEP_CAT[b.step] === t.state)) return   // no binding, or it reported/moved on
   if (e.reason === 'answer') {
     const task = await d.store.get(t.id), [st, n] = (task.meta['cadre.nudge'] ?? '').split(':'), k = st === b.step ? num(n) : 0
-    if (k < 2) {
+    if (k < d.cfg.limits.nudges) {
       await d.store.setMeta(t.id, { 'cadre.nudge': `${b.step}:${k + 1}` }, d.actor); await queueResume(h, { agentId: e.agentId, taskId: t.id, text: NUDGE[b.role] })
       await patch(h, t.id, x => ({ ...x, card: noReportCard(x, b.role, b.step) }))   // (wrap builds the same card for the Agent result, which returns before this stop is observed)
       return
@@ -261,8 +261,8 @@ export async function closeTask(h: Host, d: Deps, id: string, actor: 'main' | 'm
   const back = () => G.git(h.run, wt, ['checkout', '-q', '-f', task.meta['cadre.branch']]).catch(() => {})   // squash detaches; a failed close returns the worker to its branch, its files intact for the rework
   const moved = async (why: 'conflict' | 'red', tip: string, files: string[], detail = '') => {   // the plan moved under it: its worker reworks it (core/rebase), past the cap it is blocked and asked
     const r = await rework(h, d, t, task, tip, why, detail); if (r) return r
-    await blockTask(h, d, t, `still ${why === 'red' ? 'red' : 'conflicting'} after ${ROUNDS} reworks`, why === 'red' ? 'merge-red' : 'conflict', {}); if (why === 'conflict') await capAsk(h, d, t, task, tip, files)
-    return `${id} still ${why === 'red' ? 'fails its checks' : 'conflicts'} on the plan after ${ROUNDS} reworks; it waits for the user. Go on with the other tasks.`
+    await blockTask(h, d, t, `still ${why === 'red' ? 'red' : 'conflicting'} after ${d.cfg.limits.rebaseRounds} reworks`, why === 'red' ? 'merge-red' : 'conflict', {}); if (why === 'conflict') await capAsk(h, d, t, task, tip, files)
+    return `${id} still ${why === 'red' ? 'fails its checks' : 'conflicts'} on the plan after ${d.cfg.limits.rebaseRounds} reworks; it waits for the user. Go on with the other tasks.`
   }
   { const tip = await G.tip(h.run, d.root, br), c = tip === base ? null : await trial(h, d.root, tip, C); if (c?.length) return moved('conflict', tip, c) }   // a trial merge first (git >= 2.38): no squash attempt to undo
   for (let i = 0; i < 2 && !sha; i++) {
@@ -376,8 +376,8 @@ ROUTES.resolve = async (h, c) => {
   const t = s0.tasks.find(x => x.id === a)
   if (t && b === 'rebase' && t.state === 'blocked') {   // the cap dialog's Retry (core/rebase.capAsk): one more round by the same worker
     const task = await d.store.get(a), tip = await G.tip(h.run, d.root, branchOf(s0, t))
-    await d.store.setMeta(a, { 'cadre.rebase': String(ROUNDS - 1), 'cadre.blocked': '' }, d.actor); await clear(h, a, 'conflict'); await clear(h, a, 'merge-red')
-    return { text: (await rework(h, d, (await h.board.read()).tasks.find(x => x.id === a)!, { ...task, meta: { ...task.meta, 'cadre.rebase': String(ROUNDS - 1) } }, tip, 'conflict')) ?? `${a}: not reworked` }
+    await d.store.setMeta(a, { 'cadre.rebase': String(d.cfg.limits.rebaseRounds - 1), 'cadre.blocked': '' }, d.actor); await clear(h, a, 'conflict'); await clear(h, a, 'merge-red')
+    return { text: (await rework(h, d, (await h.board.read()).tasks.find(x => x.id === a)!, { ...task, meta: { ...task.meta, 'cadre.rebase': String(d.cfg.limits.rebaseRounds - 1) } }, tip, 'conflict')) ?? `${a}: not reworked` }
   }
   if (!t || !['keep', 'accept', 'reject', 'cancel'].includes(b)) return { text: 'usage: /cadre resolve <taskId> keep|accept|reject|cancel · /cadre resolve git keep|restore' }
   const out = async (e: Promise<string | null>) => ({ text: (await e) ?? `${a}: ${b} done` })

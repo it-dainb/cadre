@@ -5,7 +5,7 @@ import { canon, fnv1a64 } from '../core/board'
 import { DRIVE, initConfirm, initPropose, missionOf } from '../core/dispatch'
 import { op } from '../core/git'
 import { settle } from '../core/decide'
-import { load } from '../config'
+import { cfgOf, repoFileDiag } from '../config/index'
 import type { Config } from '../config'
 import { diff as jdiff } from '../policy/settings'
 import { assess } from '../policy/containment'
@@ -77,7 +77,7 @@ async function audit(c: Ctx): Promise<{ why: string | null; caches: string[]; re
 }
 function workflow(c: Ctx): string | null {
   const errs = regErrors(c.cfg.types as any)
-  for (const r of ['worker', 'tester', 'reviewer', 'explorer'] as const) if (!spec(r, { roles: c.cfg.roles as any, models: c.cfg.models, mcpAllow: c.cfg.mcpAllow }).prompt) errs.push(`roles.${r} does not render`)
+  for (const r of ['worker', 'tester', 'reviewer', 'explorer'] as const) if (!spec(r, { roles: c.cfg.roles as any, mcpAllow: c.cfg.mcpAllow }).prompt) errs.push(`roles.${r} does not render`)
   return errs.length ? errs.join('; ') : null
 }
 async function changelog(c: Ctx): Promise<string | null> {
@@ -165,7 +165,7 @@ export async function clearKnownRed(h: Host, green: Red[], planId: string): Prom
 
 const ctxOf = async (h: Host): Promise<Ctx> => {
   const root = await h.cwd(), home = await h.home(), rk = repoKeyOf(root)
-  return { h, root, home, rk, cfg: (await load(h, { home, root, repoKey: rk })).config }
+  return { h, root, home, rk, cfg: await cfgOf(h) }
 }
 const it = (name: string, why: string | null, blocked = false): Item => (blocked ? { name, st: 'todo', why: 'after the steps above' } : why ? { name, st: 'fail', why } : { name, st: 'ok' })
 // The checklist (also doctor's project rows). Later phases that need an earlier one wait as `todo`; containment is proposed on its card once the rest passes.
@@ -174,7 +174,8 @@ export async function initItems(h: Host, o: { quick?: boolean } = {}): Promise<I
   const c = await ctxOf(h), r = await repo(c), s = r ? 'needs the repository first' : await store(c), m = await mission(c), p = packages(c)
   const a = !r && !s && !p && !o.quick ? await audit(c) : undefined, w = workflow(c), l = await changelog(c)
   const audited: Item = a && !a.why && a.red.length ? { name: 'commands pass on a clean checkout', st: 'ok', why: redLine(a.red) } : it('commands pass on a clean checkout', a?.why ?? null, !a)
-  const out = [it('repository', r), it('task store', s, !!r), m, it('build and test commands', p), audited, it('workflow', w), it('changelog', l)]
+  const sd = r ? [] : (await repoFileDiag(h)).map(d => d.replace(/\bjail\w*/g, 'a safety key'))   // red only: then the follow-up, the stop refusal and the tool-result line name it
+  const out = [it('repository', r), ...(sd.length ? [it('settings file', `.cadre/config.json: ${sd.join('; ')}; fix or remove these keys (the user sets the rest in the cadre pane)`)] : []), it('task store', s, !!r), m, it('build and test commands', p), audited, it('workflow', w), it('changelog', l)]
   const st = (await c.h.run(['find', c.root, '-maxdepth', '4', '(', '-name', '.git', '-o', '-name', 'node_modules', ')', '-prune', '-o', '-type', 'd', '-name', '.cadre', '-print', '-prune'])).stdout.split('\n').filter(p => p.endsWith('/.cadre') && p !== `${c.root}/.cadre`).map(p => p.replace(`${c.root}/`, ''))   // made from a shell left in a package folder (live 0.10.0). ponytail: 4 levels deep
   if (st.length) out.splice(1, 0, it('no setup folder outside the root', `${st.join(', ')} is not the project root's: delete ${st.length > 1 ? 'them' : 'it'} (rm -rf ${st.map(p => `${c.root}/${p}`).join(' ')})`))
   if (o.quick) return out

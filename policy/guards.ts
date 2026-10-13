@@ -67,12 +67,13 @@ export const LIMIT = { turns: 20, ms: 30 * 60_000, follow: 3 }
 export const leaseOf = async (h: Host) => { const r = (await h.secret.read()).run; return r && r.turns < LIMIT.turns && (await h.now()) - r.at < LIMIT.ms ? r : undefined }
 // The maintenance lease: while a human-started setup/init runs, main may Write/Edit only these, plus Read the guide's folder. Never source files, never a settings file
 // (permissions, hooks, sandbox) and never ~/.claude/cadre.json (it holds security keys): cadre writes those after the human confirms a card.
-const leased = (real: string, pol: Policy) => !!pol.repo && (under(real, `${pol.repo}/.cadre`) || ['.git/info/exclude', pol.changelog || 'CHANGELOG.md'].some(f => real === `${pol.repo}/${f}`))
+// .cadre/config.json only in an init run (ADR 0019): init re-validates it against the settings after every write; a setup run never needs it
+const leased = (real: string, pol: Policy, kind?: string) => !!pol.repo && ((under(real, `${pol.repo}/.cadre`) && (kind === 'init' || real !== `${pol.repo}/.cadre/config.json`)) || ['.git/info/exclude', pol.changelog || 'CHANGELOG.md'].some(f => real === `${pol.repo}/${f}`))
 // Claude Code settings files: no agent edits them, lease or not, cadre on or off during a run
 const SETTINGS = /(^|\/)\.claude\/settings[^/]*\.json$/, SETTINGS_DENY = 'these settings are applied for you after the human confirms them in the dialog'
 
 // Fence verdict for one file-tool call: undefined = allow-by-fence (continue), 'allow' = tester rule 2, else a deny reason.
-async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, input: unknown, pol: Policy, guide?: string): Promise<string | 'allow' | 'tmp' | undefined> {
+async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, input: unknown, pol: Policy, guide?: string, kind?: string): Promise<string | 'allow' | 'tmp' | undefined> {
   const tester = w.role === 'tester' && !w.main
   const fenced = FENCED.includes(tool) || (tool === 'Read' && !!pol.home && typeof (input as any)?.file_path === 'string' && (input as any).file_path.includes('/.claude/plugins/store/'))
   if (!tester && !fenced) return
@@ -83,7 +84,8 @@ async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, 
   if (FENCED.includes(tool) && (SETTINGS.test(p ?? '') || SETTINGS.test(real ?? ''))) return SETTINGS_DENY
   if (real === undefined) return 'that path cannot be used; give a plain path inside your working directory'
   if (tester) return under(real, w.b!.worktree) ? 'allow' : 'write only inside your working directory'
-  if (w.main && guide !== undefined && (tool === 'Read' ? under(real, guide.slice(0, guide.lastIndexOf('/'))) : leased(real, pol))) return 'allow'
+  if (w.main && guide !== undefined && (tool === 'Read' ? under(real, guide.slice(0, guide.lastIndexOf('/'))) : leased(real, pol, kind))) return 'allow'
+  if (w.main && FENCED.includes(tool) && pol.repo && real === `${pol.repo}/.cadre/config.json`) return 'the project settings are changed by the user in the cadre pane (Settings, key 9); do not edit that file'
   const own = w.owner && under(real, w.b!.worktree)
   if (!w.main && w.b && w.task?.state === 'blocked' && FENCED.includes(tool) && under(real, w.b.worktree)) return 'your task waits for a decision; stop now: you are resumed with the answer'   // live 0.9.0: "write only inside your working directory" sent a worker that had just reported spec_change looking for another place to write
   if (!w.main && !own) return under(real, (await h.env()).TMPDIR || '/tmp') ? 'tmp' : 'write only inside your working directory (or $TMPDIR)'   // positive jail: file tools are not OS-sandboxed (ADR 0006)
@@ -116,7 +118,7 @@ export const guard: Hook = async (h, e, next) => {
     const list = w.main ? (run ? [...MAIN_TOOLS, 'Bash'] : MAIN_TOOLS) : allowlist(w.role, w.role === 'worker' ? pol.mcpAllow : [])
     if (!list.includes(e.tool)) return `${e.tool} is not available to ${w.main ? 'main' : `the ${w.role}`}; use another tool`
     if (SHELL.includes(e.tool) && !run && !(w.role === 'worker' && w.owner && w.task?.step === 'worker')) return 'shell is available only while you implement your task; use run_check or inspect'
-    const f = await fence(h, w, e.tool, e, pol, run?.guide)
+    const f = await fence(h, w, e.tool, e, pol, run?.guide, run?.kind)
     return f === 'allow' || f === 'tmp' ? undefined : f
   }
   const why = await deny()
@@ -148,7 +150,10 @@ export const send: Hook = async (h, e, next) => {
   const b = (await h.bind.read())
   const own = (e.agentId && b[e.agentId]) || b[e.to]
   if (!own || (await h.ui.read()).drainTo === e.to) return next(e)   // cadre's own queued resume (core/reuse.sendMine) is exempt
-  const known = new Set((await h.board.read()).tasks.map(t => t.id))
+  const ts = (await h.board.read()).tasks, t = ts.find(x => x.id === own.taskId)
+  // main messaging an agent whose step is over (live: it re-prompted the finished tester as if it were the worker, then stopped): the next step is a NEW agent
+  if (!e.agentId && b[e.to] && t && t.step !== own.step) return { isDelivered: false, reason: modelText('deny', `${t.id}'s ${own.role} has finished; do not message it. ${t.step === 'merge' ? `Complete TASK-${t.id} (TaskUpdate ${t.id} completed)` : `Start the next agent with Agent prompt "TASK-${t.id}"`}`) }
+  const known = new Set(ts.map(x => x.id))
   const other = idsIn(`${e.to} ${e.text}`, known).find(id => id !== own.taskId)
   return other ? { isDelivered: false, reason: modelText('deny', `you work on ${own.taskId} only; do not name ${other}`) } : next(e)
 }

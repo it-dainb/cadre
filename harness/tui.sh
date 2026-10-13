@@ -6,7 +6,7 @@
 #   tui.sh wait-for <name> <regex> [secs=60] [pane|jsonl|debug]   exit 0 on match (prints the match), 1 on timeout
 #   tui.sh capture <name> [file]   pane text (to file or stdout);  jsonl <name>: transcript path(s);  debug <name>: debug log path
 #   tui.sh resize <name> <cols> <rows>;  restart <name> (quit claude, start it again in the same container);  stop <name>  (keeps $T/<name> evidence)
-#   more start env: CC_VERSION=2.1.296 (mount ~/.local/share/claude/versions/<v>), VIA=ccr (claude-code-router in between), LAZY=1 (lazy.txt appended to the system prompt), CWD=<subdir> (start there), SPIKE=<plugin checkout> (default: this repo)
+#   more start env: CC_VERSION=2.1.296 (mount ~/.local/share/claude/versions/<v>), VIA=ccr (claude-code-router in between), LAZY=1 (lazy.txt appended to the system prompt), CWD=<subdir> (start there), SPIKE=<plugin checkout> (default: this repo), PROXY=1 (bench/effort-proxy.mjs logs each request's model + effort to out/effort.jsonl; not with VIA=ccr)
 #   a scaffold may leave .harness-store.json in the work dir: merged into the plugin's $.store file before claude starts
 H=$(cd "$(dirname "$0")" && pwd); R=$(dirname "$H"); T=${TUI_DIR:-/tmp/cadre-tui}
 . "$H/check.sh"
@@ -41,7 +41,8 @@ start)
   docker exec "$C" sh -c "echo '{\"hasCompletedOnboarding\":true,\"theme\":\"dark\",\"projects\":{\"/work/run\":{\"hasTrustDialogAccepted\":true,\"hasCompletedProjectOnboarding\":true},\"$W\":{\"hasTrustDialogAccepted\":true,\"hasCompletedProjectOnboarding\":true}}}' > /cchome/.claude.json"
   # plugin $.store (one JSON file per plugin; id = name_source-<sha256(name@source)[:12]>): the fixture's seed, e.g. the machine-setup stamp
   [ -f "$D/work/.harness-store.json" ] && { docker exec -i "$C" sh -c 'mkdir -p -m 700 /cchome/.claude/plugins/store && cat > /cchome/.claude/plugins/store/cadre_inline-8e6dc893c684.json' <"$D/work/.harness-store.json"; rm "$D/work/.harness-store.json"; }
-  ENV=; [ "$VIA" = ccr ] && { K=$(docker exec -i "$C" bash -s <"$H/ccr-up.sh") || { echo "ccr: $K"; exit 1; }; ENV="ANTHROPIC_BASE_URL=http://127.0.0.1:3456 ANTHROPIC_AUTH_TOKEN=$K"; }
+  ENV=; [ -n "$PROXY" ] && { docker exec -d "$C" node /work/spike/harness/bench/effort-proxy.mjs /out/effort.jsonl; ENV="ANTHROPIC_BASE_URL=http://127.0.0.1:8899"; }   # PROXY=1: log each request's model + effort (never content or headers)
+  [ "$VIA" = ccr ] && { K=$(docker exec -i "$C" bash -s <"$H/ccr-up.sh") || { echo "ccr: $K"; exit 1; }; ENV="ANTHROPIC_BASE_URL=http://127.0.0.1:3456 ANTHROPIC_AUTH_TOKEN=$K"; }
   PLUG="--plugin-dir /work/spike"
   if [ "$CADRE_SOURCE" = marketplace ]; then PLUG=
     docker exec "$C" sh -c 'claude plugin marketplace add "it-dainb/cadre${CADRE_REF:+#$CADRE_REF}" && claude plugin install cadre@cadre' || exit 1

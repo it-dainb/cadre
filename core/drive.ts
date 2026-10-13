@@ -7,7 +7,7 @@ import { StoreError, type TaskStore } from '../task-management/store'
 import { controlOf } from '../task-management/sync-engine/loop'
 import { pipeOf } from '../task-management/registry'
 import { DRIVE, ROUTES, cfgOf, mirror, registryOf, storeOf } from './dispatch'
-import { fnv1a64, modelView, safe, sessionOf } from './board'
+import { fnv1a64, idleOf, modelView, safe, sessionOf } from './board'
 import { emit, subscribe } from './events'
 import { RUNS, nextAction, spawnable } from './render'
 import { ask, flagDecision, holds, yoloOn } from './decide'
@@ -61,7 +61,7 @@ export async function hardStop(h: Host, rec?: DriveRec): Promise<string | null> 
 }
 // a milestone's bounds cover all of it: the plan bounds times its epics (ADR 0015)
 const scaled = (dc: any, s: Snapshot) => { const k = s.plan?.epics?.length || 1; return k > 1 ? { ...dc, maxTurns: dc.maxTurns * k, maxCostUsd: dc.maxCostUsd * k, maxWallMinutes: dc.maxWallMinutes * k } : dc }
-const boundOf = (r: DriveRec, dc: any, cost: number, idle: number, now: number): string | null =>
+export const boundOf = (r: DriveRec, dc: any, cost: number, idle: number, now: number): string | null =>
   r.turns >= dc.maxTurns ? `max turns ${dc.maxTurns}` : cost >= dc.maxCostUsd ? `cost $${cost} ≥ $${dc.maxCostUsd}` : now - r.startedAt > dc.maxWallMinutes * 60_000 ? `max ${dc.maxWallMinutes} min` : idle >= dc.noProgressTurns ? `no progress in ${idle} turns` : null
 
 // a decision drive (or main under yolo) took without the human: a beads decision record linked to the plan + `drive.decided` for Activity and Doctor
@@ -175,7 +175,7 @@ export async function tally(h: Host, cfg: any, usd: number | undefined, go: numb
 // quiet: from the spawner at an agent's turn end (mod mode): only what is main's own (plan the next epic; yolo: a blocked task's question), never the same text twice
 export async function drive(h: Host, cfg: any, usd: number | undefined, quiet = false) {
   if (!(await ready(h)) || (await h.ui.read()).goal) return   // a queued brief goes out first (commands/agentrun.pump)
-  const s = await h.board.read(), mode: Mode = s.drive.mode ?? 'auto', nx = nextAction(modelView(s), modOn(s))   // mod mode: main is told only what is its own (ADR 0018)
+  const s = await h.board.read(), mode: Mode = s.drive.mode ?? 'auto', nx = nextAction(modelView(s), await idleOf(h, s), modOn(s))   // mod mode: main is told only what is its own (ADR 0018)
   const text = [nx !== 'wait' && nx !== RUNS ? `Continue: ${nx}` : '', ...(mode === 'yolo' ? await yoloAsks(await storeOf(h), s) : [])].filter(Boolean).join('\n')
   if (quiet && (!text || (await h.ui.read()).told === text)) return
   if (await tally(h, cfg, usd, text ? 1 : 0) && text) { await h.ui.update(u => ({ ...u, told: text })); await h.submit!(modelText('brief', text)) }   // plain text, never a slash command; from a turn end only (#1 or the spawner, after next)
@@ -227,7 +227,7 @@ export async function kick(h: Host, force = false): Promise<void> {
   const why = (await hardStop(h, rec)) ?? (rec ? boundOf(rec, scaled((await cfgOf(h)).drive, s), rec.cost ?? 0, rec.idle, await h.now()) : null); if (why) return stop(h, why)
   const g = await gate(h, s, d.mode ?? 'auto'); if (g?.stop) return stop(h, g.stop); if (g?.pause) return pause(h, g.pause)   // the gate still stands: say so (a resume that stalls quietly reads as running)
   if (d.paused) { await h.board.update(x => ({ ...x, drive: { ...x.drive, paused: undefined } })); await driveEvent(h, 'running') }
-  const nx = nextAction(modelView(s), modOn(s)), own = nx !== 'wait' && nx !== RUNS; if ((await h.ui.read()).goal || (!own && !(await idle(h)))) return
+  const nx = nextAction(modelView(s), await idleOf(h, s), modOn(s)), own = nx !== 'wait' && nx !== RUNS; if ((await h.ui.read()).goal || (!own && !(await idle(h)))) return
   const n = await casDrive(h, store, r => r && { ...r, turns: r.turns + 1 }); await h.board.update(x => ({ ...x, drive: { ...x.drive, turns: n?.turns ?? x.drive.turns } }))   // a push is a turn: the bound counts it
   await queueBrief(h, own ? `Continue: ${nx}` : IDLE)
 }

@@ -1,29 +1,35 @@
 // Config layers (DESIGN 12): defaults -> userConfig -> $HOME/.claude/cadre.json (+ repo section) -> repo .cadre/config.json -> env -> /cadre config set.
-// A bad layer is skipped with a diagnostic. The repo layer may only TIGHTEN S keys and may not set U keys.
+// A bad key or value is refused with a diagnostic (doctor shows them). The repo layer may only TIGHTEN S keys and may not set U keys. Metadata: REG (config/defaults).
 import type { Host } from '../types'
-import { CLASS, OPEN, TIGHTEN, defaults } from './defaults'
-import type { Cls, Config } from './defaults'
+import { repoKeyOf } from '../commands/init'
+import { CATS, REG, defaults } from './defaults'
+import type { Cat, Cls, Config, Meta } from './defaults'
 
-export { defaults } from './defaults'
-export type { Config } from './defaults'
+export { defaults, REG, CATS } from './defaults'
+export type { Config, Cat, Meta } from './defaults'
 export type Trust = 'user' | 'repo'
 export interface Layer { name: string; trust: Trust; value: unknown }
 
 const plain = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
-export const classOf = (path: string): Cls => {
-  for (let p = path; p; p = p.slice(0, Math.max(0, p.lastIndexOf('.')))) { if (CLASS[p]) return CLASS[p] }
-  return 'O'
-}
-const isOpen = (path: string) => OPEN.some(o => path === o || path.startsWith(o + '.'))
+// a key, or the free-form key it lives under
+const metaOf = (path: string): Meta | undefined => { for (let p = path; p; p = p.slice(0, Math.max(0, p.lastIndexOf('.')))) if (REG[p]) return REG[p]; return undefined }
+export const classOf = (path: string): Cls => metaOf(path)?.cls ?? 'O'
+const isOpen = (path: string) => !!metaOf(path)?.open
 
 // what a repo layer may do to an S key: result of tightening `base` with `val`
 export function tighten(path: string, base: unknown, val: unknown): unknown {
-  const r = TIGHTEN[path]; if (!r) return base
-  if (r[0] === 'bool') return val === r[1] ? val : base
-  if (r[0] === 'enum') { const o = r.slice(1); return o.indexOf(String(val)) > o.indexOf(String(base)) ? val : base }
-  if (r[0] === 'min') return typeof val === 'number' && val < (base as number) ? val : base
-  if (r[0] === 'grow') return Array.isArray(base) && Array.isArray(val) ? [...new Set([...base, ...val])] : base
+  const r = REG[path]?.tighten; if (!r) return base
+  if (r === 'enum') { const o = REG[path].opts!; return o.indexOf(String(val)) > o.indexOf(String(base)) ? val : base }
+  if (r === 'min') return typeof val === 'number' && val < (base as number) ? val : base
+  if (r === 'grow') return Array.isArray(base) && Array.isArray(val) ? [...new Set([...base, ...val])] : base
   return Array.isArray(base) && Array.isArray(val) ? base.filter(x => val.includes(x)) : base
+}
+// a value against its key's allowed values: null = fine, else why
+export function check(path: string, v: unknown): string | null {
+  const r = REG[path]; if (!r) return null
+  if (r.opts && !r.opts.includes(String(v))) return `expected one of: ${r.opts.map(o => o || "''").join(', ')}`
+  if (r.min !== undefined && (typeof v !== 'number' || !Number.isFinite(v) || v < r.min || v > r.max!)) return `expected a number from ${r.min} to ${r.max}`
+  return r.ok?.(v) ?? null
 }
 
 // merge one layer onto base; returns a new object and pushes a diagnostic for every ignored key
@@ -33,11 +39,12 @@ export function merge(base: Record<string, any>, layer: Record<string, any>, tru
     const p = path ? `${path}.${k}` : k
     if (!(k in base) && !isOpen(path)) { diag.push(`${p}: unknown key`); continue }
     const b = base[k]
-    if (!isOpen(p) && b != null && (plain(b) !== plain(v) || Array.isArray(b) !== Array.isArray(v) || typeof b !== typeof v)) { diag.push(`${p}: expected ${Array.isArray(b) ? 'a list' : plain(b) ? 'an object' : typeof b}`); continue }
+    if (!isOpen(p) && b != null && !REG[p]?.ok && (plain(b) !== plain(v) || Array.isArray(b) !== Array.isArray(v) || typeof b !== typeof v)) { diag.push(`${p}: expected ${Array.isArray(b) ? 'a list' : plain(b) ? 'an object' : typeof b}`); continue }
     if (plain(v) && plain(b) && !isOpen(p)) { out[k] = merge(b, v, trust, diag, p); continue }   // classes apply at the leaves
     if (trust === 'repo' && classOf(p) === 'U') { diag.push(`${p}: user-level only, ignored in the repo file`); continue }
     if (trust === 'repo' && p === 'packages' && Array.isArray(v)) { out[k] = relockKnownRed(base[k], v); continue }
-    if (trust === 'repo' && TIGHTEN[p]) { const t = tighten(p, base[k], v); if (JSON.stringify(t) !== JSON.stringify(v)) diag.push(`${p}: the repo file may only tighten this key`); out[k] = t; continue }
+    const bad = check(p, v); if (bad) { diag.push(`${p}: ${bad}`); continue }
+    if (trust === 'repo' && REG[p]?.tighten) { const t = tighten(p, base[k], v); if (JSON.stringify(t) !== JSON.stringify(v)) diag.push(`${p}: the repo file may only tighten this key`); out[k] = t; continue }
     out[k] = v
   }
   return out
@@ -63,7 +70,12 @@ export const envLayer = (e: Record<string, string | undefined>): Record<string, 
   ...(e.CADRE_STRICTNESS ? { strictness: e.CADRE_STRICTNESS } : {}),
   ...(e.CADRE_STORE ? { store: { kind: e.CADRE_STORE } } : {}),
   ...(e.CADRE_DISABLE !== undefined ? { disable: bool(e.CADRE_DISABLE) } : {}),
+  ...(e.CADRE_SPAWN ? { drive: { spawn: e.CADRE_SPAWN } } : {}),
 })
+// ADR 0018: a non-interactive session (claude -p) exits once no agent runs, before an agent's turn end could start the next one: drive.spawn mod runs as main
+// there, unless CADRE_SPAWN=mod says so (a driver that holds stream-json stdin open). Settings shows it as forced with this reason.
+export const HEADLESS = 'a non-interactive session runs main: it ends once no agent runs, before cadre could start the next one (CADRE_SPAWN=mod with stream-json input overrides)'
+export const headlessMain = (spawn: string, env: Record<string, string | undefined>, headless: boolean) => headless && spawn === 'mod' && env.CADRE_SPAWN !== 'mod'
 
 // Every layer through the Host, lowest first. `repoKey` selects the per-repo section of the home file; `root` = main checkout.
 export async function layersOf(h: Host, o: { home: string; root: string; repoKey: string }): Promise<Layer[]> {
@@ -79,28 +91,45 @@ export async function layersOf(h: Host, o: { home: string; root: string; repoKey
 }
 export const load = async (h: Host, o: { home: string; root: string; repoKey: string }) => resolve(await layersOf(h, o))
 
-// Settings tab rows (DESIGN 12): every non-free-form key with its class, default, effective value and the layer that set it. Source = the last layer whose
-// cumulative result differs from the one before it, so a repo value that was refused (tighten-only) is not the source. ponytail: a layer that sets a key to its default reads as [default].
-export type Src = 'default' | 'user' | 'repo' | 'env'
-export interface Row { key: string; cls: Cls; value: unknown; def: unknown; src: Src; kind: 'bool' | 'enum' | 'number' | 'text' | 'list'; opts?: string[] }
-const ENUM: [RegExp, string[]][] = [[/^ui\.glyphs$/, ['unicode', 'ascii']], [/^ui\.density$/, ['compact', 'normal', 'relaxed']], [/^roles\.\w+\.tier$/, ['fast', 'standard', 'deep']]]
-export const optsOf = (key: string): string[] | undefined => (TIGHTEN[key]?.[0] === 'enum' ? (TIGHTEN[key] as string[]).slice(1) : ENUM.find(([r, o]) => o.length && r.test(key))?.[1])
-const leaves = (o: unknown, p = ''): [string, unknown][] => (plain(o) && !isOpen(p) ? Object.entries(o).flatMap(([k, v]) => leaves(v, p ? `${p}.${k}` : k)) : isOpen(p) ? [] : [[p, o]])
-const at = (o: unknown, path: string) => path.split('.').reduce((a: any, k) => a?.[k], o)
-const srcOf = (n: string): Src => (n === 'env' ? 'env' : n === '.cadre/config.json' ? 'repo' : 'user')
-export function rows(layers: Layer[]): Row[] {
-  const steps = layers.map((_, i) => resolve(layers.slice(0, i + 1)).config)
-  return leaves(defaults()).filter(([k]) => k).map(([key, def]) => {
-    let src: Src = 'default', prev: unknown = def
-    steps.forEach((c, i) => { const v = at(c, key); if (JSON.stringify(v) !== JSON.stringify(prev)) src = srcOf(layers[i].name); prev = v })
-    const opts = optsOf(key)
-    return { key, cls: classOf(key), value: prev, def, src, kind: typeof def === 'boolean' ? 'bool' : opts ? 'enum' : typeof def === 'number' ? 'number' : Array.isArray(def) ? 'list' : 'text', ...(opts ? { opts } : {}) }
-  })
+// The one read path (ADR 0019): every module reads the effective config through cfgOf (core/dispatch re-exports it); tests/settings-registry fails on a bypass.
+// h.config (hooks/register) is this same load; a Host without it (tests, dev tools) loads the layers here.
+export async function cfgOf(h: Host): Promise<Config> {
+  const f = (h as any).config; if (f) return f()
+  const root = await h.cwd(); return (await load(h, { home: await h.home(), root, repoKey: repoKeyOf(root) })).config
+}
+export const strictOf = async (h: Host): Promise<string> => (await cfgOf(h).catch(() => undefined))?.strictness ?? 'strict'
+
+// what the repo file's own refusals are (unknown key, bad value or type, a safety key loosened, a user-level key): init re-checks them after every write (ADR 0019)
+export async function repoFileDiag(h: Host): Promise<string[]> {
+  const root = await h.cwd(), n = '.cadre/config.json: '
+  return resolve(await layersOf(h, { home: await h.home(), root, repoKey: repoKeyOf(root) })).diagnostics.filter(d => d.startsWith(n)).map(d => d.slice(n.length))
+}
+// Claude Code env vars that beat cadre's routing (it applies them whatever cadre passes): FORCE=1 puts every agent on CLAUDE_CODE_SUBAGENT_MODEL (unset: main's model);
+// CLAUDE_CODE_EFFORT_LEVEL beats every effort. CLAUDE_CODE_SUBAGENT_MODEL alone is only a default: cadre's agent.spawn model wins over it.
+export function forcedOf(env: Record<string, string | undefined>): { model?: string; effort?: string } {
+  const sm = env.CLAUDE_CODE_SUBAGENT_MODEL, f = /^(1|true)$/i.test(env.CLAUDE_CODE_SUBAGENT_MODEL_FORCE ?? '')
+  return { ...(f ? { model: sm && sm !== 'inherit' ? sm : "main's model" } : {}), ...(env.CLAUDE_CODE_EFFORT_LEVEL ? { effort: env.CLAUDE_CODE_EFFORT_LEVEL } : {}) }
 }
 
-// Strictness as resolved from every layer (userConfig, ~/.claude/cadre.json, repo, env); hosts without a wired config fall back to env/userConfig.
-export const strictOf = async (h: Host): Promise<string> =>
-  (await (h as any).config?.().catch(() => undefined))?.strictness ?? (await h.env()).CADRE_STRICTNESS ?? h.options.strictness ?? 'strict'
+// Settings rows (DESIGN 12, ADR 0019): every registered key with category, class, default, effective value and its source. Source = the last layer whose cumulative
+// result differs from the one before it, so a refused repo value is not the source; 'forced' = a Claude Code env var overrides it (`warn` says how).
+// ponytail: a layer that sets a key to its default reads as [default].
+export type Src = 'default' | 'user' | 'repo' | 'env' | 'forced' | 'fixed'
+export interface Row { key: string; cat: Cat; cls: Cls; desc: string; safety: boolean; value: unknown; def: unknown; src: Src; kind: 'bool' | 'enum' | 'number' | 'text' | 'list' | 'json'; opts?: string[]; warn?: string }
+const leaves = (o: unknown, p = ''): [string, unknown][] => (plain(o) && !isOpen(p) ? Object.entries(o).flatMap(([k, v]) => leaves(v, p ? `${p}.${k}` : k)) : [[p, o]])
+export const keysOf = () => leaves(defaults()).map(([k]) => k)
+const at = (o: unknown, path: string) => path.split('.').reduce((a: any, k) => a?.[k], o)
+const srcOf = (n: string): Src => (n === 'env' ? 'env' : n === '.cadre/config.json' ? 'repo' : 'user')
+export function rows(layers: Layer[], env: Record<string, string | undefined> = {}): Row[] {
+  const steps = layers.map((_, i) => resolve(layers.slice(0, i + 1)).config), fo = forcedOf(env)
+  return leaves(defaults()).map(([key, def]) => {
+    let src: Src = 'default', prev: unknown = def
+    steps.forEach((c, i) => { const v = at(c, key); if (JSON.stringify(v) !== JSON.stringify(prev)) src = srcOf(layers[i].name); prev = v })
+    const r = REG[key], opts = r.opts as string[] | undefined, mf = fo.model && /^roles\.\w+\.(byRisk\.\w+\.(escalate\.)?)?model$/.test(key), ef = fo.effort && /^roles\.\w+\.(byRisk\.\w+\.(escalate\.)?)?effort$/.test(key)
+    const warn = mf || ef ? [mf && `CLAUDE_CODE_SUBAGENT_MODEL_FORCE puts every agent on ${fo.model}`, ef && `CLAUDE_CODE_EFFORT_LEVEL puts every agent on effort ${fo.effort}`].filter(Boolean).join('; ') : undefined
+    return { key, cat: r.cat, cls: r.cls, desc: r.desc, safety: r.cls === 'S' || !!r.tighten, value: prev, def, src: warn ? 'forced' : src, kind: r.open ? 'json' : typeof def === 'boolean' ? 'bool' : opts ? 'enum' : typeof def === 'number' ? 'number' : Array.isArray(def) ? 'list' : 'text', ...(opts ? { opts } : {}), ...(warn ? { warn } : {}) }
+  }).sort((a, b) => CATS.indexOf(a.cat) - CATS.indexOf(b.cat))
+}
 
 // ASCII glyphs: `ui.glyphs: ascii`, TERM=dumb, or a non-UTF-8 locale (BRAND §6)
 export const asciiOf = (glyphs: string | undefined, env: Record<string, string | undefined>): boolean => {

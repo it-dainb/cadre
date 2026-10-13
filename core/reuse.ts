@@ -29,7 +29,7 @@ export async function queueResume(h: Host, r: { agentId: string; taskId: string;
 
 // fresh instead of resume (4.4.3): over maxContextPct, or idle past the cache TTL with context > 30 %. Window = 200k unless the model says otherwise.
 const ctxPct = (b: Binding) => Math.round((b.ctxTokens / 200_000) * 100)
-const stale = (b: Binding, now: number, cfg: any) => ctxPct(b) > cfg.reuse.maxContextPct || (now - (b.lastAt ?? b.startedAt) > cfg.reuse.cacheTtlMs && ctxPct(b) > 30)
+export const stale = (b: Binding, now: number, cfg: any) => ctxPct(b) > cfg.reuse.maxContextPct || (now - (b.lastAt ?? b.startedAt) > cfg.reuse.cacheTtlMs && ctxPct(b) > 30)
 async function retire(h: Host, a: string, b: Binding, why: string) {   // the agent stays bound but retired: admission rebinds it fresh with a computed handoff
   await h.bind.update(t => (t[a] ? { ...t, [a]: { ...t[a], retired: true } } : t))
   h.toast(`cadre: ${b.taskId} needs a fresh agent · spawn TASK-${b.taskId}`)
@@ -74,14 +74,14 @@ const add = (a: U, u: any): U => ({ in: a.in + (u.input_tokens ?? 0), out: a.out
 const plus = (a: U, b: U): U => ({ in: a.in + b.in, out: a.out + b.out, cr: a.cr + b.cr, cw: a.cw + b.cw, model: b.model ?? a.model })
 export const tokensOf = (u: U) => Math.round(u.in + 1.25 * u.cw + 0.1 * u.cr + 5 * u.out)
 export const cacheOf = (u: U) => (u.in + u.cr + u.cw ? Math.round((100 * u.cr) / (u.in + u.cr + u.cw)) : 0)
-export function usdOf(u: U, cfg: any): number | undefined {   // cost.prices: {<tier|alias>: {in, out, cacheRead, cacheWrite}} in $ per Mtok
-  const p = Object.entries((cfg.cost.prices ?? {}) as Record<string, any>).find(([k]) => u.model?.includes(cfg.models[k] ?? k))?.[1]
+export function usdOf(u: U, cfg: any): number | undefined {   // cost.prices: {<model alias>: {in, out, cacheRead, cacheWrite}} in $ per Mtok
+  const p = Object.entries((cfg.cost.prices ?? {}) as Record<string, any>).find(([k]) => u.model?.includes(k))?.[1]
   return p && (u.in * p.in + u.out * p.out + u.cr * (p.cacheRead ?? 0) + u.cw * (p.cacheWrite ?? 0)) / 1e6
 }
 const ck = (id: string) => `cadre:cost:${id}`
 export async function* step(h: Host, e: any, next: (e: any) => any): AsyncGenerator<any, any, any> {
-  const b = e.agentId && (await h.bind.read())[e.agentId], eff = b && (b.effort ?? (await safe(h, 'effort', async () => (await cfgOf(h)).roles[b.step === 'tester' ? 'tester' : b.role]?.effort)))
-  const r = yield* next(eff && eff !== 'default' ? { ...e, effort: eff } : e)   // TM-03: the effort admission routed for this run (core/risk.route), else roles.<role>.effort; 'default' keeps the agent file's frontmatter
+  const b = e.agentId && (await h.bind.read())[e.agentId], eff = b?.effort
+  const r = yield* next(eff && eff !== 'default' ? { ...e, effort: eff } : e)   // TM-03: the effort admission routed for this run (core/risk.route: roles.<role>.byRisk.<risk>, recorded on the binding); none = the agent file's
   if (r?.usage) await safe(h, 'cost', async () => {
     const id = e.agentId ?? 'main'
     await h.store.set(ck(id), add(((await h.store.get(ck(id))) as U) ?? zero(), r.usage)); const ak = await scoped(h, 'cost:all'); await h.store.set(ak, add(((await h.store.get(ak)) as U) ?? zero(), r.usage))
