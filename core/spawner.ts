@@ -47,11 +47,17 @@ export async function spawnStep(h: Host, event: string): Promise<void> {
 }
 // close every task whose review passed (squash into its epic, actor mod), then complete what is done: an epic of a milestone, the milestone, or the plan.
 // A close that fails (conflict, red on the plan tip) goes the usual way: its worker reworks it, past the cap it waits for the user. True when anything landed.
+let landing = false   // one close at a time per session: two turn ends at once never squash one task twice (the other frame just spawns)
 async function land(h: Host): Promise<boolean> {
+  if (landing) return false
+  landing = true
+  try { return await landAll(h) } finally { landing = false }
+}
+async function landAll(h: Host): Promise<boolean> {
   const d = await resolveDeps(h), closed = (st: string) => st === 'done' || st === 'cancelled'
   let n = 0
   for (const t of (await h.board.read()).tasks.filter(t => t.state === 'review' && t.step === 'merge')) {
-    const e = await closeTask(h, d, t.id, 'mod'); if (e) h.log(`${t.id} not landed: ${e}`); else { n++; await told(h, `${t.id} "${t.title}" landed`) }
+    const e = await closeTask(h, d, t.id, 'mod').catch((x: Error) => x.message); if (e) h.log(`${t.id} not landed: ${e}`); else { n++; await told(h, `${t.id} "${t.title}" landed`) }
   }
   const s = await h.board.read(), es = s.plan?.epics ?? [], done = (ep?: string) => s.tasks.length > 0 && s.tasks.every(t => (ep && t.epic !== ep) || closed(t.state))
   const go = es.length ? [...es.filter(e => e.state === 'running' && s.tasks.some(t => t.epic === e.id) && done(e.id)).map(e => e.id), ...(es.every(e => e.state === 'landed') ? [s.plan!.id] : [])] : done() ? [s.plan!.id] : []
