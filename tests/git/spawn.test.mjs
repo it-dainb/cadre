@@ -16,6 +16,7 @@ const { arm, kick, watchdog, IDLE } = await import('../../core/drive.ts')
 const { stopped } = await import('../../core/close.ts')
 const { spawnStep, spawnMode } = await import('../../core/spawner.ts')
 const { queueResume } = await import('../../core/reuse.ts')
+const { continueRun } = await import('../../core/session.ts')
 const { contextLine } = await import('../../core/render.ts')
 const { modelView } = await import('../../core/board.ts')
 
@@ -94,7 +95,7 @@ test('lint: one spawn site. $.agent.spawn only in register.ts spawner(); spawner
   for (const f of files) {
     const t = src(f)
     if (f !== 'hooks/register.ts') assert.doesNotMatch(t, /\$\.agent\.spawn\(|agent\.spawn\(\{/, `${f} starts an agent`)
-    if (!['core/spawner.ts', 'hooks/register.ts', 'types/index.d.ts'].includes(f)) assert.doesNotMatch(t, /spawnAgent/, `${f} uses the spawn`)
+    if (!['core/spawner.ts', 'hooks/register.ts', 'types/index.d.ts', 'core/drive.ts'].includes(f)) assert.doesNotMatch(t, /spawnAgent/, `${f} uses the spawn`)
   }
   const reg = src('hooks/register.ts'), lines = reg.split('\n')
   assert.equal(reg.match(/\$\.agent\.spawn\(/g).length, 1); assert.match(lines.find(l => l.includes('$.agent.spawn(')), /h\.spawnAgent = /)
@@ -174,4 +175,10 @@ test('a resume queued in the spawner\'s own frame (a close that sent the worker 
   const w = await world(1), id = w.ids[0]; await arm(w.h, 'auto'); await w.turn()
   await queueResume(w.h, { agentId: 'ag1', taskId: id, text: 'The plan moved on: resolve the conflicts, then report done again.' })
   await w.turn(); assert.deepEqual(w.sent.map(x => x[0]), ['ag1']); assert.match(w.sent[0][1], /resolve the conflicts/)
+})
+
+test('/cadre continue in mod mode: no step of main\'s -> no brief from a frame that spawns; a press (no frame) gets the idle turn', async () => {
+  const w = await world(1); await arm(w.h, 'auto')
+  await continueRun(w.h); assert.equal((await w.h.ui.read()).goal, undefined)
+  const { spawnAgent, ...press } = w.h; Object.setPrototypeOf(press, Object.getPrototypeOf(w.h)); await continueRun(press); assert.equal((await w.h.ui.read()).goal, IDLE)
 })

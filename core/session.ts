@@ -12,7 +12,7 @@ import { UI, agentsOf, isCold, leaseLive, modelView, safe, sessionOf, stamp, unb
 import { ring } from './events'
 import { RUNS, nextAction } from './render'
 import { queueCard, renderCard } from './briefs'
-import { IDLE, LEASE, arm, casDrive, hardStop, idle, modOn, stop } from './drive'
+import { IDLE, LEASE, arm, canSpawn, casDrive, hardStop, idle, modOn, stop } from './drive'
 import { DRIVE, ROUTES } from './dispatch'
 import { queueBrief } from './lanes'
 import { modelText } from './say'
@@ -183,8 +183,8 @@ export async function continueRun(h: Host): Promise<string> {
     drv = d.stopped ? `drive stopped: ${d.stopped} · 0: resume` : `drive ${d.mode ?? 'auto'}`
   } else drv = await arm(h, p.mode ?? 'auto')
   await h.ui.update(u => ({ ...u, cont: undefined }))
-  const b2 = await h.board.read(), self = modOn(b2), steps = [...new Set([...(self ? [] : go), ...nextAction(modelView(b2), self).split('; ').filter(x => x !== 'wait' && x !== RUNS)])]   // mod mode: the spawner starts them (ADR 0018)
-  if (steps.length) await queueBrief(h, `Continue plan ${p.id}: ${steps.join('; ')}.`); else if (await idle(h)) await queueBrief(h, IDLE)   // typed /cadre: its frame spawns at once and drops this brief (hooks/register.ts)
+  const b2 = await h.board.read(), self = modOn(b2), nx = nextAction(modelView(b2), self), steps = [...new Set([...(self ? [] : go), ...(nx === RUNS ? [] : nx.split('; ').filter(x => x !== 'wait'))])]   // mod mode: the spawner starts them (ADR 0018)
+  if (steps.length) await queueBrief(h, `Continue plan ${p.id}: ${steps.join('; ')}.`); else if (!canSpawn(h) && (await idle(h))) await queueBrief(h, IDLE)   // a typed /cadre is a frame that starts them itself; a press is not
   await savePointer(h)
   const n = `${s.tasks.filter(t => t.state === 'done').length}/${s.tasks.length} done`
   return [took.length ? `Picking up ${took.join(', ')}` : 'Nothing was in flight', drv, `${p.id} ${p.slug} ${n}`, ...(other.length ? [`${other.join(', ')} stay with another session`] : [])].join(' · ') + more   // the action first: the band press shows it as a short toast

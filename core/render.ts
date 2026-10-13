@@ -82,7 +82,7 @@ export function spawnable(s: Omit<Snapshot, 'seq' | 'cost'>, bind?: Record<strin
     ...ts.filter(t => isReady(t, ts) && live(t)).map(t => ({ id: t.id, role: 'claim' }))]
 }
 // mod mode (ADR 0018): what main hears when the plan's steps are all cadre's (spawn, complete a task or an epic)
-export const RUNS = 'wait: the tasks run by themselves and you hear when each lands; talk with the user or plan what is next'
+export const RUNS = 'wait: the tasks run by themselves and you hear when each lands, so talk with the user or plan what is next'
 export function nextAction(s: Omit<Snapshot, 'seq' | 'cost'>, mod = false): string {
   const ts = s.tasks as SnapTask[], a: string[] = []
   if (s.plan?.state === 'draft') return s.approval.missing.length ? 'complete the draft plan (see missing)' : `ask the human to approve ${s.plan.id}`

@@ -186,6 +186,7 @@ export const modOn = (s: Pick<Snapshot, 'drive'>) => !!(s.drive.on && !s.drive.s
 // mod mode (ADR 0018): only a turn end starts agents, and a dialog answer, a press or the timer is no frame to spawn from. With nothing running and work to
 // start, main gets one short turn whose end lets the spawner go (the idle fallback; the watchdog uses it too).
 export const IDLE = "Nothing for you to do: the plan's tasks go on by themselves. Reply in one line and stop."
+export const canSpawn = (h: Host) => !!h.spawnAgent   // this frame starts agents itself (core/spawner)
 export async function idle(h: Host): Promise<boolean> {
   const s = await h.board.read(), bind = await h.bind.read()
   return modOn(s) && (s.resumesQueued > 0 || (!Object.keys(bind).some(a => !a.startsWith('~')) && spawnable(modelView(s), bind).length > 0))   // a resume nobody sent: a main turn's end drains it
