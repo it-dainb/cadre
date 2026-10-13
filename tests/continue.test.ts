@@ -161,6 +161,17 @@ describe('continue after exit', () => {
     expect(line).toMatch(/· 1 needs you · press 1 to answer$/); expect(line).toContain('drive auto')
   })
 
+  test('continue typed while the tick rehydrates: the command reads the board the tick built, not the cold one its first read saw', async () => {
+    const m = await running('auto'), tick = await after(m, 40_000)
+    // the engine: a dispatch reads the moment of its first get; a write of its own (a compare-and-set miss included) moves it on
+    let seen: any, pinned = true
+    const cmd = { ...tick, board: { read: async () => (pinned ? (seen ??= await tick.board.read()) : tick.board.read()), update: async (fn: any) => { pinned = false; return tick.board.update(fn) } } } as any
+    await cmd.board.read()   // the command's first get: the board is still cold
+    const t = rehydrate(tick)   // the 5 s tick's flight
+    const line = await continueRun(cmd); await t
+    expect(line).toMatch(new RegExp(`^Picking up ${m.a} worker, ${m.b} reviewer · drive auto · ${m.epic} auth 0/3 done`))
+  })
+
   test('the band press (drive continue) is the same command; nothing open: the one line', async () => {
     const m = await running('auto'), h2 = await after(m, 40_000)
     const r = await ROUTES.drive!(h2, { schemaVersion: 1, cmd: 'drive', args: ['continue'], origin: { kind: 'press' } } as any)

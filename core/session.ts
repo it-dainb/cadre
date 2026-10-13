@@ -110,9 +110,15 @@ async function reask(h: Host, store: TaskStore, plan: Snapshot['plan'] & {}) {
 }
 // 'gone': the store answers and has no such epic · 'down': no answer (setup writes the config before it makes the store, live): resume later, never onto a board the store cannot back
 const recordOf = async (h: Host, id: string) => { try { await (await storeOf(h)).get(id); return 'ok' } catch (x) { return x instanceof StoreError && x.code === 'NotFound' ? 'gone' : 'down' } }
-// one at a time: a rehydrate takes seconds of store calls, and a hook arriving meanwhile (a reviewer's report right after a /clear, live) must see the finished board, not a half-built one
+// one at a time: a rehydrate takes seconds of store calls, and a hook arriving meanwhile (a reviewer's report right after a /clear, live) must see the finished board, not a half-built one.
+// Joining another dispatch's flight (the 5 s tick's) is not enough: every $.state get of one dispatch reads the moment of its first get, and only a write of its own moves that
+// moment on (a compare-and-set miss included). So the joiner writes once (unchanged) to read the board the flight built. Without it a /cadre continue typed while the tick
+// rehydrated read the cold board and answered "nothing to continue" over the band's unfinished plan (harness continue-after-quit).
 let flight: Promise<boolean> | undefined
-export const rehydrate = (h: Host): Promise<boolean> => (flight ??= hydrate(h).finally(() => { flight = undefined }))
+export async function rehydrate(h: Host): Promise<boolean> {
+  if (!flight) return (flight = hydrate(h).finally(() => { flight = undefined }))
+  const r = await flight; await h.board.update(b => b); return r
+}
 async function hydrate(h: Host): Promise<boolean> {
   const b0 = await h.board.read()
   if (!isCold(b0) || b0.epic) return false
