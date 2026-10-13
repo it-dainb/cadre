@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { card, comment, commitMessage, contextLine, nextAction, subject, tag, taskText } from '../core/render'
+import { card, comment, commitMessage, contextLine, nextAction, spawnable, subject, tag, taskText } from '../core/render'
 import { emptySnapshot, modelView } from '../core/board'
 import { task } from './support'
 import { GOLD } from './fixtures/render/golden'
@@ -28,6 +28,20 @@ describe('main context line (DESIGN 4.5)', () => {
   test('conditional-blocks: ready only when the upstream failed (cancelled)', () => {
     const mk = (up: 'done' | 'cancelled') => ({ ...snap(), tasks: [task('u', { state: up }), task('f', { deps: [{ id: 'u', type: 'conditional-blocks' }] })] })
     expect(contextLine(modelView(mk('cancelled')))).toContain('ready: f'); expect(contextLine(modelView(mk('done')))).not.toContain('ready')
+  })
+})
+
+describe('spawnable: what an agent should start for, as data', () => {
+  test('reviewers nobody runs, then every ready task; nextAction words the same (one ready per turn)', () => {
+    const s = { ...snap(), tasks: [...snap().tasks, task('a8', { state: 'review', step: 'reviewer' })] }
+    expect(spawnable(modelView(s))).toEqual([{ id: 'a8', role: 'reviewer' }, { id: 'a1', role: 'claim' }, { id: 'a4', role: 'claim' }])
+    expect(nextAction(modelView(s))).toBe('complete TASK-a5; a6 waits for the user (go on with the rest); spawn TASK-a8 (reviewer); spawn TASK-a1')
+  })
+  test('with the bindings: an active step no live agent runs; a reservation, a live agent of that role or a retired one decide it', () => {
+    const s = modelView({ ...snap(), tasks: [task('a2', { state: 'active', step: 'worker' }), task('a3', { state: 'active', step: 'tester' }), task('a9', { state: 'active', step: 'worker' })] })
+    expect(spawnable(s, { g1: { taskId: 'a2', role: 'tester' }, '~a3': { taskId: 'a3', role: 'tester' }, g9: { taskId: 'a9', role: 'worker', retired: true } })).toEqual([{ id: 'a2', role: 'worker' }, { id: 'a9', role: 'worker' }])
+    expect(spawnable(s, { g2: { taskId: 'a2', role: 'worker' }, g3: { taskId: 'a3', role: 'tester' }, g9: { taskId: 'a9', role: 'worker' } })).toEqual([])
+    expect(spawnable(s)).toEqual([])   // without them: nextAction's view (main reads the cards for those)
   })
 })
 

@@ -71,15 +71,24 @@ export function contextLine(s: Omit<Snapshot, 'seq' | 'cost'>): string {
   if (s.approval.missing.length) parts.push(`missing: ${s.approval.missing.join('; ')}`)
   return `${parts.filter(Boolean).join(' · ').slice(0, 1000)}\nnext: ${nextAction(s)}`
 }
+// what an agent should start for now, as data (ADR 0018: the spawner runs these itself; nextAction words them for main): reviewers nobody runs, then every
+// ready task of a live epic (role 'claim': admission picks its first step). With the binding table, also active steps no live agent runs (tester -> worker, a decision).
+export function spawnable(s: Omit<Snapshot, 'seq' | 'cost'>, bind?: Record<string, { taskId: string; role: string; retired?: boolean }>): { id: string; role: string }[] {
+  const ts = s.tasks as SnapTask[], es = s.plan?.epics ?? [], live = (t: SnapTask) => !t.epic || es.find(e => e.id === t.epic)?.state === 'running'   // milestone (ADR 0015): a stopped epic's tasks wait
+  const runs = (t: SnapTask) => Object.entries(bind ?? {}).some(([a, b]) => b.taskId === t.id && (a.startsWith('~') || (b.role === t.step && !b.retired)))
+  return [...ts.filter(t => t.state === 'review' && t.step === 'reviewer' && !t.owner && !runs(t)).map(t => ({ id: t.id, role: 'reviewer' })),
+    ...(bind ? ts.filter(t => t.state === 'active' && (t.step === 'tester' || t.step === 'worker') && !runs(t)).map(t => ({ id: t.id, role: t.step })) : []),
+    ...ts.filter(t => isReady(t, ts) && live(t)).map(t => ({ id: t.id, role: 'claim' }))]
+}
 export function nextAction(s: Omit<Snapshot, 'seq' | 'cost'>): string {
   const ts = s.tasks as SnapTask[], a: string[] = []
   if (s.plan?.state === 'draft') return s.approval.missing.length ? 'complete the draft plan (see missing)' : `ask the human to approve ${s.plan.id}`
   a.push(...ts.filter(t => t.state === 'review' && t.step === 'merge').map(t => `complete TASK-${t.id}`))
   const y = s.drive?.on && !s.drive.stopped && s.drive.mode === 'yolo'   // yolo: main answers blocked tasks itself (core/drive)
   a.push(...ts.filter(t => t.state === 'blocked').map(t => (y ? `decide ${t.id} yourself (TaskUpdate ${t.id} metadata.decision)` : t.flags.includes('spec_change') ? `wait: the user decides the spec change of ${t.id} in its own dialog` : `${t.id} waits for the user (go on with the rest)`)))   // live: main asked the spec change a second time
-  a.push(...ts.filter(t => t.state === 'review' && t.step === 'reviewer' && !t.owner).map(t => `spawn TASK-${t.id} (reviewer)`))
-  const es = s.plan?.epics ?? [], live = (t: SnapTask) => !t.epic || es.find(e => e.id === t.epic)?.state === 'running'   // milestone (ADR 0015): a stopped epic's tasks wait
-  const r = ts.find(t => isReady(t, ts) && live(t)); if (r) a.push(`spawn TASK-${r.id}`)   // one per turn; the ready list on the line says the rest
+  const sp = spawnable(s), es = s.plan?.epics ?? []
+  a.push(...sp.filter(x => x.role === 'reviewer').map(x => `spawn TASK-${x.id} (reviewer)`))
+  const r = sp.find(x => x.role === 'claim'); if (r) a.push(`spawn TASK-${r.id}`)   // one per turn; the ready list on the line says the rest
   for (const e of es) {
     if (e.state === 'ready') a.push(`plan epic ${e.id}: TaskCreate its tasks with metadata.epic "${e.id}", then TaskUpdate ${e.id} metadata.planned true`)
     if (e.state === 'planning') a.push(`finish planning epic ${e.id} (see missing), then TaskUpdate ${e.id} metadata.planned true`)
