@@ -104,10 +104,18 @@ async function create(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
   }
   if (ms && !road && !['ready', 'planning'].includes(ep?.state ?? '')) return { deny: modelText('deny', `name the epic these tasks plan in metadata.epic; ready to plan: ${(s.plan.epics ?? []).filter(x => x.state === 'ready' || x.state === 'planning').map(x => x.id).join(', ') || 'none (wait for the next: line)'}`) }
   if (!ms && m.epic !== undefined) return { deny: modelText('deny', 'metadata.epic: only in a milestone; omit it') }
+  const twin = await twinOf(store, ep?.id ?? s.epic, e.subject, e.description, f.meta['cadre.paths']); if (twin) return { deny: modelText('deny', `${twin.id} already covers this (${twin.why}): TaskUpdate ${twin.id} instead of adding a second task`) }
   const t = await store.createDraft({ title: e.subject, description: e.description, acceptance: f.patch.acceptance, design: f.patch.design, type: road ? 'epic' : m.type ?? 'feature', parent: ep?.id ?? s.epic, meta: f.meta })
   return withCtx({ task: { id: t.id, subject: e.subject } }, ep?.state === 'ready' ? planRules(reg) : '', missingLine(await retouch(h, store, reg)))
 }
 
+// a second task of the same plan with the subject or the declared files of an open one: two agents would write the same change and conflict at merge (live: a lite plan's task drafted again)
+const norm = (x: string) => x.trim().toLowerCase().replace(/\s+/g, ' '), filesOf = (v?: string) => { try { return JSON.parse(v || '[]').map(String).sort().join('\n') } catch { return '' } }
+async function twinOf(store: TaskStore, parent: string, subject: string, desc: string, paths?: string): Promise<{ id: string; why: string } | null> {   // same files alone may be two steps on one file (the overlap check asks for their order)
+  const open = (await store.list({ parent })).filter(t => t.type !== 'gate' && t.category !== 'done' && t.category !== 'cancelled'), p = filesOf(paths)
+  const t = open.find(x => norm(x.title) === norm(subject)) ?? (p ? open.find(x => filesOf(x.meta['cadre.paths']) === p && norm(x.description) === norm(desc)) : undefined)
+  return t ? { id: t.id, why: norm(t.title) === norm(subject) ? 'the same subject' : 'the same files and description' } : null
+}
 async function update(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
   const id = e.taskId, m = e.metadata ?? {}
   const out = (success: boolean, updated: string[] = [], error?: string, ctx: string[] = []) => withCtx({ success, taskId: String(id), updatedFields: updated, ...(error ? { error } : {}) }, ...ctx)

@@ -10,7 +10,7 @@ import { setupItems } from './doctor'
 import { LIMIT } from '../policy/guards'
 import { RUN } from '../core/dispatch'
 import { goal as goalBrief, queueBrief, sendBrief } from '../core/lanes'
-import { draftsOf, storeOf } from '../core/dispatch'
+import { storeOf } from '../core/dispatch'
 import { diff as jdiff } from '../policy/settings'
 
 type Kind = 'setup' | 'init'
@@ -143,7 +143,7 @@ export const GOAL_FOLLOW = 2
 async function goalMissing(h: Host): Promise<string | null> {
   const p = (await h.board.read()).plan
   if (p && p.slug !== 'mission' && p.state !== 'done-on-dev' && p.state !== 'released') {
-    if (p.state !== 'draft' || (await draftsOf(await storeOf(h), p.id)).length) return null   // drafted, or a plan already open (the goal was refused: main tells the user)
+    if (p.state !== 'draft' || (await (await storeOf(h)).list({ parent: p.id })).some(t => t.type !== 'gate' && t.category !== 'cancelled')) return null   // drafted, or a plan already open (the goal was refused: main tells the user). The store, any open child: a lite plan's own task counts, and one the approval is turning open while the board still says draft (live: main drafted it again)
     return p.lane === 'milestone' ? `Roadmap ${p.id} has no epics yet: draft them now, one TaskCreate per epic as the roadmap rules say, then tell the user to approve it in the dialog (key 1 opens it) and stop.`
       : `Plan ${p.id} has no tasks yet: draft them now, one TaskCreate per task as the plan rules say, then tell the user to approve it in the dialog (key 1 opens it) and stop.`
   }

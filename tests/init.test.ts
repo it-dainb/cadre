@@ -485,6 +485,19 @@ describe('a goal run: main does not stop before the lane\'s step', () => {
     await taskCall(h, lite, async () => 'NEXT'); expect(await stopCheck(h, {})).toBeNull(); expect((await h.secret.read()).goalRun).toBeUndefined()
     const a = await on(); await seen(a.h, { name: 'Agent' }); expect(await stopCheck(a.h, {})).toBeNull()
   })
+  test('the lite plan\'s own task counts even while its approval turns it open and the board still says draft (live: main drafted it again)', async () => {
+    const m = await on(); await taskCall(m.h, lite, async () => 'NEXT'); await seen(m.h, { name: 'Read' })
+    const p = (await m.h.board.read()).plan!, kid = (await m.s.list({ parent: p.id }))[0]; await m.s.approve([kid.id])   // mid-approval: the store moved, the board did not yet
+    expect((await m.h.board.read()).plan!.state).toBe('draft'); await m.h.secret.update(x => ({ ...x, goalRun: { ...x.goalRun!, on: true } })); expect(await stopCheck(m.h, {})).toBeNull()
+  })
+  test('a second task with the subject (or the files and description) of an open task of the plan is refused, naming it', async () => {
+    const { h } = await on(); await taskCall(h, { ...lite, metadata: { kind: 'plan', lane: 'full', reason: 'a feature' } }, async () => 'NEXT')
+    const one = { tool: 'TaskCreate', tool_use_id: 'u', subject: 'Add titleCase', description: 'd', metadata: { type: 'feature', paths: ['src/title.js', 'test/title.test.js'] } }
+    const a = await taskCall(h, one, async () => 'NEXT') as any, id = a.result.task.id
+    expect((await taskCall(h, { ...one, subject: '  add  TITLECASE ' }, async () => 'NEXT') as any).deny).toBe(`${id} already covers this (the same subject): TaskUpdate ${id} instead of adding a second task`)
+    expect((await taskCall(h, { ...one, subject: 'Other', metadata: { ...one.metadata, paths: ['test/title.test.js', 'src/title.js'] } }, async () => 'NEXT') as any).deny).toMatch(/already covers this \(the same files and description\)/)
+    expect((await taskCall(h, { ...one, subject: 'Other', description: 'the next step on the same file', metadata: { ...one.metadata, paths: ['src/title.js', 'test/title.test.js'] } }, async () => 'NEXT') as any).result.task.id).toBeDefined()   // same files, another step: the overlap check orders them
+  })
   test('a full plan with no tasks yet: refused naming the tasks', async () => {
     const { h } = await on(); await taskCall(h, { ...lite, metadata: { kind: 'plan', lane: 'full', reason: 'a feature' } }, async () => 'NEXT')
     expect(await stopCheck(h, {})).toMatch(/^Plan \S+ has no tasks yet: draft them now, one TaskCreate per task/)
