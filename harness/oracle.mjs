@@ -4,7 +4,8 @@
 // debug log: turns, cadre's toasts, AskUserQuestion calls), jsonl/**.jsonl (transcripts: refusals), stray-state, refs-*.
 // Writes verdict.json and prints `<cell> PASS|FAIL <invariant>: <evidence>`; exit 1 on FAIL. Budgets: ORACLE_TURNS (10), ORACLE_DIALOGS (3), ORACLE_STUCK_S (90).
 import { readFileSync, readdirSync, existsSync, writeFileSync, statSync } from 'node:fs'
-import { join, basename } from 'node:path'
+import { join, basename, dirname } from 'node:path'
+import { execFileSync } from 'node:child_process'
 
 const dir = process.argv[2], wantLanded = process.argv.includes('--landed')
 const TURNS = +(process.env.ORACLE_TURNS ?? 10), DIALOGS = +(process.env.ORACLE_DIALOGS ?? 3), STUCK = 1000 * +(process.env.ORACLE_STUCK_S ?? 90)
@@ -120,6 +121,17 @@ for (const e of drv.filter(e => e.kind === 'press1')) {
 // 10. optional: it landed on dev
 if (wantLanded && !drv.some(e => e.kind === 'landed')) fail('not-landed', `dev: ${read(join(dir, 'refs-after')).split('\n').find(l => l.startsWith('dev ')) ?? 'no dev branch'}`)
 
+// 11. routing: every agent request (PROXY=1 cells: effort.jsonl) runs on a model and effort the settings allow for its role (harness/expect-routing.mjs
+//     computes them with cadre's own config + route code). ponytail: per role, not per task; a request is matched to its role by its system prompt.
+{
+  const req = read(join(dir, 'effort.jsonl')).split('\n').filter(Boolean).map(l => JSON.parse(l)).filter(r => r.role !== 'main')
+  if (req.length) {
+    const repo = dirname(dirname(new URL(import.meta.url).pathname)), exp = JSON.parse(execFileSync(process.execPath, ['--experimental-transform-types', '--no-warnings', '--import', `${repo}/tests/dev/register.mjs`, `${repo}/harness/expect-routing.mjs`, repo, join(dir, 'cadre-config.json')], { encoding: 'utf8' }))
+    const bad = req.filter(r => { const e = exp[r.role]; return e && (!e.models.some(m => r.model?.includes(m)) || (e.efforts.length && !e.efforts.includes(r.output_config?.effort))) })
+    stats.routing = Object.fromEntries(Object.keys(exp).map(k => [k, [...new Set(req.filter(r => r.role === k).map(r => `${r.model}/${r.output_config?.effort ?? '-'}`))]]))
+    if (bad.length) fail('routing', `${bad.length} request(s) off the settings, e.g. ${bad[0].role} on ${bad[0].model}/${bad[0].output_config?.effort ?? '-'} (allowed ${JSON.stringify(exp[bad[0].role])})`)
+  }
+}
 stats.usd = +debug.map(ls => Math.max(0, ...ls.map(l => +(l.match(/cost=\$([\d.]+)/)?.[1] ?? 0)))).reduce((a, b) => a + b, 0).toFixed(2)
 stats.secs = Math.round((tEnd - (drv[0]?.t ?? tEnd)) / 1000)
 const cell = basename(dir), v = { cell, pass: !fails.length, fails, stats, setup: drv[0]?.text }
