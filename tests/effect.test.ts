@@ -94,6 +94,11 @@ describe('L3 effect (13.1)', () => {
     expect(await resolveGit(h, 'git:main:agent', 'restore')).toMatchObject({ ok: false }); expect(w.refs['refs/heads/main']).toBe(SHA('6'))
     expect(await resolveGit(h, 'git:main:agent', 'keep')).toEqual({ ok: true })
   })
+  test('a cadre git op that starts while the sweep looks (a close at another turn end) is never judged a stranger\'s move', async () => {
+    const { w, h, flags } = await mk(), run = h.run
+    h.run = (async (argv: readonly string[]) => { if (argv[3] === 'for-each-ref') { await h.git.update(g => ({ ...g, busy: true })); w.refs['refs/heads/dev'] = SHA('9'); w.st['/wt/a'].push(mod('x.ts')) } return run(argv) }) as any
+    await sweep(h); expect(await flags()).toEqual([]); expect(w.calls.filter(c => c[3] === 'stash')).toEqual([])
+  })
   test('gitBusy skips; an epoch change re-baselines instead of judging', async () => {
     const { w, h, flags } = await mk()
     await h.git.update(g => ({ ...g, busy: true })); w.st['/r'].push(mod('m.ts')); await sweep(h); expect(w.calls.filter(c => c[3] === 'stash')).toEqual([]); expect(await flags()).toEqual([])

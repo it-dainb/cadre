@@ -82,7 +82,7 @@ function host($): Host {
     toast: t => { void $.ui.toast(t) },
     options,
     stat: async (p, o) => { try { return await $.fs.stat(p, { resolve: !!o?.resolve }) } catch { return undefined } },
-    run: (argv, init) => $.process.run(argv, init),
+    run: async (argv, init) => $.process.run(argv, { cwd: await h.cwd(), ...init }),   // the repo root by default: in an agent's turn-end frame the session's cwd is the agent's worktree, which a close removes (ADR 0018)
     settings: () => $.settings.read(),
     spawn: async a => {   // adapter protocol (SA-09): one request, stdin closed after `input`; leaving the loop kills the child
       const it = $.process.spawn({ argv: [...a.argv], input: a.input })[Symbol.asyncIterator](), dead = new Promise<'t'>(r => { void $.clock.after(a.timeoutMs ?? 30_000, () => r('t')) })
