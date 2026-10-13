@@ -21,6 +21,12 @@ const usd = (m, u) => { const [i, o, r] = PRICE[fam(m)]; return (u.in * i + u.ou
 // ---- plan: grid -> runs ----
 const tag = r => r ? `${r.tier}.${r.effort ?? 'default'}${r.escalate?.after ? `+esc.${r.escalate.to}` : ''}` : '-'
 const role = r => ({ tier: r.tier, effort: r.effort ?? 'default', ...(r.escalate ? { escalate: r.escalate } : {}) })
+// a grid's roles -> the config's explicit cells (ADR 0019): the cell's model/effort at every risk, its escalation on each; the reviewer keeps the deep review on
+// thorough (opus), as the bench measured it before routing was explicit
+const cfgRoles = roles => Object.fromEntries(Object.entries(roles).map(([x, r]) => [x, { byRisk: Object.fromEntries(['light', 'standard', 'thorough', 'core'].map(k => {
+  const m = x === 'reviewer' && k === 'thorough' ? 'opus' : r.tier
+  return [k, { model: m, effort: r.effort, escalate: r.escalate?.after ? { after: r.escalate.after, model: r.escalate.to, effort: r.effort } : { after: 0, model: m, effort: r.effort } }]
+})) }]))
 // $ per task by role and model, from the pilot's means (2026-10-12; main runs warm across parallel runs, a cold one costs ~3x)
 const EST = { main: 0.3, worker: { haiku: 0.005, sonnet: 0.05, opus: 0.15 }, tester: { haiku: 0.005, sonnet: 0.045, opus: 0.12 }, reviewer: { haiku: 0.01, sonnet: 0.075, opus: 0.2 } }
 const EFF = { low: 0.6, medium: 0.8, high: 1, xhigh: 1.4, max: 1.8, default: 1 }
@@ -33,7 +39,7 @@ if (cmd === 'plan') {
   }
   let usdSum = 0, min = 0, n = 0
   for (const c of cells) for (const [t, p] of tasks) for (let k = 1; k <= (g.n ?? 3); k++) {
-    console.log(`${c.name}|${t}|${k}|${JSON.stringify(c.roles)}`); n++
+    console.log(`${c.name}|${t}|${k}|${JSON.stringify(cfgRoles(c.roles))}`); n++
     const per = EST.main + ['worker', 'tester', 'reviewer'].reduce((a, x) => a + EST[x][c.roles[x].tier] * EFF[c.roles[x].effort], 0)
     usdSum += per * p.tasks.length; min += 2.5 * p.tasks.length   // pilot: ~2.2 min per task run
   }

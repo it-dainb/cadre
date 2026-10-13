@@ -104,6 +104,6 @@ The core lock held: in all 12 dependent tasks the squash commit changed only the
   "tester":   { "tier": "sonnet", "effort": "medium", "byRisk": { "light": { "tier": "haiku", "effort": "high" } } },
   "reviewer": { "tier": "sonnet", "effort": "high" } } }
 ```
-The thorough/core reviewer escalation to opus needs no config: `route()` sends the diff-thorough tier to `models.deep`.
+Superseded in form by ADR 0019 (routing is explicit): the same values ship as one registered cell per role × risk (`roles.<role>.byRisk.<risk>`), with model aliases instead of tiers; the thorough reviewer's opus is the `reviewer.byRisk.thorough` cell, not a rule in `route()`.
 
 **Caveats.** n is small: 6 runs per thorough cell, 2 thorough tasks, 1 core plan (3 runs per cell); opus workers were not measured. Hidden checks catch behaviour, not code quality. Light is easy for every cell. Main stalls must be fixed before rates below about 95% mean anything at scale.

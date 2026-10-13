@@ -24,7 +24,7 @@ describe('settings rows (scenario: every layer)', () => {
   const all = Object.fromEntries(rowsOf(settingsScenario).map(r => [r.key, r]))
   test('source layer and class per key', () => {
     expect(by['maxParallel'].src).toBe('default')
-    expect([all['maxParallel'].src, all['review.maxRework'].src, all['strictness'].src, all['jail'].src, all['store.kind'].src, all['drive.maxTurns'].src, all['models.fast'].src]).toEqual(['user', 'repo', 'repo', 'repo', 'env', 'user', 'default'])
+    expect([all['maxParallel'].src, all['review.maxRework'].src, all['strictness'].src, all['jail'].src, all['store.kind'].src, all['drive.maxTurns'].src, all['roles.explorer.model'].src]).toEqual(['user', 'repo', 'repo', 'repo', 'env', 'user', 'default'])
     expect([all['strictness'].cls, all['drive.maxTurns'].cls, all['store.kind'].cls, all['review.maxRework'].cls]).toEqual(['S', 'U', 'U', 'O'])
     expect(all['strictness'].value).toBe('strict')   // the repo file tightened the advisory from the user file
   })
@@ -32,7 +32,7 @@ describe('settings rows (scenario: every layer)', () => {
     const t = frame(w).join('\n'), s = frame(w, rowsOf(settingsScenario).findIndex(r => r.key === 'strictness')).join('\n')
     expect(frame(w, rowsOf(settingsScenario).findIndex(r => r.key === 'changelog.path')).join('\n')).toContain('changelog.path docs/CHANGES.md repo')
     expect(t).toContain('maxParallel 5 user')
-    expect(t).toContain('roles.worker.tier deep user')
+    expect(frame(w, rowsOf(settingsScenario).findIndex(r => r.key === 'roles.worker.byRisk.light.model')).join('\n')).toContain('worker.light.model opus user')
     expect(frame(w, rowsOf(settingsScenario).findIndex(r => r.key === 'maxParallel')).join('\n')).toContain('e: change')
     expect(s).toMatch(/strictness strict repo/)
     expect(s).toContain('default strict · tighten-only from repo · strict: guards')

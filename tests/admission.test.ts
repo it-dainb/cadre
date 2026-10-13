@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { admitWith, beat } from '../core/admission'
 import { leaseLive } from '../core/board'
 import type { Deps } from '../core/admission'
-import { defaults } from '../config/index'
+import { defaults, resolve } from '../config/index'
 import { MemoryStore } from '../task-management/adapters/memory/store'
 import { agentsOf, bindAgent } from '../core/board'
 import { idsIn } from '../core/briefs'
@@ -194,20 +194,32 @@ describe('review spawn', () => {
       expect(/\b(light|thorough|tier)\b/i.test(seen[0].prompt.replace(/Small change|Large or sensitive change/g, ''))).toBe(false)
     }
   })
-  test('routing: byRisk + escalation after a failed round; model/effort recorded on the task, the bound event and the binding; env overrides recorded as forced', async () => {
-    const { w, h, d, id } = await inReview('reviewer'); await w.store.update(id, { labels: [] }, d.actor); w.numstat.out = '1\t1\tsrc/a.ts\n'
-    Object.assign(d.cfg.roles.reviewer, { byRisk: { light: { effort: 'medium' } }, escalate: { after: 1, to: 'deep' } })
-    const a = ok('rv1'); await admitWith(h, d, spawn(id), a.next); expect(a.seen[0].model).toBe('sonnet'); expect((await h.bind.read()).rv1.effort).toBe('medium')
-    expect(JSON.parse((await w.store.get(id)).meta['cadre.runs'])).toEqual([{ role: 'reviewer', model: 'sonnet', effort: 'medium', risk: 'light' }])
-    await h.bind.update(() => ({})); await w.store.setMeta(id, { 'cadre.rework': '1' }, d.actor)
-    const b = ok('rv2'); await admitWith(h, d, spawn(id), b.next); expect(b.seen[0].model).toBe('opus')
-    const ev = ofEpic(await h.events.read(), (await h.board.read()).epic!).filter(e => e.type === 'agent.bound').at(-1)!; expect(ev.data).toMatchObject({ model: 'opus', effort: 'medium', escalated: true })
-    await h.bind.update(() => ({})); (h as any).env = async () => ({ CLAUDE_CODE_EFFORT_LEVEL: 'low' })
+  test('env overrides beat every cell and are recorded as forced', async () => {
+    const { w, h, d, id } = await inReview('reviewer'); await w.store.update(id, { labels: [] }, d.actor); w.numstat.out = '1\t1\tsrc/a.ts\n'; (h as any).env = async () => ({ CLAUDE_CODE_EFFORT_LEVEL: 'low' })
     await admitWith(h, d, spawn(id), ok('rv3').next); expect(JSON.parse((await w.store.get(id)).meta['cadre.runs']).at(-1)).toMatchObject({ effort: 'low', forced: '/low' })
   })
-  test('never below sonnet: a fast reviewer tier is raised to standard', async () => {
-    const { w, h, d, id } = await inReview('reviewer'); await w.store.update(id, { labels: [] }, d.actor); d.cfg.roles.reviewer.tier = 'fast'
-    const { next, seen } = ok('rv1'); await admitWith(h, d, spawn(id), next); expect(seen[0].model).toBe('sonnet')
+  test('the reviewer may not be set to haiku (allowed values: the old floor, explicit now)', async () => {
+    expect(resolve([{ name: 'u', trust: 'user', value: { roles: { reviewer: { byRisk: { light: { model: 'haiku' } } } } } }]).diagnostics).toEqual(['u: roles.reviewer.byRisk.light.model: expected one of: sonnet, opus, fable'])
+  })
+  // ADR 0019: every role x risk cell, and its escalation, is exactly what the spawned agent gets; the bound event names the setting
+  for (const role of ['worker', 'tester', 'reviewer'] as const) for (const risk of ['light', 'standard', 'thorough', 'core'] as const) test(`routing cell roles.${role}.byRisk.${risk} (+ escalate)`, async () => {
+    const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}), id = ids[0], rv = role === 'reviewer'
+    await w.board(h, epic, ids, rv ? [{ state: 'review', step: 'reviewer' }] : [])
+    if (role === 'tester') { d.view = async (_h, _d, t) => `/wt/repo-1.views/${t.id}`; d.cfg.packages = [{ root: '.', tdd: { paths: ['test/**'] } }] as any }
+    if (rv) { await w.store.claim(id, d.actor); await w.store.setMeta(id, { 'cadre.sourceCommit': 'deadbee', 'cadre.base': 'abc1234', 'cadre.worktree': `/wt/repo-1/${id}` }, d.actor); w.numstat.out = risk === 'standard' ? '60\t50\tsrc/a.ts\n' : '1\t1\tsrc/a.ts\n' }
+    else await w.store.setMeta(id, { 'cadre.paths': JSON.stringify(risk === 'standard' ? ['a', 'b', 'c'] : ['src/a.ts']) }, d.actor)
+    if (risk === 'thorough') await w.store.update(id, { labels: ['security'] }, d.actor)
+    if (risk === 'core') await w.store.setMeta(id, { 'cadre.core': 'true' }, d.actor)
+    Object.assign(d.cfg.roles[role].byRisk[risk], { model: 'fable', effort: 'max', escalate: { after: 1, model: 'opus', effort: 'xhigh' } })
+    const bound = async () => ofEpic(await h.events.read(), epic).filter(e => e.type === 'agent.bound').at(-1)!.data
+    const a = ok('ag1'); await admitWith(h, d, spawn(id), a.next)
+    expect([a.seen[0].model, (await h.bind.read()).ag1.effort]).toEqual(['fable', 'max'])
+    expect(await bound()).toMatchObject({ model: 'fable', effort: 'max', setting: `roles.${role}.byRisk.${risk}` })
+    await h.bind.update(() => ({})); await w.store.setMeta(id, { 'cadre.rework': '1' }, d.actor)
+    if (!rv) { await w.store.release(id, d.actor, 'test'); await h.board.update(s => ({ ...s, tasks: s.tasks.map(t => ({ ...t, state: 'todo', owner: undefined })) })) }
+    const b = ok('ag2'); await admitWith(h, d, spawn(id), b.next)
+    expect([b.seen[0].model, (await h.bind.read()).ag2?.effort]).toEqual(['opus', 'xhigh'])
+    expect(await bound()).toMatchObject({ model: 'opus', effort: 'xhigh', escalated: true, setting: `roles.${role}.byRisk.${risk}.escalate` })
   })
   test('settings: review.deepLabels sends a labelled change to the thorough review; only CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 overrides the model (ADR 0019)', async () => {
     const { w, h, d, id } = await inReview('reviewer'); await w.store.update(id, { labels: ['ux'] }, d.actor); w.numstat.out = '1\t1\tsrc/a.ts\n'

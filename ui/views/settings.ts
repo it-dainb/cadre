@@ -16,11 +16,11 @@ export const settings: Renderer = (v, cols, rows, a) => {
   const rs = rowsOf(v), c = ucfg(v), live = v.t === null
   if (!rs.length) return { lines: [[muted('  no settings loaded yet')]], keys: keyLine(live ? [['r', 'refresh', () => a.run?.('refresh')]] : []) }
   const sel = Math.min(Math.max(0, Number(v.ui.ssel ?? 0)), rs.length - 1), tag = w >= 60 ? 8 : 0
-  const kw = Math.min(26, Math.floor((w - INDENT - 6) / 2)), vw = Math.max(4, w - INDENT - kw - 1 - (tag ? tag + 2 : 0))
+  const kw = Math.min(40, w - INDENT - 16 - (tag ? tag + 2 : 0)), vw = Math.max(4, w - INDENT - kw - 1 - (tag ? tag + 2 : 0))   // routing keys are long (roles.<role>.byRisk.<risk>.escalate.effort); values are short
   const secs: Line[][] = []
   rs.forEach((r, i) => {
     if (!i || groupOf(r) !== groupOf(rs[i - 1])) secs.push([title(groupOf(r))])
-    const text = ' '.repeat(INDENT) + padR(clip(r.key, kw), kw) + ' ' + padR(clip(val(r), vw), vw), t = tag ? `  ${padL(r.src, tag)}` : ''
+    const text = ' '.repeat(INDENT) + padR(clip(r.key.replace(/^roles\.(\w+)\.byRisk\./, '$1.'), kw), kw) + ' ' + padR(clip(val(r), vw), vw), t = tag ? `  ${padL(r.src, tag)}` : ''
     const at = secs.at(-1)!
     at.push(i === sel ? [S(glyph('run', c.ascii) + text.slice(1) + t, undefined, { i: true })] : [S(text), muted(t)])
   })

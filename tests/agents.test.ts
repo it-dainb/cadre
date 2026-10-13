@@ -53,10 +53,10 @@ describe('roster (DESIGN 4.1, A28)', () => {
   test('mcpAllow extends the worker only', async () => {
     expect(allowlist('worker', ['mcp__x__y'])).toContain('mcp__x__y'); expect(allowlist('tester', ['mcp__x__y'])).not.toContain('mcp__x__y')
   })
-  test('tier -> model alias and effort from config roles; default effort is left out', async () => {
+  test('model and effort from the standard-risk cell (explorer: its own); default effort is left out', async () => {
     const [w, , , e] = ROLES.map(r => spec(r, cfg()))
-    expect(w).toMatchObject({ model: 'haiku', effort: 'high' }); expect('effort' in spec('worker', { ...cfg(), roles: { worker: { tier: 'standard', effort: 'default' } } })).toBe(false); expect(e).toMatchObject({ model: 'haiku', effort: 'low' })
-    expect(spec('worker', { ...cfg(), roles: { worker: { tier: 'deep', effort: 'high' } } })).toMatchObject({ model: 'opus', effort: 'high' })
+    expect(w).toMatchObject({ model: 'haiku', effort: 'high' }); expect('effort' in spec('worker', { ...cfg(), roles: { worker: { byRisk: { standard: { model: 'sonnet', effort: 'default' } } } } })).toBe(false); expect(e).toMatchObject({ model: 'haiku', effort: 'low' })
+    expect(spec('worker', { ...cfg(), roles: { worker: { byRisk: { standard: { model: 'opus', effort: 'high' } } } } })).toMatchObject({ model: 'opus', effort: 'high' })
     expect(spec('worker', { ...cfg(), roles: {} })).not.toHaveProperty('model')
     expect('omitClaudeMd' in w).toBe(false)
   })

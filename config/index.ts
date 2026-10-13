@@ -115,7 +115,7 @@ export function rows(layers: Layer[], env: Record<string, string | undefined> = 
   return leaves(defaults()).map(([key, def]) => {
     let src: Src = 'default', prev: unknown = def
     steps.forEach((c, i) => { const v = at(c, key); if (JSON.stringify(v) !== JSON.stringify(prev)) src = srcOf(layers[i].name); prev = v })
-    const r = REG[key], opts = r.opts as string[] | undefined, mf = fo.model && /^roles\.\w+\.(tier|byRisk|escalate\.to)$/.test(key), ef = fo.effort && /^roles\.\w+\.(effort|byRisk)$/.test(key)
+    const r = REG[key], opts = r.opts as string[] | undefined, mf = fo.model && /^roles\.\w+\.(byRisk\.\w+\.(escalate\.)?)?model$/.test(key), ef = fo.effort && /^roles\.\w+\.(byRisk\.\w+\.(escalate\.)?)?effort$/.test(key)
     const warn = mf || ef ? [mf && `CLAUDE_CODE_SUBAGENT_MODEL_FORCE puts every agent on ${fo.model}`, ef && `CLAUDE_CODE_EFFORT_LEVEL puts every agent on effort ${fo.effort}`].filter(Boolean).join('; ') : undefined
     return { key, cat: r.cat, cls: r.cls, desc: r.desc, safety: r.cls === 'S' || !!r.tighten, value: prev, def, src: warn ? 'forced' : src, kind: r.open ? 'json' : typeof def === 'boolean' ? 'bool' : opts ? 'enum' : typeof def === 'number' ? 'number' : Array.isArray(def) ? 'list' : 'text', ...(opts ? { opts } : {}), ...(warn ? { warn } : {}) }
   }).sort((a, b) => CATS.indexOf(a.cat) - CATS.indexOf(b.cat))

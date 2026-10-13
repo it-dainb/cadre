@@ -77,7 +77,7 @@ async function audit(c: Ctx): Promise<{ why: string | null; caches: string[]; re
 }
 function workflow(c: Ctx): string | null {
   const errs = regErrors(c.cfg.types as any)
-  for (const r of ['worker', 'tester', 'reviewer', 'explorer'] as const) if (!spec(r, { roles: c.cfg.roles as any, models: c.cfg.models, mcpAllow: c.cfg.mcpAllow }).prompt) errs.push(`roles.${r} does not render`)
+  for (const r of ['worker', 'tester', 'reviewer', 'explorer'] as const) if (!spec(r, { roles: c.cfg.roles as any, mcpAllow: c.cfg.mcpAllow }).prompt) errs.push(`roles.${r} does not render`)
   return errs.length ? errs.join('; ') : null
 }
 async function changelog(c: Ctx): Promise<string | null> {

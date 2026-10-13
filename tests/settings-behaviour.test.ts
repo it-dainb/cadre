@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { REG, defaults, strictOf } from '../config/index'
 import type { Config } from '../config/index'
-import { route, reviewTier } from '../core/risk'
+import { RISKS, riskOf, route } from '../core/risk'
 import { laneOf } from '../core/lanes'
 import { boundOf } from '../core/drive'
 import { stale, usdOf } from '../core/reuse'
@@ -21,8 +21,8 @@ import { fakeHost } from './support'
 
 const put = (c: any, k: string, v: unknown) => { const ks = k.split('.'); ks.slice(0, -1).reduce((o, x) => o[x], c)[ks[ks.length - 1]] = v; return c }
 const host = (c: Config, files: Record<string, string> = {}) => Object.assign(fakeHost({ files }), { config: async () => c })
-const R = (c: Config, r: 'worker' | 'tester' | 'reviewer' | 'explorer', risk: 'light' | 'standard' | 'thorough' = 'standard', n = 0) => route(c.roles[r] as any, c.models, risk, n, r === 'reviewer')
-const esc = (c: Config, r: 'worker' | 'tester' | 'reviewer') => route({ ...(c.roles[r] as any), escalate: { after: c.roles[r].escalate.after || 1, to: c.roles[r].escalate.to || 'deep' } }, c.models, 'standard', 1, r === 'reviewer').model
+const R = (c: Config, r: 'worker' | 'tester' | 'reviewer', k: (typeof RISKS)[number], n: number) => route(r, c.roles[r].byRisk[k], k, n)
+const rv = (c: Config, s: { paths: string[]; lines?: number }, o = {}) => riskOf(c.review, { labels: [], ...s, ...o })
 const T = (n: number) => Array.from({ length: n }, () => ({ type: 'spike', meta: {}, labels: [], design: '' })) as any
 const stat = (files: number, lines: number, path = 'src/a.ts') => ({ paths: Array.from({ length: files }, (_, i) => (i ? `src/f${i}.ts` : path)), lines })
 const rec = { on: true, turns: 50, startedAt: 0 } as any, bound = (c: Config, cost = 5, idle = 2) => boundOf(rec, c.drive, cost, idle, 60 * 60_000)
@@ -35,16 +35,18 @@ const PROBES: Record<string, [unknown, (c: Config) => unknown]> = {
   'drive.maxTurns': [10, c => bound(c)], 'drive.maxCostUsd': [3, c => bound(c, 5, 0)], 'drive.maxWallMinutes': [30, c => bound({ ...c, drive: { ...c.drive, maxTurns: 1e6 } } as Config, 0, 0)],
   'drive.noProgressTurns': [2, c => bound({ ...c, drive: { ...c.drive, maxTurns: 1e6, maxWallMinutes: 1e6 } } as Config, 0, 2)],
   disable: [true, c => wake(Object.assign(host(c, { '/repo/.cadre/config.json': '{}' }), { secret: { read: async () => ({}), update: async () => {} } }) as any)],
-  ...Object.fromEntries((['worker', 'tester', 'reviewer'] as const).flatMap(r => [
-    [`roles.${r}.tier`, ['deep', (c: Config) => R(c, r, 'standard').model]], [`roles.${r}.effort`, ['max', (c: Config) => R(c, r, 'standard').effort]],
-    [`roles.${r}.byRisk`, [{ standard: { tier: 'deep', effort: 'max' } }, (c: Config) => R(c, r, 'standard')]],
-    [`roles.${r}.escalate.after`, [5, (c: Config) => esc(c, r)]], [`roles.${r}.escalate.to`, ['fable', (c: Config) => esc(c, r)]],
-  ])),
-  'roles.explorer.tier': ['deep', c => R(c, 'explorer').model], 'roles.explorer.effort': ['high', c => R(c, 'explorer').effort],
-  'models.fast': ['fable', c => R(c, 'worker').model], 'models.standard': ['fable', c => R(c, 'reviewer').model], 'models.deep': ['fable', c => R(c, 'reviewer', 'thorough').model],
-  'review.tiers.light.files': [2, c => reviewTier(c.review.tiers, stat(3, 10), false)], 'review.tiers.light.lines': [50, c => reviewTier(c.review.tiers, stat(1, 80), false)],
-  'review.tiers.thorough.files': [10, c => reviewTier(c.review.tiers, stat(15, 10), false)], 'review.tiers.thorough.lines': [300, c => reviewTier(c.review.tiers, stat(1, 400), false)],
-  'review.tiers.risky': [['src/**'], c => reviewTier(c.review.tiers, stat(1, 1), false)],
+  // every role x risk cell: the model, effort and escalation fields each change what route() hands the spawn (escalation probed one round past `after`)
+  ...Object.fromEntries((['worker', 'tester', 'reviewer'] as const).flatMap(r => RISKS.flatMap(k => {
+    const at = `roles.${r}.byRisk.${k}`, up = (c: Config) => R({ ...c, roles: { ...c.roles, [r]: { byRisk: { ...c.roles[r].byRisk, [k]: { ...c.roles[r].byRisk[k], escalate: { ...c.roles[r].byRisk[k].escalate, after: c.roles[r].byRisk[k].escalate.after || 1 } } } } } } as Config, r, k, 1)
+    return [[`${at}.model`, ['fable', (c: Config) => R(c, r, k, 0)]], [`${at}.effort`, ['max', (c: Config) => R(c, r, k, 0)]], [`${at}.escalate.after`, [r === 'worker' ? 7 : 1, (c: Config) => R(c, r, k, 1)]],
+      [`${at}.escalate.model`, ['fable', up]], [`${at}.escalate.effort`, ['max', up]]]
+  }))),
+  'roles.explorer.model': ['opus', c => route('explorer', c.roles.explorer, '', 0)], 'roles.explorer.effort': ['high', c => route('explorer', c.roles.explorer, '', 0)],
+  'review.coreTask': ['thorough', c => rv(c, { paths: ['a'] }, { coreTask: true })], 'review.coreDiff': ['core', c => rv(c, { paths: ['core/x.ts'], lines: 1 }, { corePaths: ['core/**'] })],
+  'review.tiers.light.paths': [3, c => rv(c, { paths: ['a', 'b', 'c'] })],
+  'review.tiers.light.files': [2, c => rv(c, stat(3, 10))], 'review.tiers.light.lines': [50, c => rv(c, stat(1, 80))],
+  'review.tiers.thorough.files': [10, c => rv(c, stat(15, 10))], 'review.tiers.thorough.lines': [300, c => rv(c, stat(1, 400))],
+  'review.tiers.risky': [['src/**'], c => rv(c, stat(1, 1))],
   'lanes.fullAt': [4, c => laneOf('ask', T(3), c.types as any, c.lanes)], 'lanes.milestoneAt': [9, c => laneOf('full', T(8), c.types as any, c.lanes)],
   types: [{ chore: { commit: 'chore', pipeline: ['worker', 'merge'] } }, async c => Object.keys(await registryOf(host(c)))],
   'branches.main': ['trunk', c => protectedRef('trunk', c.branches)], 'branches.dev': ['develop', c => protectedRef('dev', c.branches)], 'branches.epicPrefix': ['feat/', c => protectedRef('feat/x', c.branches)],
@@ -53,7 +55,7 @@ const PROBES: Record<string, [unknown, (c: Config) => unknown]> = {
   jail: ['on', c => modeOf(host(c), { cfg: c }).catch(e => (e as Error).message)], jailWritable: [['/cache'], c => writableJail({ wt: '/w', scratch: '/s', pkgRoot: '/w', argv: ['true'], writable: c.jailWritable }).join(' ')],
   effectCheck: ['always', async c => (await started(c)).pol.effectCheck],
   'reuse.maxContextPct': [50, c => stale(B, 1, c)], 'reuse.cacheTtlMs': [0, c => stale({ ...B, ctxTokens: 70_000 }, 10, c)],
-  'cost.prices': [{ fast: { in: 1, out: 1 } }, c => usdOf({ in: 1e6, out: 0, cr: 0, cw: 0, model: 'claude-haiku-5' }, c)],
+  'cost.prices': [{ haiku: { in: 1, out: 1 } }, c => usdOf({ in: 1e6, out: 0, cr: 0, cw: 0, model: 'claude-haiku-5' }, c)],
   'store.bin': ['/opt/bd', runs],
   'ui.glyphs': ['ascii', c => asciiOf(c.ui.glyphs, {})], 'ui.flash': [false, async c => (await started(c)).ui], 'ui.density': ['compact', async c => (await started(c)).ui],
   'ui.notify': ['off', async c => (await started(c)).ui], 'ui.escalateAfterMs': [5_000, async c => (await started(c)).ui],
@@ -92,15 +94,15 @@ describe('validation and provenance (ADR 0019)', () => {
     const L = [{ name: '~/.claude/cadre.json', trust: 'user' as const, value: { maxParallel: 5 } }, { name: '.cadre/config.json', trust: 'repo' as const, value: { lanes: { fullAt: 4 } } }, { name: 'env', trust: 'user' as const, value: { store: { kind: 'memory' } } }]
     const by = (env = {}) => Object.fromEntries(rows(L, env).map(r => [r.key, r]))
     expect([by().maxParallel.src, by()['lanes.fullAt'].src, by()['store.kind'].src, by()['drive.maxTurns'].src]).toEqual(['user', 'repo', 'env', 'default'])
-    expect(by({ CLAUDE_CODE_SUBAGENT_MODEL: 'haiku' })['roles.worker.tier'].src).toBe('default')
+    expect(by({ CLAUDE_CODE_SUBAGENT_MODEL: 'haiku' })['roles.worker.byRisk.light.model'].src).toBe('default')
     const f = by({ CLAUDE_CODE_SUBAGENT_MODEL: 'haiku', CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '1', CLAUDE_CODE_EFFORT_LEVEL: 'low' })
-    expect([f['roles.worker.tier'].src, f['roles.worker.tier'].warn, f['roles.tester.effort'].warn, f['maxParallel'].src]).toEqual(['forced', 'CLAUDE_CODE_SUBAGENT_MODEL_FORCE puts every agent on haiku', 'CLAUDE_CODE_EFFORT_LEVEL puts every agent on effort low', 'user'])
+    expect([f['roles.worker.byRisk.core.escalate.model'].src, f['roles.worker.byRisk.core.escalate.model'].warn, f['roles.tester.byRisk.light.effort'].warn, f['maxParallel'].src]).toEqual(['forced', 'CLAUDE_CODE_SUBAGENT_MODEL_FORCE puts every agent on haiku', 'CLAUDE_CODE_EFFORT_LEVEL puts every agent on effort low', 'user'])
     expect(forcedOf({ CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '1' })).toEqual({ model: "main's model" })
   })
   test('doctor: refused values and env overrides warn; then every key, non-default first; fixed invariants are shown and not editable', async () => {
     const h = Object.assign(fakeHost({ files: { '/hm/u/.claude/cadre.json': '{"maxParallel":5,"drive":{"mode":"fast"}}' }, env: { CLAUDE_CODE_EFFORT_LEVEL: 'low' } }))
     const d = await doctorRows(h), text = d.map(r => `${r[0]} ${r[1]}`)
-    expect(text.slice(0, 3)).toEqual(['warn setting refused: ~/.claude/cadre.json: drive.mode: expected one of: yolo, auto', 'warn CLAUDE_CODE_EFFORT_LEVEL puts every agent on effort low: overrides 7 model/effort settings', 'ok setting maxParallel = 5 · user'])
+    expect(text.slice(0, 3)).toEqual(['warn setting refused: ~/.claude/cadre.json: drive.mode: expected one of: yolo, auto', 'warn CLAUDE_CODE_EFFORT_LEVEL puts every agent on effort low: overrides 25 model/effort settings', 'ok setting maxParallel = 5 · user'])
     expect(d.length).toBe(2 + (await settingsRows(h)).length); expect(text).toContain('ok setting fixed.setupLease = 20 turns / 30 min · fixed')
   })
 })
