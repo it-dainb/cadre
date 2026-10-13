@@ -43,7 +43,9 @@ watcher() {
       lastt=$cur; tnew=0   # what asked for a dialog (shown before or with it) got one
       t=$(title "$p")
       if grep -qiE '^approve (the mission|mission|plan|milestone)' <<<"$t"; then
-        [ "$seen" != "plan:$t" ] && { log "plan $t"; seen="plan:$t"; [ -n "$LANDED" ] && { sleep 1; key Enter; log "answer $t"; }; }
+        if [ "$seen" != "plan:$t" ]; then log "plan $t"; seen="plan:$t"; since=$now; [ -n "$LANDED" ] && { sleep 1; key Enter; log "answer $t"; }
+        elif [ -n "$LANDED" ] && [ $((now - since)) -ge 15000 ]; then key Enter; log "answer $t"; since=$now   # re-asked (the draft changed under the first press: "it changed; review again")
+        fi
       elif [ "$seen" != "$t" ]; then seen=$t; since=$now; log "dialog $t"
       elif [ $((now - since)) -ge $(( $(cat "$O/dialog_wait") * 1000 )) ]; then   # still open 10 s after an Enter: press again (a key can land mid-redraw)
         key Enter; log "answer $t"; since=$((now + 10000))
