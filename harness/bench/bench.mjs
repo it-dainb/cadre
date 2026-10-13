@@ -75,12 +75,17 @@ function judge(dir) {
   const multi = p.tasks.length > 1
   // files the plan changed outside every declared path (CHANGELOG.md is cadre's own): reported, not failed
   const declared = new Set(['CHANGELOG.md', ...p.tasks.flatMap(t => t.paths)]), offPath = ref ? (sh('git', ['-C', work, 'diff', '--name-only', 'main', ref]) ?? '').split('\n').filter(f => f && !declared.has(f)) : []
+  // each task's squash commit on the checked ref (subject "<type>: <title>"): the files it changed; a dependent that changed the core's source files = the core lock did not hold
+  const log = ref ? (sh('git', ['-C', work, 'log', '--format=%H%x09%s', ref]) ?? '').split('\n').map(l => l.split('\t')) : []
+  const filesOf = t => { const c = log.find(([, s]) => s?.endsWith(`: ${t.title}`))?.[0]; return c ? (sh('git', ['-C', work, 'show', '--name-only', '--format=', c]) ?? '').split('\n').filter(Boolean) : null }
+  const coreSrc = p.tasks.filter(t => t.core).flatMap(t => t.paths.filter(x => !x.startsWith('test/')))
   const tasks = p.tasks.map(t => {
     const id = ids[t.key], j = JSON.parse(sh('bd', ['show', id, '--json']) ?? 'null'), x = (Array.isArray(j?.data ?? j) ? (j.data ?? j)[0] : j?.data ?? j) ?? {}, meta = x.metadata ?? {}
     const runs = (() => { try { return JSON.parse(meta['cadre.runs'] ?? '[]') } catch { return [] } })(), rework = (+meta['cadre.rework'] || 0) + (+meta['cadre.rebase'] || 0)
     const check = tip ? sh('node', ['--test', ...(multi ? [`--test-name-pattern=^${t.key}\\.`] : []), 'test/zz-bench-check.test.mjs'], { cwd: tip }) !== null : false
     const closed = x.status === 'closed', landed = closed && check
-    return { key: t.key, id, status: x.status ?? 'missing', closed, check, landed, rework, workerRuns: runs.filter(r => r.role === 'worker').length, escalations: runs.filter(r => r.escalated).length, runs,
+    const files = filesOf(t)
+    return { key: t.key, id, status: x.status ?? 'missing', files, ...(coreSrc.length && !t.core ? { touchesCore: !!files?.some(f => coreSrc.includes(f)) } : {}), reviewer: runs.filter(r => r.role === 'reviewer').map(r => `${r.model}/${r.effort}`), closed, check, landed, rework, workerRuns: runs.filter(r => r.role === 'worker').length, escalations: runs.filter(r => r.escalated).length, runs,
       firstTry: landed && rework === 0 && runs.filter(r => r.role === 'worker').length <= 1,
       stall: !closed && runs.length > 0 && !runs.some(r => r.role === 'worker') }   // main stopped after the tester step without spawning the worker: a driver stall, not the roles' doing
   })
