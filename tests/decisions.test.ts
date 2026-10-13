@@ -144,8 +144,10 @@ describe('no nagging: a decision pops once, when it first appears; `1` re-opens 
     acts(w.h).answer((await top(w.h)).id); expect(u.asked).toHaveLength(1); await u.drain(); expect(u.asked).toHaveLength(2)
     await w.call('TaskUpdate', { taskId: (await w.h.board.read()).tasks[0].id, subject: 'reworded' }); await autoAsk(w.h); await u.drain(); expect(u.asked).toHaveLength(2)   // a new hash is not a new decision
   })
-  test('a decision appearing while the human types never pops (the band carries it); nor a quiet one', async () => {
-    const w = await world(); await plan(w); const u = await ui(w, undefined, { peek: 'I am typing' }); await autoAsk(w.h); await u.drain(); expect(u.asked).toHaveLength(0)
+  test('a decision appearing while the human types waits for an empty composer, then pops once (the band carries it meanwhile); a quiet one never pops', async () => {
+    const w = await world(); await plan(w); const o = { peek: 'I am typing' }, u = await ui(w, undefined, o); await autoAsk(w.h); await u.drain(); expect(u.asked).toHaveLength(0)
+    o.peek = ''; await autoAsk(w.h); await u.drain(); expect(u.asked).toHaveLength(1)   // the composer emptied: the skipped card pops now, not lost
+    await autoAsk(w.h); await u.drain(); expect(u.asked).toHaveLength(1)   // and only once
     const w2 = await world(), u2 = await ui(w2); await ask(w2.h, dec('run:setup', 'init', 'setup · 2/8 done · Claude is on it', [], [OK], { quiet: true })); await autoAsk(w2.h); await u2.drain(); expect(u2.asked).toHaveLength(0)
   })
 })

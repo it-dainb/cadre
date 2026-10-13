@@ -43,14 +43,15 @@ export async function onEvent(h: Host, e: Parameters<typeof notifyEvent>[1]): Pr
   if (readCfg(await h.ui.read()).flash) h.ops?.after(1600, () => h.ops?.invalidate())   // the 1.5 s row flash ends by a redraw (BRAND §9)
 }
 
-// A decision pops its dialog by itself at most ONCE, when it first appears, and only over an empty composer with no dialog of ours up (a `quiet` one never does).
+// A decision pops its dialog by itself at most ONCE, the first time it can, and only over an empty composer with no dialog of ours up (a `quiet` one never does).
 // After that only `1` (band or pane) opens it: a dismissal (Esc) never comes back on its own.
 export async function autoAsk(h: Host): Promise<void> {
   if (!h.ask || !h.ops) return
   const shown = ((await h.ui.read()).shown as string[] | undefined) ?? [], fresh = decisions(await read(h)).filter(d => !d.quiet && !shown.includes(d.id))
   if (!fresh.length) return
+  if (asking || (await h.ops.peek()).trim()) return   // typing or a dialog up: not shown yet, so the next tick (5 s) pops it once the composer is empty; meanwhile `1` still works
   await h.ui.update(u => ({ ...u, shown: [...shown, ...fresh.map(d => d.id)].slice(-100) }))
-  if (!asking && !(await h.ops.peek()).trim()) later(h, () => answerDialog(h, fresh[0].id))
+  later(h, () => answerDialog(h, fresh[0].id))
 }
 
 // The ONE way a decision is answered (ADR 0012): the native AskUserQuestion dialog. Fields first, one ask each (keep the value or type a new one); then the
