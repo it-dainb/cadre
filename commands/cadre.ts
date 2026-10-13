@@ -8,7 +8,8 @@ import { ask } from '../core/decide'
 import { fnv1a64 } from '../core/board'
 import { modelText } from '../core/say'
 import { autoAsk, openPane } from '../ui/index'
-import { stepName } from '../ui/v2/facts'
+import { needsOf, stepName } from '../ui/v2/facts'
+import { read } from '../ui/model'
 import { confirm as initConfirm } from './init'
 import { confirmUser, doctor } from './doctor'
 import { halted, haltText, queue, recheck, resnap, settingsAnswer, start } from './agentrun'
@@ -55,7 +56,7 @@ export async function status(h: Host): Promise<string> {
   const hr = await halted(h)
   if (!(await wake(h))) return modelText('context', mine.length ? `setup · ${mine.length} needs you · press 1` : hr ? haltText(hr) : (await setUp(h)) ? READY : WELCOME)   // a set-up repo implies a set-up machine: no welcome there
   await warm(h)
-  const b = await h.board.read(), p = b.plan, needs = (b.decisions ?? []).length, ts = b.tasks, n = `${ts.filter(t => t.state === 'done').length}/${ts.length}`
+  const b = await h.board.read(), p = b.plan, needs = needsOf(await read(h)).filter(n => n.d).length, ts = b.tasks, n = `${ts.filter(t => t.state === 'done').length}/${ts.length}`
   const left = await unfinished(h), dl = deepLine((await h.secret.read()).goalRun, (await cfgOf(h)).planning)
   const text = needs ? `${p?.id ?? (mine.length ? 'setup' : 'cadre')} · ${needs} needs you · press 1 to answer`
     : hr ? haltText(hr)

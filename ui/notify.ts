@@ -3,6 +3,7 @@
 import type { CadreEvent, Host } from '../types'
 import { CFG, attention, read } from './model'
 import { clip } from './layout'
+import { needsOf } from './v2/facts'
 import { holds, yoloOn } from '../core/decide'
 
 export type Level = 0 | 1 | 2 | 3   // silent . · band o · toast * · notify !
@@ -69,8 +70,9 @@ async function notify(h: Host, key: string, text: string, now: number): Promise<
   })
   if (ok && !(await h.ops.notify(text, { title: 'cadre' })).isSent) h.ops.toast(text, { timeoutMs: 6000 })
 }
-// status line: the top attention item, cleared when none (never the command, so never a code)
-export async function syncStatus(h: Host): Promise<void> { const top = attention(await read(h))[0]; h.ops?.status(top ? `${top.text}${top.d || top.sel ? " · press 1" : ""}` : undefined) }   // "press 1" only where a dialog answers it (a state such as containment names its own action)
+// status line: what the human owes (ui/v2/facts.needsOf, the band's own test), else a problem state; cleared when none (never the command, so never a code)
+// "press 1" only where 1 opens a dialog: a run's progress card is no need (live 0.11.0: "init · 2/8 done · Claude is on it · press 1" opened nothing)
+export async function syncStatus(h: Host): Promise<void> { const v = await read(h), top = needsOf(v)[0] ?? attention(v).find(i => !i.d); h.ops?.status(top ? `${top.text}${top.d ? ' · press 1' : ''}` : undefined) }
 
 // subscribed to core/events: one call per emitted event
 export async function onEvent(h: Host, e: CadreEvent): Promise<void> {

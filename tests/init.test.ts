@@ -164,6 +164,7 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     expect(txt(band2(v, 120, { go() {}, pick() {}, answer() {}, step() {} })).join('\n')).toContain('Setup was interrupted · /cadre add a login page to pick it up')
     expect((await cadreRun(h, { args: 'add a login page', origin: { kind: 'composer' } }, () => ({}))).text).toBe('init: Claude is on it · progress in the cadre pane · then your goal')
     expect((await h.secret.read()).run).toMatchObject({ kind: 'init', goal: { text: 'add a login page' } })
+    expect(await statusLine(h)).not.toContain('press 1')   // the run's checklist is progress: 1 opens nothing (live 0.11.0)
     files[`${ROOT}/CHANGELOG.md`] = skeleton(); await turnEnd(h, {})
     await h.secret.update(({ run: _r, ...x }) => x); expect(await statusLine(h)).not.toContain('interrupted')
     await start(h, 'setup'); await h.secret.update(({ run: _r, ...x }) => x); await h.board.update(b => ({ ...b, decisions: [] })); expect(await statusLine(h)).toBe('Setup was interrupted · /cadre setup to pick it up')
