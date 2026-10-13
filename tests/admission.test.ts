@@ -209,6 +209,16 @@ describe('review spawn', () => {
     const { w, h, d, id } = await inReview('reviewer'); await w.store.update(id, { labels: [] }, d.actor); d.cfg.roles.reviewer.tier = 'fast'
     const { next, seen } = ok('rv1'); await admitWith(h, d, spawn(id), next); expect(seen[0].model).toBe('sonnet')
   })
+  test('settings: review.deepLabels sends a labelled change to the thorough review; only CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 overrides the model (ADR 0019)', async () => {
+    const { w, h, d, id } = await inReview('reviewer'); await w.store.update(id, { labels: ['ux'] }, d.actor); w.numstat.out = '1\t1\tsrc/a.ts\n'
+    const a = ok('rv1'); await admitWith(h, d, spawn(id), a.next); expect(a.seen[0].model).toBe('sonnet')
+    await h.bind.update(() => ({})); d.cfg.review.deepLabels = ['ux']
+    const b = ok('rv2'); await admitWith(h, d, spawn(id), b.next); expect(b.seen[0].model).toBe('opus'); expect((await w.store.get(id)).meta['cadre.reviewTier']).toBe('thorough')
+    await h.bind.update(() => ({})); (h as any).env = async () => ({ CLAUDE_CODE_SUBAGENT_MODEL: 'haiku' })
+    await admitWith(h, d, spawn(id), ok('rv3').next); expect(JSON.parse((await w.store.get(id)).meta['cadre.runs']).at(-1)).toMatchObject({ model: 'opus' }); expect('forced' in JSON.parse((await w.store.get(id)).meta['cadre.runs']).at(-1)).toBe(false)
+    await h.bind.update(() => ({})); (h as any).env = async () => ({ CLAUDE_CODE_SUBAGENT_MODEL: 'haiku', CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '1' })
+    await admitWith(h, d, spawn(id), ok('rv4').next); expect(JSON.parse((await w.store.get(id)).meta['cadre.runs']).at(-1)).toMatchObject({ model: 'haiku', forced: 'haiku/' })
+  })
   test('review-passed (merge) is main\'s to complete; no sourceCommit yet is refused', async () => {
     const m = await inReview('merge'); expect(((await admitWith(m.h, m.d, spawn(m.id), ok().next)) as any).deny).toContain('TaskUpdate completed')
     const r = await inReview('reviewer'); await r.w.store.setMeta(r.id, { 'cadre.sourceCommit': '' }, r.d.actor); expect(((await admitWith(r.h, r.d, spawn(r.id), ok().next)) as any).deny).toContain('no commit to review')

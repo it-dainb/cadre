@@ -1,0 +1,106 @@
+// ADR 0019 enforcement: for every setting, changing it changes what cadre does. Each probe runs the real code path with the default config and with
+// one key changed; the observable must differ. Keys proved by a scenario test elsewhere are listed in fixtures/settings-proof (ELSEWHERE).
+import { describe, expect, test } from 'claude-code/testing'
+import { REG, defaults, strictOf } from '../config/index'
+import type { Config } from '../config/index'
+import { route, reviewTier } from '../core/risk'
+import { laneOf } from '../core/lanes'
+import { boundOf } from '../core/drive'
+import { stale, usdOf } from '../core/reuse'
+import { start, wake } from '../core/session'
+import { modeOf } from '../core/specview'
+import { registryOf } from '../core/dispatch'
+import { protectedRef, wtRootOf } from '../core/branches'
+import { isProt, writableJail } from '../core/git'
+import { allowlist } from '../agents/index'
+import { asciiOf } from '../config/index'
+import { machine } from '../commands/doctor'
+import { policyOf } from '../policy/guards'
+import { ELSEWHERE } from './fixtures/settings-proof'
+import { fakeHost } from './support'
+
+const put = (c: any, k: string, v: unknown) => { const ks = k.split('.'); ks.slice(0, -1).reduce((o, x) => o[x], c)[ks[ks.length - 1]] = v; return c }
+const host = (c: Config, files: Record<string, string> = {}) => Object.assign(fakeHost({ files }), { config: async () => c })
+const R = (c: Config, r: 'worker' | 'tester' | 'reviewer' | 'explorer', risk: 'light' | 'standard' | 'thorough' = 'standard', n = 0) => route(c.roles[r] as any, c.models, risk, n, r === 'reviewer')
+const esc = (c: Config, r: 'worker' | 'tester' | 'reviewer') => route({ ...(c.roles[r] as any), escalate: { after: c.roles[r].escalate.after || 1, to: c.roles[r].escalate.to || 'deep' } }, c.models, 'standard', 1, r === 'reviewer').model
+const T = (n: number) => Array.from({ length: n }, () => ({ type: 'spike', meta: {}, labels: [], design: '' })) as any
+const stat = (files: number, lines: number, path = 'src/a.ts') => ({ paths: Array.from({ length: files }, (_, i) => (i ? `src/f${i}.ts` : path)), lines })
+const rec = { on: true, turns: 50, startedAt: 0 } as any, bound = (c: Config, cost = 5, idle = 2) => boundOf(rec, c.drive, cost, idle, 60 * 60_000)
+const B = { taskId: 't', role: 'worker', step: 'worker', worktree: '/w', sessionId: 's', ctxTokens: 120_000, startedAt: 0, lastAt: 0 } as any
+const started = async (c: Config) => { const h = host(c); await start(h); return { pol: await policyOf(h), ui: (await h.ui.read()).cfg } }
+const runs = async (c: Config) => { const seen: string[][] = []; const h = Object.assign(host(c), { run: async (a: string[]) => { seen.push(a); return { exitCode: 1, stdout: '', stderr: '' } } }); await machine(h, c).catch(() => {}); return seen.map(a => a.join(' ')).join('\n') }
+
+// key -> [a non-default value, the observable]
+const PROBES: Record<string, [unknown, (c: Config) => unknown]> = {
+  'drive.maxTurns': [10, c => bound(c)], 'drive.maxCostUsd': [3, c => bound(c, 5, 0)], 'drive.maxWallMinutes': [30, c => bound({ ...c, drive: { ...c.drive, maxTurns: 1e6 } } as Config, 0, 0)],
+  'drive.noProgressTurns': [2, c => bound({ ...c, drive: { ...c.drive, maxTurns: 1e6, maxWallMinutes: 1e6 } } as Config, 0, 2)],
+  disable: [true, c => wake(Object.assign(host(c, { '/repo/.cadre/config.json': '{}' }), { secret: { read: async () => ({}), update: async () => {} } }) as any)],
+  ...Object.fromEntries((['worker', 'tester', 'reviewer'] as const).flatMap(r => [
+    [`roles.${r}.tier`, ['deep', (c: Config) => R(c, r, 'standard').model]], [`roles.${r}.effort`, ['max', (c: Config) => R(c, r, 'standard').effort]],
+    [`roles.${r}.byRisk`, [{ standard: { tier: 'deep', effort: 'max' } }, (c: Config) => R(c, r, 'standard')]],
+    [`roles.${r}.escalate.after`, [5, (c: Config) => esc(c, r)]], [`roles.${r}.escalate.to`, ['fable', (c: Config) => esc(c, r)]],
+  ])),
+  'roles.explorer.tier': ['deep', c => R(c, 'explorer').model], 'roles.explorer.effort': ['high', c => R(c, 'explorer').effort],
+  'models.fast': ['fable', c => R(c, 'worker').model], 'models.standard': ['fable', c => R(c, 'reviewer').model], 'models.deep': ['fable', c => R(c, 'reviewer', 'thorough').model],
+  'review.tiers.light.files': [2, c => reviewTier(c.review.tiers, stat(3, 10), false)], 'review.tiers.light.lines': [50, c => reviewTier(c.review.tiers, stat(1, 80), false)],
+  'review.tiers.thorough.files': [10, c => reviewTier(c.review.tiers, stat(15, 10), false)], 'review.tiers.thorough.lines': [300, c => reviewTier(c.review.tiers, stat(1, 400), false)],
+  'review.tiers.risky': [['src/**'], c => reviewTier(c.review.tiers, stat(1, 1), false)],
+  'lanes.fullAt': [4, c => laneOf('ask', T(3), c.types as any, c.lanes)], 'lanes.milestoneAt': [9, c => laneOf('full', T(8), c.types as any, c.lanes)],
+  types: [{ chore: { commit: 'chore', pipeline: ['worker', 'merge'] } }, async c => Object.keys(await registryOf(host(c)))],
+  'branches.main': ['trunk', c => protectedRef('trunk', c.branches)], 'branches.dev': ['develop', c => protectedRef('dev', c.branches)], 'branches.epicPrefix': ['feat/', c => protectedRef('feat/x', c.branches)],
+  'changelog.path': ['docs/CHANGES.md', c => isProt('docs/CHANGES.md', c.changelog.path)], 'worktrees.root': ['/fast/wt', c => wtRootOf(host(c), c)],
+  strictness: ['advisory', c => strictOf(host(c))], mcpAllow: [['mcp__x__y'], async c => (await started(c)).pol.mcpAllow],
+  jail: ['on', c => modeOf(host(c), { cfg: c }).catch(e => (e as Error).message)], jailWritable: [['/cache'], c => writableJail({ wt: '/w', scratch: '/s', pkgRoot: '/w', argv: ['true'], writable: c.jailWritable }).join(' ')],
+  effectCheck: ['always', async c => (await started(c)).pol.effectCheck],
+  'reuse.maxContextPct': [50, c => stale(B, 1, c)], 'reuse.cacheTtlMs': [0, c => stale({ ...B, ctxTokens: 70_000 }, 10, c)],
+  'cost.prices': [{ fast: { in: 1, out: 1 } }, c => usdOf({ in: 1e6, out: 0, cr: 0, cw: 0, model: 'claude-haiku-5' }, c)],
+  'store.bin': ['/opt/bd', runs],
+  'ui.glyphs': ['ascii', c => asciiOf(c.ui.glyphs, {})], 'ui.flash': [false, async c => (await started(c)).ui], 'ui.density': ['compact', async c => (await started(c)).ui],
+  'ui.notify': ['off', async c => (await started(c)).ui], 'ui.escalateAfterMs': [5_000, async c => (await started(c)).ui],
+}
+// read only inside a turn/hook flow that has no smaller entry point; why they are trusted is in ADR 0019 (fixed list of exceptions, kept short)
+const PLUMBING: Record<string, string> = {
+  'cost.clearHintPct': 'core/reuse.drain: toast after an epic lands past this fill (one comparison)', 'cost.compactPct': 'core/reuse.drain: toast past this fill (one comparison)',
+  'store.kind': 'hooks/register wire.store: memory vs bd (tests replace wire.store, so the kit cannot call the shipped factory)', 'store.timeoutMs': 'hooks/register wire.store -> BdStore timeoutMs',
+}
+
+describe('every setting changes behaviour (ADR 0019)', () => {
+  test('each key is probed here, proved in a named test, or listed as plumbing', () => {
+    const none = Object.keys(REG).filter(k => !PROBES[k] && !ELSEWHERE[k] && !PLUMBING[k]), twice = Object.keys(PROBES).filter(k => ELSEWHERE[k] || PLUMBING[k])
+    expect([none, twice, Object.keys(PROBES).filter(k => !REG[k])]).toEqual([[], [], []])
+  })
+  for (const [k, [alt, probe]] of Object.entries(PROBES)) test(k, async () => {
+    const a = JSON.stringify(await probe(defaults())), b = JSON.stringify(await probe(put(defaults(), k, alt)))
+    expect(b).not.toBe(a)
+  })
+})
+
+import { check, forcedOf, resolve, rows } from '../config/index'
+import { doctorRows, settingsRows } from '../config/route'
+describe('validation and provenance (ADR 0019)', () => {
+  test('every default passes its own check; a bad value for any enum or number key is refused with a reason, the rest of the layer applies', () => {
+    for (const [k, m] of Object.entries(REG)) {
+      const def = k.split('.').reduce((o: any, x) => o?.[x], defaults()); expect(check(k, def)).toBe(null)
+      const bad = m.opts ? 'bogus' : m.min !== undefined ? m.max! + 1 : undefined; if (bad === undefined) continue
+      const r = resolve([{ name: 'u', trust: 'user', value: k.split('.').reduceRight((o: unknown, x) => ({ [x]: o }), bad as unknown) }])
+      expect(r.diagnostics.some(d => d.startsWith(`u: ${k}: expected`))).toBe(true)
+    }
+    const r = resolve([{ name: 'u', trust: 'user', value: { drive: { mode: 'fast', maxTurns: 7 }, nope: 1 } }])
+    expect([r.config.drive.mode, r.config.drive.maxTurns, r.diagnostics]).toEqual(['auto', 7, ['u: drive.mode: expected one of: yolo, auto', 'u: nope: unknown key']])
+  })
+  test('source per key: default, user, repo, env; forced only by FORCE=1 or the effort variable, with the warning', () => {
+    const L = [{ name: '~/.claude/cadre.json', trust: 'user' as const, value: { maxParallel: 5 } }, { name: '.cadre/config.json', trust: 'repo' as const, value: { lanes: { fullAt: 4 } } }, { name: 'env', trust: 'user' as const, value: { store: { kind: 'memory' } } }]
+    const by = (env = {}) => Object.fromEntries(rows(L, env).map(r => [r.key, r]))
+    expect([by().maxParallel.src, by()['lanes.fullAt'].src, by()['store.kind'].src, by()['drive.maxTurns'].src]).toEqual(['user', 'repo', 'env', 'default'])
+    expect(by({ CLAUDE_CODE_SUBAGENT_MODEL: 'haiku' })['roles.worker.tier'].src).toBe('default')
+    const f = by({ CLAUDE_CODE_SUBAGENT_MODEL: 'haiku', CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '1', CLAUDE_CODE_EFFORT_LEVEL: 'low' })
+    expect([f['roles.worker.tier'].src, f['roles.worker.tier'].warn, f['roles.tester.effort'].warn, f['maxParallel'].src]).toEqual(['forced', 'CLAUDE_CODE_SUBAGENT_MODEL_FORCE puts every agent on haiku', 'CLAUDE_CODE_EFFORT_LEVEL puts every agent on effort low', 'user'])
+    expect(forcedOf({ CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '1' })).toEqual({ model: "main's model" })
+  })
+  test('doctor: refused values and env overrides warn; then every key, non-default first; fixed invariants are shown and not editable', async () => {
+    const h = Object.assign(fakeHost({ files: { '/hm/u/.claude/cadre.json': '{"maxParallel":5,"drive":{"mode":"fast"}}' }, env: { CLAUDE_CODE_EFFORT_LEVEL: 'low' } }))
+    const d = await doctorRows(h), text = d.map(r => `${r[0]} ${r[1]}`)
+    expect(text.slice(0, 3)).toEqual(['warn setting refused: ~/.claude/cadre.json: drive.mode: expected one of: yolo, auto', 'warn CLAUDE_CODE_EFFORT_LEVEL puts every agent on effort low: overrides 7 model/effort settings', 'ok setting maxParallel = 5 · user'])
+    expect(d.length).toBe(2 + (await settingsRows(h)).length); expect(text).toContain('ok setting fixed.setupLease = 20 turns / 30 min · fixed')
+  })
+})

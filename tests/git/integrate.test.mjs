@@ -135,3 +135,13 @@ test('integration red while driving: ONE fix task (approved, recorded), no flag;
     assert.equal(b.drive.stopped, mode === 'yolo' ? 'integration failed twice' : undefined)
   }
 })
+
+// ADR 0019: release.onEpicDone and suites.integration are settings; changing each changes the integration
+test('settings: release.onEpicDone off lands without proposing a release; suites.integration runs only the named checks', async () => {
+  const { h } = await world(); (await h.config()).release.onEpicDone = 'off'
+  assert.equal(await integrateEpic(h, 'p3'), null); assert.ok(!Object.values((await h.events.read()).epics).flat().some(e => e.type === 'release.proposed'))
+  const red = await world(); (await red.h.config()).packages[0].checks = { test: ['true'], lint: ['false'] }
+  assert.notEqual(await integrateEpic(red.h, 'p3'), null)   // 'all': the red lint gates
+  const only = await world(), c = await only.h.config(); c.packages[0].checks = { test: ['true'], lint: ['false'] }; c.suites.integration = ['test']
+  assert.equal(await integrateEpic(only.h, 'p3'), null)
+})

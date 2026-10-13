@@ -219,3 +219,28 @@ test('a resolve task: claimed in the worktree that holds the merge; the worker r
   assert.equal(await C.closeTask(h, w.dep, id), null); assert.equal(sh(d, 'show', 'epic/p1-x:a.txt'), 'ours\ntheirs'); assert.match(sh(d, 'show', 'epic/p1-x:CHANGELOG.md'), /other \(x-1\)/)
   assert.equal(sh(d, 'merge-tree', '--write-tree', '--name-only', 'dev', 'epic/p1-x').split('\n').length, 1)   // the landing merges cleanly now
 })
+
+// ADR 0019: the limits are settings; changing each one changes the behaviour above
+test('settings: limits.nudges 0 auto-reports at the first stop; limits.attempts 1 blocks at the first failed run', async () => {
+  const w = await world(), id = w.ids[0]; w.dep.cfg.limits.nudges = 0; await w.spawn(id); edit((await w.store.get(id)).meta['cadre.worktree'])
+  await C.observeWith(w.h, w.dep, { agentId: 'ag1', reason: 'answer', answer: 'done' }, e => e)
+  const t = (await w.h.board.read()).tasks[0]; assert.deepEqual([t.state, t.flags.includes('auto-reported')], ['review', true])
+  const w2 = await world(), id2 = w2.ids[0]; w2.dep.cfg.limits.attempts = 1; await w2.spawn(id2); await C.observeWith(w2.h, w2.dep, { agentId: 'ag1', reason: 'error' }, e => e)
+  assert.equal((await w2.h.board.read()).tasks[0].state, 'blocked')
+})
+test('settings: limits.reportRetries 1 accepts the 2nd bad report unvalidated (flagged)', async () => {
+  const w = await world(), id = w.ids[0]; w.dep.cfg.limits.reportRetries = 1; await w.spawn(id); edit((await w.store.get(id)).meta['cadre.worktree']); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }); await w.spawn(id)
+  const bad = { ...w.pass, coverage: [] }
+  assert.match(await w.rep('ag2', bad), /attempt 1\//); assert.match(await w.rep('ag2', bad), /verdict accepted/); assert.ok((await w.h.board.read()).tasks[0].flags.includes('report-unvalidated'))
+})
+test('settings: limits.rebaseRounds 1 blocks a conflicting task after one rework', async () => {
+  const w = await movedEpic('b.txt', 'theirs\n'), { h, store, id } = w; w.dep.cfg.limits.rebaseRounds = 1; await store.setMeta(id, { 'cadre.rebase': '1' }, 'x')
+  assert.match(String(await C.closeTask(h, w.dep, id)), /still conflicts on the plan after 1 reworks/); assert.equal((await h.board.read()).tasks[0].state, 'blocked')
+})
+test('settings: review.maxRework 1 flags non-progress after the 2nd changes verdict', async () => {
+  const w = await world(), id = w.ids[0], { h, store } = w; w.dep.cfg.review.maxRework = 1; await w.spawn(id); const wt = (await store.get(id)).meta['cadre.worktree']
+  edit(wt); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }); await w.spawn(id)
+  const ch = { ...w.pass, verdict: 'changes', summary: 'fix it', findings: [{ severity: 'major', file: 'b.txt', line: 1, issue: 'wrong', fix: 'right' }] }
+  assert.match(await w.rep('ag2', ch), /changes \(1\/1\)/); edit(wt, 'b.txt', 'b1\n'); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'r1' })
+  await w.rep('ag2', ch); assert.ok((await h.board.read()).tasks[0].flags.includes('rework:2/1'))
+})

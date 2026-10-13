@@ -29,7 +29,7 @@ export async function queueResume(h: Host, r: { agentId: string; taskId: string;
 
 // fresh instead of resume (4.4.3): over maxContextPct, or idle past the cache TTL with context > 30 %. Window = 200k unless the model says otherwise.
 const ctxPct = (b: Binding) => Math.round((b.ctxTokens / 200_000) * 100)
-const stale = (b: Binding, now: number, cfg: any) => ctxPct(b) > cfg.reuse.maxContextPct || (now - (b.lastAt ?? b.startedAt) > cfg.reuse.cacheTtlMs && ctxPct(b) > 30)
+export const stale = (b: Binding, now: number, cfg: any) => ctxPct(b) > cfg.reuse.maxContextPct || (now - (b.lastAt ?? b.startedAt) > cfg.reuse.cacheTtlMs && ctxPct(b) > 30)
 async function retire(h: Host, a: string, b: Binding, why: string) {   // the agent stays bound but retired: admission rebinds it fresh with a computed handoff
   await h.bind.update(t => (t[a] ? { ...t, [a]: { ...t[a], retired: true } } : t))
   h.toast(`cadre: ${b.taskId} needs a fresh agent · spawn TASK-${b.taskId}`)

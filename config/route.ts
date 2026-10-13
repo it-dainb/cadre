@@ -25,6 +25,13 @@ const FIXED = (): Row[] => [fx('fixed.setupLease', 'Safety and containment', `${
   fx('fixed.protected', 'Safety and containment', PROTECTED, 'paths no task agent may change'), fx('fixed.draftRetries', 'Planning', RETRIES, 'refused plan drafts before cadre asks you'),
   fx('fixed.driveLease', 'Drive and autonomy', `${LEASE / 60_000} min`, 'a drive whose session is silent this long can be taken over')]
 export const settingsRows = async (h: any): Promise<Row[]> => { const r = [...rows(await layersOf(h, await ctx(h)), await h.env()), ...FIXED()]; return r.sort((a, b) => CATS.indexOf(a.cat) - CATS.indexOf(b.cat)) }
+// doctor's settings section (ADR 0019): refused values, env overrides (one row per variable), then the full effective table, non-default first
+export async function doctorRows(h: any): Promise<['ok' | 'warn', string, string?][]> {
+  const rs = await settingsRows(h), line = (r: Row): ['ok', string] => ['ok', `setting ${r.key} = ${show(r.value) || '(empty)'} · ${r.src}`]
+  const warns = [...new Set(rs.flatMap(r => r.warn?.split('; ') ?? []))].map((w): ['warn', string, string] => [`warn`, `${w}: overrides ${rs.filter(r => r.warn?.includes(w)).length} model/effort settings`, 'unset the variable to use the Settings values'])
+  return [...resolve(await layersOf(h, await ctx(h))).diagnostics.map((d): ['warn', string, string] => ['warn', `setting refused: ${d}`, 'fix it in Settings (9) or in that file']), ...warns,
+    ...rs.filter(r => r.src !== 'default' && r.src !== 'fixed').map(line), ...rs.filter(r => r.src === 'default' || r.src === 'fixed').map(line)]
+}
 // the pane cannot read files: its rows ride in the ui atom (like the doctor rows)
 export const refreshSettings = async (h: any): Promise<void> => { const r = await settingsRows(h); await h.ui.update((u: any) => ({ ...u, 'settings.rows': r })) }
 

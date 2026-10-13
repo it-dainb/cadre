@@ -16,7 +16,12 @@ export const pkgOf = (d: Deps, task: Pick<Task, 'meta'>): Pkg | undefined => {
   return all.filter(p => p.root === '.' || at === p.root || at.startsWith(`${p.root}/`)).sort((a, b) => b.root.length - a.root.length)[0]
 }
 export const rootOf = (p?: Pkg) => (!p || p.root === '.' ? '' : p.root)
-export const modeOf = async (h: Host, d: Deps) => (d.cfg.jail === 'off' ? 'none' as const : G.jailMode(h.run))
+// jail: off = run unsandboxed; auto = the sandbox when this machine has one; on = the sandbox or nothing (the check fails with the reason)
+export async function modeOf(h: Host, d: Pick<Deps, 'cfg'>): Promise<'overlay' | 'copy' | 'none'> {
+  if (d.cfg.jail === 'off') return 'none'
+  const m = await G.jailMode(h.run); if (m === 'none' && d.cfg.jail === 'on') throw new Error('checks cannot run here: the isolated runner they require is missing; ask the human to run /cadre doctor')
+  return m
+}
 
 // Globs: `**` any depth, `*` within a segment, `?` one char; a bare directory matches everything under it.
 export const globRe = (g: string) => new RegExp(`^${g.replace(/\*\*\/|\*\*|\*|\?|[.+^${}()|[\]\\]/g, m => (m === '**/' ? '(?:.*/)?' : m === '**' ? '.*' : m === '*' ? '[^/]*' : m === '?' ? '[^/]' : `\\${m}`))}$`)

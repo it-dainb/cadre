@@ -14,6 +14,7 @@ import { call } from '../task-management/protocol'
 import { openPane } from '../ui/index'
 import { BD_BLOCK, progress, scoped, type Item } from './init'
 import { prefsItem, prefsRow } from './prefs'
+import { doctorRows } from '../config/route'
 import { BdStore } from '../task-management/adapters/beads/store'
 import { dirOf, moveStore } from '../task-management/adapters/beads/layout'
 
@@ -178,5 +179,5 @@ export async function doctor(h: Host): Promise<string> {
   const m = await machine(h, cfg)   // read-only: a fix line only when its script already exists (setup writes them)
   for (const x of m.scripts) if (x.run && (await h.readText(x.path)) === null) for (const r of m.rows) if (r[2] === `! ${x.run}`) r[2] = 'run /cadre setup to prepare the fix'
   const pe = (await h.ui.read()).paneErr as { reason: string } | undefined   // ui/index.openPane: the last open that failed this session
-  return report(h, 'doctor', [...m.rows, await prefsRow(h), ...(pe ? [['warn', `the cadre pane could not open: ${pe.reason}`, 'run /cadre to open it; if it keeps failing, report the reason'] as Row] : []), ...(await project(h, cfg))])
+  return report(h, 'doctor', [...m.rows, await prefsRow(h), ...(await doctorRows(h)), ...(pe ? [['warn', `the cadre pane could not open: ${pe.reason}`, 'run /cadre to open it; if it keeps failing, report the reason'] as Row] : []), ...(await project(h, cfg))])
 }

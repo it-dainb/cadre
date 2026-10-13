@@ -40,7 +40,10 @@ test('every config key read in the code is registered', () => {
 // ponytail: a name match, not a data-flow proof; the kit's behaviour table (tests/settings-registry.test.ts) is the proof per key.
 test('every registered key is read somewhere', () => {
   const text = SRC.map(([, l]) => l.join('\n')).join('\n')
-  const unread = keys.filter(k => { const leaf = k.split('.').pop(); return !new RegExp(`[.'"]${leaf}\\b|\\b${leaf}[,:} ]`).test(text) })
+  // sections read through a computed name or handed over whole (cfg.roles[role] and models[tier] in core/risk.route; drive -> core/drive.boundOf(dc);
+  // review.tiers -> core/risk.reviewTier(c); lanes -> core/lanes.laneOf(lim)): the leaf is enough there; elsewhere `.parent.leaf`
+  const DYN = /^(roles\.(worker|tester|reviewer|explorer)|models|drive|review\.tiers|lanes)\./
+  const unread = keys.filter(k => { const s = k.split('.'), leaf = s.pop(), par = s.pop(); return !new RegExp(par && !DYN.test(k) ? `\\.${par}\\.${leaf}\\b|\\.${par}\\?\\.${leaf}\\b` : `[.'"]${leaf}\\b|\\b${leaf}[,:} ]`).test(text) })
   assert.deepEqual(unread, [])
 })
 
@@ -68,4 +71,11 @@ test('no config read bypasses cfgOf', () => {
     bad.push(`${f}:${i + 1}: ${l.trim().slice(0, 120)}`)
   })
   assert.deepEqual(bad, [])
+})
+
+// the behaviour proofs the kit table points to exist (tests/settings-behaviour.test.ts lists the rest)
+test('every ELSEWHERE proof names a real test', async () => {
+  const { ELSEWHERE } = await import('../fixtures/settings-proof.ts')
+  const miss = Object.entries(ELSEWHERE).filter(([, [f, frag]]) => !readFileSync(join(root, f), 'utf8').includes(frag)).map(([k]) => k)
+  assert.deepEqual(miss, [])
 })

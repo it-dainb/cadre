@@ -22,7 +22,7 @@ describe('defaults (DESIGN 12)', () => {
 describe('classes', () => {
   test('S / U / O by longest prefix', async () => {
     for (const k of ['strictness', 'mcpAllow', 'jail', 'jailWritable', 'effectCheck', 'roles.testerView']) expect(classOf(k)).toBe('S')
-    for (const k of ['adapters.pm.command', 'store.bin', 'store.dir', 'store.kind', 'worktrees.root', 'drive.maxTurns', 'cost.prices', 'disable']) expect(classOf(k)).toBe('U')
+    for (const k of ['adapters.pm.command', 'store.bin', 'store.kind', 'worktrees.root', 'drive.maxTurns', 'cost.prices', 'disable']) expect(classOf(k)).toBe('U')
     for (const k of ['store.timeoutMs', 'changelog.path', 'cost.clearHintPct', 'types', 'packages', 'sync.pm', 'review.maxRework', 'maxParallel', 'ui.glyphs', 'roles.worker.tier', 'roles.tdd.author', 'models.fast']) expect(classOf(k)).toBe('O')
   })
   test('tighten: bool takes only the strict value, enum the stricter, list the intersection', async () => {

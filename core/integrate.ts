@@ -6,7 +6,8 @@ import { emit } from './events'
 import { ask, settleIf, yoloOn } from './decide'
 import { BLOCKING, epicNext } from './machine'
 import { cut, insert } from './changelog'
-import { casRef, checkRun, exists, git, jailMode, op, tip, worktreeRemove, writableJail } from './git'
+import { modeOf } from './specview'
+import { casRef, checkRun, exists, git, op, tip, worktreeRemove, writableJail } from './git'
 import { inferVersion, landDev, lastTag, mergeEpic, release, wtPath, wtRootOf } from './branches'
 import { clearKnownRed, repoKeyOf } from '../commands/init'
 import { redFix } from './drive'
@@ -32,7 +33,8 @@ const commitPaths = async (h: Host, wt: string, paths: string[], msg: string, am
 async function runSuites(h: Host, cfg: any, wt: string, files: string[] | null, epicId: string, kr: { root: string; n: string }[] = []): Promise<string | null> {
   const pkgs: any[] = cfg.packages ?? [], owner = (f: string) => pkgs.reduce<any>((best, p) => (p.root === '.' || f === p.root || f.startsWith(`${p.root}/`)) && (!best || p.root.length > best.root.length) ? p : best, null)
   const hit = new Set(files?.map(owner)), touched = pkgs.filter(p => !files || hit.has(p))
-  const mode = cfg.jail === 'off' ? 'none' as const : await jailMode(h.run), base = JSON.parse((await Promise.resolve().then(async () => (await storeOf(h)).get(epicId)).catch(() => null))?.meta['cadre.baseline'] || '{}')
+  const mode = await modeOf(h, { cfg }).catch((e: Error) => e); if (mode instanceof Error) return mode.message
+  const base = JSON.parse((await Promise.resolve().then(async () => (await storeOf(h)).get(epicId)).catch(() => null))?.meta['cadre.baseline'] || '{}')
   const scratch = `${wt}-scratch`; await h.run(['mkdir', '-p', scratch])
   try {
     for (const p of touched) {

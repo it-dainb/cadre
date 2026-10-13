@@ -61,7 +61,7 @@ export async function hardStop(h: Host, rec?: DriveRec): Promise<string | null> 
 }
 // a milestone's bounds cover all of it: the plan bounds times its epics (ADR 0015)
 const scaled = (dc: any, s: Snapshot) => { const k = s.plan?.epics?.length || 1; return k > 1 ? { ...dc, maxTurns: dc.maxTurns * k, maxCostUsd: dc.maxCostUsd * k, maxWallMinutes: dc.maxWallMinutes * k } : dc }
-const boundOf = (r: DriveRec, dc: any, cost: number, idle: number, now: number): string | null =>
+export const boundOf = (r: DriveRec, dc: any, cost: number, idle: number, now: number): string | null =>
   r.turns >= dc.maxTurns ? `max turns ${dc.maxTurns}` : cost >= dc.maxCostUsd ? `cost $${cost} ≥ $${dc.maxCostUsd}` : now - r.startedAt > dc.maxWallMinutes * 60_000 ? `max ${dc.maxWallMinutes} min` : idle >= dc.noProgressTurns ? `no progress in ${idle} turns` : null
 
 // a decision drive (or main under yolo) took without the human: a beads decision record linked to the plan + `drive.decided` for Activity and Doctor
