@@ -140,3 +140,15 @@ worker for after its focus pass.
   total $9.83 + $1.07. kill-mid-setup's first run: the `/cadre` answer was right ("Setup was interrupted · /cadre …") but the docked pane wrapped it
   over two lines and the oracle's one-line pattern missed it (setup phase, no drive: the spawner is not involved); it passed alone. No token-leak,
   error or refusal-loop invariant failed in any cell.
+
+### Before merge (team-lead's two items)
+
+- Duplicate tasks (lite): the plan dialog pops right after main's lite TaskCreate and was answered at once; main's stop was checked mid-approval
+  (store: the task open; board: the plan still draft), so `draftsOf` found none and main heard "Plan has no tasks yet" and drafted the task again.
+  The goal-stop check now reads the store (any open child counts: a lite plan's own task, a milestone's epics), and TaskCreate refuses a task with
+  the subject, or the files and description, of an open task of the same plan (`<id> already covers this (…): TaskUpdate <id> instead`).
+- A decision being answered is left out of attention (`ui.answering`) while its command runs: the approval's own events no longer bring back
+  "approve … · press 1" (the mod3/lite `press1-no-dialog`).
+- Oracle: `restart-named` and the band cut a docked pane's column and join a wrapped reply (`tests/git/oracle.test.mjs` on the saved screen;
+  re-judging the day's 20 saved cells changes only that verdict).
+- Lite cell (`single ready` + goal, LANDED=1, default mod) on 1c8c85a: PASS, one TaskCreate, no stop refusal, landed on dev, $1.07, 134 s.
