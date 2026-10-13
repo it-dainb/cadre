@@ -70,7 +70,7 @@ async function notify(h: Host, key: string, text: string, now: number): Promise<
   if (ok && !(await h.ops.notify(text, { title: 'cadre' })).isSent) h.ops.toast(text, { timeoutMs: 6000 })
 }
 // status line: the top attention item, cleared when none (never the command, so never a code)
-export async function syncStatus(h: Host): Promise<void> { const top = attention(await read(h))[0]; h.ops?.status(top ? `${top.text} · press 1` : undefined) }
+export async function syncStatus(h: Host): Promise<void> { const top = attention(await read(h))[0]; h.ops?.status(top ? `${top.text}${top.d || top.sel ? " · press 1" : ""}` : undefined) }   // "press 1" only where a dialog answers it (a state such as containment names its own action)
 
 // subscribed to core/events: one call per emitted event
 export async function onEvent(h: Host, e: CadreEvent): Promise<void> {

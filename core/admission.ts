@@ -76,7 +76,6 @@ async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTa
   const forced = env.CLAUDE_CODE_SUBAGENT_MODEL || env.CLAUDE_CODE_EFFORT_LEVEL ? `${env.CLAUDE_CODE_SUBAGENT_MODEL ?? ''}/${env.CLAUDE_CODE_EFFORT_LEVEL ?? ''}` : undefined
   const run = { role, model: env.CLAUDE_CODE_SUBAGENT_MODEL || r0.model || 'default', effort: env.CLAUDE_CODE_EFFORT_LEVEL || r0.effort || 'default', risk, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }
   let r: any
-  await h.store.set(`cadre:${d.key}:hb:${t.id}`, { s: d.session, at: 0 })   // the owner first: a session that dies mid-spawn (a quit right after a turn end, ADR 0018) leaves a claim the next session can tell is gone
   try { r = await next({ ...e, subagentType: `cadre:${role}`, prompt: modelText('agent-brief', prompt), ...(r0.model ? { model: r0.model } : {}), cwd }) } catch (err) { await undo(); throw err }
   if (r?.deny) { await undo(); return r }
   await unbindAgent(h, `~${t.id}`)
@@ -128,6 +127,8 @@ async function lostEpic(h: Host, s: Snapshot, t: SnapTask) {   // epic branch mi
   return deny(`epic branch ${s.plan?.epicBranch} is missing; ask the human to recreate it from dev or end the epic (they answer it in the cadre dialog)`)
 }
 
+// the owner before the store claim: a session that dies mid-spawn (a quit right after a turn end, ADR 0018) leaves a claim the next session can tell is gone (core/session.held)
+const owner = (h: Host, d: Deps, id: string) => h.store.set(`cadre:${d.key}:hb:${id}`, { s: d.session, at: 0 })
 // ---- todo -> active: the claim ----
 async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapshot, t: SnapTask) {
   const spec = d.reg[t.type], pipe = stepsOf(d), first = pipe(t.type, t.lane)[0]
@@ -151,7 +152,7 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
     await apply(h, { kind: 'release', id: t.id, at: await h.now(), actor: 'mod' }, pipe)
   }
   try {
-    const task = await d.store.claim(t.id, d.actor); claimed = true
+    await owner(h, d, t.id); const task = await d.store.claim(t.id, d.actor); claimed = true
     branch = task.meta['cadre.branch'] || branch   // a rebind keeps the branch it started on
     let cwd = d.root, meta: Record<string, string> = { 'cadre.step': step }
     if (!spike) {
@@ -194,7 +195,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
   const undo = async () => { await unbindAgent(h, `~${t.id}`) }
   try {
     if (t.state === 'blocked') await apply(h, { kind: 'unblock', id: t.id, at: now, actor: 'mod' }, stepsOf(d))
-    await d.store.resume(t.id, d.actor)
+    await owner(h, d, t.id); await d.store.resume(t.id, d.actor)
     // computed handoff (never a model summary): checkpoint, diff since the handoff base, last notes
     let handoff = ''
     if (!spike) {

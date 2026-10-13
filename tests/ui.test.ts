@@ -129,6 +129,8 @@ describe('notification policy (UI-DESIGN 4)', () => {
     const a = mk(); await seed(a.h, view(82)); await onEvent(a.h, ev('flag.raised', { taskId: 'a6', flag: 'git:dev:agent' }, { taskId: 'a6', at: 0 }))
     expect(a.of('status').pop()).toMatch(/^dev moved outside a cadre merge · .* · press 1$/)
     const b = mk(); await seed(b.h, view(62)); await onEvent(b.h, ev('task.phase_changed', { taskId: 'a2', from: 'a', to: 'b' }, { at: 0 })); expect(b.of('status').pop()).toBeUndefined()
+    const c = mk(); await seed(c.h, view(62)); await c.h.board.update(x => ({ ...x, containment: { state: 'degraded', unsandboxed: 1 } })); await onEvent(c.h, ev('task.phase_changed', { taskId: 'a2', from: 'a', to: 'b' }, { at: 0 }))
+    expect(c.of('status').pop()).toBe('Containment degraded · run /cadre init')   // a state, not a decision: no dialog would open, so no "press 1"
   })
 })
 
