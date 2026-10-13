@@ -22,6 +22,11 @@ export type Row = ['ok' | 'warn' | 'crit', string, string?]   // level, line, fi
 const PIN = '2.1.295', STAMP = 'cadre:setup', USER_CARD = 91, STORE_CARD = 92, PATCH = { env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } }
 const ver = (s: string) => s.match(/\d+(\.\d+)+/)?.[0] ?? ''
 const atLeast = (v: string, min: string) => { const a = v.split('.').map(Number), b = min.split('.').map(Number); for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0); return true }
+// The oldest Claude Code cadre runs on: 2.1.295 added Button children (every press in the band and the pane; older builds throw "needs a label" and nothing
+// draws), $.ui.notify; 2.1.293 isDeferred, 2.1.292 workflow agents at agent.spawn, 2.1.289 one agent id across hook events. Older: cadre stays off, says so (register.ts).
+export const MIN_CC = '2.1.295'
+export const tooOld = (v: string) => !!ver(v) && !atLeast(ver(v), MIN_CC)
+export const oldLine = (v: string) => `cadre needs Claude Code ≥ ${MIN_CC}; you have ${ver(v)} · update with: claude update`
 
 // ---- machine checks (shared by setup and doctor); every probe goes through h.run so tests inject fixtures. A row's fix is the command Claude (or, for sudo, the human) runs ----
 const BD_SH = 'curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash'
@@ -39,7 +44,7 @@ export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; fact
   }
   facts.cc = (await h.version?.().catch(() => '')) ?? ''
   const cmp = ver(facts.cc) && !atLeast(PIN, ver(facts.cc)) ? 'newer than' : 'older than'
-  add(!facts.cc ? ['warn', 'Claude Code version unreadable'] : facts.cc === PIN ? ['ok', `Claude Code ${PIN} (the pinned build)`] : ['warn', `Claude Code ${facts.cc}: ${cmp} the tested ${PIN}; ${cmp === 'newer than' ? 'usually fine' : 'update it with claude update'}`])
+  add(!facts.cc ? ['warn', 'Claude Code version unreadable'] : tooOld(facts.cc) ? ['crit', oldLine(facts.cc), 'claude update'] : facts.cc === PIN ? ['ok', `Claude Code ${PIN} (the pinned build)`] : ['warn', `Claude Code ${facts.cc}: ${cmp} the tested ${PIN}; ${cmp === 'newer than' ? 'usually fine' : 'update it with claude update'}`])
   const g = await r(['git', '--version']), gv = ver(text(g))
   add(!g || g.exitCode || !gv ? ['crit', 'git not found', fix('git', 'installs git (needed for worktrees).', `${pm} git`, !mac)] : atLeast(gv, '2.17') ? ['ok', `git ${gv}`] : ['crit', `git ${gv} is too old for worktrees`, fix('git', 'upgrades git to 2.17 or newer (needed for worktrees).', `${pm} git`, !mac)])
   const id = g && !g.exitCode ? await identity(h.run, await h.env()) : undefined   // commits land on the user's branches: their own name and email, asked, never made up (ADR 0009)
@@ -52,7 +57,8 @@ export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; fact
     const head = b && !b.exitCode && bv ? `bd ${bv} is older than 1.3.0` : `${cfg.store.bin} not found`, where = await out(['sh', '-c', 'command -v "$0"', cfg.store.bin])
     const npm = (await r(['npm', '--version']))?.exitCode === 0, pre = npm ? await out(['npm', 'prefix', '-g']) : '', alt = pre && `${pre}/bin/${cfg.store.bin}`, av = alt && alt !== where ? ver(text(await r([alt, 'version']))) : ''
     const mine = !!where && where.startsWith(`${await h.home()}/`)   // a stale bd in a folder the user owns: reversible move, never rm; in a system folder only the human can
-    if (where && av && atLeast(av, '1.3.0')) add(['crit', `bd ${bv || '?'} at ${where} shadows bd ${av} at ${alt}`, mine ? `mv ${where} ${where}.cadre-old` : fix('rm-bd', `removes the old bd at ${where} that shadows bd ${av} at ${alt}. Alternative without sudo: put ${pre}/bin first in PATH.`, `rm ${where}`)])
+    if (where && av && atLeast(av, '1.3.0') && !bv) add(['crit', `bd at ${where} (not beads) shadows bd ${av} at ${alt}`, `restart Claude Code from a shell whose PATH has ${pre}/bin before ${where.slice(0, where.lastIndexOf('/'))}`])   // another product's bd (Bitdefender's, live 0.12.0): never removed
+    else if (where && av && atLeast(av, '1.3.0')) add(['crit', `bd ${bv} at ${where} shadows bd ${av} at ${alt}`, mine ? `mv ${where} ${where}.cadre-old` : fix('rm-bd', `removes the old bd at ${where} that shadows bd ${av} at ${alt}. Alternative without sudo: put ${pre}/bin first in PATH.`, `rm ${where}`)])
     else if (npm) add(['crit', head, `npm install -g @beads/bd@latest${mine && bv && where !== alt ? `, then mv ${where} ${where}.cadre-old` : ''}`])
     else if ((await r(['curl', '--version']))?.exitCode === 0) add(['crit', head, BD_SH])
     else add(['crit', head, 'install Node.js (npm) or curl first'])

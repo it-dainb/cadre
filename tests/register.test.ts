@@ -16,6 +16,18 @@ test('session.start: no $.agent.register (agents are plugin files, A28), /cadre 
   await clock.advance(5000); await clock.advance(5000)   // the tick is a placeholder: it must not throw
 })
 
+test('Claude Code older than cadre needs: one loud line, /cadre answers only it, nothing else starts and every call passes untouched (live 0.12.0 on 2.1.287)', async ($, on) => {
+  const commands: any[] = [], env: string[] = [], tools: any[] = [], said: string[] = [], LINE = 'cadre needs Claude Code ≥ 2.1.295; you have 2.1.287 · update with: claude update'
+  on('session.start', () => ({ cwd: '/work' })); on('session.version', () => ({ value: { version: '2.1.287' } })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined })); on('env.get', () => ({ value: undefined }))
+  on('command.register', ($, e) => { commands.push(e); return { value: undefined } }); on('env.set', ($, e) => { env.push(e.name); return { value: undefined } }); on('tool.register', ($, e) => { tools.push(e); return { value: undefined } })
+  on('ui.toast', ($, e) => { said.push(String(e.text ?? e)); return { value: undefined } }); on('ui.log', ($, e) => { said.push(String(e.text ?? e)); return { value: undefined } })
+  on('fs.read', () => ({ value: '{}' })); on('tool.call', () => ({ result: 'ran' })); on('command.run', () => ({ text: 'engine' }))
+  await $.session.start(START)
+  expect(commands.map(c => c.name)).toEqual(['cadre']); expect(env).toEqual([]); expect(tools).toEqual([]); expect(said.some(t => t.includes(LINE))).toBe(true)
+  expect((await $.command.run({ command: 'cadre', args: 'continue' })).text).toBe(LINE)
+  expect(await $.tool.call({ tool: 'Bash', command: 'ls' })).toEqual({ result: 'ran' })   // an initialised repo, yet no guard: cadre is off, not half on
+})
+
 test('every slot is a pass-through until its owner fills it: tool.call, tool.check, prompt.submit, command.run reach the engine', async ($, on) => {
   const seen: string[] = []
   on('store.get', () => ({ value: undefined })); on('env.get', () => ({ value: undefined })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' }))   // policy/guards reads its paths from $.store (keyed by the repo), strictness from env

@@ -110,6 +110,11 @@ describe('judge, send, configSet', () => {
     expect(idsIn('see bd-a1.1', k)).toEqual(['bd-a1.1']); expect(idsIn('bd-a1.10 ok', k)).toEqual(['bd-a1.10'])
     expect(idsIn('done with bd-a1.', k)).toEqual(['bd-a1']); expect(idsIn('xbd-a1 bd-a1-x', k)).toEqual([]); expect(idsIn('TASK-bd-a1', k)).toEqual(['bd-a1'])
   })
+  test('an id with an underscore (bd names ids after the folder: my_project-403.1) is found, never glued', () => {
+    const k = new Set(['my_project-403', 'my_project-403.1'])   // live 0.12.0: the spawner's TASK-<id> matched nothing, so every start became a read-only question
+    expect(idsIn('TASK-my_project-403.1', k)).toEqual(['my_project-403.1']); expect(idsIn('see my_project-403.', k)).toEqual(['my_project-403'])
+    expect(idsIn('x_my_project-403 my_project-403_x', k)).toEqual([])
+  })
   test('G7: the configured changelog.path is mod-owned like CHANGELOG.md; isProt takes it too', async () => {
     const h = await mk(); await setPolicy(h, { changelog: 'docs/CHANGES.md' })
     expect(denied(await call(h, { tool: 'Write', agentId: 'w1', file_path: '/x/bd-a1/docs/CHANGES.md' }))).toBe(true)

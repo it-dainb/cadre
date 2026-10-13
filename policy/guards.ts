@@ -110,10 +110,16 @@ export const judge = (e: any): string | undefined => {
   if (FENCED.includes(e.tool) && typeof p === 'string' && modOwned(p)) return 'that path is managed for you and cannot be edited; leave it alone'
 }
 
+// Auto permission mode gives every background agent a hand-back contract (Claude Code adds SubagentHandback to its tools and re-asks for it up to 3 times at its
+// turn end; flag tengu_lively_waffle, 2.1.287 and 2.1.295 alike). Refused, the agent could never end (live 0.12.0). It passes once the agent's report is accepted;
+// its message is replaced: main never reads an agent's prose (core/asks), the report already went where it belongs.
+const HB = (e: any) => e.tool === 'SubagentHandback' && !!e.agentId
+const HANDED = 'This agent finished and its result is recorded; nothing to do for it.'
 // #5 tool.call guards: L1 allowlist, fence. Judge before next. Advisory: denies become warnings.
 export const guard: Hook = async (h, e, next) => {
   const deny = async (): Promise<string | undefined> => {
     const bad = escape(e); if (bad) return bad
+    if (HB(e)) return (((await h.ui.read()).handed as string[] | undefined) ?? []).includes(e.agentId) ? undefined : 'first finish your step with report; after it is accepted, SubagentHandback ends your run'
     const w = await who(h, e.agentId), pol = await policyOf(h), run = w.main ? await leaseOf(h) : undefined   // main during a setup/init run: Bash plus the lease's files
     const list = w.main ? (run ? [...MAIN_TOOLS, 'Bash'] : MAIN_TOOLS) : allowlist(w.role, w.role === 'worker' ? pol.mcpAllow : [])
     if (!list.includes(e.tool)) return `${e.tool} is not available to ${w.main ? 'main' : `the ${w.role}`}; use another tool`
@@ -122,7 +128,7 @@ export const guard: Hook = async (h, e, next) => {
     return f === 'allow' || f === 'tmp' ? undefined : f
   }
   const why = await deny()
-  if (!why) return next(e)
+  if (!why) return next(HB(e) ? { ...e, input: { ...e.input, message: modelText('context', HANDED) } } : e)
   const tb = e.agentId && (await h.bind.read())[e.agentId]
   if (tb && tb.role === 'tester') await logCall(h, e.agentId, { tool: e.tool, path: inputPath(e.tool, e.input ?? e, tb.worktree), outcome: why })   // the view audit counts refusals too (3.5.2)
   if (await strict(h)) return { deny: modelText('deny', why) }

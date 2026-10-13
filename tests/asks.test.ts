@@ -4,6 +4,7 @@ import { observeWith } from '../core/close'
 import { drain, submit } from '../core/reuse'
 import { wrap } from '../core/effect'
 import { handleWith } from '../tools/index'
+import { guard } from '../policy/guards'
 import { answer } from '../native/tasks'
 import { NUDGE, askOf } from '../core/asks'
 import { defaults } from '../config/index'
@@ -45,6 +46,12 @@ describe('one output contract: a marker-less explorer (ask)', () => {
     await stop(); expect(submitted).toEqual(['Result of ask-x1y2z3: EXPLORER ask-x1y2z3 "where is the parser?" · explorer → answered (1 citations) · flags: none · answer: src/parse.ts:12 parse() · next: full answer: TaskGet ask-x1y2z3'])
     await stop(); expect(submitted).toHaveLength(1)   // once
     expect((await note()).text).toBe('Agent ask-x1y2z3 finished; its answer was already given (TaskGet ask-x1y2z3).')
+  })
+  test('auto mode hand-back: refused until the report is in, then let through with no agent prose for main (live 0.12.0: the explorer could never end)', async () => {
+    const { h } = await mk(), hb = (message: string) => guard(h, { tool: 'SubagentHandback', agentId: 'agent-x1y2z3', input: { message } }, async (e: any) => e) as Promise<any>
+    expect((await hb(PROSE)).deny).toContain('report')
+    expect(await handleWith(h, {} as any, { tool: 'mcp__cadre__report', agentId: 'agent-x1y2z3', input: { schemaVersion: 1, role: 'explorer', answer: 'src/parse.ts:12 parse()', citations: [{ path: 'src/parse.ts', line: 12 }] } }).then((r: any) => r.result)).toBe('answer recorded. Stop.')
+    const r = await hb(PROSE); expect(r.deny).toBeUndefined(); expect(r.tool).toBe('SubagentHandback'); expect(r.input.message).not.toContain('parser')
   })
   test('background: the task-notification becomes the card (auto-reported answer, one line <= 200), main reads no agent prose; TaskGet has the full answer', async () => {
     const { h, stop, note } = await mk()

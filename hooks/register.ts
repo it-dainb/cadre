@@ -21,7 +21,7 @@ import { wrap } from '../core/effect'
 import { handle, SPECS } from '../tools/index'
 import { context, attachment } from '../core/briefs'
 import { decide, run } from '../commands/cadre'
-import { nudge } from '../commands/doctor'
+import { nudge, oldLine, tooOld } from '../commands/doctor'
 import { pump, turnEnd, seen, stopCheck, redNote, watch, halt } from '../commands/agentrun'
 import { tick } from '../task-management/sync-engine/loop'
 import { autoAsk, onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapCard, resumeBanner } from '../ui/index'
@@ -154,6 +154,9 @@ export const register: Register = (on, opts) => {
   // session.start: agents, command, tools env, the one tick. Awaited before turn one (L7).
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'cadre', description: 'cadre: plan, approve, status, resolve, release, drive, init, setup, doctor', argumentHint: '<sub> [args]', immediate: true })
+    const v = String((await $.session.version().catch(() => ({ version: '' }))).version ?? ''), old = tooOld(v) ? v : undefined
+    await update($, secret, x => ({ ...x, old }))
+    if (old) { void $.ui.log(oldLine(old)); void $.ui.toast(oldLine(old)); return next(e) }   // too old: one loud line, /cadre repeats it, no tools, no tick; wake() keeps every other hook a pass-through
     const root = await top($); await update($, secret, x => ({ ...x, root })); await $.store.set('cadre:roots', { ...(((await $.store.get('cadre:roots')) ?? {}) as object), [repoKeyOf(root)]: root })   // the repo root for every hook. Never $.session.cwd(): it follows a Bash `cd` (main in a package folder read its checks and store there after a /clear, live 0.9.1) and in a subagent hook it is the agent's view/worktree
     await seed($).catch(x => $.ui.log(`dev scenario not seeded: ${x}`))   // dev only: CADRE_DEV=1 + CADRE_DEV_SCENARIO (harness/tui.sh --scenario)
     await $.env.set('CLAUDE_CODE_ENABLE_TODO_TOOLS', '1')
@@ -196,11 +199,11 @@ export const register: Register = (on, opts) => {
   on('prompt.attachment', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return attachment(host($), e, next) })
   on('turn.step', async function* ($, e, next) { const h = host($); if (!(await wake(h))) return yield* next(e); return yield* step(h, e, next) })
   on('session.compact', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return compact(host($), e, next) }).catch(passOn)
-  on('command.run', { command: 'cadre' }, async ($, e, next) => { const h = spawner($, next); await ack(h).catch(() => {}); const r = await run(h, e, next); if (await wake(h).catch(() => false)) await spawnStep(h, next.event).catch(x => $.ui.log(`spawner: ${x}`)); return r }).catch(denyCmd)   // a typed /cadre (continue) is a frame to start agents from (core/spawner)
+  on('command.run', { command: 'cadre' }, async ($, e, next) => { const old = (await read($, secret)).old; if (old) return { text: oldLine(old) }; const h = spawner($, next); await ack(h).catch(() => {}); const r = await run(h, e, next); if (await wake(h).catch(() => false)) await spawnStep(h, next.event).catch(x => $.ui.log(`spawner: ${x}`)); return r }).catch(denyCmd)   // a typed /cadre (continue) is a frame to start agents from (core/spawner)
   on('command.run', { command: 'goal' }, ($, e, next) => goal(host($), e, next)).catch(passOn)   // observer only: pass-through, never rewritten (9)
   on('config.set', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return configSet(host($), e, next) }).catch(denySpawn)
   // ui (UI-DESIGN): every ui.render hook names its component (U7); render is pure, state is written from handlers only
-  on('ui.render', { component: 'AbovePrompt' }, ($, e, next) => renderBand(host($), e, next))   // not gated: a pending init/setup code draws here even while the repo is dormant; with nothing pending the band draws nothing
-  on('ui.render', { component: 'Pane', requestId: 'cadre' }, ($, e) => renderPane(host($), e))
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => { const old = (await read($, secret)).old; if (!old) return renderBand(host($), e, next); const E = $.ui.resolve(e); return E.Box({ flexDirection: 'column', children: [E.Text({ bold: true, children: oldLine(old) }), await next(e)] }) })   // too old: the line, in elements every build draws   // not gated: a pending init/setup code draws here even while the repo is dormant; with nothing pending the band draws nothing
+  on('ui.render', { component: 'Pane', requestId: 'cadre' }, async ($, e) => { const old = (await read($, secret)).old; if (!old) return renderPane(host($), e); return $.ui.resolve(e).Text({ bold: true, children: oldLine(old) }) })
   on('ui.render', { component: 'ToolUse', props: { tool: 'Agent' } }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return renderCard(host($), e, next) })
 }

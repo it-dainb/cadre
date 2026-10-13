@@ -224,7 +224,8 @@ export async function prune(h: Host): Promise<void> {
 
 // Per-repo opt-in: cadre acts only where `<repo>/.cadre/config.json` exists (init stage 1 writes it). Active is cached in the session secret; dormant re-checks (one read), so `/cadre init` takes effect without a restart.
 export async function wake(h: Host): Promise<boolean> {
-  if ((await h.secret.read()).active) return true
+  const sec = await h.secret.read(); if (sec.old) return false   // Claude Code older than cadre needs (hooks/register.ts session.start): off, never half on
+  if (sec.active) return true
   if (!(await h.readText(`${await h.cwd()}/.cadre/config.json`)) || (await cfgOf(h)).disable) return false   // `disable`: dormant from the next session (active is cached)
   await h.secret.update(s => ({ ...s, active: true }))
   await start(h).catch(() => {}); await contain(h).catch(() => {})   // policy + containment band, once, when the repo turns on

@@ -12,7 +12,7 @@ import type { Host } from '../types'
 type R = { exitCode: number; stdout: string; stderr: string }
 const HOME = '/hm/u', USER = `${HOME}/.claude/settings.json`
 // scripted machine: `tools` maps argv[0] to its output (absent = not installed); `jail` = overlay | copy | none
-function mk(o: { shadow?: string; npmFails?: boolean; tools?: Record<string, string>; os?: string; repo?: boolean; jail?: 'overlay' | 'copy' | 'none'; cc?: string; files?: Record<string, string>; noIdent?: { on: boolean } } = {}) {
+function mk(o: { shadow?: string; foreign?: boolean; npmFails?: boolean; tools?: Record<string, string>; os?: string; repo?: boolean; jail?: 'overlay' | 'copy' | 'none'; cc?: string; files?: Record<string, string>; noIdent?: { on: boolean } } = {}) {
   let installed = false, moved = false; const files = { ...o.files }, calls: string[][] = [], writes: string[] = [], tools = o.tools ?? { git: 'git version 2.43.0', bd: 'bd version 1.3.1', bwrap: 'bubblewrap 0.11.0', socat: 'socat version 1.8' }
   const h = fakeHost({ files }) as Host & { toasts: string[] }
   void h.store.set('cadre:prefs', { at: 0 })   // preferences chosen (tests/prefs.test.ts covers that row)
@@ -28,7 +28,7 @@ function mk(o: { shadow?: string; npmFails?: boolean; tools?: Record<string, str
       if (argv[0] === 'sh') return out(argv[2] === 'command -v "$0"' ? (moved ? '/hm/u/.npm/bin/bd' : o.shadow ?? (tools.bd || installed ? '/hm/u/.npm/bin/bd' : '')) : argv[2] === 'command -v bwrap' ? '/usr/bin/bwrap' : '')
       if (argv[0] === '/hm/u/.npm/bin/bd' || (moved && argv[0] === 'bd')) return installed ? out('bd version 1.3.1') : out('', 127)
       if (argv[0] === 'bd' && argv[1] === 'version' && installed && (!o.shadow || moved)) return out('bd version 1.3.1')
-      if (argv[0] === 'bd' && argv[1] === 'version' && o.shadow && !moved) return out('bd version 0.43.0')
+      if (argv[0] === 'bd' && argv[1] === 'version' && o.shadow && !moved) return out(o.foreign ? '' : 'bd version 0.43.0')   // foreign: another product's `bd` (Bitdefender's prints nothing, exit 0)
       if (argv[0] === 'uname') return out(o.os ?? 'Linux')
       if (argv[0] === 'test') return out('')
       if (argv[0] === 'bwrap') return !tools.bwrap || (o.jail === 'none' && argv[1] !== '--version') ? out('', 127) : argv[1] === '--help' ? out(o.jail === 'copy' ? 'usage' : '--overlay-src') : out(tools.bwrap)
@@ -62,9 +62,9 @@ describe('machine checks', () => {
     const rs = await rowsOf(mk({ os: 'Darwin', tools: { git: 'git version 2.43.0', bd: 'bd version 1.3.1' } }))
     expect(lvl(rs, /macOS: throwaway/)![0]).toBe('warn'); expect(lvl(rs, /socat/)).toBeUndefined()
   })
-  test('another Claude Code build only warns: no fix, never an npm reinstall', async () => {
+  test('a newer Claude Code build only warns; an older one than cadre needs is a fail that says claude update', async () => {
     expect(lvl(await rowsOf(mk({ cc: '2.1.296' })), /Claude Code/)).toEqual(['warn', 'Claude Code 2.1.296: newer than the tested 2.1.295; usually fine'])
-    expect(lvl(await rowsOf(mk({ cc: '2.1.200' })), /Claude Code/)![1]).toContain('older than the tested');
+    expect(lvl(await rowsOf(mk({ cc: '2.1.287' })), /Claude Code/)).toEqual(['crit', 'cadre needs Claude Code ≥ 2.1.295; you have 2.1.287 · update with: claude update', 'claude update'])   // live 0.12.0 on 2.1.287: no band, no pane (Button children came in 2.1.295)
   })
   test('bwrap userns cause: AppArmor (Ubuntu), clone=0 (Debian), unknown', async () => {
     const ub = await machine(mk({ jail: 'none', files: { '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n' } }), defaults() as any)
@@ -78,6 +78,11 @@ describe('machine checks', () => {
     const sh = mk({ shadow: '/usr/local/bin/bd' }); await sh.run(['npm', 'install']); const s2 = await machine(sh, defaults() as any)
     expect(lvl(s2.rows, /shadows/)).toEqual(['crit', 'bd 0.43.0 at /usr/local/bin/bd shadows bd 1.3.1 at /hm/u/.npm/bin/bd', '! sudo sh ~/.cache/cadre/fix/rm-bd.sh'])
     expect(s2.scripts[0].text).toContain('\nrm /usr/local/bin/bd\n')
+  })
+  test('a bd that is not beads (another product\'s tool) is never removed: the fix puts the real one first in PATH', async () => {
+    const sh = mk({ shadow: '/usr/bin/bd', foreign: true }); await sh.run(['npm', 'install']); const m = await machine(sh, defaults() as any)   // live 0.12.0: the fix was `sudo rm /usr/bin/bd`, Bitdefender's command
+    expect(lvl(m.rows, /shadows/)).toEqual(['crit', 'bd at /usr/bin/bd (not beads) shadows bd 1.3.1 at /hm/u/.npm/bin/bd', 'restart Claude Code from a shell whose PATH has /hm/u/.npm/bin before /usr/bin'])
+    expect(m.scripts.some(x => x.text.includes('rm '))).toBe(false)
   })
 })
 
