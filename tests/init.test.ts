@@ -141,7 +141,8 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     await turnEnd(h, {}); await tick(); expect(sent).toHaveLength(3)
     const d = (await card(h))!; expect(d.title).toBe('init · Claude stopped · 3 left'); expect(d.lines[0]).toBe('Claude stopped 3 times with checks still failing'); expect(d.options.map(o => o.label)).toEqual(['Let Claude try again', 'Stop setup'])
     expect((await h.secret.read()).run).toBeUndefined()   // the lease ended
-    expect((await decide(h, d.id, 'r', d.hash)).text).toBe('init: Claude is on it · progress in the cadre pane'); await tick(); expect(sent).toHaveLength(4); expect((await h.secret.read()).run?.follow).toBe(0)
+    expect((await decide(h, d.id, 'r', d.hash)).text).toBe('init: Claude is on it · progress in the cadre pane'); await tick(); expect(sent).toHaveLength(4); expect((await h.secret.read()).run?.follow).toBe(3)   // the human's retry: the brief goes, the spent follow-ups stay spent
+    await turnEnd(h, {}); await tick(); expect(sent).toHaveLength(4); expect((await card(h))!.lines[0]).toBe('Claude stopped 3 times with checks still failing')
   })
   test('only the human owes something (mission card, safety card): the card says so and nothing is sent to main', async () => {
     const { h, sent, tick } = mk({ files: READY, mission: false }); await h.board.update(b => ({ ...b, plan: { id: 'm', slug: 'mission', state: 'draft', epicBranch: '' } }))
@@ -225,7 +226,22 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     const { h, sent, tick } = mk({ repo: false, branches: [], mission: false })
     await start(h, 'init', { text: 'implement MGIoU 1D', mode: 'auto' }); await tick(); await stopCheck(h, {}); await stopCheck(h, {}); await turnEnd(h, {}); sent.length = 0
     const d = (await card(h))!; expect((await decide(h, d.id, 'r', d.hash)).text).toBe('init: Claude is on it · progress in the cadre pane · then your goal'); await tick()
-    expect((await h.secret.read()).run).toMatchObject({ follow: 0, goal: { text: 'implement MGIoU 1D', mode: 'auto' } }); expect(sent[0]).toContain('then plan the user\'s goal')
+    expect((await h.secret.read()).run).toMatchObject({ follow: 1, goal: { text: 'implement MGIoU 1D', mode: 'auto' } }); expect(sent[0]).toMatch(/^The user chose "Let Claude try again" in the cadre dialog: go on now\. .*then plan the user's goal/)
+    expect(banned(sent[0])).toEqual([])
+  })
+  // live 0.12.0 (an Esc on a write, then 29 retries): every "Let Claude try again" refilled the stop budget, so Claude was refused once per retry forever.
+  // ONE budget per run: a retry keeps the refusals spent; a stop with no tool call after it is the dialog at once, and 3 refusals in all is the cap.
+  test('Let Claude try again never refills the stop refusals: no 4th refusal across retries', async () => {
+    const { h, tick, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]; await start(h, 'init'); await tick()
+    const retry = async () => { await turnEnd(h, {}); const d = (await card(h))!; expect(d.options.map(o => o.label)).toContain('Let Claude try again'); await decide(h, d.id, 'r', d.hash); await tick() }
+    let refused = 0
+    for (let n = 0; n < 6; n++) {   // each retry: Claude tries once (a tool call), stops, stops again
+      if (await stopCheck(h, {})) refused++; await seen(h, { tool: true })
+      if (await stopCheck(h, {})) refused++
+      expect(await stopCheck(h, {})).toBeNull(); await retry()
+    }
+    expect(refused).toBe(LIMIT.follow)
+    expect(await stopCheck(h, {})).toBeNull()   // straight to the dialog
   })
   test('the watchdog: a run whose main went quiet is checked as if Claude stopped; a turn still on waits 10 minutes; the human\'s card is not a stall', async () => {
     const { h, sent, tick } = mk({ repo: false, branches: [], mission: false }); let t = 0; Object.assign(h, { now: async () => t })

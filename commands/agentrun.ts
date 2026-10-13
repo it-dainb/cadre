@@ -53,7 +53,7 @@ const followUp = async (h: Host, k: Kind, fails: Item[], guide: string) => [
 ].join('\n').replaceAll(`${await h.home()}/`, '~/')
 // Claude stopped with checks still red and cannot go on (refused 3 times, or it stopped without trying again): ONE dialog for the human, never a silent "running"
 async function stuck(h: Host, r: NonNullable<Secret['run']>, its: Item[], why: string): Promise<string> {
-  await end(h); await h.ui.update(u => ({ ...u, retry: { kind: r.kind, goal: r.goal } }))   // "Let Claude try again" starts the same run, the goal still queued
+  await end(h); await h.ui.update(u => ({ ...u, retry: { kind: r.kind, goal: r.goal, follow: r.follow } }))   // "Let Claude try again" starts the same run, the goal still queued and its stop refusals spent (live 0.12.0: 29 retries, each refilled)
   const said = (r.said ?? '').replace(/\s+/g, ' ').trim()
   await draw(h, r.kind, its, 'stopped', [why, ...(said ? [`Claude: "${said.slice(0, 200)}${said.length > 200 ? '…' : ''}"`] : [])].join('\n'))
   return `${r.kind}: stopped · press 1`
@@ -61,9 +61,11 @@ async function stuck(h: Host, r: NonNullable<Secret['run']>, its: Item[], why: s
 
 // `/cadre setup` | `/cadre init` (human origin only: core/dispatch). Nothing open: done at once. Else the lease starts and main gets the brief.
 // `goal` (the onboarding dialog's Set up, commands/cadre): init skips the mission question (drafted with the plan) and the goal flow follows once every check passes (ADR 0014)
-export async function start(h: Host, k: Kind, goal?: { text: string; mode: 'auto' | 'yolo' }): Promise<string> {
+// again: the human's "Let Claude try again" (the stopped run's refusal count): ONE stop budget per run, a retry never refills it, and the brief says the user asked
+// (live 0.12.0: an Esc on a write told Claude to wait for the user; it read every retry brief as the plugin's, not the user's, and stopped again)
+export async function start(h: Host, k: Kind, goal?: { text: string; mode: 'auto' | 'yolo' }, again?: number): Promise<string> {
   if (goal) await settle(h, 'init:goal')
-  const at = await h.now(); await h.secret.update(s => ({ ...s, run: { kind: k, at, turns: 0, follow: 0, guide: '', snap: {}, ...(goal ? { goal } : {}) } }))   // before the checks: mission waits for the plan in a goal run
+  const at = await h.now(); await h.secret.update(s => ({ ...s, run: { kind: k, at, turns: 0, follow: again ?? 0, guide: '', snap: {}, ...(goal ? { goal } : {}) } }))   // before the checks: mission waits for the plan in a goal run
   const its = await items(h, k)
   if (finished(its)) { await end(h, true); await settle(h, `run:${k}`); if (goal) { await goalBrief(h, goal.text, goal.mode); return `${k}: all done · ${goal.mode === 'yolo' ? 'yolo · ' : ''}Claude plans your goal` } return `${k}: all done` }
   const guide = `${(await h.root?.()) ?? '.'}/guides/${k}.md`; await mark(h, { kind: k, ...(goal ? { goal } : {}) })
@@ -71,7 +73,8 @@ export async function start(h: Host, k: Kind, goal?: { text: string; mode: 'auto
   await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, guide, ...(gi !== undefined ? { gi: { had: gi !== null, text: gi ?? '' } } : {}) } } : s)); await resnap(h)
   await draw(h, k, its, 'on')
   const at0 = k === 'init' ? ` The project root is ${await h.cwd()}: start every Bash call with cd "${await h.cwd()}" && and give files there by their full path.` : ''   // a shell left in a package folder made a second .cadre there, live 0.10.0
-  await send(h, goal ? `${WHAT[k]}, then plan the user's goal (it comes next). Follow ${guide} step by step.${at0} Skip the mission question: you draft the mission together with the plan.` : `${WHAT[k]}. Follow ${guide} step by step.${at0}`)
+  const who = again === undefined ? '' : 'The user chose "Let Claude try again" in the cadre dialog: go on now. '
+  await send(h, who + (goal ? `${WHAT[k]}, then plan the user's goal (it comes next). Follow ${guide} step by step.${at0} Skip the mission question: you draft the mission together with the plan.` : `${WHAT[k]}. Follow ${guide} step by step.${at0}`))
   return `${k}: Claude is on it · progress in the cadre pane${goal ? ' · then your goal' : ''}`
 }
 // re-check now (a main turn ended, or the human answered a gate in the dialog): done ends the run; a failure Claude owns gets a follow-up; the limits stop it

@@ -53,7 +53,10 @@ const fail = (inv, evidence) => fails.push({ invariant: inv, evidence: clip(evid
 }
 // 2. every press of 1 (the band said "press 1" / "answer the dialog") opens a dialog within 5 s (+ one capture interval)
 const asks = dlines.filter(l => /\$\.tool\.call \(cadre\): AskUserQuestion \(/.test(l)).map(ts)
-for (const e of drv.filter(e => e.kind === 'press1')) {
+// Only a press the band or status line asked for is judged: Claude's own reply may name the dialog it is about to open ("…to approve in the cadre dialog
+// (press 1)" before the plan is drafted, live 0.12.0); the watcher still presses on it like a user would, and nothing coming of it is no defect of cadre's text.
+const offered = t => band(panes.findLast(p => p.t <= t)?.text ?? '').match(/press 1|answer the dialog|1: answer/)
+for (const e of drv.filter(e => e.kind === 'press1' && offered(e.t))) {
   const ok = panes.some(p => p.t >= e.t && p.t <= e.t + 7000 && isDialog(p.text)) || asks.some(t => t >= e.t - 500 && t <= e.t + 5000)
   if (!ok) fail('press1-no-dialog', `pressed 1 on "${e.text}", no dialog within 5 s`)
 }

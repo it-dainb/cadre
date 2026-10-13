@@ -28,8 +28,9 @@ export async function route(h: Host, c: Command): Promise<Out> {   // every disp
     case 'restore': return restore(h, a)
     case 'init': case 'setup': {   // Claude does the work (ADR 0010); the checklist and the containment confirm are decisions (ADR 0012)
       const conf = a === 'prefs' && c.args[1] === 'confirm' ? confirmPrefs : a === 'confirm' ? (c.cmd === 'init' ? initConfirm : confirmUser) : undefined
+      const rt = a === 'retry' ? (await h.ui.read()).retry as { goal?: { text: string; mode: 'auto' | 'yolo' }; follow?: number } | undefined : undefined
       const text = a === 'restore' || a === 'keep' ? await settingsAnswer(h, a)
-        : a === 'retry' ? await start(h, c.cmd, ((await h.ui.read()).retry as { goal?: { text: string; mode: 'auto' | 'yolo' } } | undefined)?.goal)   // "Let Claude try again": the same run, the goal still queued
+        : a === 'retry' ? await start(h, c.cmd, rt?.goal, rt?.follow ?? 0)   // "Let Claude try again": the same run, the goal still queued, its stop refusals spent
         : conf ? [await conf(h), await resnap(h).then(() => recheck(h))].filter(Boolean).join(' · ')   // cadre's own confirmed write is not a change from outside
         : await start(h, c.cmd, c.cmd === 'init' && a === 'goal' ? ((await h.ui.read()).onboard as { text: string; mode: 'auto' | 'yolo' } | undefined) : undefined)   // `init goal`: the "Set up" answer of the onboarding dialog
       await autoAsk(h).catch(() => {})   // a new decision pops once
