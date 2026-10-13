@@ -5,7 +5,7 @@ import type { Decision, Host, UiOps } from '../types'
 import { band } from '../ui/band'
 import { pane } from '../ui/pane'
 import { decisions, read, txt, wid } from '../ui/model'
-import { NOT_NOW, acts, answerDialog, autoAsk, onEvent } from '../ui/index'
+import { NOT_NOW, acts, answerDialog, autoAsk, onEvent, syncStatus } from '../ui/index'
 import { decide, run } from '../commands/cadre'
 import { ROUTES, dispatch, initPropose } from '../core/dispatch'
 import { ask, flagDecision, settle } from '../core/decide'
@@ -28,7 +28,7 @@ type W = Awaited<ReturnType<typeof world>>
 // the engine around the host: ops (timers run on drain), the dialog (answers scripted per question), Host.answer wired like register.ts
 async function ui(w: W, say: (q: string, labels: string[]) => string | Promise<string> = () => NOT_NOW, o: { peek?: string } = {}) {
   const calls: [string, ...any[]][] = [], timers: (() => unknown)[] = [], asked: { q: string; labels: string[] }[] = []
-  const ops = { els: () => ({}), open: async (a: any) => { calls.push(['open', a]); return { isPlaced: true } }, focused: async () => false, toast: (t: string) => { calls.push(['toast', t]) }, notify: async () => ({ isSent: true }), status: () => {},
+  const ops = { els: () => ({}), open: async (a: any) => { calls.push(['open', a]); return { isPlaced: true } }, focused: async () => false, toast: (t: string) => { calls.push(['toast', t]) }, notify: async () => ({ isSent: true }), status: (t?: string) => { calls.push(['status', t]) },
     peek: async () => o.peek ?? '', fill: async (t: string) => { calls.push(['fill', t]); return { isFilled: true } }, after: (_ms: number, fn: () => unknown) => { timers.push(fn) }, invalidate: () => {}, blit: async () => {} } as unknown as UiOps
   Object.assign(w.h, { ops, answer: (id: string, k: string, hash: string, vals?: Record<string, string>) => decide(w.h, id, k, hash, vals), ask: async (q: string, labels: string[]) => { asked.push({ q, labels }); return say(q, labels) } })
   const drain = async () => { while (timers.length) await timers.shift()!() }
@@ -60,6 +60,11 @@ describe('the dialog offers exactly the decision\'s runnable options (+ "Not now
 })
 
 describe('answers: the chosen label runs its option as origin dialog; the hash is re-checked when the answer arrives', () => {
+  test('a card answered in the dialog leaves no "press 1" status behind (live: init safety card still offered after Confirm)', async () => {
+    const w = await world(), u = await ui(w, () => 'Approve'), { plan: p } = await plan(w); void p
+    await syncStatus(w.h); expect(u.of('status').at(-1)).toMatch(/press 1$/)   // computed before/while the command ran
+    await answerDialog(w.h); expect(decisions(await read(w.h))).toEqual([]); expect(u.of('status').at(-1)).toBeUndefined()
+  })
   test('Approve approves the plan and queues ONE continuation brief to main', async () => {
     const w = await world(), { plan: p, task } = await plan(w); await ui(w, () => 'Approve'); await answerDialog(w.h)
     expect((await w.store.get(task)).category).toBe('todo'); expect((await w.h.board.read()).plan?.state).toBe('approved'); expect(decisions(await read(w.h))).toEqual([])

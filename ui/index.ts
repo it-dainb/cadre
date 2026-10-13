@@ -4,7 +4,7 @@ import type { Decision, Host } from '../types'
 import { band as bandOf } from './band'
 import { pane } from './pane'
 import { prog, selId } from './v2/facts'
-import { ack, onEvent as notifyEvent } from './notify'
+import { ack, onEvent as notifyEvent, syncStatus } from './notify'
 import { queueBrief } from '../core/lanes'
 import { ROUTES, dispatch } from '../core/dispatch'
 import { color, glyph, glyphRole, readCfg } from './tokens'
@@ -78,7 +78,7 @@ export async function answerDialog(h: Host, id?: string): Promise<void> {
         if (x && x !== NOT_NOW && !d.fields?.length) { await queueBrief(h, `${d.change ?? `About "${d.title}": `}${x}`); h.log(`sent to Claude · ${cut(x, 60)}`) }
         return
       }
-      const r = await h.answer(d.id, o.key, d.hash, vals); h.log(r.text)   // the engine prefixes the plugin name
+      const r = await h.answer(d.id, o.key, d.hash, vals); h.log(r.text); await syncStatus(h); h.ops?.invalidate()   // a status computed while the command ran may hold the card it just settled (board and ui are read apart): recompute once it returned (the engine prefixes the plugin name)
       if (!r.text.startsWith('refused')) return
       id = d.id; last = d.hash
     }
