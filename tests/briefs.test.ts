@@ -25,7 +25,7 @@ describe('briefs: goldens per role (4.2), static header first, variable task dat
     for (const role of ['tester', 'worker', 'reviewer'] as const) {
       const b = brief(role, { ...base, ...extra[role], paths }), head = b.split('\n\n')[0]
       expect(b).toContain('Files: src/index.js, test/title.test.js'); expect(head).toBe(brief(role, { ...base, ...extra[role] }).split('\n\n')[0])
-      expect(b.indexOf('Files:')).toBeLessThan(b.indexOf('## '))   // right under the task heading
+      expect(b.indexOf('Files:')).toBeLessThan(b.indexOf('## ', b.indexOf('TASK-')))   // right under the task heading
     }
     expect(brief('reviewer', { ...base, paths })).toContain('a change outside these files is a finding, not a fail on its own')
     expect(brief('worker', { ...base, paths: [] })).not.toContain('Files:')

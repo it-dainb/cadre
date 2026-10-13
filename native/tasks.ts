@@ -26,7 +26,7 @@ export const planRules = (reg: TypeRegistry): string => [
   `- Types and pipelines: ${Object.entries(reg).map(([t, s]) => `${t} ${s.pipeline.join('>')}`).join('; ')}.`,
   '- Each task is a vertical slice: shown working on its own, fits one fresh context, has its wiring and one smoke assertion.',
   '- With 2+ tasks: metadata.paths per task (files or folders it changes). Code 2+ tasks need: ONE thin core task first (metadata.core:true; interfaces, minimal code, contract tests) that blocks the others. Two tasks on one path need a blocks dependency.',
-  '- Exploration 2+ tasks need: one Agent (no task id) before the plan; put its findings in the plan\'s metadata.notes.',
+  '- Exploration 2+ tasks need: one Agent (no task id) before the plan; its findings go in the plan\'s metadata.notes as [{"paths":[…],"text":"…"}] (no paths: all tasks).',
   '- A draft may be incomplete: the "missing:" line says what approval still needs.',
   '- Only the human approves, in the dialog. Approved tasks are frozen: set metadata.amend:true to edit one. Never set owner, in_progress or cadre*.',
 ].join('\n')
@@ -87,7 +87,7 @@ async function create(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
     if (was && was !== 'dropped') return { deny: modelText('deny', was) }
     const prefix = m.lane === 'milestone' ? MS : (await cfgOf(h)).branches.epicPrefix, id = await store.createEpic(e.subject, e.description), mission = m.kind === 'mission', name = mission ? 'mission' : slug(e.subject)
     if (mission) await store.setMeta(id, { 'cadre.kind': 'mission' }, 'main')
-    else if (m.lane || m.mission || m.notes || m.assumed) await store.setMeta(id, { ...(m.assumed ? { 'cadre.assumed': JSON.stringify(m.assumed) } : {}), ...(m.lane ? { 'cadre.lane': m.lane } : {}), ...(m.reason ? { 'cadre.laneReason': m.reason } : {}), ...(m.mission ? { 'cadre.mission': m.mission.trim() } : {}), ...(m.notes ? { 'cadre.notes': m.notes.trim() } : {}) }, 'main')   // lanes (ADR 0011): core/lanes.relane reads them; a mission drafted with the plan (ADR 0014): core/dispatch shows and records it
+    else if (m.lane || m.mission || m.notes || m.assumed) await store.setMeta(id, { ...(m.assumed ? { 'cadre.assumed': JSON.stringify(m.assumed) } : {}), ...(m.lane ? { 'cadre.lane': m.lane } : {}), ...(m.reason ? { 'cadre.laneReason': m.reason } : {}), ...(m.mission ? { 'cadre.mission': m.mission.trim() } : {}), ...(m.notes ? { 'cadre.notes': typeof m.notes === 'string' ? m.notes.trim() : JSON.stringify(m.notes) } : {}) }, 'main')   // lanes (ADR 0011): core/lanes.relane reads them; a mission drafted with the plan (ADR 0014): core/dispatch shows and records it
     await h.board.update(b => ({ ...b, epic: id, tasks: [], plan: { id, slug: name, state: 'draft', epicBranch: mission ? '' : epicBranch(prefix, id, e.subject) }, approval: { planId: id, missing: [] } }))
     const lite = !mission && m.lane === 'lite', f = fieldsOf(m)   // a lite plan is one call: the plan and its one task
     if (lite) await store.createDraft({ title: e.subject, description: e.description, acceptance: f.patch.acceptance, design: f.patch.design, type: m.type ?? 'feature', parent: id, meta: f.meta })
