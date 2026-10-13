@@ -58,6 +58,7 @@ async function landAll(h: Host): Promise<boolean> {
   const d = await resolveDeps(h), closed = (st: string) => st === 'done' || st === 'cancelled'
   let n = 0
   for (const t of (await h.board.read()).tasks.filter(t => t.state === 'review' && t.step === 'merge')) {
+    if (!(await d.store.get(t.id)).meta['cadre.review']?.startsWith('pass@')) continue   // the verdict is mid-write (another turn end): its reviewer's own turn end lands it
     const e = await closeTask(h, d, t.id, 'mod').catch((x: Error) => x.message); if (e) h.log(`${t.id} not landed: ${e}`); else { n++; await told(h, `${t.id} "${t.title}" landed`) }
   }
   const s = await h.board.read(), es = s.plan?.epics ?? [], done = (ep?: string) => s.tasks.length > 0 && s.tasks.every(t => (ep && t.epic !== ep) || closed(t.state))
