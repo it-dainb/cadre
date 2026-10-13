@@ -31,7 +31,7 @@ export function say(e: CadreEvent, v: View): Say | undefined {
     case 'drive.status': {
       const why = d.reason ? `: ${d.reason}` : ''
       return to === 'paused' ? { text: `drive paused${why}`, k: 'attn' } : to === 'stopped' ? { text: `drive stopped${why}`, k: 'fail' } : to === 'finished' ? { text: 'drive finished', k: 'done' }
-        : to === 'armed' ? { text: 'drive on' } : to === 'resumed' ? { text: 'drive resumed' } : undefined
+        : to === 'armed' ? { text: 'drive on' } : to === 'resumed' ? { text: 'drive resumed' } : to === 'mode' ? { text: String(d.reason) } : undefined
     }
     case 'drive.decided': return { text: String(d.text) }
     default: return undefined

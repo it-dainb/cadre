@@ -118,7 +118,7 @@ export const isHuman = (o: Origin): string | null => (o.kind === 'press' || o.ki
 // agent-run setup/init (commands/agentrun fills these at load; core never imports commands/agentrun: a load cycle)
 export const RUN: { recheck?(h: Host): Promise<string>; cancel?(h: Host, kind: string): Promise<void> } = {}
 // drive (core/drive fills these at load; a static import would be a load cycle): arm at approval, hand main the next step after a dialog answer
-export const DRIVE: { arm?(h: Host, mode: 'auto' | 'yolo'): Promise<string>; kick?(h: Host): Promise<void>; humanWrite?<T>(h: Host, fn: () => Promise<T>): Promise<T>; decided?(h: Host, kind: 'plan', text: string): Promise<void> } = {}
+export const DRIVE: { sync?(h: Host): Promise<void>; arm?(h: Host, mode: 'auto' | 'yolo'): Promise<string>; kick?(h: Host): Promise<void>; humanWrite?<T>(h: Host, fn: () => Promise<T>): Promise<T>; decided?(h: Host, kind: 'plan', text: string): Promise<void> } = {}
 // gates = everything that decides or changes state for the human; only `init`/`setup` with no subcommand (start the run) may also be typed
 const gated = (c: Command): boolean => ['approve', 'reject', 'resolve', 'release', 'restore'].includes(c.cmd) || (['init', 'setup'].includes(c.cmd) && !!c.args[0]) || (c.cmd === 'config' && c.args[0] === 'set') || (c.cmd === 'sync' && c.args[0] === 'add') || (c.cmd === 'drive' && c.args[0] !== 'status')
 
@@ -177,9 +177,10 @@ async function approve(h: Host, c: Command): Promise<Out> {
   await settleIf(h, 'plan:')
   let note = ''
   if (first) try { await cutEpic(h, plan.id, (await cfgOf(h)).branches.dev); note = `; epic branch ${plan.epicBranch} cut` } catch (e) { note = `; epic branch cut failed: ${(e as Error).message}` }
-  await queueBrief(h, isMs(plan) ? `Milestone ${plan.id} is approved. Plan each epic when the next: line names it (TaskCreate its tasks with metadata.epic, then TaskUpdate the epic with metadata.planned true), spawn ready tasks one by one, follow the cards, and complete each epic when its tasks are done.`
-    : `Plan ${plan.id} is approved: spawn its ready tasks one by one (each by its id), follow the cards until every task is done, then complete the plan (TaskUpdate ${plan.id} completed).`)   // drive's first push; drive continues at each turn end (ADR 0013)
   const dr = first ? await DRIVE.arm?.(h, plan.mode ?? 'auto').catch((e: Error) => `drive not armed: ${e.message}`) : undefined
+  const self = (await h.board.read()).drive.spawn === 'mod', runs = 'Its tasks start, get reviewed and land by themselves; you hear one line as each lands.'   // mod mode (ADR 0018): main's turn ends at once and the spawner starts the tasks
+  await queueBrief(h, isMs(plan) ? `Milestone ${plan.id} is approved. Plan each epic when the next: line names it (TaskCreate its tasks with metadata.epic, then TaskUpdate the epic with metadata.planned true)${self ? `. ${runs}` : ', spawn ready tasks one by one, follow the cards, and complete each epic when its tasks are done.'}`
+    : self ? `Plan ${plan.id} is approved. ${runs} Nothing to do now: tell the user it is running and stop.` : `Plan ${plan.id} is approved: spawn its ready tasks one by one (each by its id), follow the cards until every task is done, then complete the plan (TaskUpdate ${plan.id} completed).`)   // drive's first push; drive continues at each turn end (ADR 0013)
   return { text: `${isMs(plan) ? 'Milestone' : 'Plan'} ${plan.id} approved: ${plural(ids.length, isMs(plan) ? 'epic' : 'task')} ready${note}${dr ? ` · ${dr}` : ''}.` }
 }
 async function reject(h: Host, c: Command): Promise<Out> {

@@ -9,7 +9,7 @@ import { pipeOf } from '../task-management/registry'
 import { DRIVE, ROUTES, cfgOf, mirror, registryOf, storeOf } from './dispatch'
 import { fnv1a64, modelView, safe, sessionOf } from './board'
 import { emit, subscribe } from './events'
-import { nextAction } from './render'
+import { RUNS, nextAction } from './render'
 import { ask, flagDecision, holds, yoloOn } from './decide'
 import { BLOCKING, apply } from './machine'
 import { queueBrief } from './lanes'
@@ -122,51 +122,63 @@ async function yoloAsks(store: TaskStore, s: Snapshot): Promise<string[]> {
   return out
 }
 
-export async function drive(h: Host, cfg: any, usd: number | undefined) {
+// the checks before any step, main's turn end and the spawner alike: landed, the lease, hard stops, the gate. The record to go on with, or null.
+export async function ready(h: Host): Promise<DriveRec | null> {
   const s = await h.board.read(), d = s.drive
-  if (!d.on || d.stopped || !s.epic || !s.plan) return
+  if (!d.on || d.stopped || !s.epic || !s.plan) return null
   const mode: Mode = d.mode ?? 'auto'
   if (s.plan.landed || s.plan.state === 'done-on-dev' || s.plan.state === 'released') {   // computed done: integration landed it on dev with its changelog (3.9, plan.landed)
     const store = await storeOf(h), n = (await store.list({}).catch(() => [])).filter(t => t.type === 'decision' && t.meta.link === s.plan!.id && /^(auto|yolo): /.test(t.title)).length   // the beads records outlive the event ring
     const took = n ? ` · ${n} decision${n === 1 ? '' : 's'} taken for you (Doctor lists them)` : ''
     await h.board.update(x => ({ ...x, drive: { ...x.drive, on: false, paused: undefined } })); await driveEvent(h, 'finished', `landed on dev${took}${mode === 'yolo' ? '; the release is yours' : ''}`)
     await casDrive(h, store, r => r && { ...r, on: false, lease: { session: '', until: 0 } })
-    return void h.toast(`${isMs(s.plan) ? 'milestone' : 'epic'} ${s.plan.id} landed on dev; drive finished${took}${mode === 'yolo' ? ' · the release is yours' : ''}`)   // the /clear hint is the drain's (7)
+    return void h.toast(`${isMs(s.plan) ? 'milestone' : 'epic'} ${s.plan.id} landed on dev; drive finished${took}${mode === 'yolo' ? ' · the release is yours' : ''}`), null   // the /clear hint is the drain's (7)
   }
-  const store = await storeOf(h), me = await sessionOf(h), now = await h.now(), dc = scaled(cfg.drive, s)
+  const store = await storeOf(h), me = await sessionOf(h), now = await h.now()
   const rec = await casDrive(h, store, () => undefined)
-  if (!rec?.on || rec.epicId !== s.epic) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, on: false } })))
-  if (held(rec, me, now)) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, heldBy: rec.lease.session } })))
-  if (rec.stopped) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: rec.stopped } })))
-  const hard = await hardStop(h, rec); if (hard) return stop(h, hard)
+  if (!rec?.on || rec.epicId !== s.epic) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, on: false } }))), null
+  if (held(rec, me, now)) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, heldBy: rec.lease.session } }))), null
+  if (rec.stopped) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: rec.stopped } }))), null
+  const hard = await hardStop(h, rec); if (hard) return void (await stop(h, hard)), null
   const g = await gate(h, s, mode)
-  if (g?.stop) return stop(h, g.stop)
-  if (g?.pause) return pause(h, g.pause)
+  if (g?.stop) return void (await stop(h, g.stop)), null
+  if (g?.pause) return void (await pause(h, g.pause)), null
   if (d.paused) { await h.board.update(x => ({ ...x, drive: { ...x.drive, paused: undefined } })); await driveEvent(h, 'running') }
-  if ((await h.ui.read()).goal) return   // a queued brief goes out first (commands/agentrun.pump)
-  const nx = nextAction(modelView(s)), text = [nx !== 'wait' ? `Continue: ${nx}` : '', ...(mode === 'yolo' ? await yoloAsks(store, s) : [])].filter(Boolean).join('\n')
-  const evs = (await h.events.read()).epics[s.epic] ?? [], seq = evs.filter(x => x.type === 'task.transitioned').reduce((m, x) => Math.max(m, x.seq), 0)
+  return rec
+}
+// count `go` steps (a main turn, or the agents the spawner starts: ADR 0018) against the bounds; false when a bound stopped the run
+export async function tally(h: Host, cfg: any, usd: number | undefined, go: number): Promise<boolean> {
+  const s = await h.board.read(), d = s.drive, store = await storeOf(h), me = await sessionOf(h), now = await h.now(), dc = scaled(cfg.drive, s)
+  const evs = (await h.events.read()).epics[s.epic ?? ''] ?? [], seq = evs.filter(x => x.type === 'task.transitioned').reduce((m, x) => Math.max(m, x.seq), 0)
   const o = { bound: null as string | null, go: false, cost: d.costUsd, turns: d.turns, idle: [] as string[] }   // what the CAS attempt that stood decided
   const tx = (id: string) => evs.filter(x => x.type === 'task.transitioned' && s.tasks.find(t => t.id === x.taskId)?.epic === id).reduce((m, x) => Math.max(m, x.seq), 0)
   const free = !cfg.maxParallel || s.tasks.filter(t => t.state === 'active').length < cfg.maxParallel
-  const quiet = (s.plan.epics ?? []).filter(e => free && e.state === 'running' && !s.tasks.some(t => t.epic === e.id && ['active', 'review', 'blocked'].includes(t.state))).map(e => [e.id, tx(e.id)] as const)   // per-epic no progress: a slot is free, yet nothing of it moves, runs or waits on the user
+  const quiet = (s.plan?.epics ?? []).filter(e => free && e.state === 'running' && !s.tasks.some(t => t.epic === e.id && ['active', 'review', 'blocked'].includes(t.state))).map(e => [e.id, tx(e.id)] as const)   // per-epic no progress: a slot is free, yet nothing of it moves, runs or waits on the user
   await casDrive(h, store, r => {
     if (!r?.on || r.epicId !== s.epic || held(r, me, now) || r.stopped) return undefined
     const idle = seq > r.lastSeq || !r.turns ? 0 : r.idle + 1
     const last = r.last ?? usd ?? 0, delta = usd === undefined || r.sess !== me ? 0 : usd >= last ? usd - last : usd   // a new session starts at its own baseline; a usage that went down was reset: count it from 0
     o.cost = +((r.cost ?? 0) + delta).toFixed(2)
     o.bound = boundOf(r, dc, o.cost, idle, now)
-    o.go = !o.bound && !!text; o.turns = r.turns + (o.go ? 1 : 0)
+    o.go = !o.bound && go > 0; o.turns = r.turns + (o.go ? go : 0)
     const ei = Object.fromEntries(quiet.map(([id, q]) => { const [ls, n] = r.ei?.[id] ?? [0, 0]; return [id, q > ls ? [q, 0] : [ls, n + (o.go ? 1 : 0)]] })) as Record<string, [number, number]>
     o.idle = Object.keys(ei).filter(id => ei[id][1] >= dc.noProgressTurns)
     return { ...r, ei, cost: o.cost, last: usd ?? last, sess: me, turns: o.turns, lastSeq: seq, idle: o.go ? idle : r.idle, lease: { session: me, until: now + LEASE } }
   })
   await h.board.update(x => ({ ...x, drive: { ...x.drive, turns: o.turns, costUsd: o.cost, costUnknown: usd === undefined || undefined, heldBy: undefined } }))   // no usage from the engine: the cost bound cannot fire; say so (turns and wall clock still hold)
-  if (o.bound) return stop(h, o.bound)
+  if (o.bound) return void (await stop(h, o.bound)), false
   for (const id of o.idle) await stopEpic(h, id, `no progress in ${dc.noProgressTurns} turns`)
   if (dc.maxCostUsd && o.cost >= 0.8 * dc.maxCostUsd && d.costUsd < 0.8 * dc.maxCostUsd) await emit(h, 'cost.updated', { tokens: (await h.board.read()).cost.tokens, threshold: 80 })
-  if (o.go) await h.submit!(modelText('brief', text))   // plain text, never a slash command; P4: legal only here (#1 after next)
+  return o.go
 }
+export async function drive(h: Host, cfg: any, usd: number | undefined) {
+  if (!(await ready(h)) || (await h.ui.read()).goal) return   // a queued brief goes out first (commands/agentrun.pump)
+  const s = await h.board.read(), mode: Mode = s.drive.mode ?? 'auto', nx = nextAction(modelView(s), modOn(s))   // mod mode: main is told only what is its own (ADR 0018)
+  const text = [nx !== 'wait' && nx !== RUNS ? `Continue: ${nx}` : '', ...(mode === 'yolo' ? await yoloAsks(await storeOf(h), s) : [])].filter(Boolean).join('\n')
+  if (await tally(h, cfg, usd, text ? 1 : 0)) await h.submit!(modelText('brief', text))   // plain text, never a slash command; P4: legal only here (#1 after next)
+}
+// mod mode (ADR 0018) is on for this run: cadre spawns, closes and completes; main plans and talks to the user
+export const modOn = (s: Pick<Snapshot, 'drive'>) => !!(s.drive.on && !s.drive.stopped && s.drive.spawn === 'mod')
 
 // arm at approval (core/dispatch.approve, both modes). Submits nothing: the approval brief starts main, drive continues at each turn.complete.
 export async function arm(h: Host, mode: Mode): Promise<string> {
@@ -178,7 +190,7 @@ export async function arm(h: Host, mode: Mode): Promise<string> {
   const r = await casDrive(h, store, x => (x?.on && (x.epicId === s.epic || held(x, me, now)) ? undefined : fresh))
   if (r !== fresh) return held(r, me, now) ? `drive is held by ${r!.lease.session}` : 'drive already runs this plan'   // an amendment's approval keeps the run as it is
   await h.board.update(x => ({ ...x, drive: { on: true, level: 'epic', epicId: s.epic, mode, turns: 0, costUsd: 0, startedAt: now, maxTurns: dc.maxTurns, maxUsd: dc.maxCostUsd, maxMinutes: dc.maxWallMinutes } }))
-  await driveEvent(h, 'armed', mode); return `drive ${mode} on${why}`
+  await DRIVE.sync?.(h); await driveEvent(h, 'armed', mode); return `drive ${mode} on${why}`   // the spawn mode first (core/spawner): the approval brief reads it
 }
 // after the human answered a dialog (core/dispatch.answer) or resumed: a drive that waited on a gate hands main the next step (main may be idle: nothing else would)
 export async function kick(h: Host, force = false): Promise<void> {

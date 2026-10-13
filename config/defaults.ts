@@ -16,7 +16,7 @@ export const defaults = () => ({
   adapters: {} as Record<string, unknown>,
   store: { kind: 'beads', bin: 'bd', dir: '', timeoutMs: 45000, pollMs: 10000 },
   worktrees: { root: '' },                                    // '' = ${XDG_CACHE_HOME:-$HOME/.cache}/cadre/wt
-  drive: { mode: 'auto', level: 'epic', maxTurns: 100, maxCostUsd: 20, maxWallMinutes: 240, noProgressTurns: 3 },
+  drive: { mode: 'auto', spawn: 'main' as 'main' | 'mod', level: 'epic', maxTurns: 100, maxCostUsd: 20, maxWallMinutes: 240, noProgressTurns: 3 },
   cost: { prices: null as unknown, clearHintPct: 40, compactPct: 60 },
   sync: {} as Record<string, unknown>,
   types: typeDefaults() as unknown, packages: [] as { root: string; knownRed?: string[]; [k: string]: unknown }[],

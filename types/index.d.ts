@@ -43,7 +43,7 @@ export interface Snapshot {
   plan: Plan | null; tasks: SnapTask[]
   approval: { planId: string | null; missing: string[] }
   drive: { on: boolean; level: 'epic'; epicId: string | null; turns: number; costUsd: number; startedAt: number | null; paused?: string; heldBy?: string
-    mode?: 'auto' | 'yolo'; stopped?: string; maxTurns?: number; maxUsd?: number; maxMinutes?: number; costUnknown?: boolean }   // core/drive: paused = waiting on a gate (lifts by itself); stopped = needs `drive resume`
+    mode?: 'auto' | 'yolo'; spawn?: 'mod'; stopped?: string; maxTurns?: number; maxUsd?: number; maxMinutes?: number; costUnknown?: boolean }   // core/drive: paused = waiting on a gate (lifts by itself); stopped = needs `drive resume`
   sync: { target: string; state: 'ok' | 'offline' | 'conflict' | 'auth'; pending: number; at: number }[]
   cost: { tokens: number; usd?: number; cachePct?: number }
   containment: { state: 'contained' | 'degraded' | 'unknown'; unsandboxed: number }
@@ -120,6 +120,7 @@ export interface Host {
   sendTo?(agentId: string, text: string): Promise<{ isDelivered: boolean; reason?: string }>   // $.session.send({to:{agentId}}): core/reuse.drain only (the one sender)
   answer?(id: string, key: string, hash: string, vals?: Record<string, string>): Promise<{ text: string }>   // the dialog's answer to decision `id`, option `key`, asked with `hash` (+ field values): stale = refused; else the option's command runs as origin dialog (core/dispatch.answer, ADR 0012)
   ask?(question: string, options: string[]): Promise<string>   // $.ui.ask (AskUserQuestion dialog): the chosen label or the free text; rejects in -p / on dismiss. The only way a decision is answered (ADR 0012)
+  spawnAgent?(a: { prompt: string; description?: string }): Promise<{ agentId?: string; deny?: string }>   // $.agent.spawn: only in a turn.complete / command.run frame (core/spawner)
   submit?(text: string): Promise<unknown>; usage?(): Promise<{ context?: { percent?: number }; cost?: { usd: number } }>   // $.prompt.submit (drive, #1 only) · $.session.usage
   root?(): Promise<string>                              // $.plugin.root: the plugin's folder (guides/ for agent-run setup/init, ADR 0010)
   shell?(): Promise<string>                             // $.session.cwd(): where main's Bash is now (it follows a `cd`); never the repo root (that is cwd())

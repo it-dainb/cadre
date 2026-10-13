@@ -69,7 +69,8 @@ export function contextLine(s: Omit<Snapshot, 'seq' | 'cost'>): string {
     ...ts.filter(t => !running.includes(t) && ['review', 'blocked'].includes(t.state)).map(t => `${t.id} ${tag(t)}`),
     ...s.sync.filter(x => x.state !== 'ok').map(x => `sync: ${x.target} ${x.state} (${x.pending})`)]
   if (s.approval.missing.length) parts.push(`missing: ${s.approval.missing.join('; ')}`)
-  return `${parts.filter(Boolean).join(' · ').slice(0, 1000)}\nnext: ${nextAction(s)}`
+  const self = !!(s.drive?.on && !s.drive.stopped && s.drive.spawn === 'mod')   // the steps run by themselves (ADR 0018)
+  return `${parts.filter(Boolean).join(' · ').slice(0, 1000)}\nnext: ${nextAction(s, self)}`
 }
 // what an agent should start for now, as data (ADR 0018: the spawner runs these itself; nextAction words them for main): reviewers nobody runs, then every
 // ready task of a live epic (role 'claim': admission picks its first step). With the binding table, also active steps no live agent runs (tester -> worker, a decision).
@@ -80,21 +81,24 @@ export function spawnable(s: Omit<Snapshot, 'seq' | 'cost'>, bind?: Record<strin
     ...(bind ? ts.filter(t => t.state === 'active' && (t.step === 'tester' || t.step === 'worker') && !runs(t)).map(t => ({ id: t.id, role: t.step })) : []),
     ...ts.filter(t => isReady(t, ts) && live(t)).map(t => ({ id: t.id, role: 'claim' }))]
 }
-export function nextAction(s: Omit<Snapshot, 'seq' | 'cost'>): string {
+// mod mode (ADR 0018): what main hears when the plan's steps are all cadre's (spawn, complete a task or an epic)
+export const RUNS = 'wait: the tasks run by themselves and you hear when each lands; talk with the user or plan what is next'
+export function nextAction(s: Omit<Snapshot, 'seq' | 'cost'>, mod = false): string {
   const ts = s.tasks as SnapTask[], a: string[] = []
   if (s.plan?.state === 'draft') return s.approval.missing.length ? 'complete the draft plan (see missing)' : `ask the human to approve ${s.plan.id}`
-  a.push(...ts.filter(t => t.state === 'review' && t.step === 'merge').map(t => `complete TASK-${t.id}`))
+  if (!mod) a.push(...ts.filter(t => t.state === 'review' && t.step === 'merge').map(t => `complete TASK-${t.id}`))
   const y = s.drive?.on && !s.drive.stopped && s.drive.mode === 'yolo'   // yolo: main answers blocked tasks itself (core/drive)
   a.push(...ts.filter(t => t.state === 'blocked').map(t => (y ? `decide ${t.id} yourself (TaskUpdate ${t.id} metadata.decision)` : t.flags.includes('spec_change') ? `wait: the user decides the spec change of ${t.id} in its own dialog` : `${t.id} waits for the user (go on with the rest)`)))   // live: main asked the spec change a second time
-  const sp = spawnable(s), es = s.plan?.epics ?? []
+  const sp = mod ? [] : spawnable(s), es = s.plan?.epics ?? []
   a.push(...sp.filter(x => x.role === 'reviewer').map(x => `spawn TASK-${x.id} (reviewer)`))
   const r = sp.find(x => x.role === 'claim'); if (r) a.push(`spawn TASK-${r.id}`)   // one per turn; the ready list on the line says the rest
   for (const e of es) {
     if (e.state === 'ready') a.push(`plan epic ${e.id}: TaskCreate its tasks with metadata.epic "${e.id}", then TaskUpdate ${e.id} metadata.planned true`)
     if (e.state === 'planning') a.push(`finish planning epic ${e.id} (see missing), then TaskUpdate ${e.id} metadata.planned true`)
-    if (e.state === 'running' && ts.every(t => t.epic !== e.id || closed(t))) a.push(`complete epic ${e.id}: TaskUpdate ${e.id} completed`)
+    if (!mod && e.state === 'running' && ts.every(t => t.epic !== e.id || closed(t))) a.push(`complete epic ${e.id}: TaskUpdate ${e.id} completed`)
   }
   if (a.length) return a.join('; ')
+  if (mod) return RUNS
   if (es.length) return es.every(e => e.state === 'landed') ? `complete the milestone: TaskUpdate ${s.plan?.id} completed` : 'wait'
   return ts.length && ts.every(closed) ? `complete the epic: TaskUpdate ${s.plan?.id} completed` : 'wait'
 }

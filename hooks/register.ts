@@ -8,6 +8,7 @@ import { UI, emptySnapshot } from '../core/board'
 import { emptyRing, subscribe } from '../core/events'
 import { drain, step, compact, submit } from '../core/reuse'
 import { goal } from '../core/drive'
+import { FRAMES, spawnStep, syncMode } from '../core/spawner'
 import { quit, wake, warm } from '../core/session'
 import '../config/route'   // registers ROUTES.config
 import { observe } from '../core/close'
@@ -73,7 +74,7 @@ function host($): Host {
     store: { get: k => $.store.get(k), set: async (k, v) => { await $.store.set(k, v) }, del: async k => { await $.store.delete(k) } },
     env: async () => ({
       CADRE_STRICTNESS: await $.env.get('CADRE_STRICTNESS'), CADRE_STORE: await $.env.get('CADRE_STORE'),
-      CADRE_DISABLE: await $.env.get('CADRE_DISABLE'),
+      CADRE_DISABLE: await $.env.get('CADRE_DISABLE'), CADRE_SPAWN: await $.env.get('CADRE_SPAWN'),
       GIT_AUTHOR_NAME: await $.env.get('GIT_AUTHOR_NAME'), GIT_AUTHOR_EMAIL: await $.env.get('GIT_AUTHOR_EMAIL'),   // identity prefill (core/git.identity)
     }),
     readText: async path => { try { return String(await $.fs.read(path)) } catch { return null } },
@@ -118,6 +119,12 @@ function host($): Host {
   return h
 }
 
+// The one place an agent is started (core/spawner, ADR 0018): a host that can spawn, built only in a frame no agent's own events are raised under; anywhere else it throws
+function spawner($, next): Host {
+  if (!FRAMES.includes(next.event)) throw new Error(`spawn refused in ${next.event}`)
+  const h = host($); h.spawnAgent = a => $.agent.spawn(a) as Promise<{ agentId?: string; deny?: string }>; return h
+}
+
 // Fail-closed handlers (G1, G2). On re-entry every $ rejects, so decide from the event alone.
 const FAIL = 'refused: temporary failure; retry once, then ask the human'
 const why = ($, next) => { if (next.error && next.error.kind !== 're-entry') void $.ui.log(`hook failed: ${next.error.kind}: ${next.error.message}`); return FAIL }   // the engine redacts the error in its own log: keep the reason in ours
@@ -150,7 +157,8 @@ export const register: Register = (on, opts) => {
     await seed($).catch(x => $.ui.log(`dev scenario not seeded: ${x}`))   // dev only: CADRE_DEV=1 + CADRE_DEV_SCENARIO (harness/tui.sh --scenario)
     await $.env.set('CLAUDE_CODE_ENABLE_TODO_TOOLS', '1')
     await $.env.set('ENABLE_TOOL_SEARCH', 'false')   // S13: isDeferred:false alone does not stop deferral
-    await wake(host($)).catch(e => $.ui.log(`session start: ${e}`)); await halt(host($)).catch(() => {})   // a setup cut short in an earlier session: the band says so   // active repos only: $.store 'policy' + cadre.ui.cfg + containment band (agents ship as agents/*.md files, A28)
+    await update($, ui, x => ({ ...x, headless: !e.isInteractive || undefined }))   // core/spawner.spawnMode: a one-shot -p run ends before an agent's turn end
+    await wake(host($)).catch(e => $.ui.log(`session start: ${e}`)); await halt(host($)).catch(() => {}); await syncMode(host($)).catch(() => {})   // a setup cut short in an earlier session: the band says so   // active repos only: $.store 'policy' + cadre.ui.cfg + containment band (agents ship as agents/*.md files, A28)
     for (const t of SPECS) await $.tool.register(t)   // report, inspect, run_check: isDeferred:false (5.2)
     { const h = host($); if (await wake(h).catch(() => false)) await nudge(h).catch(() => {}) }   // active repos only: no setup stamp for this Claude Code build -> one toast
     $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void watch(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
@@ -160,6 +168,8 @@ export const register: Register = (on, opts) => {
 
   on('session.end', async ($, e, next) => { if (e.reason !== 'clear' && e.reason !== 'resume') await quit(host($)).catch(() => {}); return next(e) })   // a quit: another session may continue this one's plan at once (core/session.held)
 
+  // 0. the spawner: outermost, so it runs after every other turn-end hook (close, drain); the only registration that starts agents (core/spawner)
+  on('turn.complete', { reason: /(?:)/ }, async ($, e, next) => { const r = await next(e); if (await wake(host($)).catch(() => false)) await spawnStep(spawner($, next), next.event).catch(x => $.ui.log(`spawner: ${x}`)); return r })
   // 1. resume-drain: the only sender, after await next(e), never from a timer. 2. observe.
   on('turn.complete', { reason: /./ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return drain(host($), e, next) })
   on('turn.complete', { reason: /^/ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return observe(host($), e, next) })

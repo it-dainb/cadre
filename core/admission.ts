@@ -47,11 +47,12 @@ const rounds = (task?: { meta: Record<string, string> }) => (+(task?.meta['cadre
 const routeOf = (d: Deps, role: Role, risk: Tier, n = 0) => route(d.cfg.roles[role] as RoleRoute, d.cfg.models, risk, n, role === 'reviewer')
 const stepsOf = (d: Deps) => (type: string, lane?: string) => { const p = pipeOf(d.reg)(type, lane); return d.view ? p : p.filter(s => s !== 'tester' && s !== 'red') }   // no view builder: tester/red skipped
 
-export async function admitWith(h: Host, d: Deps, e: any, next: (e: any) => any): Promise<any> {
+export async function admitWith(h: Host, d: Deps, e: any, next: ((e: any) => any) & { origin?: { plugin: string } }): Promise<any> {
   if (e.isTeammate) return deny('agent teams are not available; use a plain Agent call')
   if (e.workflow) return deny('workflow agents are not available; use a plain Agent call')
   const s = await h.board.read(), ids = idsIn(e.prompt ?? '', s.tasks.map(t => t.id))
   if (ids.length > 1) return deny(`one agent takes one task, but the prompt names ${ids.join(', ')}; spawn one agent per task`)
+  if (ids.length && s.drive.on && !s.drive.stopped && s.drive.spawn === 'mod' && next.origin?.plugin !== 'cadre') return deny(`${ids[0]} starts by itself; do not spawn agents for the plan's tasks. An Agent without a task id (to explore or ask) is fine`)   // mod mode (ADR 0018): only the spawner's own call, never main's
   if (!ids.length) {   // marker-less: a read-only explorer; forks pass untouched
     if (e.fork) return next(e)
     const m = routeOf(d, 'explorer', 'light').model

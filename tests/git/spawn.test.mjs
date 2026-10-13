@@ -1,0 +1,101 @@
+// Dev-only: mod mode (ADR 0018) on real git + MemoryStore: the spawner starts, closes and completes; main takes no turn. node --experimental-transform-types --test tests/git/*.test.mjs
+import '../dev/register.mjs'
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { execFile, execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+const { fakeHost, task } = await import('../support.ts')
+const { defaults } = await import('../../config/index.ts')
+const { MemoryStore } = await import('../../task-management/adapters/memory/store.ts')
+const { admitWith } = await import('../../core/admission.ts')
+const { handleWith } = await import('../../tools/index.ts')
+const { arm } = await import('../../core/drive.ts')
+const { spawnStep, spawnMode } = await import('../../core/spawner.ts')
+const { contextLine } = await import('../../core/render.ts')
+const { modelView } = await import('../../core/board.ts')
+
+const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: o.cwd }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
+const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()
+const DESIGN = JSON.stringify({ symbols: [{ name: 'f', kind: 'fn', params: [], returns: 'x', status: 'new' }] })
+
+// n tasks of one approved plan, drive armed in mod mode (CADRE_SPAWN=mod); `turn()` = an agent's turn end reaching the spawner registration
+async function world(n = 1, o = {}) {
+  const d = mkdtempSync(join(tmpdir(), 'cadre-spawn-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
+  writeFileSync(join(d, 'a.txt'), 'a\n'); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'init'); sh(d, 'branch', 'dev'); sh(d, 'branch', 'epic/p1-x', 'dev')
+  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.jail = 'off'; cfg.maxParallel = o.maxParallel ?? 3; cfg.packages = [{ root: '.', verify: ['verify'], checks: { verify: ['true'] } }]
+  const store = new MemoryStore(); await store.init({ types: {}, journal: true })
+  const epic = await store.createEpic('E', 'goal'), ids = []
+  for (let i = 0; i < n; i++) ids.push((await store.createDraft({ title: `task ${i}`, description: 'd', acceptance: 'S1: Given x When y Then z', design: DESIGN, type: 'refactor', parent: epic, meta: { 'cadre.package': '.', 'cadre.changelog': JSON.stringify({ none: true, reason: 'internal' }) } })).id)
+  await store.approve([epic, ...ids])
+  const h = fakeHost({ env: { CADRE_SPAWN: o.mode ?? 'mod' } }); let tick = 0
+  const submitted = [], spawned = []
+  Object.assign(h, { cwd: async () => d, home: async () => d, run, now: async () => (tick += 1000), stat: async p => (existsSync(p) ? { kind: 'dir' } : undefined), write: async (p, t) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) }, readText: async p => (existsSync(p) ? readFileSync(p, 'utf8') : null),
+    submit: async t => { submitted.push(t) }, usage: async () => ({ cost: { usd: 0 } }) })
+  const dep = { store, cfg, reg: cfg.types, root: d, home: d, wtRoot: `${d}-wt`, key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' }
+  await h.secret.update(x => ({ ...x, session: 's1' })); h.taskStore = async () => store; h.config = async () => cfg
+  const ts = await Promise.all(ids.map(async id => { const t = await store.get(id); return task(id, { title: t.title, type: t.type }) }))
+  await h.board.update(s => ({ ...s, seq: 1, epic, plan: { id: epic, slug: 'x', state: 'approved', epicBranch: 'epic/p1-x' }, tasks: ts }))
+  let k = 0
+  const engine = e => { const id = `ag${++k}`; spawned.push([id, e.prompt, e.subagentType]); return { agentId: id, model: 'm' } }
+  const cadre = Object.assign(async e => engine(e), { origin: { plugin: 'cadre', tier: 'user' } }), main = Object.assign(async e => engine(e), { origin: { plugin: 'engine', tier: 'core' } })
+  h.spawnAgent = a => admitWith(h, dep, { ...a, background: true }, cadre)
+  const turn = () => spawnStep(h, 'turn.complete')
+  const rep = (agentId, body) => handleWith(h, dep, { tool: 'mcp__cadre__report', agentId, input: { schemaVersion: 1, ...body } }).then(r => r.result)
+  const pass = { role: 'reviewer', verdict: 'pass', summary: 'ok', findings: [], coverage: [{ scenario: 'S1', ok: true }], contractStatus: [{ name: 'f', ok: true }] }
+  const wt = async id => (await store.get(id)).meta['cadre.worktree']
+  return { d, h, dep, store, ids, epic, turn, rep, pass, wt, submitted, spawned, mainSpawn: e => admitWith(h, dep, e, main) }
+}
+const edit = (wt, f = 'b.txt', body = 'b\n') => writeFileSync(join(wt, f), body)
+
+test('mode: CADRE_SPAWN beats all; a non-interactive session is main\'s; else drive.spawn', async () => {
+  const h = fakeHost(); h.config = async () => defaults()
+  assert.deepEqual((await spawnMode(h)).mode, 'main')
+  await h.ui.update(u => ({ ...u, headless: true })); h.config = async () => { const c = defaults(); c.drive.spawn = 'mod'; return c }
+  assert.equal((await spawnMode(h)).mode, 'main'); await h.ui.update(u => ({ ...u, headless: undefined })); assert.equal((await spawnMode(h)).mode, 'mod')
+  h.env = async () => ({ CADRE_SPAWN: 'main' }); assert.equal((await spawnMode(h)).mode, 'main')
+})
+
+test('the spawner refuses a frame an agent\'s events are raised under, and a host without the spawn', async () => {
+  const w = await world(1); await arm(w.h, 'auto')
+  await assert.rejects(spawnStep(w.h, 'tool.call'), /spawn refused/)
+  const { spawnAgent, ...bare } = w.h; await assert.rejects(spawnStep(bare, 'turn.complete'), /spawn refused/)
+  assert.equal(w.spawned.length, 0)
+})
+
+test('arm in mod mode: the board says so, main\'s line names no step of its own, and main\'s own Agent call for a task is denied (an explorer passes)', async () => {
+  const w = await world(1); assert.match(await arm(w.h, 'auto'), /drive auto on/)
+  const s = await w.h.board.read(); assert.equal(s.drive.spawn, 'mod'); assert.match(contextLine(modelView(s)), /next: wait: the tasks run by themselves/)
+  const r = await w.mainSpawn({ prompt: `TASK-${w.ids[0]}`, background: true }); assert.match(r.deny, /starts by itself/)
+  assert.equal((await w.mainSpawn({ prompt: 'where is the login code?', background: true })).agentId, 'ag1')   // marker-less: the explorer
+})
+
+test('main mode: nothing is spawned by cadre and main\'s spawn is admitted', async () => {
+  const w = await world(1, { mode: 'main' }); await arm(w.h, 'auto'); await w.turn()
+  assert.equal(w.spawned.length, 0); assert.equal((await w.h.board.read()).drive.spawn, undefined)
+  assert.equal((await w.mainSpawn({ prompt: `TASK-${w.ids[0]}`, background: true })).agentId, 'ag1')
+})
+
+test('maxParallel: 3 ready tasks, limit 2 -> two start; a second turn end at once starts none twice; spawns count as drive turns', async () => {
+  const w = await world(3, { maxParallel: 2 }); await arm(w.h, 'auto')
+  await Promise.all([w.turn(), w.turn()])
+  assert.equal(w.spawned.length, 2); assert.deepEqual(w.spawned.map(x => x[2]), ['cadre:worker', 'cadre:worker'])
+  assert.equal((await w.h.board.read()).tasks.filter(t => t.state === 'active').length, 2)
+  assert.ok((await w.h.board.read()).drive.turns >= 2); assert.deepEqual(w.submitted, [])
+})
+
+test('lint: one spawn site. $.agent.spawn only in register.ts spawner(); spawner() only in turn.complete / command.run registrations; spawnAgent only in core/spawner', async () => {
+  const root = new URL('../../', import.meta.url).pathname, src = f => readFileSync(join(root, f), 'utf8')
+  const files = execFileSync('git', ['-C', root, 'ls-files', '*.ts'], { encoding: 'utf8' }).split('\n').filter(f => f && !f.startsWith('tests/') && !f.startsWith('harness/'))
+  for (const f of files) {
+    const t = src(f)
+    if (f !== 'hooks/register.ts') assert.doesNotMatch(t, /\$\.agent\.spawn\(|agent\.spawn\(\{/, `${f} starts an agent`)
+    if (!['core/spawner.ts', 'hooks/register.ts', 'types/index.d.ts'].includes(f)) assert.doesNotMatch(t, /spawnAgent/, `${f} uses the spawn`)
+  }
+  const reg = src('hooks/register.ts'), lines = reg.split('\n')
+  assert.equal(reg.match(/\$\.agent\.spawn\(/g).length, 1); assert.match(lines.find(l => l.includes('$.agent.spawn(')), /h\.spawnAgent = /)
+  for (const l of lines.filter(l => /\bspawner\(\$/.test(l) && !/^function /.test(l))) assert.match(l, /^\s*on\('(turn\.complete|command\.run)'/, `spawner() outside a turn.complete/command.run registration: ${l.slice(0, 80)}`)
+  assert.ok(!lines.some(l => /clock\.(every|after)/.test(l) && /spawner\(|spawnStep|agent\.spawn/.test(l)), 'a timer never spawns')
+})
