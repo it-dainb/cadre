@@ -151,10 +151,11 @@ test('/cadre (a command frame) starts agents at once and drops the queued idle t
 
 test('watchdog: nothing running with work to start -> the idle turn, at most every 2 minutes, counted as a turn', async () => {
   const w = await world(1); await arm(w.h, 'auto'); const t0 = (await w.h.board.read()).drive.turns
-  await watchdog(w.h); assert.equal((await w.h.ui.read()).goal, IDLE); await w.h.ui.update(u => ({ ...u, goal: undefined }))
+  await watchdog(w.h); assert.equal((await w.h.ui.read()).goal, undefined)   // the first look starts the window (main may be mid-turn)
+  await w.h.ui.update(u => ({ ...u, idleAt: -200_000 })); await watchdog(w.h); assert.equal((await w.h.ui.read()).goal, IDLE); await w.h.ui.update(u => ({ ...u, goal: undefined }))
   await watchdog(w.h); assert.equal((await w.h.ui.read()).goal, undefined)   // within the window
   assert.equal((await w.h.board.read()).drive.turns, t0 + 1)
-  await w.turn(); await w.h.ui.update(u => ({ ...u, idleAt: undefined })); await watchdog(w.h); assert.equal((await w.h.ui.read()).goal, undefined)   // an agent runs: no kick
+  await w.turn(); await w.h.ui.update(u => ({ ...u, idleAt: -200_000 })); await watchdog(w.h); assert.equal((await w.h.ui.read()).goal, undefined)   // an agent runs: no kick
 })
 
 test('usage limit: the agent\'s task goes back without an attempt, drive pauses until the reset, nothing starts meanwhile', async () => {

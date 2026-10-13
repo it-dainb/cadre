@@ -190,10 +190,11 @@ export async function idle(h: Host): Promise<boolean> {
   const s = await h.board.read(), bind = await h.bind.read()
   return modOn(s) && !Object.keys(bind).some(a => !a.startsWith('~')) && spawnable(modelView(s), bind).length > 0
 }
-// the timer (5 s): mod mode stalled with work to start (an agent that died without a turn end, a lease that lapsed, a usage limit that reset): the idle fallback, at most every 2 min, counted as a turn (the no-progress bound ends a loop of them)
+// the timer (5 s): mod mode stalled with work to start (an agent that died without a turn end, a lease that lapsed, a usage limit that reset): the idle fallback once nothing happened for 2 min, counted as a turn (the no-progress bound ends a loop of them)
 export async function watchdog(h: Host): Promise<void> {
   const now = await h.now(), u = await h.ui.read()
-  if (u.goal || (u.idleAt !== undefined && now - Number(u.idleAt) < 120_000) || !(await idle(h)) || !(await ready(h)) || !(await tally(h, await cfgOf(h), undefined, 1))) return
+  if (u.idleAt === undefined || !(await idle(h))) return void (await h.ui.update(x => ({ ...x, idleAt: now })))   // the window starts at the last sign of life (a spawner step resets it too)
+  if (u.goal || now - Number(u.idleAt) < 120_000 || !(await ready(h)) || !(await tally(h, await cfgOf(h), undefined, 1))) return
   await h.ui.update(x => ({ ...x, idleAt: now })); await queueBrief(h, IDLE)
 }
 // an agent's turn that died on an API error while a usage window is full (or says so): the reset time, else null. Not an attempt: the drive pauses until then.
