@@ -54,11 +54,11 @@ export async function spawnStep(h: Host, event: string): Promise<void> {
 }
 // close every task whose review passed (squash into its epic, actor mod), then complete what is done: an epic of a milestone, the milestone, or the plan.
 // A close that fails (conflict, red on the plan tip) goes the usual way: its worker reworks it, past the cap it waits for the user. True when anything landed.
-let landing = false   // one close at a time per session: two turn ends at once never squash one task twice (the other frame just spawns)
+let landing = false, again = false   // one close at a time per session: two turn ends at once never squash one task twice (the other frame just spawns)
 async function land(h: Host): Promise<boolean> {
-  if (landing) return false
+  if (landing) { again = true; return false }   // a pass that came in while another frame lands: that frame looks once more (live: it read the board before the pass, nothing landed it after)
   landing = true
-  try { return await landAll(h) } finally { landing = false }
+  try { let n = false; do { again = false; n = (await landAll(h)) || n } while (again); return n } finally { landing = false }
 }
 async function landAll(h: Host): Promise<boolean> {
   const d = await resolveDeps(h), closed = (st: string) => st === 'done' || st === 'cancelled'

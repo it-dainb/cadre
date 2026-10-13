@@ -64,8 +64,10 @@ test('a 2-epic milestone: both epic plans come from planners started by cadre; e
   writeFileSync(join(await wt(a), 'a.txt'), 'a\n'); writeFileSync(join(await wt(b), 'b.txt'), 'b\n')
   assert.match(await rep('ag3', { role: 'worker', outcome: 'done', summary: 'a' }), /report accepted/); assert.match(await rep('ag4', { role: 'worker', outcome: 'done', summary: 'b' }), /report accepted/)
   await turn(); assert.deepEqual(spawned.slice(4).map(x => x[1]), ['cadre:reviewer', 'cadre:reviewer'])
-  assert.match(await rep('ag5', pass), /pass@/); assert.match(await rep('ag6', pass), /pass@/)
-  await turn()
+  // the second pass and its reviewer's turn end come while the first turn end is squashing (live: that landing had read the board before the pass; nothing landed it after)
+  let late; const run0 = h.run
+  h.run = async (argv, o) => { if (!late && argv.includes('--squash')) late = (async () => { assert.match(await rep('ag6', pass), /pass@/); await turn() })(); return run0(argv, o) }
+  assert.match(await rep('ag5', pass), /pass@/); await turn(); await late; h.run = run0
   const s = await h.board.read()
   assert.deepEqual(s.tasks.map(t => t.state), ['done', 'done']); assert.deepEqual(await states(), ['landed', 'landed'])
   assert.equal(s.plan.state, 'done-on-dev'); assert.equal(sh(d, 'show', 'dev:a.txt'), 'a'); assert.equal(sh(d, 'show', 'dev:b.txt'), 'b')
