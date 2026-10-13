@@ -15,10 +15,10 @@ kill-mid-setup|nogit|kill|MODEL=sonnet CC_VERSION=2.1.296 FAULT=kill
 EOF
 }
 clarify() { cat <<'EOF'
-clarify-vague|single ready landing|vague|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=ask
-clarify-yolo|single ready landing|vague-yolo|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=assumed
-clarify-deep|single ready landing|deep|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=deep ORACLE_DIALOGS=10 ORACLE_TURNS=20 BUDGET=900
-clarify-clear|single ready|goal|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=none
+clarify-vague|single ready landing|vague|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=ask BUDGET=300
+clarify-yolo|single ready landing|vague-yolo|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=assumed BUDGET=300
+clarify-deep|single ready landing|deep|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=deep ORACLE_DIALOGS=10 ORACLE_TURNS=20 BUDGET=420
+clarify-clear|single ready|goal|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=none BUDGET=300
 EOF
 }
 full() {   # the cross product, minus cells that cannot exist (user1 needs kit/, continue needs a set-up repo)

@@ -49,7 +49,9 @@ describe('clarify gate (default on)', () => {
     expect(ctx(await w.askQ(1))).toMatch(/^record the clarity first/)
     const r = ctx(await w.clarity(VAGUE)); expect(r).toContain('clarity: outcome 0.9 · scope 0.4 · acceptance 0.5 · constraints 0.8'); expect(r).toContain('at most 3 questions in ONE AskUserQuestion call, about scope, acceptance'); expect(r).toContain('name what the explorer found'); expect(banned(r)).toEqual([])
     expect(ctx(await w.askQ(4))).toBe('at most 3 questions: keep the ones about scope, acceptance.')
-    expect(await w.askQ(3)).toBe('PASS'); expect(await stopCheck(w.h, {})).toBeNull()   // a stop right after the question passes
+    expect(await clarifyCheck(w.h, { tool: 'AskUserQuestion', tool_use_id: 'q1', input: { questions: [{}, {}] } })).toBeUndefined()   // the permission step judges and counts it once
+    expect(await clarifyCall(w.h, { tool: 'AskUserQuestion', tool_use_id: 'q1', questions: [{}, {}] })).toBeUndefined(); await seen(w.h, { name: 'AskUserQuestion' })   // the same call at tool.call: not judged again (live: refused as a second round)
+    expect(await stopCheck(w.h, {})).toBeNull()   // a stop right after the question passes
     expect(ctx(await w.askQ(1))).toBe('you asked already: draft the plan now with the answers you have.')
     expect(ctx(await w.clarity(CLEAR))).toMatch(/clear\. Draft the plan now\.$/)
     await w.call({ tool: 'TaskCreate', subject: 'Add a Timeline section', description: 'components/Timeline', metadata: { kind: 'plan', lane: 'lite', reason: 'one section', type: 'feature', changelog: { category: 'Added', entry: 'timeline' } } })

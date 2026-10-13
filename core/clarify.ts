@@ -45,6 +45,12 @@ export function guideOf(g: string, p: P, deep: string | null = null): string {
   return t.replaceAll('{maxQuestions}', String(p.clarify.maxQuestions)).replaceAll('{maxRounds}', String(p.deep.maxRounds))
 }
 
+// one judgement per question call: tool.check and tool.call both see it (in either order, live), the first one judges and counts it
+async function askGate(h: Host, q: unknown, tu: string | undefined, p: P, g: G): Promise<string | null> {
+  if (tu && g.askTu === tu) return null
+  const why = askRefusal(Array.isArray(q) ? q.length : 1, p, g); if (why) return why
+  await setRun(h, x => ({ ...x, asked: (x.asked ?? 0) + 1, ...(tu ? { askTu: tu } : {}) })); return null
+}
 const deny = (t: string) => ({ deny: modelText('deny', t) })
 const setRun = (h: Host, f: (g: G) => G) => h.secret.update(s => (s.goalRun ? { ...s, goalRun: f(s.goalRun) } : s))
 // tool.call slot 5 (hooks/register, active repo, before the guards): main's clarity record, its questions, a second explorer, a yolo plan without its assumptions
@@ -56,10 +62,7 @@ export async function clarifyCall(h: Host, e: any): Promise<unknown | undefined>
   if (!g?.on) return kind === 'clarity' ? deny('a clarity record belongs to planning a goal the user typed; there is none now') : undefined
   const p = (await cfgOf(h)).planning, on = g.deep || p.clarify.enabled
   if (e.tool === 'Agent') return on && g.explored && e.subagent_type === EXPLORE ? deny('one explorer per goal: use the answer you have') : undefined
-  if (e.tool === 'AskUserQuestion') {
-    const why = askRefusal(Array.isArray(e.questions) ? e.questions.length : 1, p, g); if (why) return deny(why)
-    await setRun(h, x => ({ ...x, asked: (x.asked ?? 0) + 1 })); return undefined
-  }
+  if (e.tool === 'AskUserQuestion') { const why = await askGate(h, e.questions, e.tool_use_id, p, g); return why ? deny(why) : undefined }
   if (kind === 'plan') return g.assume?.length && !e.metadata.assumed ? deny(`list what you assumed for ${g.assume.join(', ')}: ${ASSUMED}`) : undefined
   if (!on) return deny('no clarity record is needed here: draft the plan')
   if (!g.explored) return deny(`spawn one explorer first: an Agent with subagent_type "${EXPLORE}" whose prompt asks what in the project the goal touches. Record the clarity after its answer.`)
@@ -73,7 +76,7 @@ export async function clarifyCall(h: Host, e: any): Promise<unknown | undefined>
 export async function clarifyCheck(h: Host, e: any): Promise<unknown | undefined> {
   if (e.agentId || e.tool !== 'AskUserQuestion') return undefined
   const g = (await h.secret.read()).goalRun; if (!g?.on) return undefined
-  const q = e.input?.questions, why = askRefusal(Array.isArray(q) ? q.length : 1, (await cfgOf(h)).planning, g)
+  const why = await askGate(h, e.input?.questions, e.tool_use_id, (await cfgOf(h)).planning, g)
   return why ? { decision: 'deny', reason: modelText('deny', why) } : undefined
 }
 // the status line while a deep talk runs (commands/cadre.status)
