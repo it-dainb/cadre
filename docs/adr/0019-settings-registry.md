@@ -64,6 +64,6 @@ Dead keys: `store.pollMs`, `store.dir` (the store folder is found by the store l
 | branch slug (`core/branches.slug`) | 24 chars | existing branches are found by name; a change would orphan them |
 | check / setup process timeouts | 10 min, view 2 min | hang guards on jailed processes; raise on evidence |
 | notification rate limits (`ui/notify`) | 1 toast / 8 s, 3 desktop / 15 min | anti-spam; `ui.notify` turns desktop notifications off |
-| agent prompt-cache TTL (`agents/*.md` `experimental.cacheTtl`) | 1h | shipped agent files are pinned per plugin build; `reuse.cacheTtlMs` (when an idle agent is no longer reused) is the matching knob |
+| agent prompt-cache TTL (`agents/*.md` `experimental.cacheTtl`) | 1h; explorer 5m (ADR 0022, shown as `fixed.cacheTtl`) | shipped agent files are pinned per plugin build; `reuse.cacheTtlMs` (when an idle agent is no longer reused) is the matching knob |
 | UI layout tokens (`ui/tokens`, column widths) | — | design system, not behaviour; `ui.glyphs`, `ui.density`, `ui.flash` are the knobs |
 | pinned Claude Code build in doctor | 2.1.295 | what cadre is tested against |
