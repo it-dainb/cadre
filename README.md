@@ -33,6 +33,7 @@ Then, inside Claude Code:
    - **ask**: a question or investigation. An explorer answers it; nothing changes.
    - **lite**: one small, clear change. One task, drafted for you; choose **Approve** once and Claude runs it to the end: worker → review → merge (a bug a test can reproduce gets the failing test first).
    - **full**: a feature, several tasks, or a public API change. The full plan with scenarios and contracts.
+   Before it plans, Claude sends one explorer through the code and scores how clear the goal is (outcome, scope, acceptance, constraints). A vague goal gets at most 3 questions in one round, naming what the explorer found ("I found Hero, Navbar and Timeline in components/: which one?"); a clear one gets none. Under yolo it asks nothing and the dialog lists what it assumed. `/cadre deep <goal>` talks it through instead: one question per round at the weakest point, with the scores shown, until it is clear, 8 rounds pass, or you say "enough". Settings → Planning.
    The lane shows in the approval dialog, with an option to change it; type something instead to ask Claude for a change. Breaking, security, public contract changes and plans of 3+ tasks are always full.
 
 3. **After you approve, it runs by itself.** Two modes:
@@ -41,7 +42,7 @@ Then, inside Claude Code:
    To make yolo your default, set **Drive → mode** to `yolo` in Settings (`9`); a repo's committed config can only force `auto`.
    Both stop by themselves when an agent moves a protected branch, the sandbox settings change, or a bound is hit (100 turns, $20, 240 minutes, or 3 turns without progress; Settings → Drive). The band shows `auto · turn 12/100 · $1.20 · 0: stop`; `0` stops and resumes.
 
-`/cadre` alone opens the pane. Those six forms (`/cadre`, `/cadre <goal>`, `/cadre yolo <goal>`, `setup`, `init`, `doctor`) are all you type; every decision is answered in a dialog. It opens once by itself; after that `1` (on the band or in the pane) opens it again, and the pane lists everything that needs you.
+`/cadre` alone opens the pane. Those forms (`/cadre`, `/cadre <goal>`, `/cadre yolo <goal>`, `/cadre deep <goal>`, `setup`, `init`, `doctor`, `continue`) are all you type; every decision is answered in a dialog. It opens once by itself; after that `1` (on the band or in the pane) opens it again, and the pane lists everything that needs you.
 
 ## How it works
 
@@ -69,6 +70,7 @@ More: [the loop in detail](docs/commands.md#the-loop-in-detail).
 | `/cadre init` | Re-run the repo setup on purpose (a first `/cadre <goal>` does it for you). |
 | `/cadre doctor` | Read-only health check. Safe any time. |
 | `/cadre <goal>` · `/cadre yolo <goal>` | Start work; after approval it runs to dev, asking at the critical points (auto) or not at all (yolo). |
+| `/cadre deep <goal>` | Talk the goal through first (one question per round, scores shown), then the plan comes up as usual. |
 | `/cadre continue` | Pick up a plan an earlier session left (also `0` on the band). |
 | `/cadre open` · `/cadre status` | Open the board pane · print the board as text. |
 | Settings | Press `9` in the pane: every setting, where its value comes from, and buttons to change it. |

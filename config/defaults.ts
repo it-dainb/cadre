@@ -29,6 +29,7 @@ export const defaults = () => ({
   review: { deepLabels: ['security', 'breaking'], maxRework: 3, coreTask: 'core', coreDiff: 'thorough', tiers: { light: { files: 5, lines: 100, paths: 2 }, thorough: { files: 20, lines: 500 }, risky: ['**/auth/**', '**/security/**', '**/crypto/**', '**/permission*/**', '**/migrations/**', '.github/**', '.gitlab-ci.yml', 'Dockerfile', '**/package.json', '**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/go.mod', '**/Cargo.toml', '**/pyproject.toml', '**/requirements*.txt'] } },
   limits: { reportRetries: 3, nudges: 2, attempts: 3, rebaseRounds: 2 },
   lanes: { fullAt: 3, milestoneAt: 8 },
+  planning: { clarify: { enabled: true, maxQuestions: 3, threshold: 0.7 }, deep: { maxRounds: 8 } },   // ADR 0020: explorer + clarity before a goal's plan; /cadre deep
   branches: { main: '', dev: 'dev', epicPrefix: 'epic/' }, release: { onEpicDone: 'propose' },
   ui: { glyphs: 'unicode', flash: true, density: 'normal', notify: 'on', escalateAfterMs: 120_000 },
   maxParallel: 3, milestone: { maxEpics: 2 },   // 0 = no cadre cap (drive bounds still apply)
@@ -73,6 +74,10 @@ export const REG: Record<string, Meta> = {
   'limits.reportRetries': m(R, 'refused reports before one is accepted unvalidated and flagged', N(1, 3)),
   'lanes.fullAt': m(PL, 'a plan of this many tasks takes the full lane', N(2, 50)), 'lanes.milestoneAt': m(PL, 'a plan of this many tasks should be a milestone', N(2, 100)),
   types: m(PL, 'task types and their pipelines', { open: true }),
+  'planning.clarify.enabled': m(PL, 'before a goal is planned: one explorer, then a clarity check; a vague goal gets a few questions (yolo: assumptions instead)'),
+  'planning.clarify.maxQuestions': m(PL, 'questions in the one clarify round', N(1, 4)),
+  'planning.clarify.threshold': m(PL, 'clarity (0-1) each of outcome, scope, acceptance, constraints needs before Claude plans without asking', { min: 0, max: 1 }),
+  'planning.deep.maxRounds': m(PL, '/cadre deep: question rounds before Claude plans anyway', N(1, 20)),
   'branches.main': m(G, 'the release branch (set by init)'), 'branches.dev': m(G, 'the integration branch'), 'branches.epicPrefix': m(G, 'epic branch name prefix'),
   'release.onEpicDone': m(G, 'after an epic lands on dev: propose a release, or not', { opts: ['propose', 'off'] }), 'limits.rebaseRounds': m(G, 'reworks onto a moved plan tip before asking you', N(0, 10)),
   'changelog.path': m(G, 'the changelog cadre writes at close'), 'worktrees.root': m(G, "task worktrees ('' = ~/.cache/cadre/wt)", { cls: 'U' }),

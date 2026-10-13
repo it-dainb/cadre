@@ -79,7 +79,7 @@ describe('lane and override', () => {
   test('the guide names the milestone lane and stays short', () => {
     const g = (BUDGET.guides as Record<string, string>).goal
     for (const k of ['**milestone**', '"lane": "milestone"', 'critic review']) expect(g).toContain(k)
-    expect(g.length).toBeLessThan(4200)
+    expect(g.length).toBeLessThan(5000)   // + the clarify step (ADR 0020)
   })
 })
 

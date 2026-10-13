@@ -5,7 +5,8 @@ You type five forms ([ADR 0011](adr/0011-lanes.md)):
 | Typed | Effect |
 |---|---|
 | `/cadre` | open the pane (Needs you on top when a decision waits) |
-| `/cadre <goal>` | Claude picks a lane (ask · lite · full) with a reason and drafts it; the approval dialog shows the lane and offers to change it |
+| `/cadre <goal>` | Claude picks a lane (ask · lite · full) with a reason, sends one explorer and scores the goal's clarity (a vague goal: at most `planning.clarify.maxQuestions` questions in one round; yolo: assumptions in the dialog), then drafts it; the approval dialog shows the lane and offers to change it |
+| `/cadre deep <goal>` | one explorer, then one question per round at the weakest of outcome · scope · acceptance · constraints (scores shown) until clear, `planning.deep.maxRounds`, or "enough"; then the plan as for `/cadre <goal>` ([ADR 0020](adr/0020-planning-clarify-deep.md)) |
 | `/cadre setup` · `/cadre init` · `/cadre doctor` | machine setup · project setup · read-only diagnosis |
 
 An old subcommand word (`approve`, `status`, `open`, …) answers `that's answered in the dialog now: press 1 on the band or run /cadre` and runs nothing, so a typo never starts a plan. The table below is the command set behind the **decision dialog's options** and the pane's Settings tab; it is not typed.

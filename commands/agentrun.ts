@@ -12,6 +12,7 @@ import { RUN } from '../core/dispatch'
 import { goal as goalBrief, queueBrief, sendBrief } from '../core/lanes'
 import { storeOf } from '../core/dispatch'
 import { diff as jdiff } from '../policy/settings'
+import { EXPLORE } from '../core/clarify'
 
 type Kind = 'setup' | 'init'
 const G: Record<Item['st'], string> = { ok: '✓', fail: '✗', wait: '…', todo: '·', warn: '!' }
@@ -98,11 +99,11 @@ export async function turnEnd(h: Host, e: { agentId?: string; answer?: string })
   await recheck(h, true)
 }
 // main's turn.start / tool.call (register.ts): the watchdog's clock, and the tool count the stop check reads
-export async function seen(h: Host, o: { start?: boolean; tool?: boolean; name?: string } = {}): Promise<void> {   // name: main's tool, before it runs (a goal run)
+export async function seen(h: Host, o: { start?: boolean; tool?: boolean; name?: string; type?: string } = {}): Promise<void> {   // name: main's tool, before it runs (a goal run); type: an Agent call's subagent_type
   const s0 = await h.secret.read(); if (!s0.run && !s0.goalRun?.on) return
   const now = await h.now(), busy = o.start ? { busy: true } : {}
   await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, seen: now, ...busy, ...(o.tool ? { tools: (s.run.tools ?? 0) + 1 } : {}) } }
-    : s.goalRun?.on ? { ...s, goalRun: { ...s.goalRun, seen: now, ...busy, ...(o.name ? { last: o.name, ...(o.name === 'Agent' || o.name === 'Task' ? { spawned: true } : {}) } : {}) } } : s))   // ponytail: any Agent main spawns counts as the ask step; check its prompt if an explore spawn in step 1 slips through
+    : s.goalRun?.on ? { ...s, goalRun: { ...s.goalRun, seen: now, ...busy, ...(o.name ? { last: o.name, ...(o.name === 'Agent' || o.name === 'Task' ? (o.type === EXPLORE ? { explored: true } : { spawned: true }) : {}) } : {}) } } : s))   // the clarify explorer (ADR 0020) is not the ask step: a goal that only explored still owes its plan
 }
 
 // ---- Claude's stop during a run (classic Stop): while a check Claude owns is red, the stop is refused with the list (at most 3 per run). A second stop with no tool
@@ -151,6 +152,7 @@ async function goalMissing(h: Host): Promise<string | null> {
 }
 async function goalStop(h: Host): Promise<string | null> {
   const g = (await h.secret.read()).goalRun; if (!g?.on || g.last === 'AskUserQuestion') return null   // it asked the user: their answer comes next
+  if (g.explored && !g.spawned && Object.values(((await h.ui.read()).asks ?? {}) as Record<string, { answer?: string }>).some(a => a.answer === undefined)) return null   // its explorer is still answering: the answer brings the next turn
   const miss = g.spawned ? null : await goalMissing(h)
   if (miss && g.follow < GOAL_FOLLOW) { await h.secret.update(s => (s.goalRun ? { ...s, goalRun: { ...s.goalRun, follow: s.goalRun.follow + 1 } } : s)); return miss }
   await h.secret.update(({ goalRun: _g, ...s }) => s)

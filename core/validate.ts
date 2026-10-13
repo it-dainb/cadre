@@ -6,7 +6,7 @@ import { kindOf } from '../task-management/registry'
 import type { TypeRegistry } from '../task-management/registry'
 import { matches } from './specview'
 
-export const FIELDS = ['kind', 'amend', 'type', 'scope', 'breaking', 'package', 'scenarios', 'changelog', 'interface', 'lane', 'reason', 'repro', 'mission', 'paths', 'core', 'notes', 'epic', 'size', 'planned', 'critique'] as const
+export const FIELDS = ['kind', 'amend', 'type', 'scope', 'breaking', 'package', 'scenarios', 'changelog', 'interface', 'lane', 'reason', 'repro', 'mission', 'paths', 'core', 'notes', 'epic', 'size', 'planned', 'critique', 'assumed'] as const
 export const CATEGORIES = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security']
 const SCENARIO = /^S\d+: Given .+ When .+ Then .+$/
 const STATUS = ['new', 'changed', 'unchanged']
@@ -26,6 +26,7 @@ export function validateFields(m: Record<string, unknown>, reg: TypeRegistry): s
   if (f('mission') !== undefined && (m.kind !== 'plan' || typeof m.mission !== 'string' || !m.mission.trim() || m.mission.length > 1000)) return bad('metadata.mission', 'on the plan\'s TaskCreate, one string "Goal: …\\nConstraints: …\\nNon-goals: …"', m.mission)   // ADR 0014: approved with the plan
   if (f('paths') !== undefined && (m.kind !== undefined || !Array.isArray(m.paths) || !m.paths.length || m.paths.length > 20 || m.paths.some((p: unknown) => !str(p) || (p as string).length > 200))) return bad('metadata.paths', 'on a task, the files or folders it will change, e.g. ["src/auth/login.ts", "test/auth/**"]', m.paths)
   if (f('core') !== undefined && (m.kind !== undefined || typeof m.core !== 'boolean')) return bad('metadata.core', 'true on the one task with the code other tasks share', m.core)
+  if (f('assumed') !== undefined && (m.kind !== 'plan' || !Array.isArray(m.assumed) || !m.assumed.length || m.assumed.length > 5 || !m.assumed.every(x => str(x) && (x as string).length <= 200))) return bad('metadata.assumed', 'on the plan\'s TaskCreate, a list of 1-5 lines "<point>: what you assumed"', m.assumed)   // yolo clarify (ADR 0020): shown in the approval dialog
   if (f('notes') !== undefined && (m.kind !== 'plan' || !str(m.notes) || (m.notes as string).length > 1500)) return bad('metadata.notes', 'on the plan\'s TaskCreate, what an explorer found that several tasks need (at most 1500 characters)', m.notes)
   if (f('epic') !== undefined && (m.kind !== undefined || !str(m.epic))) return bad('metadata.epic', 'on a task, the id of the epic it belongs to, e.g. "m-2"', m.epic)   // milestone lane (ADR 0015)
   if (f('size') !== undefined && (m.kind !== undefined || !Number.isInteger(m.size) || (m.size as number) < 1 || (m.size as number) > 7)) return bad('metadata.size', 'on an epic, how many tasks it needs, 1 to 7', m.size)
