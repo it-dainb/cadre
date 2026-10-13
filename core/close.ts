@@ -24,6 +24,9 @@ import { queueBrief } from './lanes'
 import { yoloOn } from './decide'
 import { capAsk, coreLanded, refresh, rework, trial } from './rebase'
 import { branchOf, epicOf, goOn } from './milestone'
+// the worker's report kept for the reviewer and the merge: cut the FIELDS, never the JSON (a cut string breaks the parse at merge)
+export const reportMeta = (r: any) => JSON.stringify({ summary: String(r.summary ?? '').slice(0, 800), risks: (r.risks ?? []).slice(0, 5).map((x: any) => String(x).slice(0, 120)), questions: (r.questions ?? []).slice(0, 5).map((x: any) => String(x).slice(0, 120)) })
+export const reportOf = (m?: string): { summary?: string } => { try { return m ? JSON.parse(m) : {} } catch { return { summary: m?.slice(0, 800) } } }   // reports stored by older versions may be cut mid-string
 
 
 export const NUDGE: Record<string, string> = { worker: 'You stopped without calling report. Call it now: {"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"} (or outcome "blocked" with reason).', tester: 'You stopped without calling report. Call it now with role "tester", outcome "done", summary and tests.', reviewer: 'You stopped without calling report. Call it now with role "reviewer", verdict, summary, findings, coverage and contractStatus.', explorer: ASK_NUDGE }
@@ -106,7 +109,7 @@ async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any, aut
   }
   const st = await numstat(h, wt, `${base}..${C}`), p = pipe(d)(t.type, t.lane), at = await h.now()
   for (let i = p.indexOf('worker'); p[i] !== 'reviewer'; i++) { const m = await apply(h, { kind: 'advance', id: t.id, at, actor: 'mod' }, pipe(d)); if (!m.ok) throw new Error(m.error) }
-  await d.store.setMeta(t.id, { 'cadre.sourceCommit': C, 'cadre.step': 'reviewer', 'cadre.report': JSON.stringify({ summary: r.summary, risks: r.risks, questions: r.questions }).slice(0, 1500), 'cadre.checks': green ? 'verify' : '', 'cadre.nudge': '' }, d.actor)
+  await d.store.setMeta(t.id, { 'cadre.sourceCommit': C, 'cadre.step': 'reviewer', 'cadre.report': reportMeta(r), 'cadre.checks': green ? 'verify' : '', 'cadre.nudge': '' }, d.actor)
   await d.store.move(t.id, 'review', d.actor)
   await record(h, d, t.id, 'report', 'worker', { commit: C, ...st, green: green ? `${green.ok ? 'pass' : 'fail'} (${green.secs}s)` : 'n/a', auto }, { outcome: 'done', summary: r.summary, risks: r.risks })
   if (auto) await raise(h, t.id, 'auto-reported')
@@ -260,7 +263,7 @@ export async function closeTask(h: Host, d: Deps, id: string, actor: 'main' | 'm
   if (!task.meta['cadre.changelog']) return `${id}: no changelog decision`
   const files = (await G.git(h.run, wt, ['diff', '--name-only', `${base}..${C}`])).split('\n').filter(Boolean), spc = task.meta['cadre.specCommit']
   const theirs = await ours(h, wt, task.meta['cadre.resolve'], C), bad = [...files.filter(p => G.isProt(p, d.cfg.changelog.path) && !theirs(p)), ...(spc ? await lockedViolations(h.run, wt, spc, JSON.parse(task.meta['cadre.locked'] ?? '[]'), C) : [])]; if (bad.length) return `${id}: protected or locked paths differ: ${bad.join(', ')}`
-  const rep = task.meta['cadre.report'] ? JSON.parse(task.meta['cadre.report']).summary : undefined
+  const rep = reportOf(task.meta['cadre.report']).summary
   const msg = commitMessage({ type: spec.commit ?? 'chore', scope: task.meta['cadre.scope'] || undefined, breaking: task.meta['cadre.breaking'] === 'true', description: t.title, summary: rep, id, reviewSha: C, checks: task.meta['cadre.checks'] ? [task.meta['cadre.checks']] : [] })
   let sha = '', fail = ''
   const back = () => G.git(h.run, wt, ['checkout', '-q', '-f', task.meta['cadre.branch']]).catch(() => {})   // squash detaches; a failed close returns the worker to its branch, its files intact for the rework
