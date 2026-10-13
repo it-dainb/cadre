@@ -6,7 +6,7 @@ import type { Host } from '../types'
 import { DRIVE, cfgOf, storeOf } from './dispatch'
 import { modelView } from './board'
 import { spawnable } from './render'
-import { modOn, ready, stop, tally } from './drive'
+import { drive, modOn, ready, stop, tally } from './drive'
 import { closeTask } from './close'
 import { integrateEpic } from './integrate'
 import { resolveDeps } from './admission'
@@ -38,11 +38,11 @@ export async function spawnStep(h: Host, event: string): Promise<void> {
   await syncMode(h)
   if (!modOn(await h.board.read()) || !(await ready(h))) return
   if (await land(h) && !(await ready(h))) return   // what landed may finish the run
-  const s = await h.board.read(), cfg = await cfgOf(h)
+  const s = await h.board.read(), cfg = await cfgOf(h), usd = (await h.usage?.().catch(() => undefined))?.cost?.usd
   let free = cfg.maxParallel > 0 ? cfg.maxParallel - s.tasks.filter(t => t.state === 'active').length : Infinity
   const go = spawnable(modelView(s), await h.bind.read()).filter(x => !inflight.has(x.id) && (x.role !== 'claim' || free-- > 0))
-  if (!go.length || !(await tally(h, cfg, (await h.usage?.().catch(() => undefined))?.cost?.usd, go.length))) return
-  for (const x of go) await one(h, x.id, x.role)
+  if (go.length && (await tally(h, cfg, usd, go.length))) for (const x of go) await one(h, x.id, x.role)
+  await drive(h, cfg, usd, true)   // what is main's own, if anything: one turn
 }
 // close every task whose review passed (squash into its epic, actor mod), then complete what is done: an epic of a milestone, the milestone, or the plan.
 // A close that fails (conflict, red on the plan tip) goes the usual way: its worker reworks it, past the cap it waits for the user. True when anything landed.
@@ -64,6 +64,7 @@ async function one(h: Host, id: string, role: string) {
   inflight.add(id)
   try {
     const r = await h.spawnAgent!({ prompt: modelText('agent-brief', `TASK-${id}`), description: `${role === 'claim' ? 'start' : role} ${id}` })
+    if (r?.agentId) await h.ui.update(u => ({ ...u, own: [...((u.own as string[]) ?? []), r.agentId!].slice(-100) }))   // its task-notification never reaches main (core/reuse.submit)
     if (r?.deny) h.log(`${id} not started: ${r.deny}`)   // a deny is admission's answer (a gate, a lease): the gate or the next turn end deals with it
   } catch (x) {   // admission undid the claim and rethrew: count it; the third failed start stops the run for the human
     const store = await storeOf(h), n = (Number((await store.get(id)).meta['cadre.attempts']) || 0) + 1

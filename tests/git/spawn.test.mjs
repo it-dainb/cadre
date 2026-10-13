@@ -127,3 +127,10 @@ test('rework stays as it was: changes -> the worker step, no worker bound -> the
   await w.turn(); assert.equal(w.spawned[2][2], 'cadre:worker'); assert.match(w.spawned[2][1], /## Handoff\n[\s\S]*Review of \w+ asks for changes|## Handoff/)
   assert.equal((await w.store.get(id)).meta['cadre.rework'], '1')
 })
+
+test('yolo: a blocked task\'s question goes to main once from the spawner, not at every turn end; the other task goes on', async () => {
+  const w = await world(2), [a] = w.ids; await w.h.board.update(b => ({ ...b, containment: { state: 'contained', unsandboxed: 0 } })); await arm(w.h, 'yolo'); await w.turn()
+  assert.match(await w.rep('ag1', { role: 'worker', outcome: 'blocked', summary: 's', reason: 'which db?' }), /blocked recorded/)
+  await w.turn(); await w.turn()
+  assert.equal(w.submitted.length, 1); assert.match(w.submitted[0], new RegExp(`Task ${a} is blocked[\\s\\S]*which db\\?`))
+})

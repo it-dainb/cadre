@@ -171,11 +171,13 @@ export async function tally(h: Host, cfg: any, usd: number | undefined, go: numb
   if (dc.maxCostUsd && o.cost >= 0.8 * dc.maxCostUsd && d.costUsd < 0.8 * dc.maxCostUsd) await emit(h, 'cost.updated', { tokens: (await h.board.read()).cost.tokens, threshold: 80 })
   return o.go
 }
-export async function drive(h: Host, cfg: any, usd: number | undefined) {
+// quiet: from the spawner at an agent's turn end (mod mode): only what is main's own (plan the next epic; yolo: a blocked task's question), never the same text twice
+export async function drive(h: Host, cfg: any, usd: number | undefined, quiet = false) {
   if (!(await ready(h)) || (await h.ui.read()).goal) return   // a queued brief goes out first (commands/agentrun.pump)
   const s = await h.board.read(), mode: Mode = s.drive.mode ?? 'auto', nx = nextAction(modelView(s), modOn(s))   // mod mode: main is told only what is its own (ADR 0018)
   const text = [nx !== 'wait' && nx !== RUNS ? `Continue: ${nx}` : '', ...(mode === 'yolo' ? await yoloAsks(await storeOf(h), s) : [])].filter(Boolean).join('\n')
-  if (await tally(h, cfg, usd, text ? 1 : 0)) await h.submit!(modelText('brief', text))   // plain text, never a slash command; P4: legal only here (#1 after next)
+  if (quiet && (!text || (await h.ui.read()).told === text)) return
+  if (await tally(h, cfg, usd, text ? 1 : 0) && text) { await h.ui.update(u => ({ ...u, told: text })); await h.submit!(modelText('brief', text)) }   // plain text, never a slash command; from a turn end only (#1 or the spawner, after next)
 }
 // mod mode (ADR 0018) is on for this run: cadre spawns, closes and completes; main plans and talks to the user
 export const modOn = (s: Pick<Snapshot, 'drive'>) => !!(s.drive.on && !s.drive.stopped && s.drive.spawn === 'mod')

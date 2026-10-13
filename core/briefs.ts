@@ -81,9 +81,11 @@ export const queueCard = (h: Host, card: string) => h.secret.update(s => ({ ...s
 export const context: Hook = async (h, e, next) => {
   if (e.agentId) return next(e)
   const [s, sc] = [await h.board.read(), await h.secret.read()], card = sc.ctx?.card, key = viewHash(s)
-  if (!card && (!s.plan || sc.ctx?.key === key)) return next(e)
-  await h.secret.update(x => ({ ...x, ctx: { key } }))
-  return next({ ...e, context: [...(e.context ?? []), ...(card ? [modelText('context', card)] : []), ...(s.plan ? [modelText('context', contextLine(modelView(s)))] : [])] })
+  let dg: string[] = []; await h.ui.update(u => { dg = (u.digest as string[]) ?? []; return dg.length ? { ...u, digest: undefined } : u })   // what landed by itself since main's last turn (core/spawner), once
+  const line = !!s.plan && sc.ctx?.key !== key
+  if (!card && !line && !dg.length) return next(e)
+  if (card || line) await h.secret.update(x => ({ ...x, ctx: { key } }))
+  return next({ ...e, context: [...(e.context ?? []), ...(card ? [modelText('context', card)] : []), ...(dg.length ? [modelText('context', `Landed since your last turn: ${dg.join('; ')}`)] : []), ...(s.plan && (line || card) ? [modelText('context', contextLine(modelView(s)))] : [])] })
 }
 // prompt.attachment: native todo/task reminders are noise next to the board line (BT-23, PC-11)
 export const attachment: Hook = (h, e, next) => (e.type === 'todo_reminder' || e.type === 'task_reminder' ? { text: null } : next(e))
