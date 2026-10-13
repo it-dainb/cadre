@@ -41,6 +41,7 @@ Real users broke what clean single-package runs never did (a monorepo, `/clear` 
 ```
 harness/matrix.sh quick -n                 # list the cells + cost/time estimate, run nothing
 harness/matrix.sh quick [-j 3]             # every release: 7 cells in parallel containers, prints the verdict table (exit 1 if any cell fails)
+harness/matrix.sh milestone                # the milestone lane: a 2-epic goal, both epic plans from planner agents, landed on dev
 SPIKE=/path/to/other/checkout harness/matrix.sh quick    # judge another commit (git archive HEAD of that checkout)
 FILTER='user1|ccr' harness/matrix.sh full  # the cross product (manual runs), a subset by cell name
 harness/cell.sh <name> "<fixtures>" <scenario>          # one cell, e.g. cell.sh x "monorepo leftover" user1 (env: MODEL CC_VERSION VIA LAZY FAULT CWD BUDGET LANDED)
@@ -71,7 +72,8 @@ Evidence per cell: `harness/out/matrix/<tier>-<stamp>/<cell>/` (gitignored): `dr
 | `gone-session` / `restart-named` | after a quit or a crash (`restart`, `FAULT=kill`): nothing says the plan is "running in another session" (a cell has one); the first bare `/cadre` names the unfinished setup or plan and the next step | panes after the restart (a docked pane's column cut, a wrapped reply joined; the band too) |
 | `fault-not-injected` | a cell run with `FAULT=…` actually injected it (else it tested nothing) | driver.log |
 | `token-leak` | no OAuth token in a mounted dir (work, out, projects) or the evidence | cell.sh `leak` list |
-| `not-landed` | (`LANDED=1`) the plan landed on dev | dev's log |
+| `not-landed` | (`LANDED=1`) the plan landed on dev (`LAND_RE`, set by the scenario, names its commits) | dev's log |
+| `epic-planner` | (`EPIC_PLANNERS=N`, tier `milestone`) N epic plans were accepted from planner agents, and main drafted no epic's tasks | transcripts |
 
 **Add a fixture**: `fixtures/<name>.sh` sourcing `_base.sh`; a base makes the repo, an overlay changes it (guard git steps with `[ -d .git ]`). Use it in a cell: `"single <name>"`.
 **Add a scenario**: `scenarios/<name>.sh` with the steps above; end with `until_plan` (or rely on `LANDED=1`). A new perturbation that needs a key or command the steps lack: add one line to the steps block in `cell.sh`.

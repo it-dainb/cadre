@@ -79,7 +79,7 @@ seen() { grep -qE "$1" "$O/driver.log"; }
 until_log() { local i; for i in $(seq "${2:-$(left)}"); do seen "$1" && return 0; sleep 1; done; return 1; }
 until_plan() { until_log '^[0-9]+ plan ' "${1:-$(left)}" || log "budget: no plan dialog"; }
 left() { echo $(( ${BUDGET:-600} - ($(date +%s%3N) - T0) / 1000 )); }
-landed() { while [ "$(left)" -gt 0 ]; do git -C "$D/work" log --oneline dev 2>/dev/null | grep -qi 'titlecase\|title' && { log "landed"; return 0; }; sleep 5; done; log "budget: not landed"; }
+landed() { while [ "$(left)" -gt 0 ]; do git -C "$D/work" log --oneline dev 2>/dev/null | grep -qiE "${LAND_RE:-titlecase|title}" && { log "landed"; return 0; }; sleep 5; done; log "budget: not landed"; }
 
 . "$H/scenarios/$SCEN.sh"
 [ -n "$LANDED" ] && landed

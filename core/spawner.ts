@@ -15,6 +15,7 @@ import { sendQueued } from './reuse'
 import { life } from './session'
 import { emit } from './events'
 import { modelText } from './say'
+import { isMs } from './milestone'
 
 export const FRAMES = ['turn.complete', 'command.run']
 // the session's mode: drive.spawn (CADRE_SPAWN maps onto it: config/index.envLayer); a non-interactive session runs main (config/index.headlessMain)
@@ -26,9 +27,11 @@ export async function spawnMode(h: Host): Promise<{ mode: 'mod' | 'main'; why: s
 // the board says which mode runs while a run is on (main's context line and admission read it); a change is said once in Activity
 export async function syncMode(h: Host): Promise<void> {
   const s = await h.board.read(); if (!s.drive.on) return
-  const m = await spawnMode(h), v = m.mode === 'mod' ? 'mod' as const : undefined
-  if (s.drive.spawn === v) return
-  await h.board.update(x => ({ ...x, drive: { ...x.drive, spawn: v } })); await emit(h, 'drive.status', { state: 'mode', reason: `${m.mode === 'mod' ? 'cadre starts the agents' : 'Claude starts the agents'} (${m.why})` })
+  const m = await spawnMode(h), v = m.mode === 'mod' ? 'mod' as const : undefined, pl = v && (await cfgOf(h)).milestone.epicPlanner === 'agent' ? 'agent' as const : undefined   // a planner agent needs cadre to start it (ADR 0021)
+  if (s.drive.spawn === v && s.drive.planner === pl) return
+  await h.board.update(x => ({ ...x, drive: { ...x.drive, spawn: v, planner: pl } }))
+  if (s.drive.spawn !== v) await emit(h, 'drive.status', { state: 'mode', reason: `${m.mode === 'mod' ? 'cadre starts the agents' : 'Claude starts the agents'} (${m.why})` })
+  if (isMs(s.plan) && s.drive.planner !== pl) await emit(h, 'drive.status', { state: 'mode', reason: `${pl ? "a planner agent drafts each epic's tasks" : "Claude drafts each epic's tasks"} (milestone.epicPlanner${pl || m.mode === 'mod' ? '' : ', drive.spawn main'})` })
 }
 
 DRIVE.sync = syncMode
@@ -76,7 +79,7 @@ async function one(h: Host, id: string, role: string) {
   if (life.ending) return   // the session is quitting: an agent started now would die with it, its claim left behind
   inflight.add(id)
   try {
-    const r = await h.spawnAgent!({ prompt: modelText('agent-brief', `TASK-${id}`), description: `${role === 'claim' ? 'start' : role} ${id}` })
+    const r = await h.spawnAgent!({ prompt: modelText('agent-brief', `${role === 'planner' ? 'PLAN' : 'TASK'}-${id}`), description: `${role === 'claim' ? 'start' : role} ${id}` })   // PLAN-<epic>: admission starts its planner
     if (r?.agentId) await h.ui.update(u => ({ ...u, own: [...((u.own as string[]) ?? []), r.agentId!].slice(-100) }))   // its task-notification never reaches main (core/reuse.submit)
     if (r?.deny) h.log(`${id} not started: ${r.deny}`)   // a deny is admission's answer (a gate, a lease): the gate or the next turn end deals with it
   } catch (x) {   // admission undid the claim and rethrew: count it; the third failed start stops the run for the human

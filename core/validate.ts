@@ -106,11 +106,11 @@ export async function capped(h: Host, key: string): Promise<boolean> { return ((
 
 // Report envelope (DESIGN 6.2): entry point for wave 3 (`tools/index`); semantic checks (6.3: files exist at sourceCommit...) are theirs to add.
 // Returns an example-bearing error or null.
-const ROLE_KEYS: Record<string, string[]> = { worker: ['outcome', 'summary'], tester: ['outcome', 'summary', 'tests'], reviewer: ['verdict', 'summary', 'findings', 'coverage', 'contractStatus'], explorer: [] }
+const ROLE_KEYS: Record<string, string[]> = { worker: ['outcome', 'summary'], tester: ['outcome', 'summary', 'tests'], reviewer: ['verdict', 'summary', 'findings', 'coverage', 'contractStatus'], explorer: [], planner: ['tasks'] }
 export function validateReport(r: any): string | null {
   if (!r || typeof r !== 'object') return bad('report', '{"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"}', r)
   if (r.schemaVersion !== 1) return bad('schemaVersion', '1', r.schemaVersion)
-  if (!(r.role in ROLE_KEYS)) return bad('role', 'worker|tester|reviewer|explorer', r.role)
+  if (!(r.role in ROLE_KEYS)) return bad('role', 'worker|tester|reviewer|explorer|planner', r.role)
   const miss = ROLE_KEYS[r.role].find(k => r[k] === undefined); if (miss) return `${miss}: required for role ${r.role}`
   if (r.role === 'explorer' && !str(r.answer)) return 'answer: required for role explorer'
   if (r.role === 'worker' && !['done', 'blocked', 'spec_change'].includes(r.outcome)) return bad('outcome', 'done|blocked|spec_change', r.outcome)

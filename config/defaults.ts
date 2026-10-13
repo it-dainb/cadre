@@ -17,6 +17,7 @@ export const defaults = () => ({
     tester: byRisk(cell('haiku', 'high'), cell('sonnet', 'medium'), cell('sonnet', 'medium'), cell('sonnet', 'medium')),
     reviewer: byRisk(cell('sonnet', 'high'), cell('sonnet', 'high'), cell('opus', 'high'), cell('sonnet', 'high')),
     explorer: { model: 'haiku', effort: 'low' },
+    planner: { model: 'sonnet', effort: 'high' },   // drafts each epic's task plan in a milestone (ADR 0021)
   },
   adapters: {} as Record<string, unknown>,
   store: { kind: 'beads', bin: 'bd', timeoutMs: 45000 },
@@ -31,7 +32,7 @@ export const defaults = () => ({
   lanes: { fullAt: 3, milestoneAt: 8 },
   branches: { main: '', dev: 'dev', epicPrefix: 'epic/' }, release: { onEpicDone: 'propose' },
   ui: { glyphs: 'unicode', flash: true, density: 'normal', notify: 'on', escalateAfterMs: 120_000 },
-  maxParallel: 3, milestone: { maxEpics: 2 },   // 0 = no cadre cap (drive bounds still apply)
+  maxParallel: 3, milestone: { maxEpics: 2, epicPlanner: 'agent' as 'agent' | 'main' }, planner: { maxRounds: 3 },   // 0 = no cadre cap (drive bounds still apply)
   reuse: { maxContextPct: 60, cacheTtlMs: 3_600_000 },   // 1h: roles ship as agent files with experimental.cacheTtl 1h (A28, ADR 0001 S44)
   disable: false,
 })
@@ -89,4 +90,7 @@ export const REG: Record<string, Meta> = {
   'store.timeoutMs': m(ST, 'bd call timeout (ms)', N(1000, 600_000)), adapters: m(ST, 'sync adapters: {command, credentialEnv, grants}', { cls: 'U', open: true }), sync: m(ST, 'sync targets of this repo', { open: true }),
   'ui.glyphs': m('UI', 'unicode or ascii marks', { opts: ['unicode', 'ascii'] }), 'ui.flash': m('UI', 'flash a row when it changes'), 'ui.density': m('UI', 'row spacing', { opts: ['compact', 'normal', 'relaxed'] }),
   'ui.notify': m('UI', 'desktop notifications for what needs you', { opts: ['on', 'off'] }), 'ui.escalateAfterMs': m('UI', 'an unanswered item becomes a desktop notification after this (ms)', N(5_000, 3_600_000)),
+  'roles.planner.model': m(M, 'planner (drafts the tasks of each epic of a milestone): model', { opts: MODEL }), 'roles.planner.effort': m(M, 'planner: effort', { opts: EFFORT }),
+  'milestone.epicPlanner': m(PL, "agent: a planner agent drafts each epic's tasks when the epic is ready (needs drive.spawn mod); main: Claude drafts them", { opts: ['agent', 'main'] }),
+  'planner.maxRounds': m(PL, "rounds a planner's refused task plan gets before its epic stops (auto asks you; yolo goes on with the other epics)", N(1, 10)),
 }

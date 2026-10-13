@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run a tier of cells (harness/cell.sh) in parallel containers and print the verdict table. See harness/README.md "Matrix".
-#   harness/matrix.sh quick|full [-j N] [-n]      -n: print the cells and the estimate only.   env: SPIKE=<plugin checkout> (default this repo), FILTER=<regex on cell names>
+#   harness/matrix.sh quick|milestone|full [-j N] [-n]      -n: print the cells and the estimate only.   env: SPIKE=<plugin checkout> (default this repo), FILTER=<regex on cell names>
 # A cell: name | fixtures (base, then overlays) | scenario | env for tui.sh/cell.sh
 H=$(cd "$(dirname "$0")" && pwd); TIER=${1:-quick}; shift; J=3; DRY=
 while [ $# -gt 0 ]; do case $1 in -j) J=$2; shift;; -n) DRY=1;; esac; shift; done
@@ -12,6 +12,10 @@ continue-after-quit|single ready|continue|MODEL=sonnet CC_VERSION=2.1.296 LANDED
 single-295-sonnet|single|goal|MODEL=sonnet CC_VERSION=2.1.295
 single-via-ccr|single|goal|MODEL=opus CC_VERSION=2.1.296 VIA=ccr
 kill-mid-setup|nogit|kill|MODEL=sonnet CC_VERSION=2.1.296 FAULT=kill
+EOF
+}
+milestone() { cat <<'EOF'
+milestone-planners|single ready|milestone|MODEL=sonnet CC_VERSION=2.1.295 LANDED=1 BUDGET=2700 PROXY=1 EPIC_PLANNERS=2
 EOF
 }
 full() {   # the cross product, minus cells that cannot exist (user1 needs kit/, continue needs a set-up repo)

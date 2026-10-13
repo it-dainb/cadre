@@ -6,6 +6,7 @@ import { resolveDeps, type Deps } from '../core/admission'
 import { raise, report, runCheck } from '../core/close'
 import { warm } from '../core/session'
 import { askAnswer, askOf } from '../core/asks'
+import { planned } from '../core/planner'
 import { refuse, clearRetries, validateReport } from '../core/validate'
 import * as G from '../core/git'
 
@@ -13,8 +14,8 @@ export const TOOLS = ['report', 'inspect', 'run_check'] as const
 const S = { type: 'string' }, ARR = { type: 'array' }
 const V = { type: 'integer', enum: [1] }
 export const SPECS = [
-  { name: 'report', isDeferred: false, description: 'Finish your step. Worker: {schemaVersion:1,role:"worker",outcome:"done"|"blocked"|"spec_change",summary,reason?,risks?,questions?}. Tester: role "tester", outcome "done", summary, tests[{path,name,scenario}]. Reviewer: role "reviewer", verdict "pass"|"changes", summary, findings[{severity,file,line?,issue,fix?}], coverage[{scenario,test?,ok}], contractStatus[{name,ok}]. Explorer: role "explorer", answer, citations[{path,line}]. Call it once, then stop.',
-    inputSchema: { type: 'object', additionalProperties: false, required: ['schemaVersion', 'role'], properties: { schemaVersion: V, role: { type: 'string', enum: ['worker', 'tester', 'reviewer', 'explorer'] }, outcome: { type: 'string', enum: ['done', 'blocked', 'spec_change'] }, summary: S, reason: S, risks: ARR, questions: ARR, tests: ARR, followups: ARR, verdict: { type: 'string', enum: ['pass', 'changes'] }, findings: ARR, coverage: ARR, contractStatus: ARR, answer: S, citations: ARR } } },
+  { name: 'report', isDeferred: false, description: 'Finish your step. Worker: {schemaVersion:1,role:"worker",outcome:"done"|"blocked"|"spec_change",summary,reason?,risks?,questions?}. Tester: role "tester", outcome "done", summary, tests[{path,name,scenario}]. Reviewer: role "reviewer", verdict "pass"|"changes", summary, findings[{severity,file,line?,issue,fix?}], coverage[{scenario,test?,ok}], contractStatus[{name,ok}]. Explorer: role "explorer", answer, citations[{path,line}]. Planner: role "planner", summary, tasks[{subject,description,metadata,after?}]. Call it once, then stop.',
+    inputSchema: { type: 'object', additionalProperties: false, required: ['schemaVersion', 'role'], properties: { schemaVersion: V, role: { type: 'string', enum: ['worker', 'tester', 'reviewer', 'explorer', 'planner'] }, outcome: { type: 'string', enum: ['done', 'blocked', 'spec_change'] }, summary: S, reason: S, risks: ARR, questions: ARR, tests: ARR, followups: ARR, verdict: { type: 'string', enum: ['pass', 'changes'] }, findings: ARR, coverage: ARR, contractStatus: ARR, answer: S, citations: ARR, tasks: ARR } } },
   { name: 'inspect', isDeferred: false, description: 'Read git facts of your task tree. what: status | files | log | diff | show. rev and path are optional; show needs a path. Output: exit, seconds, truncated, capped body.',
     inputSchema: { type: 'object', additionalProperties: false, required: ['what'], properties: { schemaVersion: V, what: { type: 'string', enum: ['status', 'files', 'log', 'diff', 'show'] }, task: S, rev: S, path: S } } },
   { name: 'run_check', isDeferred: false, description: 'Run a named check of your task package on your tree. Output: exit, seconds, truncated, capped body.',
@@ -28,6 +29,7 @@ async function onReport(h: Host, d: Deps, agentId: string | undefined, r: any): 
   if (!agentId) return bad('only a spawned agent reports')
   const env = validateReport(r); if (env) return bad(await refuse(h, key, env))
   if (!(await h.bind.read())[agentId] && (await askOf(h, agentId))) return r.role === 'explorer' ? askAnswer(h, agentId, r) : bad('role: you are an explorer; report role "explorer" with answer and citations')
+  if ((await h.bind.read())[agentId]?.role === 'planner') return r.role === 'planner' ? planned(h, d, agentId, r) : bad('role: you are the planner; report role "planner" with tasks')   // a ready epic's planner (core/planner)
   try {
     const text = await report(h, d, agentId, r); await clearRetries(h, key); return text
   } catch (x) {

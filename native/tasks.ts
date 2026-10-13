@@ -42,7 +42,7 @@ const ids = (v: unknown): v is string[] => Array.isArray(v) && v.every(x => type
 const withCtx = <T>(result: T, ...ctx: string[]) => { const context = ctx.filter(Boolean).map(c => modelText('context', c)); return context.length ? { result: modelData('tool-result', result), context } : { result: modelData('tool-result', result) } }
 
 // metadata -> the store's fields. null clears: '' for text/meta.
-function fieldsOf(m: Record<string, any>): { patch: Parameters<TaskStore['update']>[1]; meta: Record<string, string>; names: string[] } {
+export function fieldsOf(m: Record<string, any>): { patch: Parameters<TaskStore['update']>[1]; meta: Record<string, string>; names: string[] } {
   const patch: Parameters<TaskStore['update']>[1] = {}, meta: Record<string, string> = {}, names: string[] = []
   const has = (k: string) => m[k] !== undefined
   if (has('scenarios')) { patch.acceptance = m.scenarios === null ? '' : m.scenarios.join('\n'); names.push('metadata.scenarios') }
@@ -102,6 +102,7 @@ async function create(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
     await store.approve([c.id]); await mirror(h, store, reg); await DRIVE.decided?.(h, 'plan', `core patch epic ${c.id} added to milestone ${s.plan.id}: ${e.subject}`)
     return withCtx({ task: { id: c.id, subject: e.subject } }, `${c.id} is a core-patch epic of the milestone: plan it when the next: line names it; the running epics take it when it lands`)
   }
+  if (ms && !road && s.drive.planner === 'agent' && m.epic !== undefined) return { deny: modelText('deny', `epic ${m.epic}'s tasks are planned for you when it is ready; nothing to do for it`) }   // milestone.epicPlanner agent (ADR 0021)
   if (ms && !road && !['ready', 'planning'].includes(ep?.state ?? '')) return { deny: modelText('deny', `name the epic these tasks plan in metadata.epic; ready to plan: ${(s.plan.epics ?? []).filter(x => x.state === 'ready' || x.state === 'planning').map(x => x.id).join(', ') || 'none (wait for the next: line)'}`) }
   if (!ms && m.epic !== undefined) return { deny: modelText('deny', 'metadata.epic: only in a milestone; omit it') }
   const twin = await twinOf(store, ep?.id ?? s.epic, e.subject, e.description, f.meta['cadre.paths']); if (twin) return { deny: modelText('deny', `${twin.id} already covers this (${twin.why}): TaskUpdate ${twin.id} instead of adding a second task`) }
@@ -111,7 +112,7 @@ async function create(h: Host, store: TaskStore, reg: TypeRegistry, e: any) {
 
 // a second task of the same plan with the subject or the declared files of an open one: two agents would write the same change and conflict at merge (live: a lite plan's task drafted again)
 const norm = (x: string) => x.trim().toLowerCase().replace(/\s+/g, ' '), filesOf = (v?: string) => { try { return JSON.parse(v || '[]').map(String).sort().join('\n') } catch { return '' } }
-async function twinOf(store: TaskStore, parent: string, subject: string, desc: string, paths?: string): Promise<{ id: string; why: string } | null> {   // same files alone may be two steps on one file (the overlap check asks for their order)
+export async function twinOf(store: TaskStore, parent: string, subject: string, desc: string, paths?: string): Promise<{ id: string; why: string } | null> {   // same files alone may be two steps on one file (the overlap check asks for their order)
   const open = (await store.list({ parent })).filter(t => t.type !== 'gate' && t.category !== 'done' && t.category !== 'cancelled'), p = filesOf(paths)
   const t = open.find(x => norm(x.title) === norm(subject)) ?? (p ? open.find(x => filesOf(x.meta['cadre.paths']) === p && norm(x.description) === norm(desc)) : undefined)
   return t ? { id: t.id, why: norm(t.title) === norm(subject) ? 'the same subject' : 'the same files and description' } : null

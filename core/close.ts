@@ -23,6 +23,7 @@ import { queueBrief } from './lanes'
 import { yoloOn } from './decide'
 import { capAsk, coreLanded, refresh, rework, trial } from './rebase'
 import { branchOf, epicOf, goOn } from './milestone'
+import { planStopped } from './planner'
 
 
 export const NUDGE: Record<string, string> = { worker: 'You stopped without calling report. Call it now: {"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"} (or outcome "blocked" with reason).', tester: 'You stopped without calling report. Call it now with role "tester", outcome "done", summary and tests.', reviewer: 'You stopped without calling report. Call it now with role "reviewer", verdict, summary, findings, coverage and contractStatus.', explorer: ASK_NUDGE }
@@ -203,6 +204,7 @@ async function release(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
 }
 export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
   const b = (await h.bind.read())[e.agentId], t = b && (await h.board.read()).tasks.find(x => x.id === b.taskId)
+  if (b?.role === 'planner') return planStopped(h, d, e)   // an epic's planner (core/planner)
   if (!b || !t || !(t.step === b.step && STEP_CAT[b.step] === t.state)) return   // no binding, or it reported/moved on
   if (e.reason === 'answer') {
     const task = await d.store.get(t.id), [st, n] = (task.meta['cadre.nudge'] ?? '').split(':'), k = st === b.step ? num(n) : 0

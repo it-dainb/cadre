@@ -8,8 +8,8 @@ const { route, RISKS } = await import(`${repo}/core/risk.ts`)
 const j = f => (f && existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : undefined)
 const cfg = resolve([{ name: '.cadre/config.json', trust: 'repo', value: j(cfgFile) }]).config, fo = forcedOf(j(envFile) ?? {})
 const out = {}
-for (const role of ['worker', 'tester', 'reviewer', 'explorer']) {
-  const picks = role === 'explorer' ? [route(role, cfg.roles.explorer, '', 0)] : RISKS.flatMap(k => [0, 99].map(n => route(role, cfg.roles[role].byRisk[k], k, n)))
+for (const role of ['worker', 'tester', 'reviewer', 'explorer', 'planner']) {
+  const picks = role === 'explorer' || role === 'planner' ? [route(role, cfg.roles[role], '', 0)] : RISKS.flatMap(k => [0, 99].map(n => route(role, cfg.roles[role].byRisk[k], k, n)))
   out[role] = { models: fo.model ? [fo.model] : [...new Set(picks.map(p => p.model))], efforts: fo.effort ? [fo.effort] : [...new Set(picks.map(p => p.effort).filter(Boolean))] }
 }
 console.log(JSON.stringify(out))

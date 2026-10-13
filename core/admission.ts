@@ -25,6 +25,7 @@ import { realRoot } from '../policy/guards'
 import { lockCore, watch } from './rebase'
 import { pathsOf } from './validate'
 import { branchOf, epicOf } from './milestone'
+import { plannerBrief } from './planner'
 
 export interface Deps {
   store: TaskStore; cfg: Config; reg: TypeRegistry; root: string; home: string; wtRoot: string; key: string; actor: string; session: string
@@ -45,13 +46,15 @@ export const admit: Hook = async (h, e, next) => { await warm(h); return admitWi
 
 // model x effort for a run (core/risk.route); env overrides that beat cadre (config/forcedOf) are recorded as forced (Claude Code applies them anyway)
 const rounds = (task?: { meta: Record<string, string> }) => (+(task?.meta['cadre.rework'] ?? 0) || 0) + (+(task?.meta['cadre.rebase'] ?? 0) || 0)
-const routeOf = (d: Deps, role: Role, risk: Tier, n = 0) => (role === 'explorer' ? route(role, d.cfg.roles.explorer, '', 0) : route(role, d.cfg.roles[role].byRisk[risk], risk, n))
+const routeOf = (d: Deps, role: Role, risk: Tier, n = 0) => (role === 'explorer' || role === 'planner' ? route(role, d.cfg.roles[role], '', 0) : route(role, d.cfg.roles[role].byRisk[risk], risk, n))
 const stepsOf = (d: Deps) => (type: string, lane?: string) => { const p = pipeOf(d.reg)(type, lane); return d.view ? p : p.filter(s => s !== 'tester' && s !== 'red') }   // no view builder: tester/red skipped
 
 export async function admitWith(h: Host, d: Deps, e: any, next: ((e: any) => any) & { origin?: { plugin: string } }): Promise<any> {
   if (e.isTeammate) return deny('agent teams are not available; use a plain Agent call')
   if (e.workflow) return deny('workflow agents are not available; use a plain Agent call')
-  const s = await h.board.read(), ids = idsIn(e.prompt ?? '', s.tasks.map(t => t.id))
+  const s = await h.board.read(), pl = /^PLAN-(\S+)$/.exec(String(e.prompt ?? '').trim())?.[1]
+  if (pl && next.origin?.plugin === 'cadre' && epicOf(s, pl)) return planner(h, d, e, next, s, pl)   // the spawner's planner of a ready epic (ADR 0021); from anyone else it is a plain question
+  const ids = idsIn(e.prompt ?? '', s.tasks.map(t => t.id))
   if (ids.length > 1) return deny(`one agent takes one task, but the prompt names ${ids.join(', ')}; spawn one agent per task`)
   if (ids.length && s.drive.on && !s.drive.stopped && s.drive.spawn === 'mod' && next.origin?.plugin !== 'cadre') return deny(`${ids[0]} starts by itself; do not spawn agents for the plan's tasks. An Agent without a task id (to explore or ask) is fine`)   // mod mode (ADR 0018): only the spawner's own call, never main's
   if (!ids.length) {   // marker-less: a read-only explorer; forks pass untouched
@@ -227,6 +230,15 @@ async function review(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
     if (r?.agentId) await commit(h, b => ({ ...b, tasks: b.tasks.map(x => (x.id === t.id ? { ...x, owner: d.actor } : x)) }))   // the reviewer runs the step now (close clears it at the worker's report); no agent bound: nobody would ever clear it
     return r
   } catch (err) { await undo(); throw err }
+}
+
+// ---- a ready epic -> its planner (ADR 0021): read-only in the repo root, bound to the epic (its report drafts the tasks: core/planner) ----
+async function planner(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapshot, id: string) {
+  const ep = epicOf(s, id)!
+  if (s.drive.planner !== 'agent' || (ep.state !== 'ready' && ep.state !== 'planning')) return deny(`${id} has no plan to draft now`)
+  if (!(await reserve(h, d, id, 'planner'))) return deny(`${id} already has a planner; wait`)
+  const undo = async () => { await unbindAgent(h, `~${id}`) }
+  try { return await launch(h, d, e, next, { id } as SnapTask, 'planner', await plannerBrief(h, d, s, ep), d.root, 'planner', d.root, undo, undefined) } catch (err) { await undo(); throw err }
 }
 
 // ---- lease heartbeat (8.4): the tick calls this; bd only, no hooks needed. Beats each of THIS session's bound tasks every `every` ms. ----

@@ -40,7 +40,7 @@ async function road(w: Awaited<ReturnType<typeof world>>, n = 2, core = true) {
   return { m, c, es }
 }
 async function approved(n = 2, core = true, maxEpics = 2, mode: 'auto' | 'yolo' = 'auto') {
-  const cfg = defaults(); cfg.milestone.maxEpics = maxEpics; cfg.drive.mode = mode
+  const cfg = defaults(); cfg.milestone.maxEpics = maxEpics; cfg.drive.mode = mode; cfg.milestone.epicPlanner = 'main'   // main plans here; the planner agent: tests/planner.test.ts
   const w = await world({ config: cfg }), submitted: string[] = []
   Object.assign(w.h, { submit: async (t: string) => { submitted.push(t) }, usage: async () => ({ cost: { usd: 1 } }) })
   if (mode === 'yolo') await w.h.board.update(b => ({ ...b, containment: { state: 'contained', unsandboxed: 0 } }))

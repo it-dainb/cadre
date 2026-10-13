@@ -10,7 +10,7 @@ http.createServer((req, res) => {
     const body = Buffer.concat(chunks)
     if (req.url.startsWith('/v1/messages')) try {
       const b = JSON.parse(body), sys = Array.isArray(b.system) ? b.system.map(s => s.text ?? '').join(' ') : b.system ?? ''
-      appendFileSync(log, JSON.stringify({ at: Date.now(), path: req.url.split('?')[0], model: b.model, output_config: b.output_config, thinking: b.thinking, role: sys.match(/You are an? (worker|tester|reviewer|explorer)\b/)?.[1] ?? 'main', sys: sys.replace(/\s+/g, ' ').slice(0, 60) }) + '\n')
+      appendFileSync(log, JSON.stringify({ at: Date.now(), path: req.url.split('?')[0], model: b.model, output_config: b.output_config, thinking: b.thinking, role: sys.match(/You are an? (worker|tester|reviewer|explorer|planner)\b/)?.[1] ?? 'main', sys: sys.replace(/\s+/g, ' ').slice(0, 60) }) + '\n')
     } catch {}
     const up = https.request({ host: 'api.anthropic.com', path: req.url, method: req.method, headers: { ...req.headers, host: 'api.anthropic.com' } }, r => { res.writeHead(r.statusCode, r.headers); r.pipe(res) })
     up.on('error', e => { res.writeHead(502); res.end(String(e)) }); up.end(body)

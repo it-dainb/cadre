@@ -142,6 +142,16 @@ if (wantLanded && !drv.some(e => e.kind === 'landed')) fail('not-landed', `dev: 
     if (bad.length) fail('routing', `${bad.length} request(s) off the settings, e.g. ${bad[0].role} on ${bad[0].model}/${bad[0].output_config?.effort ?? '-'} (allowed ${JSON.stringify(exp[bad[0].role])})`)
   }
 }
+// 12. optional (EPIC_PLANNERS=N, the milestone cells): N epic plans came from planner agents (their report was accepted) and main drafted no epic's tasks
+{
+  const n = +(process.env.EPIC_PLANNERS ?? 0), js = walk(join(dir, 'jsonl')).filter(f => f.endsWith('.jsonl'))
+  if (n) {
+    const ok = js.filter(f => /plan accepted: \d+ tasks approved/.test(read(f))).length, own = js.filter(f => !f.includes('/subagents/')).flatMap(f => read(f).split('\n')).find(l => l.includes('"name":"TaskCreate"') && /\\?"epic\\?":\s*\\?"/.test(l))
+    stats.planners = ok
+    if (ok < n) fail('epic-planner', `${ok} of ${n} epic plans came from a planner agent`)
+    if (own) fail('epic-planner', `main drafted an epic's tasks: ${own.match(/"subject":"[^"]*"/)?.[0] ?? 'TaskCreate with metadata.epic'}`)
+  }
+}
 stats.usd = +debug.map(ls => Math.max(0, ...ls.map(l => +(l.match(/cost=\$([\d.]+)/)?.[1] ?? 0)))).reduce((a, b) => a + b, 0).toFixed(2)
 stats.secs = Math.round((tEnd - (drv[0]?.t ?? tEnd)) / 1000)
 const cell = basename(dir), v = { cell, pass: !fails.length, fails, stats, setup: drv[0]?.text }

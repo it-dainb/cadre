@@ -83,7 +83,8 @@ export function spawnable(s: Omit<Snapshot, 'seq' | 'cost'>, bind?: Record<strin
   const runs = (t: SnapTask) => Object.entries(bind ?? {}).some(([a, b]) => b.taskId === t.id && (a.startsWith('~') || (b.role === t.step && !b.retired)))
   return [...ts.filter(t => t.state === 'review' && t.step === 'reviewer' && !t.owner && !runs(t)).map(t => ({ id: t.id, role: 'reviewer' })),
     ...(bind ? ts.filter(t => t.state === 'active' && (t.step === 'tester' || t.step === 'worker') && !runs(t)).map(t => ({ id: t.id, role: t.step })) : []),
-    ...ts.filter(t => isReady(t, ts) && live(t)).map(t => ({ id: t.id, role: 'claim' }))]
+    ...ts.filter(t => isReady(t, ts) && live(t)).map(t => ({ id: t.id, role: 'claim' })),
+    ...(s.drive?.planner === 'agent' ? es.filter(e => (e.state === 'ready' || e.state === 'planning') && !Object.values(bind ?? {}).some(b => b.taskId === e.id)).map(e => ({ id: e.id, role: 'planner' })) : [])]   // milestone.epicPlanner agent (ADR 0021): a ready epic's planner
 }
 // mod mode (ADR 0018): what main hears when the plan's steps are all cadre's (spawn, complete a task or an epic)
 export const RUNS = 'wait: the tasks run by themselves and you hear when each lands, so talk with the user or plan what is next'
@@ -98,6 +99,7 @@ export function nextAction(s: Omit<Snapshot, 'seq' | 'cost'>, idle: string[] = [
   if (!mod) a.push(...ts.filter(t => t.state === 'active' && idle.includes(t.id)).map(t => startNew(t.id, t.step)))
   const r = sp.find(x => x.role === 'claim'); if (r) a.push(`spawn TASK-${r.id}`)   // one per turn; the ready list on the line says the rest
   for (const e of es) {
+    if (s.drive?.planner === 'agent' && (e.state === 'ready' || e.state === 'planning')) continue   // a planner agent drafts its tasks (ADR 0021): never main's step
     if (e.state === 'ready') a.push(`plan epic ${e.id}: TaskCreate its tasks with metadata.epic "${e.id}", then TaskUpdate ${e.id} metadata.planned true`)
     if (e.state === 'planning') a.push(`finish planning epic ${e.id} (see missing), then TaskUpdate ${e.id} metadata.planned true`)
     if (!mod && e.state === 'running' && ts.every(t => t.epic !== e.id || closed(t))) a.push(`complete epic ${e.id}: TaskUpdate ${e.id} completed`)

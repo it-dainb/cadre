@@ -10,6 +10,7 @@ export const TOOLS: Record<Role, readonly string[]> = {
   tester: ['Read', 'Write', 'Edit', R],
   reviewer: ['Read', I, C, R],
   explorer: ['Read', I, R],
+  planner: ['Read', I, R],
 }
 // main: no shell, no Cron*/ScheduleWakeup (a second loop owner, DESIGN 9). File tools are fenced (policy/guards).
 export const MAIN_TOOLS: readonly string[] = ['Read', 'LSP', 'WebFetch', 'WebSearch', 'ToolSearch', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet',
@@ -19,6 +20,7 @@ const DESC: Record<Role, string> = {
   tester: 'writes black-box tests for one task from its scenarios',
   reviewer: 'reviews one task commit against its scenarios',
   explorer: 'read-only recon, discovery and spikes',
+  planner: 'drafts the task plan of one epic, read-only',
 }
 // allowlist for a role: its tools, plus the user's mcpAllow for the worker (SA: user-level S key)
 export const allowlist = (role: Role, mcpAllow: readonly string[] = []): string[] => [...TOOLS[role], ...(role === 'worker' ? mcpAllow : [])]
@@ -30,7 +32,7 @@ export function spec(role: Role, cfg: { roles: Roles; mcpAllow: readonly string[
   return { name: role, description: DESC[role], prompt: modelText('agent-brief', PROMPTS[role]), tools: allowlist(role, cfg.mcpAllow), ...(r.model ? { model: r.model } : {}), ...(r.effort && r.effort !== 'default' ? { effort: r.effort } : {}) }
 }
 // The plugin agent file agents/<role>.md, byte for byte (tests compare it with the shipped file). No model: admission sets it per spawn from config.
-// 1h cache TTL for worker/tester/reviewer (A28, S44); the one-shot explorer keeps the 5 min default and low effort.
-export const ROLES: readonly Role[] = ['worker', 'tester', 'reviewer', 'explorer']
+// 1h cache TTL for worker/tester/reviewer/planner (A28, S44; a milestone's planners start minutes apart); the one-shot explorer keeps the 5 min default and low effort.
+export const ROLES: readonly Role[] = ['worker', 'tester', 'reviewer', 'explorer', 'planner']
 export const file = (role: Role): string => ['---', `name: ${role}`, `description: "${DESC[role]}"`, `tools: ${TOOLS[role].join(', ')}`,
   ...(role === 'explorer' ? ['effort: low'] : ['experimental:', '  cacheTtl: 1h']), '---', PROMPTS[role], ''].join('\n')
