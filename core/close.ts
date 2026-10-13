@@ -7,6 +7,7 @@ import { pipeOf } from '../task-management/registry'
 import { LIFECYCLE } from '../native/tasks'
 import { ROUTES } from './dispatch'
 import { resolveDeps, type Deps } from './admission'
+import { coverageGaps, specTestsOf } from './validate'
 import { agentsOf, unbindAgent } from './board'
 import { apply, STEP_CAT, transition } from './machine'
 import { emit } from './events'
@@ -64,7 +65,7 @@ export async function runCheck(h: Host, d: Deps, task: Task, wt: string, name: s
 }
 
 // ---- 6.3 semantic validation of a reviewer report ----
-async function semantic(h: Host, task: Task, wt: string, r: any): Promise<string | null> {
+async function semantic(h: Host, task: Task, wt: string, r: any, enforce: boolean): Promise<string | null> {
   const C = task.meta['cadre.sourceCommit'], fs: any[] = r.findings
   if (!Array.isArray(fs) || !Array.isArray(r.coverage) || !Array.isArray(r.contractStatus)) return 'findings, coverage, contractStatus: expected arrays (may be empty)'
   for (const [i, f] of fs.entries()) {
@@ -76,6 +77,8 @@ async function semantic(h: Host, task: Task, wt: string, r: any): Promise<string
   const key = (s: unknown) => /^S\d+/.exec(String(s))?.[0] ?? String(s)
   const want = (task.acceptance ?? '').split('\n').map(l => /^S\d+/.exec(l)?.[0]).filter(Boolean) as string[], got = r.coverage.map((c: any) => key(c?.scenario))
   if (want.some(s => !got.includes(s))) return `coverage must name every scenario; missing ${want.filter(s => !got.includes(s)).join(', ')} (e.g. {"scenario":"S1","test":"path","ok":true})`
+  const gaps = r.verdict === 'pass' ? coverageGaps(enforce, task.acceptance, specTestsOf(task), r.coverage) : []   // ADR 0022: coverage is a hard check
+  if (gaps.length) return `coverage: verdict pass is refused: ${gaps.join('; ')}. Report verdict changes with a major finding for each (or give the test that really checks it, ok:true)`
   const syms: string[] = (task.design ? JSON.parse(task.design).symbols ?? [] : []).map((s: any) => s.name), have = r.contractStatus.map((c: any) => c?.name)
   if (syms.some(s => !have.includes(s))) return `contractStatus must name every contract symbol; missing ${syms.filter(s => !have.includes(s)).join(', ')} (e.g. {"name":"login","ok":true})`
   return null
@@ -132,6 +135,8 @@ async function blockTask(h: Host, d: Deps, t: SnapTask, why: string, flag: strin
 // ---- reviewer verdict ----
 async function verdict(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: string, r: any): Promise<string> {
   const task = await d.store.get(t.id), C = task.meta['cadre.sourceCommit'], wt = b.worktree, at = await h.now()
+  const gaps = r.verdict === 'pass' ? coverageGaps(d.cfg.review.coverage.enforce, task.acceptance, specTestsOf(task), r.coverage) : []   // a pass accepted unvalidated still cannot skip coverage
+  if (gaps.length) r = { ...r, verdict: 'changes', findings: [...r.findings, ...gaps.map(g => ({ severity: 'major', file: '', issue: `${g}. Add or strengthen a test named after it; if that test is a locked spec test, report outcome "spec_change" asking for it` }))] }
   const inDiff = new Set((await G.git(h.run, wt, ['diff', '--name-only', `${task.meta['cadre.base'] ?? C}..${C}`])).split('\n'))
   const findings = (r.findings as any[]).map(f => ({ ...f, inDiff: inDiff.has(f.file) }))
   const m = await apply(h, { kind: 'verdict', id: t.id, at, actor: 'reviewer', verdict: r.verdict }, pipe(d)); if (!m.ok) throw new Error(m.error)
@@ -185,7 +190,7 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
     return `${g.card}\nred accepted; stop.`
   }
   if (r.role === 'explorer') return explorerDone(h, d, t, agentId!, r)
-  if (r.role === 'reviewer') { const err = o.lax ? null : await semantic(h, await d.store.get(t.id), b.worktree, r); if (err) throw new Error(err); return verdict(h, d, t, b, agentId!, r) }
+  if (r.role === 'reviewer') { const err = o.lax ? null : await semantic(h, await d.store.get(t.id), b.worktree, r, d.cfg.review.coverage.enforce); if (err) throw new Error(err); return verdict(h, d, t, b, agentId!, r) }
   if (r.outcome === 'done') return workerDone(h, d, t, b, r)
   const spec = r.outcome === 'spec_change', why = String(r.reason ?? r.summary ?? '').slice(0, 400)
   if (spec) { await specChange(h, d, t.id, why); await record(h, d, t.id, 'blocked', t.step, { why }, { summary: r.summary, reason: r.reason }); await raise(h, t.id, 'spec_change') }
@@ -285,7 +290,7 @@ export async function closeTask(h: Host, d: Deps, id: string, actor: 'main' | 'm
   const next = await lastNext(h, plan.id, 'wait', t.epic)
   await patch(h, id, x => ({ ...x, card: card({ id, title: t.title, role: 'main', to: 'done', commit: sha, flags: [], next }) }))
   await cleanup(h, d, id, task)
-  if (task.meta['cadre.core'] === 'true') await coreLanded(h, d, files).catch(e => h.log(`core lock: ${e}`))   // its files are locked for the other tasks of the plan
+  if (task.meta['cadre.core'] === 'true') await coreLanded(h, d, files, task.design).catch(e => h.log(`core lock: ${e}`))   // its files are locked for the other tasks of the plan
   await refresh(h, d, sha, id).catch(e => h.log(`refresh after ${id}: ${e}`))   // running siblings get the new tip now (core/rebase)
   return null
 }

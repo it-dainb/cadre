@@ -26,7 +26,7 @@ export function validateFields(m: Record<string, unknown>, reg: TypeRegistry): s
   if (f('mission') !== undefined && (m.kind !== 'plan' || typeof m.mission !== 'string' || !m.mission.trim() || m.mission.length > 1000)) return bad('metadata.mission', 'on the plan\'s TaskCreate, one string "Goal: …\\nConstraints: …\\nNon-goals: …"', m.mission)   // ADR 0014: approved with the plan
   if (f('paths') !== undefined && (m.kind !== undefined || !Array.isArray(m.paths) || !m.paths.length || m.paths.length > 20 || m.paths.some((p: unknown) => !str(p) || (p as string).length > 200))) return bad('metadata.paths', 'on a task, the files or folders it will change, e.g. ["src/auth/login.ts", "test/auth/**"]', m.paths)
   if (f('core') !== undefined && (m.kind !== undefined || typeof m.core !== 'boolean')) return bad('metadata.core', 'true on the one task with the code other tasks share', m.core)
-  if (f('notes') !== undefined && (m.kind !== 'plan' || !str(m.notes) || (m.notes as string).length > 1500)) return bad('metadata.notes', 'on the plan\'s TaskCreate, what an explorer found that several tasks need (at most 1500 characters)', m.notes)
+  if (f('notes') !== undefined && (m.kind !== 'plan' || !(str(m.notes) ? m.notes.length <= 1500 : noteList(m.notes)))) return bad('metadata.notes', 'on the plan\'s TaskCreate, what an explorer found, keyed by the paths it concerns: [{"paths":["src/auth/"],"text":"…"}] (no paths = every task; at most 3000 characters in all)', m.notes)
   if (f('epic') !== undefined && (m.kind !== undefined || !str(m.epic))) return bad('metadata.epic', 'on a task, the id of the epic it belongs to, e.g. "m-2"', m.epic)   // milestone lane (ADR 0015)
   if (f('size') !== undefined && (m.kind !== undefined || !Number.isInteger(m.size) || (m.size as number) < 1 || (m.size as number) > 7)) return bad('metadata.size', 'on an epic, how many tasks it needs, 1 to 7', m.size)
   if (f('critique') !== undefined && (m.kind !== undefined || !str(m.critique) || (m.critique as string).length > 1500)) return bad('metadata.critique', 'on the milestone, what the critic found and what you changed (at most 1500 characters)', m.critique)
@@ -88,6 +88,28 @@ export function missingList(drafts: Task[], reg: TypeRegistry): string[] {
   return ep && drafts.length < 2 ? [...out, 'epics: a milestone has 2 or more (else change the lane to one plan)'] : out
 }
 // declared paths (metadata.paths -> cadre.paths) and their overlap: equal, a folder of the other, or a glob that matches it
+// metadata.notes (ADR 0022): [{paths?, text}]; the old plain string is one note for every task
+export interface Note { paths?: string[]; text: string }
+const noteList = (v: unknown): boolean => Array.isArray(v) && v.length > 0 && v.every(n => n && str(n.text) && (n.paths === undefined || (Array.isArray(n.paths) && n.paths.length > 0 && n.paths.every(str)))) && v.reduce((k, n) => k + n.text.length, 0) <= 3000
+export const notesOf = (raw?: string): Note[] => { if (!raw?.trim()) return []; try { const v = JSON.parse(raw); if (noteList(v)) return v } catch { /* plain text */ } return [{ text: raw.trim() }] }
+// shared: notes without paths (the plan block, same for every task); slice: the notes whose paths overlap the task's (its task block), all path notes for a task
+// that declares none. notes.slice off: every note is shared.
+export function sliceNotes(notes: Note[], paths: string[], slice: boolean): { shared: string; slice: string } {
+  const txt = (ns: Note[]) => ns.map(n => n.text.trim()).join('\n'), pathed = (n: Note) => slice && !!n.paths?.length
+  return { shared: txt(notes.filter(n => !pathed(n))), slice: txt(notes.filter(n => pathed(n) && (!paths.length || n.paths!.some(p => paths.some(q => overlap(p, q)))))) }
+}
+// review coverage (ADR 0022): the scenario ids (S1, S2…) of the acceptance that no locked spec test name carries ("test_s3_login" carries S3, "S30" does not)
+export const scenarioIds = (acceptance?: string): string[] => (acceptance ?? '').split('\n').map(l => /^S\d+/.exec(l.trim())?.[0]).filter(Boolean) as string[]
+// names null: the task has no locked spec tests (no tester step), nothing to check
+export const specTestsOf = (t: Pick<Task, 'meta'>): string[] | null => { try { const v = JSON.parse(t.meta['cadre.specTests'] ?? 'null'); return Array.isArray(v) ? v.map(String) : null } catch { return null } }
+export const untested = (acceptance: string | undefined, names: string[] | null): string[] => !names ? [] : scenarioIds(acceptance).filter(id => !names.some(n => new RegExp(`(?<![A-Za-z0-9])${id}(?![0-9])`, 'i').test(n)))
+// what blocks a pass: untested scenarios, and coverage entries the reviewer did not mark ok:true (missing or weak). Off: nothing.
+export function coverageGaps(enforce: boolean, acceptance: string | undefined, names: string[] | null, coverage: unknown): string[] {
+  if (!enforce) return []
+  const key = (s: unknown) => /^S\d+/.exec(String(s))?.[0] ?? String(s), cov = Array.isArray(coverage) ? coverage : []
+  const weak = cov.filter((c: any) => c?.ok !== true).map((c: any) => `scenario ${key(c?.scenario)} is not covered by a test that checks it`)
+  return [...untested(acceptance, names).map(id => `scenario ${id} has no test`), ...weak]
+}
 export const pathsOf = (t?: Pick<Task, 'meta'>): string[] => { try { return JSON.parse(t?.meta['cadre.paths'] || '[]') } catch { return [] } }
 const dir = (p: string) => p.replace(/\/\*\*?$/, '').replace(/\/$/, '')
 export const overlap = (a: string, b: string): boolean => dir(a) === dir(b) || b.startsWith(`${dir(a)}/`) || a.startsWith(`${dir(b)}/`) || matches([a], b) || matches([b], a)

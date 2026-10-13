@@ -80,6 +80,19 @@ test('retry flagging: 3 failed semantic reports, the 4th is accepted unvalidated
   assert.match(await w.rep('ag2', bad), /verdict accepted/); assert.ok((await w.h.board.read()).tasks[0].flags.includes('report-unvalidated'))
 })
 
+test('review.coverage.enforce: a pass with an untested or weak scenario is refused; past the retries it lands as changes, never pass; off: the reviewer decides', async () => {
+  const review = async (w, id) => { await w.spawn(id); edit((await w.store.get(id)).meta['cadre.worktree']); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }); await w.spawn(id) }
+  let w = await world(), id = w.ids[0]; await review(w, id)
+  await w.store.setMeta(id, { 'cadre.specTests': JSON.stringify(['login works']) }, 'x')
+  assert.match(await w.rep('ag2', w.pass), /coverage: verdict pass is refused: scenario S1 has no test/)
+  await w.store.setMeta(id, { 'cadre.specTests': JSON.stringify(['S1 login works']) }, 'x')
+  const weak = { ...w.pass, coverage: [{ scenario: 'S1', test: 'S1 login works', ok: false }] }
+  assert.match(await w.rep('ag2', weak), /scenario S1 is not covered by a test that checks it/); assert.match(await w.rep('ag2', weak), /attempt 3\/3/)
+  assert.match(await w.rep('ag2', weak), /verdict accepted: changes \(1\/3\)/); assert.equal((await w.store.get(id)).meta['cadre.review'], '')
+  w = await world(); id = w.ids[0]; w.dep.cfg.review.coverage.enforce = false; await review(w, id); await w.store.setMeta(id, { 'cadre.specTests': JSON.stringify(['login works']) }, 'x')
+  assert.match(await w.rep('ag2', { ...w.pass, coverage: [{ scenario: 'S1', ok: false }] }), /verdict accepted: pass/)
+})
+
 test('changes -> the same worker agentId is resumed (queued), rework counted, cap flags non-progress, human ends it with resolve reject', async () => {
   const w = await world(), id = w.ids[0], { h, store } = w; await w.spawn(id); const wt = (await store.get(id)).meta['cadre.worktree']
   edit(wt); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }); await w.spawn(id)

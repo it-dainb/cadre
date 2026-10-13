@@ -13,6 +13,7 @@ import { registryOf } from '../core/dispatch'
 import { protectedRef, wtRootOf } from '../core/branches'
 import { isProt, writableJail } from '../core/git'
 import { allowlist } from '../agents/index'
+import { coverageGaps, sliceNotes } from '../core/validate'
 import { asciiOf } from '../config/index'
 import { machine } from '../commands/doctor'
 import { policyOf } from '../policy/guards'
@@ -47,6 +48,7 @@ const PROBES: Record<string, [unknown, (c: Config) => unknown]> = {
   'review.tiers.light.files': [2, c => rv(c, stat(3, 10))], 'review.tiers.light.lines': [50, c => rv(c, stat(1, 80))],
   'review.tiers.thorough.files': [10, c => rv(c, stat(15, 10))], 'review.tiers.thorough.lines': [300, c => rv(c, stat(1, 400))],
   'review.tiers.risky': [['src/**'], c => rv(c, stat(1, 1))],
+  'review.coverage.enforce': [false, c => coverageGaps(c.review.coverage.enforce, 'S1: Given a When b Then c', [], [])], 'notes.slice': [false, c => sliceNotes([{ paths: ['src/a'], text: 'x' }], ['src/a'], c.notes.slice)],
   'lanes.fullAt': [4, c => laneOf('ask', T(3), c.types as any, c.lanes)], 'lanes.milestoneAt': [9, c => laneOf('full', T(8), c.types as any, c.lanes)],
   types: [{ chore: { commit: 'chore', pipeline: ['worker', 'merge'] } }, async c => Object.keys(await registryOf(host(c)))],
   'branches.main': ['trunk', c => protectedRef('trunk', c.branches)], 'branches.dev': ['develop', c => protectedRef('dev', c.branches)], 'branches.epicPrefix': ['feat/', c => protectedRef('feat/x', c.branches)],

@@ -57,6 +57,7 @@ function world(over = {}) {
   sh(root, 'add', '-A'); sh(root, 'commit', '-qm', 'init'); sh(root, 'branch', 'epic/e1-x')
   const pkg = { root: '.', setup: [], checks: { test: ['node', 'run.mjs'], knownbad: ['false'] }, verify: ['test'], viewInclude: ['docs/**'], tdd: { paths: ['test/**'], report: '/tmp/cadre/r.xml' }, ...over.pkg }
   const cfg = { ...defaults(), packages: [pkg], worktrees: { root: join(b, 'wt') }, jail: 'auto', ...over.cfg }
+  if (!over.cover) cfg.review = { ...cfg.review, coverage: { enforce: false } }   // the fixtures name tests 'a', 'login ok'; the coverage rule has its own test
   const meta = {}, comments = [], store = { async setMeta(id, kv) { Object.assign(meta, kv) }, async comment(id, t) { comments.push(t) }, async move() {}, async resume() {}, async get(id) { return { id, title: 't', type: over.type ?? 'feature', meta: { ...meta }, acceptance: over.acceptance ?? 'S1: Given a When b Then c', description: 'page 1 skips the first page', design: over.design ?? JSON.stringify({ symbols: [{ name: 'login', kind: 'function', params: 'u', returns: 'bool', status: 'new' }] }) } } }
   const h = fakeHost(); Object.assign(h, { run, readText: async p => (existsSync(p) ? readFileSync(p, 'utf8') : null), write: async (p, t) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) }, cwd: async () => root, home: async () => b, config: async () => cfg, taskStore: async () => store })
   const d = { store, cfg, reg: cfg.types, root, home: b, wtRoot: cfg.worktrees.root, key: repoKeyOf(root), actor: 'a', session: 's' }
@@ -90,6 +91,13 @@ const tester = async (w, files, tests, over = {}) => {   // build the view, let 
   w.meta['cadre.base'] = sh(wt, 'rev-parse', 'HEAD')
   return { wt, view, task: await mkTask(w), res: await T.testerDone(w.h, w.d, await mkTask(w), wt, view, tests.map(n => ({ path: 'test/s.json', name: n })), over.agent) }
 }
+
+test('review.coverage.enforce: a tester report with no test named after a scenario is refused and the copy-in undone; naming it passes', async () => {
+  let w = world({ cover: true, acceptance: 'S1: Given a When b Then c\nS2: Given a When b Then d' }), r = await tester(w, { 'test/s.json': tc('S1 login ok', 'failure') }, ['S1 login ok'])
+  assert.equal(r.res.ok, false); assert.match(r.res.why, /no test is named after S2: write a test for every scenario/); assert.equal(w.meta['cadre.specCommit'], undefined); assert.equal(existsSync(join(r.wt, 'test/s.json')), false)
+  w = world({ cover: true, acceptance: 'S1: Given a When b Then c\nS2: Given a When b Then d' }); r = await tester(w, { 'test/s.json': tc('S1 login ok', 'failure'), 'test/t.json': tc('test_s2_rejects', 'failure') }, ['S1 login ok', 'test_s2_rejects'])
+  assert.ok(r.res.ok, r.res.why)
+})
 
 test('copy-in by path only, red passes on <failure>, specCommit + lock + advance to worker; fence locks are absolute', async () => {
   const w = world(), { wt, res } = await tester(w, { 'test/s.json': tc('login ok', 'failure', 'expected true'), 'notes.txt': 'outside', 'SCENARIOS.md': 'x' }, ['login ok'])
