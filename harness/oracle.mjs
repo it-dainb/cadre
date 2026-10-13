@@ -142,7 +142,7 @@ if (wantLanded && !drv.some(e => e.kind === 'landed')) fail('not-landed', `dev: 
     if (bad.length) fail('routing', `${bad.length} request(s) off the settings, e.g. ${bad[0].role} on ${bad[0].model}/${bad[0].output_config?.effort ?? '-'} (allowed ${JSON.stringify(exp[bad[0].role])})`)
   }
 }
-// 12. optional (EPIC_PLANNERS=N, the milestone cells): N epic plans came from planner agents (their report was accepted) and main drafted no epic's tasks
+// 13. optional (EPIC_PLANNERS=N, the milestone cells): N epic plans came from planner agents (their report was accepted) and main drafted no epic's tasks
 {
   const n = +(process.env.EPIC_PLANNERS ?? 0), js = walk(join(dir, 'jsonl')).filter(f => f.endsWith('.jsonl'))
   if (n) {
@@ -151,6 +151,27 @@ if (wantLanded && !drv.some(e => e.kind === 'landed')) fail('not-landed', `dev: 
     if (ok < n) fail('epic-planner', `${ok} of ${n} epic plans came from a planner agent`)
     if (own) fail('epic-planner', `main drafted an epic's tasks: ${own.match(/"subject":"[^"]*"/)?.[0] ?? 'TaskCreate with metadata.epic'}`)
   }
+}
+// 12. clarify (CLARIFY=ask|none|assumed|deep): main's own calls before the plan, from its transcript (not the agents'): one explorer (Agent type Explore);
+//     ask: one AskUserQuestion that went through, 1-3 questions; none: no question; assumed: no question and the plan dialog lists "assumed:"; deep: 1-8 questions, one per call
+if (process.env.CLARIFY) {
+  const ok = new Map(), calls = []
+  for (const f of walk(join(dir, 'jsonl')).filter(f => f.endsWith('.jsonl') && !f.includes('/subagents/'))) for (const l of read(f).split('\n').filter(Boolean)) {
+    let d; try { d = JSON.parse(l) } catch { continue }
+    const c = d.message?.content; if (!Array.isArray(c)) continue
+    if (d.type === 'assistant') for (const b of c) if (b.type === 'tool_use') calls.push(b)
+    if (d.type === 'user') for (const b of c) if (b.type === 'tool_result') ok.set(b.tool_use_id, !b.is_error)
+  }
+  const went = calls.filter(b => ok.get(b.id)), explore = went.filter(b => b.name === 'Agent' && b.input?.subagent_type === 'Explore').length
+  const qs = went.filter(b => b.name === 'AskUserQuestion').map(b => b.input?.questions?.length ?? 0), want = process.env.CLARIFY
+  const assumed = panes.some(p => /approve/.test(p.text) && /assumed:/.test(p.text))
+  Object.assign(stats, { explorers: explore, questions: qs })
+  const why = explore !== 1 ? `${explore} explorers (want 1)`
+    : want === 'ask' ? (qs.length === 1 && qs[0] >= 1 && qs[0] <= 3 ? '' : `questions per call ${JSON.stringify(qs)} (want one call of 1-3)`)
+    : want === 'none' ? (qs.length ? `asked ${JSON.stringify(qs)} on a clear goal` : '')
+    : want === 'assumed' ? (qs.length ? `asked ${JSON.stringify(qs)} under yolo` : assumed ? '' : 'the plan dialog lists no "assumed:" line')
+    : want === 'deep' ? (qs.length >= 1 && qs.length <= 8 && qs.every(n => n === 1) ? '' : `questions per call ${JSON.stringify(qs)} (want 1-8 calls of 1)`) : `unknown CLARIFY=${want}`
+  if (why) fail('clarify', why)
 }
 stats.usd = +debug.map(ls => Math.max(0, ...ls.map(l => +(l.match(/cost=\$([\d.]+)/)?.[1] ?? 0)))).reduce((a, b) => a + b, 0).toFixed(2)
 stats.secs = Math.round((tEnd - (drv[0]?.t ?? tEnd)) / 1000)

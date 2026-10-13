@@ -164,6 +164,7 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     expect(txt(band2(v, 120, { go() {}, pick() {}, answer() {}, step() {} })).join('\n')).toContain('Setup was interrupted · /cadre add a login page to pick it up')
     expect((await cadreRun(h, { args: 'add a login page', origin: { kind: 'composer' } }, () => ({}))).text).toBe('init: Claude is on it · progress in the cadre pane · then your goal')
     expect((await h.secret.read()).run).toMatchObject({ kind: 'init', goal: { text: 'add a login page' } })
+    expect(await statusLine(h)).not.toContain('press 1')   // the run's checklist is progress: 1 opens nothing (live 0.11.0)
     files[`${ROOT}/CHANGELOG.md`] = skeleton(); await turnEnd(h, {})
     await h.secret.update(({ run: _r, ...x }) => x); expect(await statusLine(h)).not.toContain('interrupted')
     await start(h, 'setup'); await h.secret.update(({ run: _r, ...x }) => x); await h.board.update(b => ({ ...b, decisions: [] })); expect(await statusLine(h)).toBe('Setup was interrupted · /cadre setup to pick it up')
@@ -338,7 +339,7 @@ describe('agent-run setup', () => {
 describe('guides', () => {
   test('the guides speak task language (commands in backticks are literal), name every phase with a done line, and match the checks', () => {
     const g = BUDGET.guides as Record<string, string>
-    expect(Object.keys(g)).toEqual(['goal', 'init', 'setup'])   // goal: tests/lanes.test.ts
+    expect(Object.keys(g)).toEqual(['deep', 'goal', 'init', 'setup'])   // goal: tests/lanes.test.ts · deep: tests/clarify.test.ts
     for (const t of [g.init, g.setup]) { expect(banned(t.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, ''))).toEqual([]); expect(t).toContain('AskUserQuestion'); expect(t).not.toContain('sudo apt') }
     expect(g.init).toContain('bd config set events-journal true'); expect(g.init).toContain('"kind": "mission"'); expect(g.init).toContain(skeleton().trim())
     expect(g.setup).toContain('npm install -g @beads/bd@latest'); expect(g.setup).toContain('confirm the user settings'); for (const t of [g.init, g.setup]) expect(t).toContain('Never edit a Claude Code settings file'.slice(0, 10))

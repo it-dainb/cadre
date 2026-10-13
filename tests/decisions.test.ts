@@ -65,6 +65,15 @@ describe('answers: the chosen label runs its option as origin dialog; the hash i
     await syncStatus(w.h); expect(u.of('status').at(-1)).toMatch(/press 1$/)   // computed before/while the command ran
     await answerDialog(w.h); expect(decisions(await read(w.h))).toEqual([]); expect(u.of('status').at(-1)).toBeUndefined()
   })
+  // live 0.11.0 (single-295-sonnet, user2-nogit-lazy-interrupt, single-via-ccr): "init · 2/8 done · Claude is on it · press 1", and 1 opened nothing
+  for (const [cell, title] of [['single-295-sonnet / single-via-ccr', 'init · 2/8 done · Claude is on it'], ['user2-nogit-lazy-interrupt', 'init · 6/8 done · Claude is on it']]) test(`a run's progress card never says "press 1" (${cell})`, async () => {
+    const w = await world(), u = await ui(w); await w.h.secret.update(s => ({ ...s, run: { kind: 'init', at: 0, turns: 0, follow: 0, guide: '', snap: {} } }) as never)
+    await ask(w.h, dec('run:init', 'init', title, ['✓ repository'], [{ key: 'x', label: 'Cancel', verb: 'reject', run: 'init cancel' }], { quiet: true }))
+    await syncStatus(w.h); expect(u.of('status').at(-1)).toBeUndefined()
+    await ask(w.h, dec('init:safety', 'init', 'confirm the safety settings', [], [OK])); await syncStatus(w.h); expect(u.of('status').at(-1)).toBe('confirm the safety settings · press 1')   // a real card still does
+    await settle(w.h, 'init:safety'); await syncStatus(w.h); expect(u.of('status').at(-1)).toBeUndefined()   // answered (answerDialog syncs here): the checklist left is progress
+    await w.h.secret.update(({ run: _r, ...s }) => s as never); await ask(w.h, dec('run:init', 'init', 'init · Claude stopped · 2 left', [], [OK])); await syncStatus(w.h); expect(u.of('status').at(-1)).toBe('init · Claude stopped · 2 left · press 1')   // stopped: its dialog is the human's
+  })
   test('Approve approves the plan and queues ONE continuation brief to main', async () => {
     const w = await world(), { plan: p, task } = await plan(w); await ui(w, () => 'Approve'); await answerDialog(w.h)
     expect((await w.store.get(task)).category).toBe('todo'); expect((await w.h.board.read()).plan?.state).toBe('approved'); expect(decisions(await read(w.h))).toEqual([])

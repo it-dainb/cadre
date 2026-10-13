@@ -18,6 +18,13 @@ milestone() { cat <<'EOF'
 milestone-planners|single ready|milestone|MODEL=sonnet CC_VERSION=2.1.295 LANDED=1 BUDGET=2700 PROXY=1 EPIC_PLANNERS=2
 EOF
 }
+clarify() { cat <<'EOF'
+clarify-vague|single ready landing|vague|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=ask BUDGET=300
+clarify-yolo|single ready landing|vague-yolo|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=assumed BUDGET=300
+clarify-deep|single ready landing|deep|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=deep ORACLE_DIALOGS=10 ORACLE_TURNS=20 BUDGET=420
+clarify-clear|single ready|goal|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=none BUDGET=300
+EOF
+}
 full() {   # the cross product, minus cells that cannot exist (user1 needs kit/, continue needs a set-up repo)
   local f s m v via lz e
   for f in single monorepo nogit "single gitignore" "single legacy-beads" "single red" "single ready leftover" "monorepo red"; do

@@ -9,6 +9,7 @@ import { cfgOf, draftsOf, missionOf, storeOf, touched } from './dispatch'
 import { plural, settleIf } from './decide'
 import { MS } from './milestone'
 import { epicBranch } from './branches'
+import { guideOf } from './clarify'
 
 export type Lane = 'ask' | 'lite' | 'full' | 'milestone'
 export const LANES: readonly Lane[] = ['ask', 'lite', 'full']
@@ -103,12 +104,12 @@ export async function sendBrief(h: Host): Promise<void> {
   const now = await h.now(); await h.secret.update(s => (s.goalRun && !s.goalRun.on ? { ...s, goalRun: { ...s.goalRun, on: true, seen: now } } : s))   // the goal run starts when main has the brief (commands/agentrun.goalStop)
 }
 // `/cadre <goal>` · `/cadre yolo <goal>` (commands/cadre, human origin, active repo): the guide inlined after the goal
-export async function goal(h: Host, text: string, mode: 'auto' | 'yolo' = 'auto'): Promise<string> {
-  const g = await h.readText(`${(await h.root?.()) ?? '.'}/guides/goal.md`)
-  if (!g) return 'the goal guide is missing from the plugin; ask the human to reinstall it'
+export async function goal(h: Host, text: string, mode: 'auto' | 'yolo' = 'auto', deep = false): Promise<string> {   // deep: `/cadre deep <goal>` (ADR 0020)
+  const root = (await h.root?.()) ?? '.', g = await h.readText(`${root}/guides/goal.md`), dg = deep ? await h.readText(`${root}/guides/deep.md`) : null
+  if (!g || (deep && !dg)) return 'the goal guide is missing from the plugin; ask the human to reinstall it'
   const at = await h.now(); await h.ui.update(({ halt: _h, ...u }) => ({ ...u, mode, modeAt: at }))
-  await h.secret.update(s => ({ ...s, goalRun: { text, mode, follow: 0 } }))   // main's stop is checked until the lane's step is done (commands/agentrun.goalStop)   // relane stamps it on the plan this goal drafts (within MODE_TTL)
+  await h.secret.update(s => ({ ...s, goalRun: { text, mode, follow: 0, ...(deep ? { deep: true } : {}) } }))   // main's stop is checked until the lane's step is done (commands/agentrun.goalStop)   // relane stamps it on the plan this goal drafts (within MODE_TTL)
   const none = !(await h.board.read()).mission && !(await Promise.resolve().then(() => storeOf(h)).then(missionOf).catch(() => 'unknown'))   // no recorded mission (a repo set up for this goal): main drafts it into the plan (ADR 0014)
-  await queueBrief(h, `Goal from the user: ${text.slice(0, 1000)}${none ? '\nThere is no mission yet.' : ''}\n\n${g}`)
-  return `goal${mode === 'yolo' ? ' (yolo)' : ''}: Claude is on it · the plan comes up for approval${mode === 'yolo' ? ' · after that nothing is asked until it lands on dev' : ''}`
+  await queueBrief(h, `Goal from the user: ${text.slice(0, 1000)}${none ? '\nThere is no mission yet.' : ''}\n\n${guideOf(g, (await cfgOf(h)).planning, dg)}`)
+  return deep ? 'deep: Claude explores, then asks one question at a time · say "enough" to plan sooner' : `goal${mode === 'yolo' ? ' (yolo)' : ''}: Claude is on it · the plan comes up for approval${mode === 'yolo' ? ' · after that nothing is asked until it lands on dev' : ''}`
 }

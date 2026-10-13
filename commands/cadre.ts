@@ -8,12 +8,14 @@ import { ask } from '../core/decide'
 import { fnv1a64 } from '../core/board'
 import { modelText } from '../core/say'
 import { autoAsk, openPane } from '../ui/index'
-import { stepName } from '../ui/v2/facts'
+import { needsOf, stepName } from '../ui/v2/facts'
+import { read } from '../ui/model'
 import { confirm as initConfirm } from './init'
 import { confirmUser, doctor } from './doctor'
 import { halted, haltText, queue, recheck, resnap, settingsAnswer, start } from './agentrun'
 import { confirmPrefs } from './prefs'
 import { defaults } from '../config/index'
+import { deepLine } from '../core/clarify'
 
 export async function route(h: Host, c: Command): Promise<Out> {   // every dispatcher command (dialog answers, Settings presses; tests)
   const [a] = c.args
@@ -34,6 +36,7 @@ export async function route(h: Host, c: Command): Promise<Out> {   // every disp
       return { text }
     }
     case 'doctor': return { text: await doctor(h) }
+    case 'deep': return { text: c.origin.kind === 'composer' ? await goal(h, a ?? '', (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto', true) : `refused: origin ${c.origin.kind} cannot start a goal; type it in the prompt` }   // ADR 0020: questions before the plan, even when drive.mode is yolo (the mode applies after approval)
     case 'goal': case 'yolo': return { text: c.origin.kind === 'composer' ? await goal(h, a ?? '', c.cmd === 'yolo' || (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto') : `refused: origin ${c.origin.kind} cannot start a goal; type it in the prompt` }   // the human's own words only
     case 'lane': { const why = isHuman(c.origin); return { text: why ? `refused: ${why}` : await changeLane(h, await storeOf(h), await registryOf(h), a ?? '') } }
     case 'config': if (!a || a === 'show') return { text: configText(await cfgOf(h), c.args[1]) }
@@ -45,7 +48,7 @@ export async function route(h: Host, c: Command): Promise<Out> {   // every disp
 
 // ---- the one message state machine (ADR 0014): bare `/cadre`, and every typed command that does not apply here. The band shows only the last two states (ui/v2/band). ----
 export const WELCOME = 'Welcome to cadre · run /cadre setup once on this machine'
-export const READY = 'Ready when you are · /cadre <goal> to start · /cadre yolo <goal> to run it without questions'
+export const READY = 'Ready when you are · /cadre <goal> to start · /cadre deep <goal> to talk it through first · /cadre yolo <goal> to run it without questions'
 export const NO_PLAN = 'No plan yet · /cadre <goal> to start'
 const setUp = async (h: Host) => !!(await h.store.get('cadre:setup'))   // commands/doctor stamps it when setup finds nothing critical
 export async function status(h: Host): Promise<string> {
@@ -53,10 +56,11 @@ export async function status(h: Host): Promise<string> {
   const hr = await halted(h)
   if (!(await wake(h))) return modelText('context', mine.length ? `setup · ${mine.length} needs you · press 1` : hr ? haltText(hr) : (await setUp(h)) ? READY : WELCOME)   // a set-up repo implies a set-up machine: no welcome there
   await warm(h)
-  const b = await h.board.read(), p = b.plan, needs = (b.decisions ?? []).length, ts = b.tasks, n = `${ts.filter(t => t.state === 'done').length}/${ts.length}`
-  const left = await unfinished(h)
+  const b = await h.board.read(), p = b.plan, needs = needsOf(await read(h)).filter(n => n.d).length, ts = b.tasks, n = `${ts.filter(t => t.state === 'done').length}/${ts.length}`
+  const left = await unfinished(h), dl = deepLine((await h.secret.read()).goalRun, (await cfgOf(h)).planning)
   const text = needs ? `${p?.id ?? (mine.length ? 'setup' : 'cadre')} · ${needs} needs you · press 1 to answer`
     : hr ? haltText(hr)
+    : dl ? dl
     : !p || p.slug === 'mission' || p.state === 'done-on-dev' || p.state === 'released' ? NO_PLAN
     : left ? `Unfinished plan ${left.id} ${left.slug} (${left.done}/${left.total}) · /cadre continue to pick it up`   // core/session.unfinished: the same test as continue and the band
     : [p.id + ' ' + p.slug, `${n} done`, ...ts.filter(t => t.state === 'active' || t.state === 'review').slice(0, 1).map(t => `running ${t.id} ${stepName(t.step)}`), '/cadre to open'].join(' · ')
@@ -92,7 +96,7 @@ export const configText = (cfg: unknown, prefix?: string): string => {
 }
 // words; `k="a b"` is one argv element `k=a b` (a field value with spaces, ADR 0009). argv only: nothing reaches a shell
 export const argsOf = (t: string): string[] => (t.match(/\w+="[^"]*"|\S+/g) ?? []).map(a => a.replace(/^(\w+)="([^"]*)"$/, '$1=$2'))
-// The typed surface (ADR 0011, 0013, 0014): `/cadre` (status + the pane) · `/cadre setup|init|doctor|continue` · `/cadre <goal>` · `/cadre yolo <goal>`. An old subcommand word gets a one-line hint, so a typo never starts a plan;
+// The typed surface (ADR 0011, 0013, 0014, 0020): `/cadre` (status + the pane) · `/cadre setup|init|doctor|continue` · `/cadre <goal>` · `/cadre yolo <goal>` · `/cadre deep <goal>`. An old subcommand word gets a one-line hint, so a typo never starts a plan;
 // the other dispatcher commands are reached only by the dialog's answers (and the Settings tab's presses).
 export const OLD = ['approve', 'reject', 'resolve', 'restore', 'release', 'drive', 'config', 'sync', 'adapter', 'status', 'open', 'confirm', 'cancel', 'resume', 'lane', 'goal', 'setup', 'init', 'doctor']
 export const HINT = "that's answered in the dialog now: press 1 on the band or run /cadre"
@@ -100,6 +104,7 @@ export function parse(text: string): { cmd: string; args: string[] } | { hint: s
   const t = text.trim(), [w = '', ...rest] = argsOf(t)
   if (!t) return { cmd: 'pane', args: [] }
   if (['setup', 'init', 'doctor', 'continue'].includes(w) && !rest.length) return { cmd: w, args: [] }
+  if (w === 'deep') return rest.length ? { cmd: 'deep', args: [t.slice(4).trim()] } : { hint: 'usage: /cadre deep <goal> · Claude explores, then asks one question at a time until the goal is clear, then plans it' }   // ADR 0020
   if (w === 'yolo') return rest.length ? { cmd: 'yolo', args: [t.slice(4).trim()] } : { hint: 'usage: /cadre yolo <goal> · after you approve the plan, nothing is asked until it lands on dev' }   // ADR 0013
   return OLD.includes(w) ? { hint: HINT } : { cmd: 'goal', args: [t] }
 }

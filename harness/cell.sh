@@ -19,7 +19,7 @@ SCAFFOLD=$S COLS=${COLS:-120} ROWS=${ROWS:-40} tui start "$N" >"$O/start.log" 2>
 git -C "$D/work" for-each-ref --format='%(refname:short) %(objectname:short)' refs/heads >"$O/refs-before" 2>/dev/null
 
 # ---- watcher: a pane capture every 2 s (kept when it changed), answers dialogs (option 1) after DIALOG_WAIT s, presses 1 when asked to ----
-dialog() { grep -q 'Enter to select' <<<"$1"; }
+dialog() { grep -qE 'Enter to select|Ready to submit your answers' <<<"$1"; }   # a question dialog, or its review screen after 2+ questions
 title() { awk '/☐/{f=1; next} f && /^ *❯ 1\./{exit} f{x=$0; sub(/^│ ?/,"",x); sub(/ *│.*$/,"",x); if (x ~ /[^ ]/) {t=t (t?" ":"") x; if (++n==3) exit}} END{gsub(/  +/," ",t); sub(/^ /,"",t); print substr(t,1,120)}' <<<"$1"; }   # the question: up to 3 rows, wrapped, without the docked pane
 # the band = the rows from the one ending in Claude Code's fold button [-] down to the composer; the status line = the rows under the composer
 AWK_BAND='{L[NR]=$0} /^─{20}/{b[++nb]=NR} END{if(nb<2)exit; t=b[nb-1]; for(i=t-1;i>0&&i>t-8;i--)if(L[i]~/\[-\] *$/){for(j=i;j<t;j++)print L[j];break}; for(i=b[nb]+1;i<=NR;i++)print L[i]}'
@@ -41,12 +41,12 @@ watcher() {
     fi
     if dialog "$p"; then
       lastt=$cur; tnew=0   # what asked for a dialog (shown before or with it) got one
-      t=$(title "$p")
+      t=$(title "$p"); [ -z "$t" ] && grep -q 'Ready to submit your answers' <<<"$p" && t='submit answers'   # the review screen: Enter submits (not a dialog of its own)
       if grep -qiE '^approve (the mission|mission|plan|milestone)' <<<"$t"; then
         if [ "$seen" != "plan:$t" ]; then log "plan $t"; seen="plan:$t"; since=$now; [ -n "$LANDED" ] && { sleep 1; key Enter; log "answer $t"; }
         elif [ -n "$LANDED" ] && [ $((now - since)) -ge 15000 ]; then key Enter; log "answer $t"; since=$now   # re-asked (the draft changed under the first press: "it changed; review again")
         fi
-      elif [ "$seen" != "$t" ]; then seen=$t; since=$now; log "dialog $t"
+      elif [ "$seen" != "$t" ]; then seen=$t; since=$now; log "$([ "$t" = 'submit answers' ] && echo submit || echo dialog) $t"
       elif [ $((now - since)) -ge $(( $(cat "$O/dialog_wait") * 1000 )) ]; then   # still open 10 s after an Enter: press again (a key can land mid-redraw)
         key Enter; log "answer $t"; since=$((now + 10000))
       fi

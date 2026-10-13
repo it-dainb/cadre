@@ -6,6 +6,8 @@ import { missingOf } from '../core/validate'
 import { defaults, pipeOf } from '../task-management/registry'
 import type { Task } from '../task-management/store'
 import type { Plan } from '../types'
+import { guideOf } from '../core/clarify'
+import { defaults as cfgDefaults } from '../config/index'
 import { BUDGET } from './fixtures/budget.generated'
 import { banned } from './fixtures/wording'
 import { fakeHost, task } from './support'
@@ -35,7 +37,7 @@ describe('the typed surface (ADR 0011): five forms only', () => {
     expect(await run(h, { args: 'old status', origin: { kind: 'composer' } }, () => ({}))).toEqual({ text: 'goal: Claude is on it · the plan comes up for approval' })
     expect(sent).toEqual([])   // a command frame cannot submit (live 0.7.0)
     await sendBrief(h); await sendBrief(h)
-    expect(sent).toEqual([`Goal from the user: old status\n\n${g}`]); expect((await h.ui.read()).goal).toBeUndefined()
+    expect(sent).toEqual([`Goal from the user: old status\n\n${guideOf(g, cfgDefaults().planning)}`])   // the clarify step carries the settings' numbers (ADR 0020); expect((await h.ui.read()).goal).toBeUndefined()
     expect(await goal(fakeHost(), 'x')).toContain('missing')
   })
   test('the guide and every brief speak task language and name the three lanes', async () => {

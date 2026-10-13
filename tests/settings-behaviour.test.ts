@@ -18,6 +18,8 @@ import { asciiOf } from '../config/index'
 import { machine } from '../commands/doctor'
 import { policyOf } from '../policy/guards'
 import { ELSEWHERE } from './fixtures/settings-proof'
+import { guideOf, nextStep } from '../core/clarify'
+import { BUDGET } from './fixtures/budget.generated'
 import { fakeHost } from './support'
 
 const put = (c: any, k: string, v: unknown) => { const ks = k.split('.'); ks.slice(0, -1).reduce((o, x) => o[x], c)[ks[ks.length - 1]] = v; return c }
@@ -31,6 +33,7 @@ const B = { taskId: 't', role: 'worker', step: 'worker', worktree: '/w', session
 const started = async (c: Config) => { const h = host(c); await start(h); return { pol: await policyOf(h), ui: (await h.ui.read()).cfg } }
 const runs = async (c: Config) => { const seen: string[][] = []; const h = Object.assign(host(c), { run: async (a: string[]) => { seen.push(a); return { exitCode: 1, stdout: '', stderr: '' } } }); await machine(h, c).catch(() => {}); return seen.map(a => a.join(' ')).join('\n') }
 
+const VAGUE = { outcome: 0.9, scope: 0.4, acceptance: 0.5, constraints: 0.8 }
 // key -> [a non-default value, the observable]
 const PROBES: Record<string, [unknown, (c: Config) => unknown]> = {
   'drive.maxTurns': [10, c => bound(c)], 'drive.maxCostUsd': [3, c => bound(c, 5, 0)], 'drive.maxWallMinutes': [30, c => bound({ ...c, drive: { ...c.drive, maxTurns: 1e6 } } as Config, 0, 0)],
@@ -49,6 +52,9 @@ const PROBES: Record<string, [unknown, (c: Config) => unknown]> = {
   'review.tiers.light.files': [2, c => rv(c, stat(3, 10))], 'review.tiers.light.lines': [50, c => rv(c, stat(1, 80))],
   'review.tiers.thorough.files': [10, c => rv(c, stat(15, 10))], 'review.tiers.thorough.lines': [300, c => rv(c, stat(1, 400))],
   'review.tiers.risky': [['src/**'], c => rv(c, stat(1, 1))],
+  'planning.clarify.enabled': [false, c => guideOf((BUDGET.guides as Record<string, string>).goal, c.planning)],
+  'planning.clarify.maxQuestions': [1, c => nextStep(VAGUE, c.planning, { mode: 'auto' }).text], 'planning.clarify.threshold': [0.3, c => nextStep(VAGUE, c.planning, { mode: 'auto' }).text],
+  'planning.deep.maxRounds': [1, c => nextStep(VAGUE, c.planning, { mode: 'auto', deep: true, asked: 1 }).text],
   'review.coverage.enforce': [false, c => coverageGaps(c.review.coverage.enforce, 'S1: Given a When b Then c', [], [])], 'notes.slice': [false, c => sliceNotes([{ paths: ['src/a'], text: 'x' }], ['src/a'], c.notes.slice)],
   'lanes.fullAt': [4, c => laneOf('ask', T(3), c.types as any, c.lanes)], 'lanes.milestoneAt': [9, c => laneOf('full', T(8), c.types as any, c.lanes)],
   types: [{ chore: { commit: 'chore', pipeline: ['worker', 'merge'] } }, async c => Object.keys(await registryOf(host(c)))],

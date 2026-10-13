@@ -11,6 +11,9 @@ Read only what you need (Read, Grep, Glob) to judge the size. Pick one lane and 
 When in doubt between lite and full, pick full. The user sees the lane and the reason in the approval dialog and can change it there.
 Done when you have the lane and the reason.
 
+## Before step 2: clarify
+Not for ask. Spawn ONE Agent with `subagent_type: "Explore"` asking what in the project the goal touches (files, names, existing choices); wait for its answer. Then score the goal from 0 (unknown) to 1 (clear) on outcome, scope, acceptance (how anyone can tell it is done) and constraints: TaskCreate with metadata `{"kind": "clarity", "outcome": 0.9, "scope": 0.4, "acceptance": 0.6, "constraints": 0.8}`. Do what its answer says: draft, or first ask at most {maxQuestions} questions in one AskUserQuestion call, each naming what the explorer found ("I found Hero, Navbar and Timeline in components/: which one?").
+
 ## Step 2: do the lane's step
 **ask**: spawn one Agent with the user's question as its prompt, in plain words. Do not answer it yourself and do not spawn a second one. Its answer arrives on its own.
 
@@ -20,7 +23,7 @@ Done when you have the lane and the reason.
 - For a bug that a test can reproduce, add `"repro": true`: a test that fails first is written before the fix.
 That one call creates the plan and its task. Then tell the user to approve it in the dialog (key 1 opens it).
 
-**If the goal says "There is no mission yet"** (lite and full): also put `"mission": "Goal: …\nConstraints: …\nNon-goals: …"` in the plan's metadata. Draft it from the goal and what you read in the project; do not ask the user. They approve the mission together with the plan.
+**If the goal says "There is no mission yet"** (lite and full): also put `"mission": "Goal: …\nConstraints: …\nNon-goals: …"` in the plan's metadata. Draft it from the goal, what you read in the project and the user's answers. They approve the mission together with the plan.
 
 **full**: TaskCreate with metadata `{"kind": "plan", "lane": "full", "reason": "<one line>"}`, then one TaskCreate per task, as the plan rules in its answer say (scenarios, interface, changelog, package). Fill what the "missing:" line names. Then tell the user to approve the plan in the dialog (key 1 opens it).
 

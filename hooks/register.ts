@@ -28,6 +28,7 @@ import { autoAsk, onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapC
 import { load } from '../config/index'
 import { wire, repoKeyOf, rootFor } from '../commands/init'
 import { prefsCall } from '../commands/prefs'
+import { clarifyCall, clarifyCheck } from '../core/clarify'
 import { BdStore } from '../task-management/adapters/beads/store'
 import { dirOf } from '../task-management/adapters/beads/layout'
 import { MemoryStore } from '../task-management/adapters/memory/store'
@@ -177,14 +178,14 @@ export const register: Register = (on, opts) => {
   // 3. admission
   on('agent.spawn', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return admit(host($), e, next) }).catch(denySpawn)
   // 4. tool.check allow
-  on('tool.check', async ($, e, next) => { if (!(await wake(host($)))) return next(e); await warm(host($)); return check(host($), e, next) }).catch(denyCheck)
+  on('tool.check', async ($, e, next) => { if (!(await wake(host($)))) return next(e); await warm(host($)); const cl = await clarifyCheck(host($), e, next.origin); if (cl) return cl; return check(host($), e, next) }).catch(denyCheck)
   // 5. guards (L1, fence, Task* answers, MCP pre-checks): guards judge first, then main's Task* answers
-  on('tool.call', { tool: /./ }, async ($, e, next) => { const h = host($); const pr = await prefsCall(h, e); if (pr) return pr; if (!(await wake(h))) return (await h.secret.read()).run ? settingsOnly(h, e, next) : next(e); await warm(h); return guard(h, e, e2 => answer(host($), e2, next)) }).catch(denyCall)
+  on('tool.call', { tool: /./ }, async ($, e, next) => { const h = host($); const pr = await prefsCall(h, e); if (pr) return pr; if (!(await wake(h))) return (await h.secret.read()).run ? settingsOnly(h, e, next) : next(e); await warm(h); const cl = await clarifyCall(h, e, next.origin); if (cl) return cl; return guard(h, e, e2 => answer(host($), e2, next)) }).catch(denyCall)
   // 6. wrap (L3 per-call fingerprint, delta drain, result card, tester log); then our own MCP tools answer innermost
   on('tool.call', { tool: /^/ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return wrap(host($), e, next) }).catch(denyCall)
   on('tool.call', { tool: /^mcp__cadre__/ }, ($, e, next) => handle(host($), e, next)).catch(denyCall)
   // agent-run setup/init: main's tool results carry what is still red; its stop is refused while a check it owns is red; turn.start feeds the watchdog (commands/agentrun)
-  on('tool.call', { tool: /./ }, async ($, e, next) => { const h = host($); if (!e.agentId) await seen(h, { name: e.tool }).catch(() => {}); const r = await next(e); if (e.agentId) return r; await seen(h, { tool: true }).catch(() => {}); const t = r?.result !== undefined ? await redNote(h).catch(() => null) : null; return t ? { ...r, context: [...(r.context ?? []), modelText('context', t)] } : r }).catch(passOn)   // a note only: on failure the result goes through as it is
+  on('tool.call', { tool: /./ }, async ($, e, next) => { const h = host($); if (!e.agentId) await seen(h, { name: e.tool, type: e.subagent_type }).catch(() => {}); const r = await next(e); if (e.agentId) return r; await seen(h, { tool: true }).catch(() => {}); const t = r?.result !== undefined ? await redNote(h).catch(() => null) : null; return t ? { ...r, context: [...(r.context ?? []), modelText('context', t)] } : r }).catch(passOn)   // a note only: on failure the result goes through as it is
   on('classic.Stop', async ($, e, next) => { const r = await next(e); const t = await stopCheck(host($), e).catch(() => null); return t ? { ...r, block: modelText('nudge', t) } : r }).catch(passOn)
   on('turn.start', async ($, e, next) => { const r = await next(e); await seen(host($), { start: true }).catch(() => {}); return r })
   on('tool.describe', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return describe(host($), e, next) })
