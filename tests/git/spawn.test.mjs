@@ -15,6 +15,7 @@ const { handleWith } = await import('../../tools/index.ts')
 const { arm, kick, watchdog, IDLE } = await import('../../core/drive.ts')
 const { stopped } = await import('../../core/close.ts')
 const { spawnStep, spawnMode } = await import('../../core/spawner.ts')
+const { queueResume } = await import('../../core/reuse.ts')
 const { contextLine } = await import('../../core/render.ts')
 const { modelView } = await import('../../core/board.ts')
 
@@ -32,9 +33,9 @@ async function world(n = 1, o = {}) {
   for (let i = 0; i < n; i++) ids.push((await store.createDraft({ title: `task ${i}`, description: 'd', acceptance: 'S1: Given x When y Then z', design: DESIGN, type: 'refactor', parent: epic, meta: { 'cadre.package': '.', 'cadre.changelog': JSON.stringify({ none: true, reason: 'internal' }) } })).id)
   await store.approve([epic, ...ids])
   const h = fakeHost({ env: { CADRE_SPAWN: o.mode ?? 'mod' } }); let tick = 0
-  const submitted = [], spawned = []
+  const submitted = [], spawned = [], sent = []
   Object.assign(h, { cwd: async () => d, home: async () => d, run, now: async () => (tick += 1000), stat: async p => (existsSync(p) ? { kind: 'dir' } : undefined), write: async (p, t) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) }, readText: async p => (existsSync(p) ? readFileSync(p, 'utf8') : null),
-    submit: async t => { submitted.push(t) }, usage: async () => ({ cost: { usd: 0 } }) })
+    submit: async t => { submitted.push(t) }, sendTo: async (a, t) => { sent.push([a, t]); return { isDelivered: true } }, usage: async () => ({ cost: { usd: 0 } }) })
   const dep = { store, cfg, reg: cfg.types, root: d, home: d, wtRoot: `${d}-wt`, key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' }
   await h.secret.update(x => ({ ...x, session: 's1' })); h.taskStore = async () => store; h.config = async () => cfg
   const ts = await Promise.all(ids.map(async id => { const t = await store.get(id); return task(id, { title: t.title, type: t.type }) }))
@@ -47,7 +48,7 @@ async function world(n = 1, o = {}) {
   const rep = (agentId, body) => handleWith(h, dep, { tool: 'mcp__cadre__report', agentId, input: { schemaVersion: 1, ...body } }).then(r => r.result)
   const pass = { role: 'reviewer', verdict: 'pass', summary: 'ok', findings: [], coverage: [{ scenario: 'S1', ok: true }], contractStatus: [{ name: 'f', ok: true }] }
   const wt = async id => (await store.get(id)).meta['cadre.worktree']
-  return { d, h, dep, store, ids, epic, turn, rep, pass, wt, submitted, spawned, mainSpawn: e => admitWith(h, dep, e, main) }
+  return { d, h, dep, store, ids, epic, turn, rep, pass, wt, submitted, spawned, sent, mainSpawn: e => admitWith(h, dep, e, main) }
 }
 const edit = (wt, f = 'b.txt', body = 'b\n') => writeFileSync(join(wt, f), body)
 
@@ -167,4 +168,10 @@ test('usage limit: the agent\'s task goes back without an attempt, drive pauses 
   assert.match((await w.h.board.read()).drive.paused, /usage limit until/); assert.deepEqual(await w.h.bind.read(), {})
   await w.turn(); assert.equal(w.spawned.length, 1)
   await w.h.ui.update(u => ({ ...u, limit: 1 })); await w.turn(); assert.equal(w.spawned.length, 2)   // past the reset: it starts again
+})
+
+test('a resume queued in the spawner\'s own frame (a close that sent the worker back) goes out from that frame', async () => {
+  const w = await world(1), id = w.ids[0]; await arm(w.h, 'auto'); await w.turn()
+  await queueResume(w.h, { agentId: 'ag1', taskId: id, text: 'The plan moved on: resolve the conflicts, then report done again.' })
+  await w.turn(); assert.deepEqual(w.sent.map(x => x[0]), ['ag1']); assert.match(w.sent[0][1], /resolve the conflicts/)
 })

@@ -188,7 +188,7 @@ export const modOn = (s: Pick<Snapshot, 'drive'>) => !!(s.drive.on && !s.drive.s
 export const IDLE = "Nothing for you to do: the plan's tasks go on by themselves. Reply in one line and stop."
 export async function idle(h: Host): Promise<boolean> {
   const s = await h.board.read(), bind = await h.bind.read()
-  return modOn(s) && !Object.keys(bind).some(a => !a.startsWith('~')) && spawnable(modelView(s), bind).length > 0
+  return modOn(s) && (s.resumesQueued > 0 || (!Object.keys(bind).some(a => !a.startsWith('~')) && spawnable(modelView(s), bind).length > 0))   // a resume nobody sent: a main turn's end drains it
 }
 // the timer (5 s): mod mode stalled with work to start (an agent that died without a turn end, a lease that lapsed, a usage limit that reset): the idle fallback once nothing happened for 2 min, counted as a turn (the no-progress bound ends a loop of them)
 export async function watchdog(h: Host): Promise<void> {

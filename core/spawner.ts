@@ -10,6 +10,7 @@ import { IDLE, drive, modOn, ready, stop, tally } from './drive'
 import { closeTask } from './close'
 import { integrateEpic } from './integrate'
 import { resolveDeps } from './admission'
+import { sendQueued } from './reuse'
 import { emit } from './events'
 import { modelText } from './say'
 
@@ -39,6 +40,7 @@ export async function spawnStep(h: Host, event: string): Promise<void> {
   if (!modOn(await h.board.read()) || !(await ready(h))) return
   const t = await h.now(); await h.ui.update(u => ({ ...u, idleAt: t }))   // a sign of life: the watchdog's window starts over
   if (await land(h) && !(await ready(h))) return   // what landed may finish the run
+  await sendQueued(h)   // a rework a close queued (a conflict on the plan tip): its worker is resumed now
   const s = await h.board.read(), cfg = await cfgOf(h), usd = (await h.usage?.().catch(() => undefined))?.cost?.usd
   let free = cfg.maxParallel > 0 ? cfg.maxParallel - s.tasks.filter(t => t.state === 'active').length : Infinity
   const go = spawnable(modelView(s), await h.bind.read()).filter(x => !inflight.has(x.id) && (x.role !== 'claim' || free-- > 0))

@@ -53,6 +53,9 @@ async function sendMine(h: Host, store: TaskStore | undefined, cfg: any) {
   }
 }
 
+// the spawner (ADR 0018) closes after this session's drain already ran: a rework it queued goes out from its own frame, else nothing would send it (found live: a merge conflict's worker waited for good)
+export const sendQueued = async (h: Host) => sendMine(h, await storeOf(h).catch(() => undefined), await cfgOf(h))
+
 // roles.tdd.author:same (3.5): the agent that wrote the tests stays bound; after red✓ (red -> worker) it is resumed with the worker brief.
 subscribe(async (h, ev) => {
   if (ev.type !== 'task.phase_changed' || ev.data.from !== 'red' || ev.data.to !== 'worker') return
