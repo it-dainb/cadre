@@ -1,0 +1,1 @@
+{ "description": "scripted model", "modules": ["./register.ts"] }
