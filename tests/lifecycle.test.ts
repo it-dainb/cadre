@@ -4,7 +4,6 @@ import { budgetOf, next, pruneRuns, restore, runOf, step, type Run, type RunEven
 import { queueResume } from '../core/reuse'
 import { stopped } from '../core/close'
 import { BUDGET } from './fixtures/budget.generated'
-import { RETRIES } from '../core/validate'
 import { PASS, world, type World } from './fixtures/replay/world'
 import { arm } from '../core/drive'
 
@@ -91,11 +90,10 @@ describe('step(): the run record', () => {
 
 describe('invariant 1: an agent can always end', () => {
   const states = ['running', 'silent', 'refused', 'idle', 'waiting', 'done'] as const
-  for (const s of states) test(`hand-back from ${s}: passes, or within ${RETRIES} bounces`, async () => {
+  for (const s of states) test(`hand-back from ${s}: never refused (exit rule 1)`, async () => {
     const w = await world(), [id] = w.ids; await w.at('ag1', id, 'worker')
     await w.h.ui.update(u => ({ ...u, runs: { ag1: { ...((u.runs as any).ag1), state: S[s] } } }))
-    let bounced = 0; while ((await w.hb('ag1')).deny) bounced++
-    expect(bounced).toBe(s === 'running' || s === 'silent' ? RETRIES : 0)
+    expect((await w.hb('ag1')).deny).toBeUndefined()
   })
 })
 

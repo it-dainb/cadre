@@ -46,7 +46,6 @@ describe('replays 1-11: the field failures', () => {
   })
   test('#2 auto mode: an explorer that reported can hand back', async () => {
     const w = await world({ type: 'spike' }), [id] = w.ids; await w.at('ag1', id, 'explorer')
-    expect((await w.hb('ag1')).deny).toContain('report')   // not yet: it owes its report
     expect(await w.rep('ag1', { role: 'explorer', answer: 'src/a.ts:3 a()', citations: [{ path: 'src/a.ts', line: 3 }] })).toContain('answer recorded')
     expect((await w.hb('ag1')).deny).toBeUndefined(); expect(await w.state('ag1', id)).toEqual({ state: 'ended', cause: 'done' })
   })

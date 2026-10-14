@@ -84,7 +84,7 @@ export async function handleWith(h: Host, d: Deps, e: any): Promise<{ result: st
   const i = e.input ?? e, id = e.agentId as string | undefined
   try {
     switch (String(e.tool).replace(/^mcp__cadre__/, '')) {
-      case 'report': { const t = await onReport(h, d, id, i); if (id) await h.ui.update(u => ({ ...u, handed: [...((u.handed as string[]) ?? []).filter(x => x !== id), id].slice(-100) })); return { result: modelText('tool-result', t) } }   // reported, accepted or refused: its SubagentHandback may end the run now (policy/guards); a refused step is cadre's to loop (bounded), never a trap
+      case 'report': return { result: modelText('tool-result', await onReport(h, d, id, i)) }
       case 'inspect': return { result: modelText('tool-result', await onInspect(h, d, id, i)) }
       default: return { result: modelText('tool-result', await onCheck(h, d, id, i)) }
     }

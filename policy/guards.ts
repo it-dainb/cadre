@@ -2,13 +2,13 @@
 import { modelText } from '../core/say'
 import type { Binding, Host, Hook } from '../types'
 import { MAIN_TOOLS, allowlist } from '../agents/index'
-import { repoKeyOf } from '../commands/init'
+import { repoKeyOf, scoped } from '../commands/init'
 import { logCall } from '../core/specview'
 import { PROTECTED } from '../core/git'
 import { idsIn } from '../core/briefs'
 import { strictOf } from '../config/index'
-import { RETRIES } from '../core/validate'
 import { runOf, step } from '../core/lifecycle'
+import { canon } from '../core/board'
 
 // Paths the guards need, written to $.store `cadre:<repoKey>:policy` by init/session.start/tdd (absolute, realpath'd). Absent keys disable the rule they feed.
 export interface Policy { repo?: string; wtRoot?: string; home?: string; mcpAllow?: string[]; locks?: Record<string, string[]>; core?: Record<string, string[]>; protect?: string[]; effectCheck?: string; epicPrefix?: string; changelog?: string }
@@ -105,6 +105,7 @@ export const settingsOnly: Hook = async (h, e, next) => (FENCED.includes(e.tool)
 
 // Event-only judgement for the re-entry .catch (G2): a deny reason, or undefined to let the call through. Must not use $.
 export const judge = (e: any): string | undefined => {
+  if (EXIT.includes(e.tool)) return undefined
   if (escape(e)) return escape(e)
   if (!e.agentId) return MAIN_TOOLS.includes(e.tool) ? undefined : `${e.tool} is not available to main; spawn an agent for it`
   if (SHELL.includes(e.tool) || (e.tool.startsWith('mcp__') && !e.tool.startsWith('mcp__cadre__'))) return 'this tool is not available here; use a different one'   // bindings are unreadable here: over-deny
@@ -112,34 +113,33 @@ export const judge = (e: any): string | undefined => {
   if (FENCED.includes(e.tool) && typeof p === 'string' && modOwned(p)) return 'that path is managed for you and cannot be edited; leave it alone'
 }
 
-// Auto permission mode gives every background agent a hand-back contract (Claude Code adds SubagentHandback to its tools and re-asks for it up to 3 times at its
-// turn end; flag tengu_lively_waffle, 2.1.287 and 2.1.295 alike). Refused, the agent could never end (live 0.12.0; live 0.12.1: a tester whose report the red gate
-// refused bounced until Claude Code gave up). An agent can ALWAYS end: it passes once its run has called report at all (accepted or refused: a refused step goes
-// back through cadre's own bounded loop, nudges + limits.testerRounds/attempts), or after RETRIES refusals of the hand-back itself.
-// Its message is replaced: main never reads an agent's prose (core/asks), the report already went where it belongs.
-const HB = (e: any) => e.tool === 'SubagentHandback' && !!e.agentId
+// Engine exit tools (exit rule 1): a fixed allowlist, never refused, by no guard, role, tools list or setting. Auto permission mode gives every background agent a
+// hand-back contract (Claude Code re-asks for SubagentHandback up to 3 times at its turn end); refused, an agent could never end (live 0.12.0, 0.12.1). An agent that
+// hands back without a report is cadre's to bound: its turn end nudges it, then auto-reports or releases it. The message is replaced: main never reads an agent's prose.
+export const EXIT = ['SubagentHandback', 'StructuredOutput']
 const HANDED = 'This agent has stopped; its task goes on without you. Nothing to do for it.'
-const OWES = ['running', 'silent']   // its run has not called report yet; a /clear keeps the run (its record survives in $.store). An agent with no run (a marker-less explorer) goes by ui.handed
-async function handback(h: Host, id: string): Promise<string | undefined> {
-  const u = await h.ui.read(), k = `handback:${id}`, run = await runOf(h, id), s = run?.state, n = run ? run.hb ?? 0 : ((u.retries as Record<string, number>) ?? {})[k] ?? 0   // bounces: on its run, else in ui.retries
-  if ((s ? !OWES.includes(s.state) : ((u.handed as string[] | undefined) ?? []).includes(id)) || n >= RETRIES) return undefined
-  if (run) await step(h, id, { type: 'handback' }); else await h.ui.update(x => ({ ...x, retries: { ...((x.retries as Record<string, number>) ?? {}), [k]: n + 1 } }))
-  return `call report first; once you have called it, SubagentHandback ends your run (attempt ${n + 1}/${RETRIES})`
+// exit rules 3 and 4 on an agent's call: a tool first seen on its run is journaled, and one that is no cadre tool, not its role's, not an MCP server's is noted for
+// Doctor (observation only: the verdict below is the same); the same call REPEAT times in a row spends the run, which then ends at its next step
+async function watchCall(h: Host, e: any, role: string): Promise<string | undefined> {
+  const seen = (await runOf(h, e.agentId))?.tools ?? [], r = await step(h, e.agentId, { type: 'call', tool: e.tool, sig: `${e.tool} ${canon(e.input ?? {})}` })
+  if (r && !seen.includes(e.tool) && !e.tool.startsWith('mcp__') && !allowlist(role as any).includes(e.tool)) { const k = await scoped(h, 'injected'), x = ((await h.store.get(k)) as string[] | undefined) ?? []; if (!x.includes(e.tool)) await h.store.set(k, [...x, e.tool]) }
+  return r?.exit ? 'you have made the same call over and over; stop now' : undefined
 }
 // #5 tool.call guards: L1 allowlist, fence. Judge before next. Advisory: denies become warnings.
 export const guard: Hook = async (h, e, next) => {
+  if (EXIT.includes(e.tool)) return next(e.tool === 'SubagentHandback' ? { ...e, input: { ...e.input, message: modelText('context', HANDED) } } : e)
   const deny = async (): Promise<string | undefined> => {
     const bad = escape(e); if (bad) return bad
-    if (HB(e)) return handback(h, e.agentId)
     const w = await who(h, e.agentId), pol = await policyOf(h), run = w.main ? await leaseOf(h) : undefined   // main during a setup/init run: Bash plus the lease's files
     const list = w.main ? (run ? [...MAIN_TOOLS, 'Bash'] : MAIN_TOOLS) : allowlist(w.role, w.role === 'worker' ? pol.mcpAllow : [])
+    const loop = w.main ? undefined : await watchCall(h, e, w.role); if (loop) return loop
     if (!list.includes(e.tool)) return `${e.tool} is not available to ${w.main ? 'main' : `the ${w.role}`}; use another tool`
     if (SHELL.includes(e.tool) && !run && !(w.role === 'worker' && w.owner && w.task?.step === 'worker')) return 'shell is available only while you implement your task; use run_check or inspect'
     const f = await fence(h, w, e.tool, e, pol, run?.guide, run?.kind)
     return f === 'allow' || f === 'tmp' ? undefined : f
   }
   const why = await deny()
-  if (!why) return next(HB(e) ? { ...e, input: { ...e.input, message: modelText('context', HANDED) } } : e)
+  if (!why) return next(e)
   const tb = e.agentId && (await h.bind.read())[e.agentId]
   if (tb && tb.role === 'tester') await logCall(h, e.agentId, { tool: e.tool, path: inputPath(e.tool, e.input ?? e, tb.worktree), outcome: why })   // the view audit counts refusals too (3.5.2)
   if (await strict(h)) return { deny: modelText('deny', why) }

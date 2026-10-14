@@ -47,19 +47,11 @@ describe('one output contract: a marker-less explorer (ask)', () => {
     await stop(); expect(submitted).toHaveLength(1)   // once
     expect((await note()).text).toBe('Agent ask-x1y2z3 finished; its answer was already given (TaskGet ask-x1y2z3).')
   })
-  test('auto mode hand-back: refused until the report is in, then let through with no agent prose for main (live 0.12.0: the explorer could never end)', async () => {
-    const { h } = await mk(), hb = (message: string) => guard(h, { tool: 'SubagentHandback', agentId: 'agent-x1y2z3', input: { message } }, async (e: any) => e) as Promise<any>
-    expect((await hb(PROSE)).deny).toContain('report')
-    expect(await handleWith(h, {} as any, { tool: 'mcp__cadre__report', agentId: 'agent-x1y2z3', input: { schemaVersion: 1, role: 'explorer', answer: 'src/parse.ts:12 parse()', citations: [{ path: 'src/parse.ts', line: 12 }] } }).then((r: any) => r.result)).toBe('answer recorded. Stop.')
-    const r = await hb(PROSE); expect(r.deny).toBeUndefined(); expect(r.tool).toBe('SubagentHandback'); expect(r.input.message).not.toContain('parser')
-  })
-  test('an agent can always end: its hand-back passes after a REFUSED report too, and after the refusal cap without any report (live 0.12.1: the tester bounced forever)', async () => {
+  test('auto mode hand-back: never refused, before or after the report, and it carries no agent prose for main (live 0.12.0, 0.12.1: agents could not end)', async () => {
     const { h } = await mk(), hb = (agentId: string) => guard(h, { tool: 'SubagentHandback', agentId, input: { message: PROSE } }, async (e: any) => e) as Promise<any>
-    expect((await hb('agent-x1y2z3')).deny).toContain('report')
+    for (const a of ['agent-x1y2z3', 'agent-q9']) { const r = await hb(a); expect(r.deny).toBeUndefined(); expect(r.tool).toBe('SubagentHandback'); expect(r.input.message).not.toContain('parser') }
     expect(await handleWith(h, {} as any, { tool: 'mcp__cadre__report', agentId: 'agent-x1y2z3', input: { schemaVersion: 1, role: 'explorer' } }).then((r: any) => r.result)).toContain('error: answer: required')   // refused
-    const r = await hb('agent-x1y2z3'); expect(r.deny).toBeUndefined(); expect(r.input.message).not.toContain('parser')
-    const n: string[] = []; for (let i = 0; i < 4; i++) n.push((await hb('agent-q9')).deny ?? 'passed')   // never reported: bounded refusals, then it ends
-    expect(n.slice(0, 3).every(x => x.includes('report'))).toBe(true); expect(n.at(-1)).toBe('passed')
+    expect((await hb('agent-x1y2z3')).deny).toBeUndefined()
   })
   test('background: the task-notification becomes the card (auto-reported answer, one line <= 200), main reads no agent prose; TaskGet has the full answer', async () => {
     const { h, stop, note } = await mk()

@@ -24,7 +24,7 @@ import { ask, yoloOn } from './decide'
 import { capAsk, coreLanded, refresh, rework, trial } from './rebase'
 import { branchOf, epicOf, goOn } from './milestone'
 import { planStopped } from './planner'
-import { charge, prune, retry, runOf, step } from './lifecycle'
+import { REPEAT, charge, prune, retry, runOf, settled, step } from './lifecycle'
 // the worker's report kept for the reviewer and the merge: cut the FIELDS, never the JSON (a cut string breaks the parse at merge)
 export const reportMeta = (r: any) => JSON.stringify({ summary: String(r.summary ?? '').slice(0, 800), risks: (r.risks ?? []).slice(0, 5).map((x: any) => String(x).slice(0, 120)), questions: (r.questions ?? []).slice(0, 5).map((x: any) => String(x).slice(0, 120)) })
 export const reportOf = (m?: string): { summary?: string } => { try { return m ? JSON.parse(m) : {} } catch { return { summary: m?.slice(0, 800) } } }   // reports stored by older versions may be cut mid-string
@@ -225,6 +225,7 @@ async function release(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
 export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
   const b = (await h.bind.read())[e.agentId], t = b && (await h.board.read()).tasks.find(x => x.id === b.taskId)
   if (b?.role === 'planner') return planStopped(h, d, e)   // an epic's planner (core/planner)
+  if (b && t && (await runOf(h, e.agentId))?.exit) { await end(h, e.agentId, 'loop', 'blocked'); return blockTask(h, d, t, `its agent made the same call ${REPEAT} times in a row`, 'loop', {}) }   // the breaker spent it (exit rule 4): one dialog
   if (!b || !t || !(t.step === b.step && STEP_CAT[b.step] === t.state)) return   // no binding, or it reported/moved on
   if (e.reason === 'answer') {
     const s = (await runOf(h, e.agentId))?.state, k = s?.state === 'silent' ? s.n : 0   // this run's nudges so far
@@ -248,6 +249,7 @@ export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
 }
 export async function observeWith(h: Host, d: Deps, e: any, next: (e: any) => any): Promise<any> {
   await sweep(h).catch(x => h.log(`sweep failed: ${x}`))
+  if (e.agentId) await settled(h, e.agentId).catch(() => {})
   if (e.agentId) await ((await askOf(h, e.agentId)) ? askStopped(h, e) : stopped(h, d, e)).catch(x => h.log(`observe failed: ${x}`))
   return next(e)
 }

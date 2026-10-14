@@ -15,7 +15,8 @@ import { observe } from '../core/close'
 import '../core/integrate'   // registers ROUTES.release
 import { admit, tick as heartbeat } from '../core/admission'
 import { contain, heal } from '../policy/containment'
-import { check, guard, send, judge, judgeSpawn, configSet, settingsOnly } from '../policy/guards'
+import { check, guard, send, judge, judgeSpawn, configSet, settingsOnly, EXIT } from '../policy/guards'
+import { backstop, exitStep } from '../core/lifecycle'
 import { answer, describe } from '../native/tasks'
 import { mainTurn } from '../core/dispatch'
 import { wrap } from '../core/effect'
@@ -118,6 +119,7 @@ function host($): Host {
   h.theme = async () => { const v = String(((await $.config.list().catch(() => [])) as { key: string; value?: unknown }[]).find(r => r.key === 'theme')?.value ?? ''); return /^light/.test(v) ? 'light' : /^dark/.test(v) ? 'dark' : 'unknown' }
   h.root = async () => $.plugin.root
   h.shell = async () => String(await $.session.cwd())
+  h.stopAgent = agentId => $.tool.call({ tool: 'TaskStop', task_id: agentId })   // from a timer frame: no hook of ours sees it (G6), no dialog in auto or yolo
   return h
 }
 
@@ -130,7 +132,7 @@ function spawner($, next): Host {
 // Fail-closed handlers (G1, G2). On re-entry every $ rejects, so decide from the event alone.
 const FAIL = 'refused: temporary failure; retry once, then ask the human'
 const why = ($, next) => { if (next.error && next.error.kind !== 're-entry') void $.ui.log(`hook failed: ${next.error.kind}: ${next.error.message}`); return FAIL }   // the engine redacts the error in its own log: keep the reason in ours
-function denyCall($, e, next) { return next.error?.kind === 're-entry' ? (judge(e) ? { deny: modelText('deny', judge(e)!) } : next(e)) : next.called ? next(e) : { deny: modelText('deny', why($, next)) } }
+export function denyCall($, e, next) { return EXIT.includes(e.tool) ? next(e) : next.error?.kind === 're-entry' ? (judge(e) ? { deny: modelText('deny', judge(e)!) } : next(e)) : next.called ? next(e) : { deny: modelText('deny', why($, next)) } }
 function denySpawn($, e, next) { return next.error?.kind === 're-entry' ? (judgeSpawn(e) ? { deny: modelText('deny', judgeSpawn(e)!) } : next(e)) : next.called ? next(e) : { deny: modelText('deny', why($, next)) } }
 function denyCheck($, e, next) { return next.error?.kind === 're-entry' || !next.called ? { decision: 'deny', reason: modelText('deny', why($, next)) } : next(e) }
 // prompt.submit / session.compact only add context or a summary: on failure fall back to the engine's own (deliberate fail-open). /cadre never acts on failure.
@@ -166,7 +168,7 @@ export const register: Register = (on, opts) => {
     await wake(host($)).catch(e => $.ui.log(`session start: ${e}`)); await halt(host($)).catch(() => {}); await syncMode(host($)).catch(() => {})   // a setup cut short in an earlier session: the band says so   // active repos only: $.store 'policy' + cadre.ui.cfg + containment band (agents ship as agents/*.md files, A28)
     for (const t of SPECS) await $.tool.register(t)   // report, inspect, run_check: isDeferred:false (5.2)
     { const h = host($); if (await wake(h).catch(() => false)) await nudge(h).catch(() => {}) }   // active repos only: no setup stamp for this Claude Code build -> one toast
-    $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void watch(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}); void watchdog(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
+    $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void watch(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}); void watchdog(h).catch(() => {}); void h.secret.read().then(s => backstop(h, s.session ?? '')).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
     $.clock.every(30_000, () => { const h = host($); void wake(h).then(act => act && tickUi(h)).catch(() => {}) })   // live timeline cursor (blit, no re-render)
     return next(e)
   })
@@ -198,7 +200,7 @@ export const register: Register = (on, opts) => {
   // 8. prompt.submit, prompt.attachment, turn.step, session.compact, command.run, config.set
   on('prompt.submit', async ($, e, next) => { if (!(await wake(host($)))) return next(e); const h = host($); if (!e.agentId && e.origin?.kind === 'composer') await ack(h).catch(() => {}); return submit(h, e, e2 => context(h, e2, next)) }).catch(passOn)
   on('prompt.attachment', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return attachment(host($), e, next) })
-  on('turn.step', async function* ($, e, next) { const h = host($); if (!(await wake(h))) return yield* next(e); return yield* meter(h, e, next) })
+  on('turn.step', async function* ($, e, next) { const h = host($); if (!(await wake(h))) return yield* next(e); return yield* meter(h, e, e2 => exitStep(h, e2, next)) })   // the cost meter sees cadre's own zero-token answers too
   on('session.compact', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return compact(host($), e, next) }).catch(passOn)
   on('command.run', { command: 'cadre' }, async ($, e, next) => { const old = (await read($, secret)).old; if (old) return { text: oldLine(old) }; const h = spawner($, next); await ack(h).catch(() => {}); const r = await run(h, e, next); if (await wake(h).catch(() => false)) await spawnStep(h, next.event).catch(x => $.ui.log(`spawner: ${x}`)); return r }).catch(denyCmd)   // a typed /cadre (continue) is a frame to start agents from (core/spawner)
   on('command.run', { command: 'goal' }, ($, e, next) => goal(host($), e, next)).catch(passOn)   // observer only: pass-through, never rewritten (9)

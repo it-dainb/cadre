@@ -19,7 +19,7 @@ import { BdStore } from '../task-management/adapters/beads/store'
 import { dirOf, moveStore } from '../task-management/adapters/beads/layout'
 
 export type Row = ['ok' | 'warn' | 'crit', string, string?]   // level, line, fix (a command for the human)
-const PIN = '2.1.295', STAMP = 'cadre:setup', USER_CARD = 91, STORE_CARD = 92, PATCH = { env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } }
+const PIN = '2.1.295', EXITS = '2.1.299', STAMP = 'cadre:setup', USER_CARD = 91, STORE_CARD = 92, PATCH = { env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } }
 const ver = (s: string) => s.match(/\d+(\.\d+)+/)?.[0] ?? ''
 const atLeast = (v: string, min: string) => { const a = v.split('.').map(Number), b = min.split('.').map(Number); for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0); return true }
 // The oldest Claude Code cadre runs on: 2.1.295 added Button children (every press in the band and the pane; older builds throw "needs a label" and nothing
@@ -45,6 +45,8 @@ export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; fact
   facts.cc = (await h.version?.().catch(() => '')) ?? ''
   const cmp = ver(facts.cc) && !atLeast(PIN, ver(facts.cc)) ? 'newer than' : 'older than'
   add(!facts.cc ? ['warn', 'Claude Code version unreadable'] : tooOld(facts.cc) ? ['crit', oldLine(facts.cc), 'claude update'] : facts.cc === PIN ? ['ok', `Claude Code ${PIN} (the pinned build)`] : ['warn', `Claude Code ${facts.cc}: ${cmp} the tested ${PIN}; ${cmp === 'newer than' ? 'usually fine' : 'update it with claude update'}`])
+  if (facts.cc && !atLeast(EXITS, ver(facts.cc))) add(['warn', `an agent that is done is ended by cadre itself; that is tested up to Claude Code ${EXITS} (yours: ${facts.cc})`])   // exit rule 5 (forced exit), S0 on 2.1.295 and 2.1.299
+  const inj = ((await h.store.get(await scoped(h, 'injected'))) as string[] | undefined) ?? []; if (inj.length) add(['warn', `tools Claude Code gave the agents that cadre does not know: ${inj.join(', ')}`])   // exit rule 3: observed, judged like any other call
   const g = await r(['git', '--version']), gv = ver(text(g))
   add(!g || g.exitCode || !gv ? ['crit', 'git not found', fix('git', 'installs git (needed for worktrees).', `${pm} git`, !mac)] : atLeast(gv, '2.17') ? ['ok', `git ${gv}`] : ['crit', `git ${gv} is too old for worktrees`, fix('git', 'upgrades git to 2.17 or newer (needed for worktrees).', `${pm} git`, !mac)])
   const id = g && !g.exitCode ? await identity(h.run, await h.env()) : undefined   // commits land on the user's branches: their own name and email, asked, never made up (ADR 0009)
