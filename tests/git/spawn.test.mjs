@@ -17,6 +17,7 @@ const { stopped } = await import('../../core/close.ts')
 const { spawnStep, spawnMode } = await import('../../core/spawner.ts')
 const { queueResume } = await import('../../core/reuse.ts')
 const { continueRun, life } = await import('../../core/session.ts')
+const { budgetOf } = await import('../../core/lifecycle.ts')
 const { contextLine } = await import('../../core/render.ts')
 const { modelView } = await import('../../core/board.ts')
 
@@ -132,7 +133,7 @@ test('rework stays as it was: changes -> the worker step, no worker bound -> the
   await w.h.bind.update(x => { const { ag1, ...r } = x; return r })   // the worker is gone (its run ended)
   assert.match(await w.rep('ag2', { ...w.pass, verdict: 'changes', findings: [{ severity: 'major', file: 'b.txt', issue: 'wrong' }] }), /changes \(1\/3\)/)
   await w.turn(); assert.equal(w.spawned[2][2], 'cadre:worker'); assert.match(w.spawned[2][1], /## Handoff\n[\s\S]*Review of \w+ asks for changes|## Handoff/)
-  assert.equal((await w.store.get(id)).meta['cadre.rework'], '1')
+  assert.equal((await budgetOf(w.h, id)).rework, 1)
 })
 
 test('yolo: a blocked task\'s question goes to main once from the spawner, not at every turn end; the other task goes on', async () => {
@@ -169,7 +170,7 @@ test('usage limit: the agent\'s task goes back without an attempt, drive pauses 
   let now = 0; const reset = new Date(Date.now() + 3_600_000).toISOString()
   w.h.usage = async () => ({ cost: { usd: 0 }, rateLimits: [{ kind: 'five_hour', percentUsed: 100, resetsAt: reset }] })
   await stopped(w.h, w.dep, { agentId: 'ag1', reason: 'error', answer: 'API Error' })
-  const t = (await w.h.board.read()).tasks[0]; assert.equal(t.state, 'todo'); assert.equal((await w.store.get(id)).meta['cadre.attempts'], undefined)
+  const t = (await w.h.board.read()).tasks[0]; assert.equal(t.state, 'todo'); assert.ok(Object.values(await budgetOf(w.h, id)).every(v => v === 0))   // no charge at all
   assert.match((await w.h.board.read()).drive.paused, /usage limit until/); assert.deepEqual(await w.h.bind.read(), {})
   await w.turn(); assert.equal(w.spawned.length, 1)
   await w.h.ui.update(u => ({ ...u, limit: 1 })); await w.turn(); assert.equal(w.spawned.length, 2)   // past the reset: it starts again

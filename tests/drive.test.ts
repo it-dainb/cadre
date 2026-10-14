@@ -1,5 +1,6 @@
 // Autonomy modes (ADR 0013): `/cadre yolo <goal>`, drive armed at approval (never before, never answers a dialog), the gate policy per mode, hard stops, stop/resume.
 import { describe, expect, test } from 'claude-code/testing'
+import { charge } from '../core/lifecycle'
 import { decide, parse, route, run } from '../commands/cadre'
 import { arm, kick } from '../core/drive'
 import { report } from '../core/close'
@@ -166,7 +167,7 @@ describe('T6.3 gate policy', () => {
   })
   test('rework past the cap while driving: cancelled and recorded; a task others need stops the run instead', async () => {
     for (const critical of [false, true]) {
-      const w = await go('auto'); await w.store.claim(w.t, (await resolveDeps(w.h)).actor); await w.store.setMeta(w.t, { 'cadre.rework': '3', 'cadre.sourceCommit': 'c1', 'cadre.worktree': '/wt/t' }, 'x')
+      const w = await go('auto'); await w.store.claim(w.t, (await resolveDeps(w.h)).actor); await w.store.setMeta(w.t, { 'cadre.sourceCommit': 'c1', 'cadre.worktree': '/wt/t' }, 'x'); for (let i = 0; i < 3; i++) await charge(w.h, w.t, 'rework')
       await w.setTask({ state: 'review', step: 'reviewer' })
       if (critical) await w.h.board.update(b => ({ ...b, tasks: [...b.tasks, { ...b.tasks[0], id: 'z9', state: 'todo', step: '', deps: [{ id: w.t, type: 'blocks' }] }] }))
       await w.h.bind.update(b => ({ ...b, rv: { taskId: w.t, role: 'reviewer', step: 'reviewer', worktree: '/wt/t', sessionId: 's', ctxTokens: 0, startedAt: 0 } }))

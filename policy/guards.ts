@@ -8,7 +8,7 @@ import { PROTECTED } from '../core/git'
 import { idsIn } from '../core/briefs'
 import { strictOf } from '../config/index'
 import { RETRIES } from '../core/validate'
-import { runOf } from '../core/lifecycle'
+import { runOf, step } from '../core/lifecycle'
 
 // Paths the guards need, written to $.store `cadre:<repoKey>:policy` by init/session.start/tdd (absolute, realpath'd). Absent keys disable the rule they feed.
 export interface Policy { repo?: string; wtRoot?: string; home?: string; mcpAllow?: string[]; locks?: Record<string, string[]>; core?: Record<string, string[]>; protect?: string[]; effectCheck?: string; epicPrefix?: string; changelog?: string }
@@ -121,9 +121,9 @@ const HB = (e: any) => e.tool === 'SubagentHandback' && !!e.agentId
 const HANDED = 'This agent has stopped; its task goes on without you. Nothing to do for it.'
 const OWES = ['running', 'silent']   // its run has not called report yet; a /clear keeps the run (its record survives in $.store). An agent with no run (a marker-less explorer) goes by ui.handed
 async function handback(h: Host, id: string): Promise<string | undefined> {
-  const u = await h.ui.read(), k = `handback:${id}`, n = ((u.retries as Record<string, number>) ?? {})[k] ?? 0, s = (await runOf(h, id))?.state
+  const u = await h.ui.read(), k = `handback:${id}`, run = await runOf(h, id), s = run?.state, n = run ? run.hb ?? 0 : ((u.retries as Record<string, number>) ?? {})[k] ?? 0   // bounces: on its run, else in ui.retries
   if ((s ? !OWES.includes(s.state) : ((u.handed as string[] | undefined) ?? []).includes(id)) || n >= RETRIES) return undefined
-  await h.ui.update(x => ({ ...x, retries: { ...((x.retries as Record<string, number>) ?? {}), [k]: n + 1 } }))
+  if (run) await step(h, id, { type: 'handback' }); else await h.ui.update(x => ({ ...x, retries: { ...((x.retries as Record<string, number>) ?? {}), [k]: n + 1 } }))
   return `call report first; once you have called it, SubagentHandback ends your run (attempt ${n + 1}/${RETRIES})`
 }
 // #5 tool.call guards: L1 allowlist, fence. Judge before next. Advisory: denies become warnings.

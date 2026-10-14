@@ -14,7 +14,7 @@ import { seen, start, stopCheck, turnEnd } from '../commands/agentrun'
 import { LIMIT } from '../policy/guards'
 import { FULL, plan, world as native } from './fixtures/native/world'
 import { setupWorld } from './fixtures/replay/setup'
-import { classify } from '../core/lifecycle'
+import { classify, step } from '../core/lifecycle'
 import { EPIC } from './fixtures/readmodel/snapshot.golden'
 
 async function known(slice: string, f: () => Promise<unknown>) {
@@ -82,7 +82,7 @@ describe('replays 1-11: the field failures', () => {
   })
   test('#7 main messaging a tester whose step is over is refused', async () => {
     const w = await world({ type: 'feature' }), [id] = w.ids; await w.at('ag1', id, 'tester')
-    await w.h.board.update(s => ({ ...s, tasks: s.tasks.map(t => ({ ...t, step: 'worker' })) }))   // red accepted: the worker is next
+    await w.h.board.update(s => ({ ...s, tasks: s.tasks.map(t => ({ ...t, step: 'worker' })) })); await step(w.h, 'ag1', { type: 'report.ok' })   // red accepted: the worker is next
     expect(await w.state('ag1')).toEqual({ state: 'idle-bound' })
     const r = await send(w.h, { to: 'ag1', text: 'now implement it' }, async () => ({ isDelivered: true })) as any
     expect(r.isDelivered).toBe(false); expect(w.sent).toEqual([])
@@ -144,7 +144,7 @@ describe('replays 12-20: regressions from the log', () => {
     const [rv] = await inReview(w); expect(await w.rep(rv, PASS)).toContain('pass@'); w.sent.length = 0
     moved = true; await w.turn()
     expect(w.sent.map(x => x[0])).toEqual(['ag1']); expect(w.sent[0][1]).toContain('The plan moved on')
-    expect(await w.state('ag1')).toEqual({ state: 'running' }); expect(await done(w)).toEqual(['active'])
+    expect(await done(w)).toEqual(['active'])
   })
   test('#15 a verdict mid-write is skipped quietly; its reviewer\'s turn end lands it', async () => {
     const w = await world(), [rv] = await inReview(w), set = w.store.setMeta.bind(w.store); let other = false
@@ -175,9 +175,9 @@ describe('replays 12-20: regressions from the log', () => {
   test('#20 a reworked task keeps its reviewer: resumed, never a second one', async () => {
     const w = await world(), [rv] = await inReview(w)
     expect(await w.rep(rv, CHANGES)).toContain('changes (1/')
-    expect(await w.state(rv)).toEqual({ state: 'waiting', on: 'rework' }); expect(await w.state('ag1')).toEqual({ state: 'running' })
+    expect(await w.state(rv)).toEqual({ state: 'idle-bound' })   // bound and resumable: its verdict is in
     expect(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'fixed' })).toContain('report accepted')
-    expect(await w.state('ag1')).toEqual({ state: 'waiting', on: 'review' })
+    expect(await w.state('ag1')).toEqual({ state: 'idle-bound' })
     await w.turn(); expect(roles(w)).toEqual(['cadre:worker', 'cadre:reviewer']); expect(w.sent.map(x => x[0])).toContain(rv)
     expect((await w.h.board.read()).tasks[0].owner).toBeDefined()
   })
@@ -195,8 +195,7 @@ describe('classify: today\'s agent states', () => {
   const rows = [
     ['the owner at its step', { bind: { 'ag-2': at('a2', 'worker') }, tasks }, 'ag-2', undefined, { state: 'running' }],
     ['a spawn reserved', { bind: { '~a3': at('a3', 'worker', '') }, tasks }, '~a3', undefined, { state: 'reserved' }],
-    ['nudged once after a stop without report', { bind: { 'ag-2': at('a2', 'worker') }, tasks, meta: { 'cadre.nudge': 'worker:1' } }, 'ag-2', undefined, { state: 'silent', n: 1 }],
-    ['its report refused twice', { bind: { 'ag-2': at('a2', 'worker') }, tasks, ui: { retries: { 'report:ag-2': 2 } } }, 'ag-2', undefined, { state: 'refused', n: 2 }],
+    ['its run record says so (nudged once)', { bind: { 'ag-2': at('a2', 'worker') }, tasks, runs: { 'ag-2': { taskId: 'a2', role: 'worker', step: 'worker', state: { state: 'silent', n: 1 }, epoch: 1, log: [] } } }, 'ag-2', undefined, { state: 'silent', n: 1 }],
     ['context over: retired', { bind: { 'ag-2': at('a2', 'worker', 'worker', { retired: true }) }, tasks }, 'ag-2', undefined, { state: 'retired' }],
     ['its task blocked', { bind: { 'ag-2': at('a2', 'worker') }, tasks: blocked }, 'ag-2', undefined, { state: 'waiting', on: 'decision' }],
     ['the worker while its change is reviewed', { bind: { 'ag-2': at('a2', 'worker') }, tasks: review }, 'ag-2', undefined, { state: 'waiting', on: 'review' }],

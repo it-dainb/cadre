@@ -18,7 +18,7 @@ describe('next(): state × event', () => {
     refused: { ok: S.idle, park: S.waiting, refused: { state: 'refused', n: 2 }, nudged: S.silent, released: { state: 'ended', cause: 'released' } },
     silent: { ok: S.idle, park: S.waiting, refused: S.refused, nudged: { state: 'silent', n: 2 }, released: { state: 'ended', cause: 'released' } },
     idle: { ok: S.idle, park: S.waiting, refused: S.refused, nudged: S.silent, released: { state: 'ended', cause: 'released' } },
-    waiting: { ok: S.idle, park: S.waiting, refused: S.refused, nudged: S.silent, released: { state: 'ended', cause: 'released' } },
+    waiting: { ok: S.waiting, park: S.waiting, refused: S.waiting, nudged: S.waiting, released: { state: 'ended', cause: 'released' } },   // invariant 2: parked until its end
     done: { ok: S.done, park: S.done, refused: S.done, nudged: S.done, released: S.done },   // terminal: nothing moves it
   }
   for (const [s, row] of Object.entries(want)) for (const [ev, to] of Object.entries(row))

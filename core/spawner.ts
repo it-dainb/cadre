@@ -16,6 +16,7 @@ import { life } from './session'
 import { emit } from './events'
 import { modelText } from './say'
 import { isMs } from './milestone'
+import { charge } from './lifecycle'
 
 export const FRAMES = ['turn.complete', 'command.run']
 // the session's mode: drive.spawn (CADRE_SPAWN maps onto it: config/index.envLayer); a non-interactive session runs main (config/index.headlessMain)
@@ -82,9 +83,8 @@ async function one(h: Host, id: string, role: string) {
     const r = await h.spawnAgent!({ prompt: modelText('agent-brief', `${role === 'planner' ? 'PLAN' : 'TASK'}-${id}`), description: `${role === 'claim' ? 'start' : role} ${id}` })   // PLAN-<epic>: admission starts its planner
     if (r?.agentId) await h.ui.update(u => ({ ...u, own: [...((u.own as string[]) ?? []), r.agentId!].slice(-100) }))   // its task-notification never reaches main (core/reuse.submit)
     if (r?.deny) h.log(`${id} not started: ${r.deny}`)   // a deny is admission's answer (a gate, a lease): the gate or the next turn end deals with it
-  } catch (x) {   // admission undid the claim and rethrew: count it; the third failed start stops the run for the human
-    const store = await storeOf(h), n = (Number((await store.get(id)).meta['cadre.attempts']) || 0) + 1
-    await store.setMeta(id, { 'cadre.attempts': String(n) }, 'cadre')
-    h.log(`${id} could not start (${n}/3): ${x}`); if (n >= 3) await stop(h, `${id} could not start ${n} times: ${String(x).slice(0, 120)}`)
+  } catch (x) {   // admission undid the claim and rethrew: the task budget's startFails; at limits.startFails the run stops for the human
+    const n = await charge(h, id, 'startFails'), max = (await cfgOf(h)).limits.startFails
+    h.log(`${id} could not start (${n}/${max}): ${x}`); if (n >= max) await stop(h, `${id} could not start ${n} times: ${String(x).slice(0, 120)}`)
   } finally { inflight.delete(id) }
 }

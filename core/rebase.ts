@@ -20,6 +20,7 @@ import { card } from './render'
 import { policyOf, setPolicy } from '../policy/guards'
 import { overlap, pathsOf } from './validate'
 import * as G from './git'
+import { budgetOf, charge } from './lifecycle'
 
 const num = (v?: string) => Number(v ?? 0) || 0
 const sha7 = (s: string) => s.slice(0, 7)
@@ -37,7 +38,7 @@ const landed = async (h: Host, root: string, from: string, to: string, files: st
 
 // One rework round. Returns the text for main, or null when the cap is reached (the caller blocks the task and asks).
 export async function rework(h: Host, d: Deps, t: SnapTask, task: Task, tip: string, why: 'conflict' | 'red', detail = ''): Promise<string | null> {
-  const n = num(task.meta['cadre.rebase']) + 1, ROUNDS = d.cfg.limits.rebaseRounds, wt = task.meta['cadre.worktree'], br = task.meta['cadre.branch'], base = task.meta['cadre.base'] ?? tip
+  const n = (await budgetOf(h, t.id)).rebase + 1, ROUNDS = d.cfg.limits.rebaseRounds, wt = task.meta['cadre.worktree'], br = task.meta['cadre.branch'], base = task.meta['cadre.base'] ?? tip
   if (n > ROUNDS || !wt || !br) return null
   const locked = ((await policyOf(h)).locks?.[t.id] ?? []).map(p => p.slice(wt.length + 1))
   const conf = await G.op(h, async () => {
@@ -50,7 +51,7 @@ export async function rework(h: Host, d: Deps, t: SnapTask, task: Task, tip: str
   const by = await landed(h, d.root, base, tip, conf), p = pipeOf(d.reg), at = await h.now()
   const m = await apply(h, { kind: 'rewind', id: t.id, at, actor: 'mod', on: 'worker' }, p); if (!m.ok) throw new Error(m.error)
   await d.store.resume(t.id, d.actor)
-  await d.store.setMeta(t.id, { 'cadre.rebase': String(n), 'cadre.base': tip, 'cadre.review': '', 'cadre.step': 'worker' }, d.actor)
+  await charge(h, t.id, 'rebase'); await d.store.setMeta(t.id, { 'cadre.base': tip, 'cadre.review': '', 'cadre.step': 'worker' }, d.actor)
   const text = modelText('nudge', [`The plan moved on while ${t.id} waited to merge${by.length ? `: ${by.join(', ')} landed` : ''}. Your branch now has the new plan tip merged in (round ${n}/${ROUNDS}).`,
     conf.length ? `Resolve the conflicts in: ${conf.join(', ')} (keep both changes where they do not contradict).` : `Its checks fail on the merged tree${detail ? `:\n${detail.slice(0, 800)}` : ''}.`,
     'Keep your change, keep every test green; locked tests stay as they are. Then report done again.'].join('\n'))

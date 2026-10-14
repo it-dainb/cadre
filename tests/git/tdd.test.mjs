@@ -185,6 +185,7 @@ test('a refused red leaves no copy-in commit; the identical retry reaches the ga
 
 // ---- the red loop (live 0.12.1, generic names): a refused red never traps the tester; the task blocks once with one dialog naming the check ----
 const CL = await import('../../core/close.ts')
+const { budgetOf } = await import('../../core/lifecycle.ts')
 const { ROUTES } = await import('../../core/dispatch.ts')
 const bindTester = async (w, wt, view) => { w.meta['cadre.worktree'] = wt; await w.h.bind.update(b => ({ ...b, ag1: { taskId: 'm-1', role: 'tester', step: 'tester', worktree: view, sessionId: 's', ctxTokens: 0, startedAt: 0 } })) }
 const rep = { role: 'tester', outcome: 'done', summary: 's', tests: [{ path: 'test/s.json', name: 'a' }] }
@@ -207,7 +208,7 @@ test('settings: limits.testerRounds 2: the 2nd refused red blocks the task with 
   const s = await w.h.board.read(); assert.equal(s.tasks[0].state, 'blocked'); assert.equal(s.decisions.length, 1)
   assert.match(s.decisions[0].lines.join('\n'), /check "test"[\s\S]*pass at the spec commit/); assert.deepEqual(s.decisions[0].options.map(o => o.label), ['Retry', 'Cancel task'])
   assert.match((await ROUTES.resolve(w.h, { args: ['m-1', 'retry'] })).text, /back to the tester/)
-  const t = (await w.h.board.read()).tasks[0]; assert.deepEqual([t.state, t.step, t.flags], ['active', 'tester', []]); assert.equal(w.meta['cadre.testerRounds'], '')
+  const t = (await w.h.board.read()).tasks[0]; assert.deepEqual([t.state, t.step, t.flags], ['active', 'tester', []]); assert.equal((await budgetOf(w.h, 'm-1')).red, 0)
 })
 
 // ---- the tester proposes its test command, cadre runs it (ADR 0023): a node:test fixture, real git, the same sandbox as checks ----

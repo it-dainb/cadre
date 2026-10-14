@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
+import { charge } from '../core/lifecycle'
 import { admitWith, beat } from '../core/admission'
 import { leaseLive } from '../core/board'
 import type { Deps } from '../core/admission'
@@ -222,7 +223,7 @@ describe('review spawn', () => {
     const a = ok('ag1'); await admitWith(h, d, spawn(id), a.next)
     expect([a.seen[0].model, (await h.bind.read()).ag1.effort]).toEqual(['fable', 'max'])
     expect(await bound()).toMatchObject({ model: 'fable', effort: 'max', setting: `roles.${role}.byRisk.${risk}` })
-    await h.bind.update(() => ({})); await w.store.setMeta(id, { 'cadre.rework': '1' }, d.actor)
+    await h.bind.update(() => ({})); await charge(h, id, 'rework')   // one review round (the task budget)
     if (!rv) { await w.store.release(id, d.actor, 'test'); await h.board.update(s => ({ ...s, tasks: s.tasks.map(t => ({ ...t, state: 'todo', owner: undefined })) })) }
     const b = ok('ag2'); await admitWith(h, d, spawn(id), b.next)
     expect([b.seen[0].model, (await h.bind.read()).ag2?.effort]).toEqual(['opus', 'xhigh'])

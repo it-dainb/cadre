@@ -62,8 +62,7 @@ export async function world(o: { n?: number; type?: string; ids?: string[]; mode
       await lifeStep(h, agentId, { type: 'spawn.ok', taskId: id, role, step })   // as admission records it
     },
     state: async (agentId: string, taskId?: string) => {
-      const b = await h.bind.read(), id = b[agentId]?.taskId ?? taskId
-      return classify({ bind: b, tasks: (await h.board.read()).tasks, ui: await h.ui.read(), meta: id ? (await store.get(id).catch(() => undefined))?.meta : undefined }, agentId, taskId)
+      return classify({ bind: await h.bind.read(), tasks: (await h.board.read()).tasks, runs: (await h.ui.read()).runs as any }, agentId, taskId)
     },
   }
   return w

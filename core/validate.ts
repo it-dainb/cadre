@@ -122,8 +122,9 @@ export const RETRIES = 3
 export async function refuse(h: Host, key: string, err: string): Promise<string> {
   let n = 0
   await h.ui.update(u => { const r = { ...((u.retries as Record<string, number>) ?? {}) }; n = r[key] = (r[key] ?? 0) + 1; return { ...u, retries: r } })
-  return n > RETRIES ? `${err} (retry cap ${RETRIES} reached for ${key}: ask the human, or start a new draft)` : `${err} (attempt ${n}/${RETRIES})`
+  return tried(err, n, key)
 }
+export const tried = (err: string, n: number, key: string) => (n > RETRIES ? `${err} (retry cap ${RETRIES} reached for ${key}: ask the human, or start a new draft)` : `${err} (attempt ${n}/${RETRIES})`)
 export const clearRetries = (h: Host, key: string) => h.ui.update(u => { const { [key]: _x, ...r } = (u.retries as Record<string, number>) ?? {}; return { ...u, retries: r } })
 export async function capped(h: Host, key: string): Promise<boolean> { return (((await h.ui.read()).retries as Record<string, number>) ?? {})[key] >= RETRIES + 1 }
 
