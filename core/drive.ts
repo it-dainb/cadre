@@ -79,7 +79,9 @@ subscribe(async (h, ev) => {
 // hard stop (both modes) or a stop by the human: the run waits for `drive resume`. What yolo decided quietly becomes a decision again: the human takes over.
 export async function stop(h: Host, why: string, cause?: StopCause): Promise<void> {
   const s = await h.board.read(); if (!s.drive.on || s.drive.stopped) return
-  await casDrive(h, await storeOf(h), r => (r?.on && !r.stopped ? { ...r, stopped: why, cause } : undefined)).catch(e => h.log(`drive stop not saved: ${e}`))
+  let won = true   // a stop already on the record keeps its own cause: each cause lifts only its own stop
+  const r = await casDrive(h, await storeOf(h), x => (x?.on && !x.stopped ? (won = true, { ...x, stopped: why, cause }) : ((won = false), undefined))).catch(e => (h.log(`drive stop not saved: ${e}`), undefined))
+  if (!won && r?.stopped) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: r.stopped, cause: r.cause, paused: undefined } })))
   await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: why, cause, paused: undefined } })); await driveEvent(h, 'stopped', why)
   const b = await h.board.read()
   for (const t of b.tasks) for (const f of t.flags) if (!(b.decisions ?? []).some(d => d.id === `flag:${t.id}:${f}`)) {
@@ -224,8 +226,9 @@ export async function arm(h: Host, mode: Mode): Promise<string> {
 // spawner). The drive's bounds and the task budget stay as they were: only `drive resume` is a fresh start.
 async function lift(h: Host): Promise<boolean> {
   const s = await h.board.read(), c = s.drive.cause, now = await h.now()
-  if (!s.drive.stopped || !c || (c.resetAt ? now < c.resetAt : !!s.tasks.find(t => t.id === c.taskId)?.flags.some(f => f.startsWith(c.flag)))) return false
-  await casDrive(h, await storeOf(h), r => (r?.stopped ? { ...r, stopped: undefined, cause: undefined } : undefined))
+  if (!s.drive.stopped || !c?.flag || (c.resetAt ? now < c.resetAt : !!s.tasks.find(t => t.id === c.taskId)?.flags.some(f => f.startsWith(c.flag)))) return false
+  let mine = false; await casDrive(h, await storeOf(h), r => (r?.stopped && JSON.stringify(r.cause) === JSON.stringify(c) ? ((mine = true), { ...r, stopped: undefined, cause: undefined }) : undefined))
+  if (!mine) return false   // the record holds another stop: it is not this cause's to lift
   await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: undefined, cause: undefined } })); await driveEvent(h, 'resumed', c.flag); return true
 }
 export async function kick(h: Host, force = false): Promise<void> {

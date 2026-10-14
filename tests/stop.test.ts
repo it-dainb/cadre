@@ -2,7 +2,7 @@
 // goes on by the one path: kick -> queueBrief -> main's turn end -> the spawner. No dialog answer, press or timer starts an agent itself.
 import { describe, expect, test } from 'claude-code/testing'
 import { world, type World } from './fixtures/replay/world'
-import { arm, watchdog } from '../core/drive'
+import { arm, kick, stop, watchdog } from '../core/drive'
 import { stopped } from '../core/close'
 import { decide } from '../commands/cadre'
 import { ROUTES } from '../core/dispatch'
@@ -60,5 +60,20 @@ describe('a usage limit: a stop with its reset time, no budget charged', () => {
     expect((await ROUTES.drive!(press, { schemaVersion: 1, cmd: 'drive', args: ['resume'], origin: { kind: 'press' } } as any)).text).toBe('drive resumed')
     expect(calls).toEqual([]); expect((await w.h.ui.read()).goal).toBeDefined()
     await w.turn(); expect(calls).toHaveLength(1)
+  })
+})
+
+describe('review fixes: one cause, one stop', () => {
+  test('a usage limit seen by a session whose board is not stopped yet keeps the record\'s cause; its reset does not lift the other stop', async () => {
+    const w = await redStopped(), [id] = w.ids, w2 = await world({ store: w.store, kv: w.kv, session: 's2' })
+    await w2.h.board.update(b => ({ ...b, epic: w.epic, plan: (b as any).plan ?? { id: w.epic, slug: 'service', state: 'approved', epicBranch: 'epic/p1-service', mode: 'yolo' }, drive: { ...b.drive, on: true, epicId: w.epic, mode: 'yolo' } }))
+    await stop(w2.h, 'usage limit until 00:15 UTC', { flag: 'limit', resetAt: 1 })   // the record already holds the red stop
+    expect((await w2.h.board.read()).drive).toMatchObject({ stopped: `blocked ${id}`, cause: { taskId: id, flag: 'red' } })
+  })
+  test('a cause with no flag never lifts by itself (no stop-resume churn)', async () => {
+    const w = await world(), [id] = w.ids; await arm(w.h, 'yolo')
+    await stop(w.h, `${id} is blocked with no question to answer`, { taskId: id } as any); await kick(w.h); await kick(w.h)
+    expect((await w.h.board.read()).drive.stopped).toBe(`${id} is blocked with no question to answer`)
+    expect(Object.values((await w.h.events.read()).epics).flat().filter(e => e.type === 'drive.status' && e.data.state === 'resumed')).toEqual([])
   })
 })

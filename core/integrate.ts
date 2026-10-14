@@ -8,9 +8,9 @@ import { ask, settleIf, yoloOn } from './decide'
 import { BLOCKING, epicNext } from './machine'
 import { cut, insert } from './changelog'
 import { modeOf } from './specview'
-import { casRef, checkRun, exists, git, op, tip, worktreeRemove, writableJail } from './git'
+import { casRef, checkRun, exists, git, ok, op, tip, worktreeRemove, writableJail } from './git'
 import { baseOf, baseRef, checkedOut, inferVersion, landDev, lastTag, mergeEpic, move, pendingRef, release, wtPath, wtRootOf } from './branches'
-import { clearKnownRed, repoKeyOf } from '../commands/init'
+import { clearKnownRed, repoKeyOf, scoped } from '../commands/init'
 import { redFix } from './drive'
 import { epicOf, freshen, isMs, stopEpic } from './milestone'
 import { coreLanded, refresh, refreshEpics, resolveTask, trial } from './rebase'
@@ -133,8 +133,9 @@ export async function releaseDev(h: Host, want?: string): Promise<string> {
   if (gf.length || bf) return no(`flag ${gf[0] ?? bf} is open; ask the human to resolve it in the cadre dialog first`)
   if (want && !/^\d+\.\d+\.\d+$/.test(want)) return no(`version "${want}": expected x.y.z`)
   const [root, cfg] = [await h.cwd(), await cfgOf(h)], dev = cfg.branches.dev
-  const main = cfg.branches.main || ((await exists(h.run, root, 'main')) ? 'main' : 'master')
+  const main = await mainOf(h, cfg, root)
   if (!(await exists(h.run, root, dev))) return no(`no ${dev} branch`)
+  for (const b of [dev, main]) await landPending(h, b).catch(() => null)   // what can land does (a stale one is cleared)
   const waits = (await Promise.all([dev, main].map(async b => ((await exists(h.run, root, pendingRef(b))) ? b : '')))).find(Boolean)
   if (waits) return no(`a landing on ${waits} waits for your checkout: land it first (the cadre dialog's Land)`)
   const devTip = await tip(h.run, root, dev), cl = await h.run(['git', '-C', root, 'show', `${devTip}:${cfg.changelog.path}`])
@@ -154,7 +155,7 @@ export async function releaseDev(h: Host, want?: string): Promise<string> {
   if (!(await op(h, () => move(h, dev, cdev, devTip)))) return no(`${dev} moved during release; retry`)
   let sha: string
   try { sha = await release(h, { dev, main, version, tmp: wtPath(await wtRootOf(h, cfg), key, `relm-${version}`), msg: `release v${version}` }) }
-  catch (e) { await op(h, () => move(h, dev, devTip, cdev)); return no(`merge into ${main} failed: ${(e as Error).message}; ${dev} restored`) }
+  catch (e) { await op(h, () => move(h, dev, devTip, cdev)); await landPending(h, dev).catch(() => null); return no(`merge into ${main} failed: ${(e as Error).message}; ${dev} restored`) }
   await offer(h, dev); await offer(h, main)   // a release that leaves main pending tags the commit the user's main gains on the click
   if (s.plan?.state === 'done-on-dev') await setPlan(h, 'release', { released: { version, at: await h.now() } })
   await h.ui.update(({ rel: _r, ...u }) => u); await settleIf(h, 'release:')
@@ -163,52 +164,58 @@ export async function releaseDev(h: Host, want?: string): Promise<string> {
 }
 ROUTES.release = async (h, c) => ({ text: await releaseDev(h, c.args[0]) })
 
+const mainOf = async (h: Host, cfg: any, root: string) => cfg.branches.main || ((await exists(h.run, root, 'main')) ? 'main' : 'master')
 // ---- H5: a landing that waits for the user's checkout (core/branches.move). One dialog offers to land it; it lands by itself once the branch is checked out nowhere. ----
 const ask1 = (h: Host, b: string, line: string) => ask(h, { id: `pending:${b}`, kind: 'flag', title: `${b} has new work for your checkout`, hash: fnv1a64(line), tab: 'epic', lines: [line, 'Land: bring it into your checkout now (your own commits and edits are kept).'], options: [{ key: 'l', label: 'Land', verb: 'change', run: `land ${b}` }] })
 async function offer(h: Host, b: string) { if (await exists(h.run, await h.cwd(), pendingRef(b))) await ask1(h, b, `cadre did not move ${b}: you have it checked out.`) }
 // (2) the user committed on b meanwhile: their commit is never dropped; the landing re-integrates onto it through the gates (trial merge, suites); (1) the click:
 // HEAD is b and b is the base: a fast-forward moves ref, index and files together (it refuses on conflicting local edits). Checked out nowhere: it lands by CAS.
+// A failed re-integration (a conflict or red checks on the user's commits) is remembered by its inputs {pending, base, the user's tip}: the tick does not try it
+// again until one of them moves, or the user presses Land. The suites run outside the git lock.
 export async function landPending(h: Host, b: string, click = false): Promise<string | null> {
-  const root = await h.cwd(), cfg = await cfgOf(h), P = pendingRef(b)
+  const root = await h.cwd(), cfg = await cfgOf(h), P = pendingRef(b), K = await scoped(h, `land:${b}`)
   for (let round = 0; round < 3; round++) {
     if (!(await exists(h.run, root, P))) return null
-    const [sha, base, cur, wt] = [await tip(h.run, root, P), await tip(h.run, root, baseRef(b)), await tip(h.run, root, b), await checkedOut(h, b)]
+    const [sha, base, cur] = [await tip(h.run, root, P), await tip(h.run, root, baseRef(b)), await tip(h.run, root, b)], key = `${sha} ${base} ${cur}`
+    if (sha === cur) return clean(h, b)   // nothing left to land (a rolled-back release)
     if (round === 2) break
     if (cur !== base) {
+      if (!click && (await h.store.get(K)) === key) return 'held'
       const tmp = wtPath(await wtRootOf(h, cfg), repoKeyOf(root), `land-${b.replace(/\W/g, '-')}`), c = await trial(h, root, cur, sha)
-      if (c?.length) { await ask1(h, b, `your commits on ${b} conflict with the landing in ${c.join(', ')}: resolve them on ${b}, then Land.`); return 'conflict' }
-      const why = await op(h, async () => {
-        await git(h.run, root, ['worktree', 'add', '--detach', tmp, cur])
-        try {
-          await git(h.run, tmp, ['merge', '--no-ff', '--no-verify', '-m', `merge the landing into your ${b}`, sha])
-          const next = await tip(h.run, tmp, 'HEAD'), red = await runSuites(h, cfg, tmp, (await git(h.run, tmp, ['diff', '--name-only', `${cur}..${next}`])).split('\n').filter(Boolean), '')
-          if (red) return red
-          if (await casRef(h.run, root, P, next, sha)) await git(h.run, root, ['update-ref', baseRef(b), cur])
-          return null
-        } finally { await worktreeRemove(h.run, root, tmp).catch(() => {}) }
-      })
-      if (why) { await ask1(h, b, `the landing does not pass its checks on your ${b}: ${why.slice(0, 200)}`); return 'red' }
+      let why = c?.length ? `your commits on ${b} conflict with the landing in ${c.join(', ')}: resolve them on ${b}, then Land.` : null
+      if (!why) {
+        const next = await op(h, async () => { await git(h.run, root, ['worktree', 'add', '--detach', tmp, cur]); await git(h.run, tmp, ['merge', '--no-ff', '--no-verify', '-m', `merge the landing into your ${b}`, sha]); return tip(h.run, tmp, 'HEAD') }).catch((x: Error) => x)
+        const red = next instanceof Error ? next.message : await runSuites(h, cfg, tmp, (await git(h.run, tmp, ['diff', '--name-only', `${cur}..${next}`])).split('\n').filter(Boolean), '')
+        await op(h, () => worktreeRemove(h.run, root, tmp)).catch(() => {})
+        if (red) why = `the landing does not pass its checks on your ${b}: ${red.slice(0, 200)}`
+        else if (await op(h, () => casRef(h.run, root, P, next as string, sha))) await git(h.run, root, ['update-ref', baseRef(b), cur])
+      }
+      if (why) { await h.store.set(K, key); await ask1(h, b, why); return 'held' }
       continue
     }
+    const wt = await checkedOut(h, b)
     if (!wt) { if (await op(h, () => casRef(h.run, root, `refs/heads/${b}`, sha, cur))) return clean(h, b); continue }   // checked out nowhere: it lands by itself
     if (!click) return 'waits'
-    const r = await op(h, () => h.run(['git', '-C', wt, 'merge', '--ff-only', sha]))
+    const r = await op(h, async () => (await h.run(['git', '-C', wt, 'symbolic-ref', '-q', 'HEAD'])).stdout.trim() !== `refs/heads/${b}` || (await tip(h.run, wt, 'HEAD')) !== cur ? null : h.run(['git', '-C', wt, 'merge', '--ff-only', sha]))   // the worktree still has b at the base, checked under the lock
+    if (!r) continue
     if (r.exitCode) { await ask1(h, b, `your uncommitted edits touch the same files as the landing: commit or stash them, then Land. ${r.stderr.trim().slice(0, 120)}`); return 'edits' }
     return clean(h, b)
   }
   await ask1(h, b, `${b} kept moving while it landed: Land again.`); return 'moved'
 }
 async function clean(h: Host, b: string) {
-  const root = await h.cwd(), cfg = await cfgOf(h); for (const r of [pendingRef(b), baseRef(b)]) await git(h.run, root, ['update-ref', '-d', r]); await settleIf(h, `pending:${b}`)
+  const root = await h.cwd(), cfg = await cfgOf(h); for (const r of [pendingRef(b), baseRef(b)]) await git(h.run, root, ['update-ref', '-d', r]); await h.store.del(await scoped(h, `land:${b}`)); await settleIf(h, `pending:${b}`)
   if (b === cfg.branches.dev && (await h.board.read()).plan?.state === 'done-on-dev' && cfg.release.onEpicDone === 'propose') await propose(h, root, b)
   return null
 }
 // the next landing, session start and the 5 s tick: what waits lands where it can; a dev the user moved is merged into the running plan, and its workers get it
 export async function autoLand(h: Host): Promise<void> {
   const cfg = await cfgOf(h), root = await h.cwd(), s = await h.board.read()
-  for (const b of [cfg.branches.dev, cfg.branches.main || 'main']) await landPending(h, b)
+  for (const b of [cfg.branches.dev, await mainOf(h, cfg, root)]) await landPending(h, b)
   if (s.plan?.state !== 'approved' || isMs(s.plan) || !(await exists(h.run, root, s.plan.epicBranch))) return
-  const was = await tip(h.run, root, s.plan.epicBranch); await freshen(h, root, s.plan.epicBranch, await baseOf(h, cfg.branches.dev), wtPath(await wtRootOf(h, cfg), repoKeyOf(root), 'freshen'))
-  const now = await tip(h.run, root, s.plan.epicBranch); if (now !== was) await refresh(h, await resolveDeps(h), now, '')
+  const was = await tip(h.run, root, s.plan.epicBranch), dev = await baseOf(h, cfg.branches.dev), pair = `${await tip(h.run, root, dev)} ${was}`, K = await scoped(h, 'freshen')
+  if ((await h.store.get(K)) === pair) return   // that dev did not merge into this plan cleanly: tried once, again when either moves
+  await freshen(h, root, s.plan.epicBranch, dev, wtPath(await wtRootOf(h, cfg), repoKeyOf(root), 'freshen'))
+  const now = await tip(h.run, root, s.plan.epicBranch); if (now !== was) await refresh(h, await resolveDeps(h), now, ''); else if (!(await ok(h.run, root, ['merge-base', '--is-ancestor', dev, now]))) await h.store.set(K, pair)
 }
 ROUTES.land = async (h, c) => ({ text: (await landPending(h, c.args[0] ?? (await cfgOf(h)).branches.dev, true)) ? 'not landed: the dialog says why' : `${c.args[0]}: landed into your checkout` })

@@ -128,3 +128,39 @@ test('a dev commit mid-run: the plan takes it and its running workers get it; th
   assert.equal(sh(d, 'show', `epic/${e}-x:v.txt`), 'v'); assert.equal(sh(d, 'show', 'feat/t1:v.txt'), 'v'); assert.equal(read(wt, 'v.txt'), 'v\n')
   assert.equal(read(d, 'u.txt'), 'editing\n')
 })
+
+// ---- review fixes ----
+const suites = w => { const calls = []; const r0 = w.h.run; w.h.run = async (argv, o) => { if (argv.join(' ').includes('red-check')) calls.push(1); return r0(argv, o) }; return calls }
+test('a red commit of the user under a waiting landing: the suites run once, not on every tick; again when the user commits once more', async () => {
+  const w = await world(), { d } = w; w.cfg.packages = [{ root: '.', setup: ['true'], checks: { test: ['sh', '-c', 'test ! -f bad.txt', 'red-check'] } }]
+  sh(d, 'checkout', '-q', 'dev'); assert.equal(await integrateEpic(w.h, await w.plan('c.txt')), null)
+  commit(d, 'bad.txt', 'x\n', 'chore: red'); sh(d, 'checkout', '-q', 'main')   // checked out nowhere: the tick would land it, but the merged tree is red
+  const n = suites(w); for (let i = 0; i < 4; i++) await autoLand(w.h)
+  assert.equal(n.length, 1); assert.ok(ok(d, 'rev-parse', '--verify', pendingRef('dev'))); assert.deepEqual((await w.h.board.read()).decisions.map(x => x.id), ['pending:dev'])
+  sh(d, 'checkout', '-q', 'dev'); sh(d, 'rm', '-q', 'bad.txt'); sh(d, 'commit', '-qm', 'fix: green again'); sh(d, 'checkout', '-q', 'main')
+  await autoLand(w.h); assert.equal(n.length, 2); assert.equal(sh(d, 'show', 'dev:c.txt'), 'c.txt'); assert.equal(ok(d, 'rev-parse', '--verify', '-q', pendingRef('dev')), false)
+})
+test('a dev that does not merge into the running plan is tried once, not on every tick', async () => {
+  const w = await world(), { d } = w, e = await w.plan('c.txt'); sh(d, 'checkout', '-q', 'dev'); commit(d, 'c.txt', 'mine\n', 'docs: other c'); sh(d, 'checkout', '-q', 'main')
+  const merges = []; const r0 = w.h.run; w.h.run = async (argv, o) => { if (argv.includes('merge') && argv.join(' ').includes('into epic/')) merges.push(1); return r0(argv, o) }
+  for (let i = 0; i < 3; i++) await autoLand(w.h)
+  assert.equal(merges.length, 1); assert.equal(sh(d, 'show', `epic/${e}-x:c.txt`), 'c.txt')
+})
+test('a pending landing equal to the branch (a release rolled back) is cleared, and does not refuse the next release', async () => {
+  const w = await world(), { d } = w; sh(d, 'checkout', '-q', 'dev'); const tipDev = sh(d, 'rev-parse', 'dev')
+  sh(d, 'update-ref', pendingRef('dev'), tipDev); sh(d, 'update-ref', 'refs/cadre/base/dev', tipDev)
+  assert.doesNotMatch(await releaseDev(w.h), /waits for your checkout/); assert.equal(ok(d, 'rev-parse', '--verify', '-q', pendingRef('dev')), false)
+})
+test('the Land click re-checks the worktree under the lock: a branch it was switched to is never fast-forwarded', async () => {
+  const w = await world(), { d } = w, wt2 = `${d}-two`; sh(d, 'worktree', 'add', '-q', wt2, 'dev'); assert.equal(await integrateEpic(w.h, await w.plan('c.txt')), null)
+  const other = sh(wt2, 'rev-parse', 'HEAD'); let once = false; const r0 = w.h.run
+  w.h.run = async (argv, o) => { const r = await r0(argv, o); if (!once && argv.join(' ').includes('worktree list')) { once = true; sh(wt2, 'checkout', '-q', '-b', 'other') } return r }   // the user switches right after cadre looked
+  await w.land()
+  assert.equal(sh(d, 'rev-parse', 'other'), other); assert.equal(sh(d, 'show', 'dev:c.txt'), 'c.txt')   // dev landed by itself (checked out nowhere now); `other` untouched
+})
+test('a repo whose main branch is master: a landing waiting on it lands by itself too', async () => {
+  const w = await world(), { d } = w; sh(d, 'branch', '-m', 'main', 'master'); sh(d, 'checkout', '-q', '--detach')
+  const was = sh(d, 'rev-parse', 'master'); sh(d, 'checkout', '-q', '-b', 'tmp-ahead'); commit(d, 'm.txt', 'm\n', 'chore: ahead'); const ahead = sh(d, 'rev-parse', 'HEAD'); sh(d, 'checkout', '-q', '--detach')
+  sh(d, 'update-ref', pendingRef('master'), ahead); sh(d, 'update-ref', 'refs/cadre/base/master', was)
+  await autoLand(w.h); assert.equal(sh(d, 'rev-parse', 'master'), ahead); assert.equal(ok(d, 'rev-parse', '--verify', '-q', pendingRef('master')), false)
+})
