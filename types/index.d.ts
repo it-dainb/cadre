@@ -37,12 +37,14 @@ export interface Decision {
   change?: string; quiet?: true              // change: the prefix main gets with the dialog's free text (default `About "<title>": `) · quiet: never pops by itself (a progress card)
 }
 export interface DecisionField { key: string; label: string; value?: string }   // value = prefill
+// what stopped a drive (core/drive.stop): a task's flag (its dialog's answer clears it) or a usage limit (it resets at resetAt); none: only `drive resume` lifts it
+export interface StopCause { taskId?: string; flag: string; resetAt?: number }
 // The board snapshot = the read model.
 export interface Snapshot {
   schemaVersion: 1; seq: number; repo: string; mission: string | null; epic: string | null
   plan: Plan | null; tasks: SnapTask[]
   approval: { planId: string | null; missing: string[] }
-  drive: { on: boolean; level: 'epic'; epicId: string | null; turns: number; costUsd: number; startedAt: number | null; paused?: string; heldBy?: string
+  drive: { on: boolean; level: 'epic'; epicId: string | null; turns: number; costUsd: number; startedAt: number | null; paused?: string; heldBy?: string; cause?: StopCause
     mode?: 'auto' | 'yolo'; spawn?: 'mod'; planner?: 'agent'; stopped?: string; maxTurns?: number; maxUsd?: number; maxMinutes?: number; costUnknown?: boolean }   // core/drive: paused = waiting on a gate (lifts by itself); stopped = needs `drive resume`
   sync: { target: string; state: 'ok' | 'offline' | 'conflict' | 'auth'; pending: number; at: number }[]
   cost: { tokens: number; usd?: number; cachePct?: number }

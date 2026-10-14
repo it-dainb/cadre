@@ -1,6 +1,6 @@
 // Replays of field failures (plan 0.14 §3.1, Replays): each row drives the real handlers with the event sequence that went wrong, on a synthetic world
-// (tests/fixtures/replay), and asserts what must hold now. Its fix commit's own test stays as the twin. A `known` row replays a failure whose slice has not
-// landed: it must still fail, and the suite fails once it passes while still marked (drop the marker then).
+// (tests/fixtures/replay), and asserts what must hold now. Its fix commit's own test stays as the twin. (A row whose fix had not landed was marked known and
+// had to fail until it did; none is left.)
 import { describe, expect, test } from 'claude-code/testing'
 import { PASS, world, type World } from './fixtures/replay/world'
 import { arm, watchdog, IDLE } from '../core/drive'
@@ -17,11 +17,6 @@ import { setupWorld } from './fixtures/replay/setup'
 import { classify, step } from '../core/lifecycle'
 import { EPIC } from './fixtures/readmodel/snapshot.golden'
 
-async function known(slice: string, f: () => Promise<unknown>) {
-  let passed = false
-  try { await f(); passed = true } catch {}
-  if (passed) throw new Error(`this row passes now: ${slice} landed, remove its known marker`)
-}
 const roles = (w: { spawned: [string, string, string][] }) => w.spawned.map(x => x[2])
 const CHANGES = { role: 'reviewer', verdict: 'changes', summary: 'fix it', findings: [{ severity: 'major', file: 'src/a.ts', issue: 'wrong answer' }], coverage: [{ scenario: 'S1', ok: false }], contractStatus: [] }
 // mod mode: the spawner claims each task (worker agN), every worker reports done, the next turn end starts the reviewers
@@ -85,6 +80,8 @@ describe('replays 1-11: the field failures', () => {
     expect(await w.state('ag1')).toEqual({ state: 'idle-bound' })
     const r = await send(w.h, { to: 'ag1', text: 'now implement it' }, async () => ({ isDelivered: true })) as any
     expect(r.isDelivered).toBe(false); expect(w.sent).toEqual([])
+    await arm(w.h, 'auto'); await w.h.board.update(s => ({ ...s, tasks: s.tasks.map(t => ({ ...t, step: 'tester' })) }))   // mod mode: even an agent at its own step is cadre's to resume
+    expect((await send(w.h, { to: 'ag1', text: 'how is it going?' }, async () => ({ isDelivered: true })) as any).isDelivered).toBe(false)
   })
   test('#8 a stop mid-approval counts the lite plan\'s own task; a second task for the same work is refused', async () => {
     const w = await native()
@@ -102,12 +99,13 @@ describe('replays 1-11: the field failures', () => {
     const cards = async () => ((await w.h.board.read()).decisions ?? []).filter(d => d.id.startsWith('plan:'))
     expect(await cards()).toEqual([]); await mainTurn(w.h, false); expect(await cards()).toHaveLength(1)
   })
-  test('#10 known until L4: yolo, a red stop, Retry: the drive resumes and a tester starts', async () => {
+  test('#10 yolo, a red stop, Retry: the drive resumes and a tester starts', async () => {
     const w = await world({ type: 'feature', pkg: RED_PKG, drive: 'yolo' }), [id] = w.ids; await arm(w.h, 'yolo'); await w.at('ag1', id, 'tester')
     await w.rep('ag1', { role: 'tester', outcome: 'done', summary: 's', tests: TESTS }); await w.turn()
     expect((await w.h.board.read()).drive.stopped).toBeDefined()
     const d = (await w.h.board.read()).decisions!.find(x => x.id === `flag:${id}:red`)!; expect((await decide(w.h, d.id, 'r', d.hash)).text).toContain('back to the tester')
-    await known('L4', async () => { expect((await w.h.board.read()).drive.stopped).toBeUndefined(); await w.turn(); expect(roles(w)).toContain('cadre:tester') })
+    expect((await w.h.board.read()).drive.stopped).toBeUndefined(); expect((await w.h.ui.read()).goal).toBeDefined()   // lifted; main gets a turn (no dialog frame starts an agent)
+    await w.turn(); expect(roles(w)).toContain('cadre:tester')   // main's turn end: the spawner
   })
   test('#11 "Let Claude try again" never refills the stop refusals', async () => {
     const { h, tick, card } = setupWorld(); await start(h, 'init'); await tick()

@@ -2,7 +2,7 @@
 // cadre-control, meta cadre.drive with lease {session, until}: A30 read-check-write), the /goal observer. Gate policy: auto pauses on the critical list and resumes
 // after the answer; yolo lets main decide spec changes and blocked questions (recorded) and stops where auto would ask. Hard stops in both: an agent moved a protected
 // branch, containment broke, a settings file changed, a bound. `paused` = waiting on a gate (lifts by itself); `stopped` = needs `drive resume`.
-import type { Hook, Host, Snapshot } from '../types'
+import type { Hook, Host, Snapshot, StopCause } from '../types'
 import { StoreError, type TaskStore } from '../task-management/store'
 import { controlOf } from '../task-management/sync-engine/loop'
 import { pipeOf } from '../task-management/registry'
@@ -19,7 +19,7 @@ import { isMs, stopEpic } from './milestone'
 
 export const LEASE = 600_000
 export type Mode = 'auto' | 'yolo'
-interface DriveRec { on: boolean; level: 'epic'; epicId: string; mode?: Mode; stopped?: string; ei?: Record<string, [number, number]>; turns: number; cost: number; last: number; sess: string; startedAt: number; lastSeq: number; idle: number; set?: string; cont?: string; lease: { session: string; until: number } }
+interface DriveRec { on: boolean; level: 'epic'; epicId: string; mode?: Mode; stopped?: string; cause?: StopCause; ei?: Record<string, [number, number]>; turns: number; cost: number; last: number; sess: string; startedAt: number; lastSeq: number; idle: number; set?: string; cont?: string; lease: { session: string; until: number } }
 // CAS on the control issue: fn sees the current record and returns the next one (undefined = no write); a revision race retries (sync writes the same issue)
 export async function casDrive(h: Host, store: TaskStore, fn: (r: DriveRec | undefined) => DriveRec | undefined): Promise<DriveRec | undefined> {
   const ctl = await controlOf(h, store)
@@ -77,10 +77,10 @@ subscribe(async (h, ev) => {
   if (ev.type === 'flag.raised' && fl !== 'spec_change' && fl !== 'blocked' && !holds(fl) && yoloOn((await h.board.read()).drive)) await decided(h, 'flag', `${tid} flagged ${fl}: left on the task; the run goes on`, tid)
 })
 // hard stop (both modes) or a stop by the human: the run waits for `drive resume`. What yolo decided quietly becomes a decision again: the human takes over.
-export async function stop(h: Host, why: string): Promise<void> {
+export async function stop(h: Host, why: string, cause?: StopCause): Promise<void> {
   const s = await h.board.read(); if (!s.drive.on || s.drive.stopped) return
-  await casDrive(h, await storeOf(h), r => (r?.on && !r.stopped ? { ...r, stopped: why } : undefined)).catch(e => h.log(`drive stop not saved: ${e}`))
-  await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: why, paused: undefined } })); await driveEvent(h, 'stopped', why)
+  await casDrive(h, await storeOf(h), r => (r?.on && !r.stopped ? { ...r, stopped: why, cause } : undefined)).catch(e => h.log(`drive stop not saved: ${e}`))
+  await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: why, cause, paused: undefined } })); await driveEvent(h, 'stopped', why)
   const b = await h.board.read()
   for (const t of b.tasks) for (const f of t.flags) if (!(b.decisions ?? []).some(d => d.id === `flag:${t.id}:${f}`)) {
     if (f === 'spec_change') { await specAsk(h, t.id, (await (await storeOf(h)).get(t.id).catch(() => null))?.meta['cadre.specChange'] ?? ''); continue }   // the card auto shows: the worker's reason on it
@@ -89,11 +89,10 @@ export async function stop(h: Host, why: string): Promise<void> {
 }
 
 // the gate in front of the epic: pause (auto: the human answers in the dialog) or stop (yolo, where auto would ask; an agent moving a protected branch in both)
-type Gate = { pause?: string; stop?: string } | null
+type Gate = { pause?: string; stop?: string; cause?: StopCause } | null
 async function gate(h: Host, s: Snapshot, mode: Mode): Promise<Gate> {
-  const y = mode === 'yolo', hold = (why: string): Gate => (y ? { stop: why } : { pause: why })
+  const y = mode === 'yolo', hold = (why: string, cause?: StopCause): Gate => (y ? { stop: why, cause } : { pause: why })
   if (s.approval.planId) return { pause: `approve ${s.approval.planId}` }
-  const lim = Number((await h.ui.read()).limit) || 0; if (lim > (await h.now())) return { pause: `usage limit until ${new Date(lim).toISOString().slice(11, 16)} UTC` }   // both modes; it lifts by itself (the watchdog kicks)
   const gf = Object.keys((await h.git.read()).flags ?? {}).filter(k => k.startsWith('git:') || k.startsWith('quarantine'))
   if (gf[0]) return hold(`resolve ${gf[0]}`)
   const stuck = new Set(s.tasks.filter(t => t.state === 'blocked').map(t => t.id))   // a blocked task parks: while other work does not depend on it, the run goes on (ADR 0014 G); it holds once nothing else can move
@@ -102,9 +101,9 @@ async function gate(h: Host, s: Snapshot, mode: Mode): Promise<Gate> {
   for (const t of s.tasks.filter(t => t.state === 'blocked')) {
     if (goes && t.flags.length) continue
     if (!t.flags.length) return s.drive.paused === `blocked ${t.id}` ? { stop: `${t.id} is blocked with no question to answer` } : { pause: `blocked ${t.id}` }   // its flag lands right after the block (a report in flight, live): wait one turn for it, then stop (no endless quiet pause)
-    if (!y || !t.flags.some(f => f === 'spec_change' || f === 'blocked')) return hold(`blocked ${t.id}`)   // yolo: main decides those two
+    if (!y || !t.flags.some(f => f === 'spec_change' || f === 'blocked')) return hold(`blocked ${t.id}`, { taskId: t.id, flag: t.flags[0] })   // yolo: main decides those two
   }
-  const f = s.tasks.filter(t => !(goes && t.state === 'blocked')).flatMap(t => t.flags).find(x => BLOCKING.test(x) || x.startsWith('rework:')); if (f) return hold(`resolve ${f}`)
+  const f = s.tasks.filter(t => !(goes && t.state === 'blocked')).flatMap(t => t.flags).find(x => BLOCKING.test(x) || x.startsWith('rework:')); if (f) return hold(`resolve ${f}`, { taskId: s.tasks.find(t => t.flags.includes(f))!.id, flag: f.startsWith('rework:') ? 'rework:' : f })
   if (s.plan?.flags?.length) return hold(`resolve ${s.plan.flags[0]}`)
   const es = s.plan?.epics ?? [], st = es.find(e => e.state === 'stopped')   // a stopped epic (ADR 0015): auto waits for the human; yolo goes on with the independent epics while any can move
   if (st && (!y || !es.some(e => ['waiting', 'ready', 'planning', 'running'].includes(e.state)))) return hold(`epic ${st.id} stopped: ${st.why ?? ''}`.trim())
@@ -139,10 +138,10 @@ export async function ready(h: Host): Promise<DriveRec | null> {
   const rec = await casDrive(h, store, () => undefined)
   if (!rec?.on || rec.epicId !== s.epic) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, on: false } }))), null
   if (held(rec, me, now)) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, heldBy: rec.lease.session } }))), null
-  if (rec.stopped) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: rec.stopped } }))), null
+  if (rec.stopped) return void (await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: rec.stopped, cause: rec.cause } }))), null
   const hard = await hardStop(h, rec); if (hard) return void (await stop(h, hard)), null
   const g = await gate(h, s, mode)
-  if (g?.stop) return void (await stop(h, g.stop)), null
+  if (g?.stop) return void (await stop(h, g.stop, g.cause)), null
   if (g?.pause) return void (await pause(h, g.pause)), null
   if (d.paused) { await h.board.update(x => ({ ...x, drive: { ...x.drive, paused: undefined } })); await driveEvent(h, 'running') }
   return rec
@@ -193,18 +192,19 @@ export async function idle(h: Host): Promise<boolean> {
 }
 // the timer (5 s): mod mode stalled with work to start (an agent that died without a turn end, a lease that lapsed, a usage limit that reset): the idle fallback once nothing happened for 2 min, counted as a turn (the no-progress bound ends a loop of them)
 export async function watchdog(h: Host): Promise<void> {
+  if ((await h.board.read()).drive.cause?.resetAt) return kick(h)   // a usage limit: the run goes on once it resets
   const now = await h.now(), u = await h.ui.read()
   if (u.idleAt === undefined || !(await idle(h))) return void (await h.ui.update(x => ({ ...x, idleAt: now })))   // the window starts at the last sign of life (a spawner step resets it too)
   if (u.goal || now - Number(u.idleAt) < 120_000 || !(await ready(h)) || !(await tally(h, await cfgOf(h), undefined, 1))) return
   await h.ui.update(x => ({ ...x, idleAt: now })); await queueBrief(h, IDLE)
 }
-// an agent's turn that died on an API error while a usage window is full (or says so): the reset time, else null. Not an attempt: the drive pauses until then.
+// an agent's turn that died on an API error while a usage window is full (or says so): the reset time, else null. It charges no budget: the drive stops until then.
 export async function limited(h: Host, e: { reason?: string; answer?: string }): Promise<number | null> {
   if (e.reason !== 'error') return null
   const hit = ((await h.usage?.().catch(() => undefined))?.rateLimits ?? []).filter(r => r.percentUsed >= 100), now = await h.now()
   if (!hit.length && !/usage limit|rate limit|\b429\b/i.test(String(e.answer ?? ''))) return null
   const until = Math.max(now + 15 * 60_000, ...hit.map(r => Date.parse(r.resetsAt ?? '') || 0))
-  await h.ui.update(u => ({ ...u, limit: until })); await pause(h, `usage limit until ${new Date(until).toISOString().slice(11, 16)} UTC`); return until
+  await stop(h, `usage limit until ${new Date(until).toISOString().slice(11, 16)} UTC`, { flag: 'limit', resetAt: until }); return until   // lifts by itself at resetAt (the watchdog kicks), or by drive resume
 }
 
 // arm at approval (core/dispatch.approve, both modes). Submits nothing: the approval brief starts main, drive continues at each turn.complete.
@@ -220,12 +220,21 @@ export async function arm(h: Host, mode: Mode): Promise<string> {
   await DRIVE.sync?.(h); await driveEvent(h, 'armed', mode); return `drive ${mode} on${why}`   // the spawn mode first (core/spawner): the approval brief reads it
 }
 // after the human answered a dialog (core/dispatch.answer) or resumed: a drive that waited on a gate hands main the next step (main may be idle: nothing else would)
+// a stop whose cause is gone (its task's flag was answered, its usage limit reset) lifts: the run goes on by the usual path (kick -> queueBrief -> main's turn end -> the
+// spawner). The drive's bounds and the task budget stay as they were: only `drive resume` is a fresh start.
+async function lift(h: Host): Promise<boolean> {
+  const s = await h.board.read(), c = s.drive.cause, now = await h.now()
+  if (!s.drive.stopped || !c || (c.resetAt ? now < c.resetAt : !!s.tasks.find(t => t.id === c.taskId)?.flags.some(f => f.startsWith(c.flag)))) return false
+  await casDrive(h, await storeOf(h), r => (r?.stopped ? { ...r, stopped: undefined, cause: undefined } : undefined))
+  await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: undefined, cause: undefined } })); await driveEvent(h, 'resumed', c.flag); return true
+}
 export async function kick(h: Host, force = false): Promise<void> {
+  if (await lift(h)) force = true
   const s = await h.board.read(), d = s.drive
   if (!d.on || d.stopped || (!d.paused && !force) || !s.plan || s.plan.state !== 'approved') return
   const store = await storeOf(h), rec = await casDrive(h, store, () => undefined)
   const why = (await hardStop(h, rec)) ?? (rec ? boundOf(rec, scaled((await cfgOf(h)).drive, s), rec.cost ?? 0, rec.idle, await h.now()) : null); if (why) return stop(h, why)
-  const g = await gate(h, s, d.mode ?? 'auto'); if (g?.stop) return stop(h, g.stop); if (g?.pause) return pause(h, g.pause)   // the gate still stands: say so (a resume that stalls quietly reads as running)
+  const g = await gate(h, s, d.mode ?? 'auto'); if (g?.stop) return stop(h, g.stop, g.cause); if (g?.pause) return pause(h, g.pause)   // the gate still stands: say so (a resume that stalls quietly reads as running)
   if (d.paused) { await h.board.update(x => ({ ...x, drive: { ...x.drive, paused: undefined } })); await driveEvent(h, 'running') }
   const nx = nextAction(modelView(s), await idleOf(h, s), modOn(s)), own = nx !== 'wait' && nx !== RUNS; if ((await h.ui.read()).goal || (!own && !(await idle(h)))) return
   const n = await casDrive(h, store, r => r && { ...r, turns: r.turns + 1 }); await h.board.update(x => ({ ...x, drive: { ...x.drive, turns: n?.turns ?? x.drive.turns } }))   // a push is a turn: the bound counts it
@@ -237,9 +246,9 @@ export async function resume(h: Host): Promise<string> {
   const store = await storeOf(h), me = await sessionOf(h), now = await h.now(), usd = (await h.usage?.().catch(() => undefined))?.cost?.usd ?? 0, set = await settingsHash(h)
   const old = await casDrive(h, store, () => undefined), keep = old?.mode === 'yolo'   // yolo keeps the baseline taken at approval: a resume never blesses a changed setting or a broken sandbox
   const hard = keep ? await hardStop(h, old) : null; if (hard) return `drive could not resume: ${hard}; undo it first, or finish the plan yourself`
-  const r = await casDrive(h, store, x => (x?.on && x.epicId === s.epic && x.stopped && !held(x, me, now) ? { ...x, stopped: undefined, turns: 0, idle: 0, cost: 0, last: usd, sess: me, startedAt: now, set: keep ? x.set : set, cont: keep ? x.cont : s.containment.state, lease: { session: me, until: now + LEASE } } : undefined))
+  const r = await casDrive(h, store, x => (x?.on && x.epicId === s.epic && x.stopped && !held(x, me, now) ? { ...x, stopped: undefined, cause: undefined, turns: 0, idle: 0, cost: 0, last: usd, sess: me, startedAt: now, set: keep ? x.set : set, cont: keep ? x.cont : s.containment.state, lease: { session: me, until: now + LEASE } } : undefined))
   if (!r || r.stopped) return 'drive could not resume: another session holds it'
-  await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: undefined, paused: undefined, turns: 0, costUsd: 0, startedAt: now } }))   // a resume is a fresh budget: the human chose to go on
+  await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: undefined, cause: undefined, paused: undefined, turns: 0, costUsd: 0, startedAt: now } }))   // a resume is a fresh budget: the human chose to go on
   await driveEvent(h, 'resumed'); await kick(h, true); return 'drive resumed'
 }
 DRIVE.arm = arm; DRIVE.kick = h => kick(h); DRIVE.humanWrite = humanWrite; DRIVE.decided = decided

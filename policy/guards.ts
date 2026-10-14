@@ -167,7 +167,8 @@ export const send: Hook = async (h, e, next) => {
   const b = (await h.bind.read())
   const own = (e.agentId && b[e.agentId]) || b[e.to]
   if (!own || (await h.ui.read()).drainTo === e.to) return next(e)   // cadre's own queued resume (core/reuse.sendMine) is exempt
-  const ts = (await h.board.read()).tasks, t = ts.find(x => x.id === own.taskId)
+  const s = await h.board.read(), ts = s.tasks, t = ts.find(x => x.id === own.taskId)
+  if (!e.agentId && b[e.to] && s.drive.on && !s.drive.stopped && s.drive.spawn === 'mod') return { isDelivered: false, reason: modelText('deny', 'cadre resumes this agent when its task needs it; do not message it') }   // mod mode: main never messages an agent (ADR 0024 §2.6)
   // main messaging an agent whose step is over (live: it re-prompted the finished tester as if it were the worker, then stopped): the next step is a NEW agent
   if (!e.agentId && b[e.to] && t && t.step !== own.step) return { isDelivered: false, reason: modelText('deny', `${t.id}'s ${own.role} has finished; do not message it. ${t.step === 'merge' ? `Complete TASK-${t.id} (TaskUpdate ${t.id} completed)` : `Start the next agent with Agent prompt "TASK-${t.id}"`}`) }
   const known = new Set(ts.map(x => x.id))

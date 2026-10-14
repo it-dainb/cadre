@@ -159,7 +159,7 @@ async function verdict(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
       await decided(h, 'rework', `${t.id} cancelled: review asked for changes ${n} times (limit ${max})`, t.id)
       return `verdict accepted: changes (${n}/${max}); the task is over its limit and was cancelled. Stop.`
     }
-    await stop(h, `${t.id} failed review ${n} times and ${need.join(', ')} need${need.length === 1 ? 's' : ''} it`)
+    await stop(h, `${t.id} failed review ${n} times and ${need.join(', ')} need${need.length === 1 ? 's' : ''} it`, { taskId: t.id, flag: 'rework:' })
   }
   await d.store.resume(t.id, d.actor); await d.store.setMeta(t.id, { 'cadre.step': 'worker', 'cadre.review': '' }, d.actor)
   await clear(h, t.id, 'rework:'); if (n > max) await raise(h, t.id, `rework:${n}/${max}`)
@@ -342,7 +342,7 @@ async function decide(h: Host, d: Deps, id: string, text: string): Promise<strin
     if (!y) return `${id} awaits a spec change decision: the human accepts or rejects it in the cadre dialog`
     const m = /^\s*(accept|reject)\s*:\s*(\S[\s\S]*)$/i.exec(text); if (!m) return `${id}: metadata.decision must be "accept: <reason>" or "reject: <reason>"`   // the exact word and a colon: "acceptable… reject: …" must never read as accept
     const how = m[1].toLowerCase(), n = Number(meta['cadre.specAccepts'] || 0)
-    if (how === 'accept' && n >= 2) { const w = `${id} asked to change its locked spec ${n + 1} times`; await stop(h, w); return `${id}: the run stopped (${w}); the user decides this task in the cadre dialog now. Stop and wait.` }   // accept, rewind, accept… never counts as no progress: cap it
+    if (how === 'accept' && n >= 2) { const w = `${id} asked to change its locked spec ${n + 1} times`; await stop(h, w, { taskId: id, flag: 'spec_change' }); return `${id}: the run stopped (${w}); the user decides this task in the cadre dialog now. Stop and wait.` }   // accept, rewind, accept… never counts as no progress: cap it
     const r = await resolveSpec(h, id, how, 'main'); if (!/accepted|rejected/.test(r.text)) return r.text
     if (how === 'accept') await d.store.setMeta(id, { 'cadre.specAccepts': String(n + 1) }, d.actor)
     await clear(h, id, 'spec_change'); await decided(h, 'spec', `${id}: spec change ${how}ed: ${m[2].trim()}`, id); return null
@@ -406,7 +406,8 @@ ROUTES.resolve = async (h, c) => {
   }
   if (t && b === 'retry' && t.flags.includes('red')) {   // the red dialog's Retry (redAsk): back to the tester step, rounds reset
     const r = await apply(h, { kind: 'rewind', id: a, at: await h.now(), actor: 'human', on: 'tester' }, pipe(d)); if (!r.ok) return { text: r.error }
-    await d.store.resume(a, d.actor); await d.store.setMeta(a, { 'cadre.blocked': '' }, d.actor); await retry(h, a, 'red'); await clear(h, a, 'red')
+    await d.store.resume(a, d.actor); await d.store.setMeta(a, { 'cadre.blocked': '' }, d.actor); await retry(h, a, 'red'); await clear(h, a, 'red')   // human.retry{red}: its stop lifts
+    for (const x of agentsOf(await h.bind.read(), a)) await end(h, x, 'retry', 'released')   // the tester that waited on it is done: a new one writes the tests
     return { text: `${a}: back to the tester; spawn it` }
   }
   if (!t || !['keep', 'accept', 'reject', 'cancel'].includes(b)) return { text: 'usage: /cadre resolve <taskId> keep|accept|reject|cancel · /cadre resolve git keep|restore' }

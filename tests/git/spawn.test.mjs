@@ -165,15 +165,16 @@ test('watchdog: nothing running with work to start -> the idle turn, at most eve
   await w.turn(); await w.h.ui.update(u => ({ ...u, idleAt: -200_000 })); await watchdog(w.h); assert.equal((await w.h.ui.read()).goal, undefined)   // an agent runs: no kick
 })
 
-test('usage limit: the agent\'s task goes back without an attempt, drive pauses until the reset, nothing starts meanwhile', async () => {
+test('usage limit: the agent\'s task goes back without an attempt, drive stops until the reset (cause limit), nothing starts meanwhile', async () => {
   const w = await world(1), id = w.ids[0]; await arm(w.h, 'auto'); await w.turn()
-  let now = 0; const reset = new Date(Date.now() + 3_600_000).toISOString()
-  w.h.usage = async () => ({ cost: { usd: 0 }, rateLimits: [{ kind: 'five_hour', percentUsed: 100, resetsAt: reset }] })
+  w.h.usage = async () => ({ cost: { usd: 0 }, rateLimits: [{ kind: 'five_hour', percentUsed: 100, resetsAt: new Date(0).toISOString() }] })   // on this test's clock: the reset is 15 minutes on
   await stopped(w.h, w.dep, { agentId: 'ag1', reason: 'error', answer: 'API Error' })
   const t = (await w.h.board.read()).tasks[0]; assert.equal(t.state, 'todo'); { const { epoch: _spawns, ...charged } = await budgetOf(w.h, id); assert.ok(Object.values(charged).every(v => v === 0)) }   // no charge at all
-  assert.match((await w.h.board.read()).drive.paused, /usage limit until/); assert.deepEqual(await w.h.bind.read(), {})
+  const d = (await w.h.board.read()).drive; assert.match(d.stopped, /usage limit until/); assert.equal(d.cause.flag, 'limit'); assert.deepEqual(await w.h.bind.read(), {})
   await w.turn(); assert.equal(w.spawned.length, 1)
-  await w.h.ui.update(u => ({ ...u, limit: 1 })); await w.turn(); assert.equal(w.spawned.length, 2)   // past the reset: it starts again
+  const at = d.cause.resetAt; w.h.now = async () => at + 1000; await watchdog(w.h)   // past the reset: the timer lifts it and main gets a turn (the timer starts nothing)
+  assert.equal((await w.h.board.read()).drive.stopped, undefined); assert.equal(w.spawned.length, 1); assert.equal((await w.h.ui.read()).goal, IDLE)
+  await w.turn(); assert.equal(w.spawned.length, 2)   // main's turn end: it starts again
 })
 
 test('a resume queued in the spawner\'s own frame (a close that sent the worker back) goes out from that frame', async () => {
