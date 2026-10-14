@@ -10,7 +10,7 @@ transcript (`$.session.messages`, rows carry `toolUses[].tool`), never of a coun
 
 Zero quota: `PROXY=1` with `stub-proxy.mjs` in place of the effort proxy (same port and log, in the plugged copy only). It answers the named
 request kinds that bypass `turn.step` (logged to `stubbed.jsonl`) and **refuses** any other `/v1/messages` request with a 500, logging its shape to
-`effort.jsonl`: a missed kind costs nothing and still shows. Env: `MODEL=haiku CLAUDE_CODE_SUBAGENT_MODEL=haiku CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`,
+`effort.jsonl`: a missed kind costs nothing and still shows. Haiku everywhere by the harness pins (H0, `tui.sh`),
 cadre routes pinned to haiku by `tui.sh pins`; `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false`.
 
 ## Verdicts

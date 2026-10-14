@@ -7,7 +7,7 @@
 H=$(cd "$(dirname "$0")/.." && pwd); R=$(dirname "$H"); S=$H/scripted
 c=$1; n=${2:-s0-$c}; O=$H/out/scripted/$n; rm -rf "$O"; mkdir -p "$O"
 # prompt suggestions are a forked request outside turn.step (source=prompt_suggestion): off, as the proxy would refuse each one
-export EXTRA_ENV="$EXTRA_ENV -e CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false" MODEL=haiku CLAUDE_CODE_SUBAGENT_MODEL=haiku CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 PROXY=1 TUI_DIR=${TUI_DIR:-/tmp/cadre-tui}
+export EXTRA_ENV="$EXTRA_ENV -e CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false" PROXY=1 TUI_DIR=${TUI_DIR:-/tmp/cadre-tui}   # haiku pins: tui.sh (H0)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"; docker ps --format "{{.Names}}" | grep -x "cadre-tui-$n" | xargs -r docker rm -f >/dev/null' EXIT
 snap() { git -C "$1" add -A && git -C "$1" -c user.email=s0@localhost -c user.name=s0 commit -qm s0 --allow-empty; }   # tui.sh plugs `git archive HEAD` of SPIKE
 leak() {   # the zero-quota check: the proxy ran, and logged nothing
