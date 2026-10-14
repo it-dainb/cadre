@@ -190,7 +190,7 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     return { f, brief, t: Date.parse(u?.timestamp ?? '') || 0, uses: ls.filter(d => d.type === 'assistant').flatMap(d => (Array.isArray(d.message?.content) ? d.message.content : []).filter(b => b.type === 'tool_use')) }
   })
   const sorted = v => (v && typeof v === 'object' ? (Array.isArray(v) ? v.map(sorted) : Object.fromEntries(Object.keys(v).sort().map(k => [k, sorted(v[k])]))) : v)
-  const others = drv.filter(e => e.kind === 'dialog').length   // dialogs besides the plan's
+  const others = drv.filter(e => e.kind === 'dialog' && !/^release /.test(e.text)).length   // dialogs besides the plan's and the release proposal every landing ends with
   const o = process.env.ORACLE
   if (o && !snaps.length && o !== 'underscore') fail(o, 'no store snapshots (scenarios/_lib.sh snapshots)')
   if (o === 'every') {   // every role in auto mode reaches a terminal run state; 0 ended{lost}; <= 1 dialog; no tool call repeated >= N in a row
@@ -201,11 +201,12 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (gone.length) fail('every', `ended{lost}: ${[...new Set(gone)].join(', ')}`)
     if (open.length) fail('every', `not ended at the end: ${open.map(([a, r]) => `${r.role} ${a} ${r.state?.state}`).join(', ')}`)
     if (want.some(r => !roles.has(r))) fail('every', `roles never run: ${want.filter(r => !roles.has(r)).join(', ')} (ran: ${[...roles].join(', ')})`)
-    if (others > 1) fail('every', `${others} dialogs besides the plan's: ${drv.filter(e => e.kind === 'dialog').map(e => e.text).join(' / ')}`)
+    if (others > 1) fail('every', `${others} dialogs besides the plan's and the release's: ${drv.filter(e => e.kind === 'dialog').map(e => e.text).join(' / ')}`)
     for (const x of subs) { let n = 0, prev = ''; for (const u of x.uses) { const k = u.name + JSON.stringify(sorted(u.input)); n = k === prev ? n + 1 : 1; prev = k; if (n === N) fail('every', `${u.name} repeated ${N}x in a row in ${basename(x.f)}`) } }
   }
   if (o === 'forced') {   // an agent past its budget ends with 0 model tokens on the forced step, the engine logs a normal end, its turn.complete fires once
-    const f = dlines.find(l => /cadre \(user\) answered turn\.step without next/.test(l)), w = dlines.find(l => /SCRIPTED step agent=\S+ who=worker/.test(l))?.match(/agent=(\S+)/)[1]
+    const w0 = dlines.find(l => /SCRIPTED step agent=\S+ who=worker/.test(l)), w = w0?.match(/agent=(\S+)/)[1]
+    const f = dlines.find(l => (!w0 || ts(l) > ts(w0)) && /cadre \(user\) answered turn\.step without next/.test(l))   // the worker's forced step (an earlier one is another agent's)
     if (!f) fail('forced', 'cadre never answered a request itself (no forced step)')
     else if (w) {
       const after = dlines.filter(l => ts(l) > ts(f)), tc = after.filter(l => l.includes(`SCRIPTED turn.complete agent=${w} `))

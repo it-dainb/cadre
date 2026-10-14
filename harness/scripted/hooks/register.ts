@@ -4,7 +4,7 @@
 // cadre in the user tier (load order): cadre's turn.step sees each scripted response come up from beneath (its cost ledger records `model: scripted`).
 // Every line it logs starts with SCRIPTED (debug log). `/s0 <end|hb|wedge>` is the forced-exit / TaskStop probe (RESULTS.md (c), (d)).
 // The script is chosen per cell by the repo's `.git/scripted.json` ({"script": …}, written by a harness/fixtures/scripted overlay), default `lite`:
-//   lite: main plans one lite task; full: a full-lane task (tester, worker, reviewer); silent: lite, the worker never reports (forced exit);
+//   lite: main plans one lite task; full: a full-lane task (tester, worker, reviewer); loop: lite, the worker calls the same tool forever (the repeat-call breaker, then forced exit);
 //   limit: lite, the first worker's first step goes to the proxy, which answers a usage limit (stub-proxy.mjs); slow: lite, the worker waits 45 s first.
 import type { Register } from 'claude-code'
 
@@ -62,7 +62,7 @@ ${TEST}EOF`
 const taskOf = (brief: string) => brief.match(/TASK-([\w-]+\.\d+)/)?.[1] ?? brief.match(/\b([a-z][\w]*-[a-z0-9]+\.\d+)\b/)?.[1]
 const WAIT = { tool: 'Bash', input: { command: 'node -e "setTimeout(() => {}, 45000)"', description: 'Wait' } }
 const ROLES: Record<string, (k: number, brief: string, cwd: string) => Act> = {
-  worker: (k, b) => script === 'silent' ? { text: END } : (script === 'slow' ? [WAIT] : []).concat([{ tool: 'Bash', input: { command: FILES, description: 'Write titleCase and its test' } }, { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
+  worker: (k, b) => script === 'loop' ? { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } } : (script === 'slow' ? [WAIT] : []).concat([{ tool: 'Bash', input: { command: FILES, description: 'Write titleCase and its test' } }, { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: 'Added titleCase(s) in src/titleCase.mjs with a node:test test; npm test passes.', risks: [] } }])[k] ?? { text: END },
   tester: (k, _b, cwd) => [{ tool: 'Write', input: { file_path: `${cwd}/test/titleCase.test.mjs`, content: TEST } },
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'tester', outcome: 'done', summary: 'One test per scenario in test/titleCase.test.mjs.', tests: [{ path: 'test/titleCase.test.mjs', name: 'S1: titleCase capitalises each word', scenario: 'S1' }], run: { command: ['node', '--test', 'test/titleCase.test.mjs'] } } }][k] ?? { text: END },
@@ -73,7 +73,7 @@ const ROLES: Record<string, (k: number, brief: string, cwd: string) => Act> = {
 function agent(rows: Row[], cwd: string): [string, Act] {
   const brief = rows.find(isText)?.text ?? '', probe = brief.match(/S0-PROBE tag=(\w+)/)?.[1]
   const k = done(since(rows))   // auto mode: a role's text + end_turn is re-asked 3 times for SubagentHandback, then the run ends (RESULTS.md (c))
-  if (done(rows) > 15) return ['cap', { text: END }]
+  if (done(rows) > (script === 'loop' ? 40 : 15)) return ['cap', { text: END }]   // loop: past the breaker (20 in a row)
   if (probe === 'end') return [probe, { text: END }]
   if (probe === 'hb') return [probe, /No such tool available: SubagentHandback/.test(JSON.stringify(rows.at(-1))) ? { text: END } : { text: END, tool: 'SubagentHandback', input: { message: END } }]   // the tool exists in auto mode only
   if (probe === 'wedge') return [probe, k === 0 ? { tool: 'Bash', input: { command: 'node -e "setTimeout(() => {}, 600000)"', description: 'Wait' } } : { text: END }]

@@ -1,5 +1,5 @@
 # dev-moved (S, the `slow` script, LANDED=1): while the worker runs, the user checks out dev and commits a file there; after the landing,
-# devmoved.json says what became of the user's commit and checkout (oracle: devmoved)
+# the landing waits for the user's checkout and the watcher answers its dialog (Land). devmoved.json says what became of the user's commit and checkout (oracle: devmoved)
 . "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"; snapshots
 goal "$GOAL"; until_plan
 W=$D/work; ug() { git -C "$W" -c user.name=user -c user.email=user@localhost "$@"; }

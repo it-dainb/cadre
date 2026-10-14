@@ -17,7 +17,9 @@ import { dirname, join } from 'node:path'
 const log = process.argv[2], stubbed = join(dirname(log), 'stubbed.jsonl'), flag = join(dirname(log), 'limit')
 let resetAt = 0   // epoch s; a limit window is open while now < resetAt
 const KINDS = { quota_check: b => b.max_tokens === 1 && b.messages?.length === 1 && b.messages[0].content === 'quota', auto_mode_classifier: b => !b.stream && /^<transcript>/.test(b.messages?.[0]?.content?.[0]?.text ?? ''),
-  agent_summary: b => /Describe your most recent action in 3-5 words/.test(JSON.stringify(b.messages?.at(-1) ?? '')) }
+  agent_summary: (b, raw) => raw.includes('Describe your most recent action') }
+// a refused request names which of these phrases its body holds (never the body): enough to name a new kind
+const MARKS = ['Describe your most recent action', '<transcript>', 'quota', 'away_summary', 'You are an agent for Claude Code', 'compact', 'summar']
 const TEXT = { quota_check: ['.', 'max_tokens', null], auto_mode_classifier: ['<block>no</block><severity>0</severity>', 'end_turn', null], agent_summary: ['Working on the task', 'end_turn', null] }
 // a stubbed answer, whole or streamed as the request asked
 function reply(res, b, [text, stop_reason, stop_sequence]) {
@@ -29,13 +31,13 @@ function reply(res, b, [text, stop_reason, stop_sequence]) {
   ev('content_block_delta', { index: 0, delta: { type: 'text_delta', text } }); ev('content_block_stop', { index: 0 })
   ev('message_delta', { delta: { stop_reason, stop_sequence }, usage: { output_tokens: 1 } }); ev('message_stop', {}); res.end()
 }
-const line = (b, path, kind) => JSON.stringify({ at: Date.now(), path, kind, model: b.model, max_tokens: b.max_tokens, stream: !!b.stream, n: b.messages?.length, tools: b.tools?.length ?? 0, keys: Object.keys(b).sort().join(',') })
+const line = (b, path, kind, raw) => JSON.stringify({ at: Date.now(), path, kind, model: b.model, max_tokens: b.max_tokens, stream: !!b.stream, n: b.messages?.length, tools: b.tools?.length ?? 0, keys: Object.keys(b).sort().join(','), ...(raw ? { marks: MARKS.filter(m => raw.includes(m)) } : {}) })
 http.createServer((req, res) => {
   const chunks = []
   req.on('data', c => chunks.push(c)).on('end', () => {
     const body = Buffer.concat(chunks), path = req.url.split('?')[0]
     let b = {}; try { b = JSON.parse(body) } catch {}
-    const kind = path === '/v1/messages' ? Object.keys(KINDS).find(k => KINDS[k](b)) : undefined
+    const kind = path === '/v1/messages' ? Object.keys(KINDS).find(k => KINDS[k](b, body.toString())) : undefined
     if (kind) {
       appendFileSync(stubbed, line(b, path, kind) + '\n')
       return reply(res, b, TEXT[kind])
@@ -47,7 +49,7 @@ http.createServer((req, res) => {
         'anthropic-ratelimit-unified-5h-utilization': '1.0', 'anthropic-ratelimit-unified-representative-claim': 'five_hour', 'retry-after': String(resetAt - Math.floor(Date.now() / 1000)) })
       return res.end(JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'usage limit reached' } }))
     }
-    if (path.startsWith('/v1/messages')) { appendFileSync(log, line(b, path, 'refused') + '\n'); res.writeHead(500, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: 'scripted run: this request has no stub' } })) }
+    if (path.startsWith('/v1/messages')) { appendFileSync(log, line(b, path, 'refused', body.toString()) + '\n'); res.writeHead(500, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: 'scripted run: this request has no stub' } })) }
     const up = https.request({ host: 'api.anthropic.com', path: req.url, method: req.method, headers: { ...req.headers, host: 'api.anthropic.com' } }, r => { res.writeHead(r.statusCode, r.headers); r.pipe(res) })
     up.on('error', e => { res.writeHead(502); res.end(String(e)) }); up.end(body)
   })
