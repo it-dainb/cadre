@@ -11,6 +11,7 @@ const m = (a, neg) => {
     toMatchObject: b => ok(sub(a, b), `toMatchObject ${JSON.stringify(b)}`), toContainEqual: b => ok(a.some(x => JSON.stringify(x) === JSON.stringify(b)), `toContainEqual ${JSON.stringify(b)}`),
     toHaveLength: n => ok(a.length === n, `toHaveLength ${n}`), toBeDefined: () => ok(a !== undefined, 'toBeDefined'), toBeUndefined: () => ok(a === undefined, 'toBeUndefined'),
     toBeNull: () => ok(a === null, 'toBeNull'), toBeGreaterThan: n => ok(a > n, `> ${n}`), toBeLessThanOrEqual: n => ok(a <= n, `<= ${n}`), toContain: x => ok(a.includes(x), `toContain ${x}`),
+    toMatch: r => ok(typeof r === 'string' ? a.includes(r) : r.test(a), `toMatch ${r}`),
   }
 }
 export const expect = a => ({ ...m(a, false), not: m(a, true) })
