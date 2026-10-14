@@ -15,6 +15,7 @@ import { openPane } from '../ui/index'
 import { BD_BLOCK, progress, scoped, type Item } from './init'
 import { prefsItem, prefsRow } from './prefs'
 import { doctorRows } from '../config/route'
+import { runOf } from '../core/lifecycle'
 import { BdStore } from '../task-management/adapters/beads/store'
 import { dirOf, moveStore } from '../task-management/adapters/beads/layout'
 
@@ -166,6 +167,7 @@ async function project(h: Host, cfg: Config): Promise<Row[]> {
   let tasks: Awaited<ReturnType<Awaited<ReturnType<typeof storeOf>>['list']>> = []
   try { const s = await storeOf(h), p = await s.probe(); rows.push(!p.ok ? ['crit', `beads: ${p.detail.slice(0, 100)}`, '/cadre init'] : p.journal ? ['ok', `beads ${p.version} reachable, journal on`] : ['warn', 'beads reachable, journal off', '/cadre init']); if (p.ok) tasks = await s.list({}) }
   catch (e) { rows.push(['crit', `beads unreachable: ${(e as Error).message.slice(0, 100)}`, '/cadre init']) }
+  if (await oldState(h, tasks)) rows.push(['warn', 'finish or cancel plans from the previous version before upgrading', 'its run state is not read: finish or cancel those plans with the previous version'])
   for (const b of [cfg.branches.main, cfg.branches.dev]) rows.push(b && await exists(h.run, root, b) ? ['ok', `branch ${b} exists`] : ['crit', `branch ${b || '(main unset)'} missing`, '/cadre init'])
   const now = await h.now(), stale = tasks.filter(t => t.assignee && ['active', 'review', 'blocked'].includes(t.category) && !leaseLive(t, now)).map(t => t.id), bound = Object.keys(await h.bind.read()).filter(k => !k.startsWith('~')).length
   rows.push(stale.length ? ['warn', `expired leases: ${stale.join(', ')}`, 'main spawns them again; they rebind'] : ['ok', `no stale leases; ${bound} agent(s) bound`])
@@ -181,6 +183,13 @@ async function project(h: Host, cfg: Config): Promise<Row[]> {
   }
   rows.push(b.drive.stopped ? ['warn', `drive stopped: ${b.drive.stopped}`, 'press 0 on the band to resume'] : b.drive.paused ? ['warn', `drive paused: ${b.drive.paused}`, 'it continues by itself after you answer'] : ['ok', `drive ${b.drive.on ? `on, ${b.drive.turns} turns` : 'off until a plan is approved'}`])
   return rows
+}
+// clean break (0.14): what 0.13 kept is not read: its counters on open tasks, hand-back marks, agents bound with no run record (they started from a TASK-<id> prompt)
+export async function oldState(h: Host, tasks: { category: string; meta: Record<string, string> }[]): Promise<boolean> {
+  const bind = await h.bind.read(), keys = ['attempts', 'testerRounds', 'rework', 'rebase', 'nudge'].map(k => `cadre.${k}`)   // read only: the write scan (scripts/budget.mjs) matches these names
+  if (tasks.some(t => ['active', 'review', 'blocked'].includes(t.category) && keys.some(k => t.meta[k])) || 'handed' in (await h.ui.read())) return true
+  for (const a of Object.keys(bind)) if (!a.startsWith('~') && !(await runOf(h, a))) return true
+  return false
 }
 export async function doctor(h: Host): Promise<string> {
   const cfg = await cfgOf(h)

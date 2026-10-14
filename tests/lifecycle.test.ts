@@ -4,6 +4,7 @@ import { budgetOf, next, pruneRuns, restore, runOf, step, type Run, type RunEven
 import { queueResume } from '../core/reuse'
 import { stopped } from '../core/close'
 import { BUDGET } from './fixtures/budget.generated'
+import { oldState } from '../commands/doctor'
 import { PASS, world, type World } from './fixtures/replay/world'
 import { arm } from '../core/drive'
 
@@ -163,5 +164,15 @@ describe('the store stays small', () => {
     expect(await restore(w.h, 'ag9', b)).toBe(false); expect((await w.h.bind.read()).ag9).toBeUndefined()
     await w.at('ag1', id, 'worker'); await w.h.ui.update(() => ({})); await w.h.bind.update(() => ({}))   // a /clear
     expect(await restore(w.h, 'ag1', b)).toBe(true); expect((await w.h.bind.read()).ag1.sessionId).toBe('s2')
+  })
+})
+
+describe('clean break: Doctor names state the previous version left', () => {
+  test('an old counter on an open task, a hand-back mark, or an agent bound with no run record; none on a fresh run', async () => {
+    const w = await world(), [id] = w.ids; await w.at('ag1', id, 'worker'); const open = { category: 'active', meta: {} as Record<string, string> }
+    expect(await oldState(w.h, [open])).toBe(false)
+    expect(await oldState(w.h, [{ ...open, meta: { 'cadre.attempts': '2' } }])).toBe(true); expect(await oldState(w.h, [{ category: 'done', meta: { 'cadre.attempts': '2' } }])).toBe(false)
+    await w.h.ui.update(u => ({ ...u, handed: ['ag1'] })); expect(await oldState(w.h, [open])).toBe(true); await w.h.ui.update(({ handed: _x, ...u }) => u)
+    await w.h.bind.update(b => ({ ...b, old: b.ag1 })); expect(await oldState(w.h, [open])).toBe(true)
   })
 })

@@ -84,6 +84,9 @@ Every decision is a dialog (`1` opens it). The typed fallbacks, config keys and 
 - **Quit, crash, or `claude --continue` later:** the new session shows `Unfinished plan … · /cadre continue to pick it up` and `0: continue` on the band. Nothing restarts by itself. `/cadre continue` (or `0`) re-arms the run in its mode (auto or yolo) and respawns each task that was in flight. Each new agent starts from a checkpoint commit of the old one's worktree, with the diff and the last failing check, so nothing is redone. No waiting for old claims to expire.
 - **What a quit can lose:** only work that was not on disk yet (the agent's unwritten next step). Every file it had written is kept.
 - **Two sessions on one repo:** a session that is still running keeps its plan and its tasks; `/cadre continue` elsewhere says so and takes nothing.
+- **Usage limit:** the run stops with the time it resets (`usage limit until HH:MM UTC` on the band) and goes on by itself then; nothing is charged to the task. `0: resume` goes on at once.
+- **Your checkout is never moved.** If you have `dev` (or `main`) checked out when work lands, cadre leaves your branch, index and files alone and asks in one dialog: **Land** brings it into your checkout, keeping your commits and your uncommitted edits (an edit to the same file refuses, and the dialog says so). Switch to another branch and it lands by itself. A release waits until it is in.
+- **An agent can always end.** Once an agent has handed in its work, cadre ends its turn itself (no tokens); one that repeats the same call 20 times is stopped and its task asks you. `limits.silentRuns` (runs without a report before a task blocks) and `limits.startFails` (failed starts before the run stops) are in Settings.
 
 ## Requirements
 
@@ -125,4 +128,4 @@ Live runs go through Docker: `harness/run.sh` (see [harness/README.md](harness/R
 
 ## Status
 
-Version 0.7.0. Pre-1.0, pinned to Claude Code 2.1.295. License: not chosen yet.
+Version 0.14.0. Pre-1.0, pinned to Claude Code 2.1.295 (agent exits tested up to 2.1.299). License: not chosen yet.
