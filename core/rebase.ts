@@ -12,7 +12,7 @@ import { pipeOf } from '../task-management/registry'
 import { idsIn, pushDelta } from './briefs'
 import { mirror } from './dispatch'
 import { setup } from './admission'
-import { taskBranch, wtPath } from './branches'
+import { baseOf, taskBranch, wtPath } from './branches'
 import { decided } from './drive'
 import { ask } from './decide'
 import { card } from './render'
@@ -150,11 +150,12 @@ export async function refreshEpics(h: Host, d: Deps, msTip: string, landedId: st
 // green, review and the squash land the resolution on the epic branch, then main completes the epic again. At most ROUNDS per epic; null = past the cap
 export async function resolveTask(h: Host, d: Deps, epicId: string, from: string, onto: string, files: string[]): Promise<string | null> {
   const e = await d.store.get(epicId), n = num(e.meta['cadre.resolves']) + 1, ROUNDS = d.cfg.limits.rebaseRounds, s = await h.board.read(); if (n > ROUNDS) return null
+  const other = await G.tip(h.run, d.root, await baseOf(h, onto))   // a landing that waits for the user's checkout is part of it; the close compares protected paths against this sha
   const title = `Resolve the merge conflict with ${onto}`, landed = (s.plan?.epics ?? []).filter(x => x.state === 'landed').map(x => `- ${x.id} ${x.title}`)
-  const t = await d.store.createDraft({ title, type: 'refactor', parent: epicId, meta: { 'cadre.lane': 'lite', 'cadre.resolve': onto, 'cadre.changelog': JSON.stringify({ none: true, reason: 'merge resolution' }) },
+  const t = await d.store.createDraft({ title, type: 'refactor', parent: epicId, meta: { 'cadre.lane': 'lite', 'cadre.resolve': other, 'cadre.changelog': JSON.stringify({ none: true, reason: 'merge resolution' }) },
     description: [`Your working tree holds an unfinished merge of ${onto} into this branch${files.length ? `; the conflicts are marked in ${files.join(', ')}` : ''}. Resolve it so that both sides keep working, and keep every test green.`, `This side: ${e.title}\n${e.description.slice(0, 600)}`, ...(landed.length ? [`The other side (already on ${onto}):\n${landed.join('\n')}`] : [])].join('\n\n') })
   const wt = wtPath(d.wtRoot, d.key, t.id), br = taskBranch(d.reg.refactor?.commit ?? 'refactor', t.id, title), base = await G.tip(h.run, d.root, from)
-  await G.op(h, async () => { await G.worktreeAdd(h.run, d.root, wt, br, base); await h.run(['git', '-C', wt, 'merge', '--no-ff', '--no-edit', onto]) })   // the conflict is left in its tree
+  await G.op(h, async () => { await G.worktreeAdd(h.run, d.root, wt, br, base); await h.run(['git', '-C', wt, 'merge', '--no-ff', '--no-edit', other]) })   // the conflict is left in its tree
   await setup(h, d, t, wt).catch(x => h.log(`resolve setup: ${x}`))
   await d.store.setMeta(t.id, { 'cadre.worktree': wt, 'cadre.branch': br, 'cadre.base': base }, d.actor); await d.store.setMeta(epicId, { 'cadre.resolves': String(n) }, d.actor)
   await d.store.approve([t.id]); await mirror(h, d.store, d.reg); await apply(h, { kind: 'approve', id: t.id, at: await h.now(), actor: 'mod' }, pipeOf(d.reg))

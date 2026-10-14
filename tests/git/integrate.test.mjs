@@ -52,7 +52,8 @@ test('integration refuses: open child, git:dev flag (human commit on dev), non-a
 })
 test('release: version inferred, [Unreleased] cut in a chore(release) commit on dev, --no-ff into main, annotated tag, plan released', async () => {
   const { d, h } = await world(); assert.equal(await integrateEpic(h, 'p3'), null)
-  const text = await releaseDev(h); assert.match(text, /Released v0\.1\.0/)
+  sh(d, 'checkout', '-q', '--detach')   // main checked out nowhere: it moves at once (a checked-out main waits: tests/git/devmoved)
+  const text = await releaseDev(h); assert.match(text, /Released v0\.1\.0/); sh(d, 'checkout', '-q', 'main')
   assert.equal(sh(d, 'cat-file', '-t', 'v0.1.0'), 'tag'); assert.equal(sh(d, 'rev-parse', 'main'), sh(d, 'rev-list', '-n1', 'v0.1.0'))
   assert.equal(sh(d, 'log', '-1', '--format=%s', 'dev'), 'chore(release): v0.1.0')
   assert.match(sh(d, 'show', 'main:CHANGELOG.md'), /## \[0\.1\.0\] - \d{4}-\d\d-\d\d\n\n### Added\n\n- Login \(m-2\)/)
@@ -79,15 +80,7 @@ test('integration on bwrap < 0.11 (no --overlay-src): suites run in the copy jai
   assert.equal(await integrateEpic(h, 'p3'), null); assert.ok(seen.length > 2 && !seen.some(a => a.includes('--overlay-src') && !a.includes('--help')))
   assert.equal(sh(d, 'show', 'dev:c.txt'), 'c')
 })
-test('integration refreshes a dev checkout that has human edits: unrelated edits stay, the tree follows; conflicting edits refuse with a toast', async () => {
-  for (const conflict of [false, true]) {
-    const { d, h } = await world(); sh(d, 'checkout', '-q', 'dev'); writeFileSync(join(d, conflict ? 'c.txt' : 'notes.txt'), 'mine\n')
-    assert.equal(await integrateEpic(h, 'p3'), null)
-    assert.equal(readFileSync(join(d, conflict ? 'c.txt' : 'notes.txt'), 'utf8'), 'mine\n')   // never reset --hard
-    if (conflict) assert.match(h.toasts.join('\n'), /your edits kept · git stash/)
-    else { assert.equal(readFileSync(join(d, 'c.txt'), 'utf8'), 'c\n'); assert.match(sh(d, 'status', '--porcelain'), /^\?\? notes\.txt$/) }   // c.txt checked out, nothing staged as a revert
-  }
-})
+// a dev checkout is never moved by a landing now: tests/git/devmoved.test.mjs
 
 // ---- drive (ADR 0013): release is never automatic under yolo; integration red gets one fix task, then auto asks and yolo stops ----
 const { MemoryStore } = await import('../../task-management/adapters/memory/store.ts')

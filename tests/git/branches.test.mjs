@@ -41,7 +41,7 @@ test('integration conflict: the throwaway worktree is removed and the error surf
   await assert.rejects(B.mergeEpic(h, { dev: 'dev', epic: 'epic/p3-auth', tmp: `${d}-int`, msg: 'm' })); assert.equal(sh(d, 'worktree', 'list').includes('-int'), false)
 })
 test('release: dev --no-ff into main, annotated tag, main moved by CAS, temp branch gone', async () => {
-  const { d, h } = world(); writeFileSync(join(d, 'r.txt'), 'r\n'); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'chore(release): v0.1.0'); sh(d, 'branch', '-f', 'dev', 'HEAD'); sh(d, 'reset', '-q', '--hard', 'HEAD~1')
+  const { d, h } = world(); writeFileSync(join(d, 'r.txt'), 'r\n'); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'chore(release): v0.1.0'); sh(d, 'branch', '-f', 'dev', 'HEAD'); sh(d, 'reset', '-q', '--hard', 'HEAD~1'); sh(d, 'checkout', '-q', '--detach')   // main checked out nowhere (else it waits: tests/git/devmoved)
   const sha = await B.release(h, { dev: 'dev', main: 'main', version: '0.1.0', tmp: `${d}-rel`, msg: 'release v0.1.0' })
   assert.equal(sh(d, 'rev-parse', 'main'), sha); assert.equal(sh(d, 'cat-file', '-t', 'v0.1.0'), 'tag'); assert.equal(sh(d, 'branch', '--list', 'release-tmp-*'), '')
   assert.equal(await B.lastTag(h), 'v0.1.0')

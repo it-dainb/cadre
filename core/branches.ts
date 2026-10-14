@@ -18,7 +18,7 @@ export async function cutEpic(h: Host, planId: string, dev = 'dev'): Promise<str
   const [root, plan] = [await h.cwd(), (await h.board.read()).plan]
   if (!plan || plan.id !== planId) throw new Error(`no draft plan ${planId} on the board`)
   const run = h.run
-  return op(h, async () => (await exists(run, root, plan.epicBranch)) ? tip(run, root, plan.epicBranch) : (await git(run, root, ['branch', plan.epicBranch, dev]), tip(run, root, plan.epicBranch)))
+  return op(h, async () => (await exists(run, root, plan.epicBranch)) ? tip(run, root, plan.epicBranch) : (await git(run, root, ['branch', plan.epicBranch, await baseOf(h, dev)]), tip(run, root, plan.epicBranch)))   // a landing waiting for the user's checkout is part of dev
 }
 
 // Integration (3.9): throwaway detached worktree at dev, merge --no-ff the epic. Returns the merge sha (dev itself is untouched until landDev).
@@ -26,7 +26,7 @@ export async function cutEpic(h: Host, planId: string, dev = 'dev'): Promise<str
 export async function mergeEpic(h: Host, o: { dev: string; epic: string; tmp: string; msg: string }): Promise<{ sha: string; devTip: string }> {
   const root = await h.cwd(), run = h.run
   return op(h, async () => {
-    const devTip = await tip(run, root, o.dev)
+    const devTip = await tip(run, root, await baseOf(h, o.dev))
     await git(run, root, ['worktree', 'add', '--detach', o.tmp, devTip])
     try {
       await git(run, o.tmp, ['merge', '--no-ff', '--no-verify', '-m', o.msg, o.epic])
@@ -38,7 +38,7 @@ export async function mergeEpic(h: Host, o: { dev: string; epic: string; tmp: st
 export async function landDev(h: Host, o: { dev: string; sha: string; old: string; tmp: string; epic: string }): Promise<boolean> {
   const root = await h.cwd(), run = h.run
   return op(h, async () => {
-    const won = await casRef(run, root, `refs/heads/${o.dev}`, o.sha, o.old)
+    const won = await move(h, o.dev, o.sha, o.old)
     if (won) { await worktreeRemove(run, root, o.tmp); await git(run, root, ['branch', '-D', o.epic]) }
     return won
   })
@@ -47,16 +47,33 @@ export async function landDev(h: Host, o: { dev: string; sha: string; old: strin
 export async function release(h: Host, o: { dev: string; main: string; version: string; tmp: string; msg: string }): Promise<string> {
   const root = await h.cwd(), run = h.run
   return op(h, async () => {
-    const [mainTip, devTip] = [await tip(run, root, o.main), await tip(run, root, o.dev)]
+    const [mainTip, devTip] = [await tip(run, root, await baseOf(h, o.main)), await tip(run, root, await baseOf(h, o.dev))]
     await worktreeAdd(run, root, o.tmp, `release-tmp-${o.version}`, mainTip)
     try {
       await git(run, o.tmp, ['merge', '--no-ff', '--no-verify', '-m', o.msg, devTip])
       const sha = await tip(run, o.tmp, 'HEAD')
-      if (!(await casRef(run, root, `refs/heads/${o.main}`, sha, mainTip))) throw new Error(`${o.main} moved during release`)
+      if (!(await move(h, o.main, sha, mainTip))) throw new Error(`${o.main} moved during release`)
       await git(run, root, ['tag', '-a', `v${o.version}`, '-m', `v${o.version}`, sha])
       return sha
     } finally { await worktreeRemove(run, root, o.tmp, `release-tmp-${o.version}`) }
   })
+}
+// ---- H5: cadre never moves a branch the user has checked out (any worktree but cadre's own: HEAD would disagree with the index and the files). The landing waits as
+// refs/cadre/pending/<b> (moved by CAS, so landings stack), with refs/cadre/base/<b> = the branch tip it first merged on, until it lands into the checkout
+// (core/integrate.landPending: the dialog's Land) or, once the branch is checked out nowhere, by itself. ----
+export const pendingRef = (b: string) => `refs/cadre/pending/${b}`, baseRef = (b: string) => `refs/cadre/base/${b}`
+// the tip a landing builds on: the pending landing when there is one, else the branch
+export const baseOf = async (h: Host, b: string) => ((await exists(h.run, await h.cwd(), pendingRef(b))) ? pendingRef(b) : b)
+// the worktree that has b checked out, if any: the user's (cadre's own worktrees are on task branches or detached, never on a branch it lands on)
+export const checkedOut = async (h: Host, b: string): Promise<string | undefined> =>
+  (await git(h.run, await h.cwd(), ['worktree', 'list', '--porcelain'])).split('\n\n').find(x => x.split('\n').includes(`branch refs/heads/${b}`))?.match(/^worktree (.*)$/m)?.[1]
+// the one way cadre moves a protected branch: by CAS, or, while the user has it checked out or a landing already waits, the pending ref
+export async function move(h: Host, b: string, next: string, old: string): Promise<boolean> {
+  const root = await h.cwd(), pend = await exists(h.run, root, pendingRef(b))
+  if (!pend && !(await checkedOut(h, b))) return casRef(h.run, root, `refs/heads/${b}`, next, old)
+  if (!(await casRef(h.run, root, pendingRef(b), next, pend ? old : '0'.repeat(40)))) return false
+  if (!pend) await git(h.run, root, ['update-ref', baseRef(b), old])
+  return true
 }
 // Version from our own commit headers (3.9): `!` -> major (0.x -> minor), feat -> minor, else patch; no tag -> 0.1.0.
 export function inferVersion(lastTag: string | null, subjects: readonly string[]): string {
