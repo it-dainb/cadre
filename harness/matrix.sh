@@ -5,46 +5,47 @@
 H=$(cd "$(dirname "$0")" && pwd); TIER=${1:-quick}; shift; J=3; DRY=
 while [ $# -gt 0 ]; do case $1 in -j) J=$2; shift;; -n) DRY=1;; esac; shift; done
 quick() { cat <<'EOF'
-user1-mono-clear-cd-retype|monorepo leftover|user1|MODEL=opus CC_VERSION=2.1.296
-user2-nogit-lazy-interrupt|nogit|goal|MODEL=opus CC_VERSION=2.1.296 LAZY=1 FAULT=interrupt
-leftover-pointer|single ready leftover|goal|MODEL=sonnet CC_VERSION=2.1.296
-continue-after-quit|single ready|continue|MODEL=sonnet CC_VERSION=2.1.296 LANDED=1 BUDGET=1800 PROXY=1
-single-295-sonnet|single|goal|MODEL=sonnet CC_VERSION=2.1.295
-single-via-ccr|single|goal|MODEL=opus CC_VERSION=2.1.296 VIA=ccr
-kill-mid-setup|nogit|kill|MODEL=sonnet CC_VERSION=2.1.296 FAULT=kill
+user1-mono-clear-cd-retype|monorepo leftover|user1|MODEL=haiku CC_VERSION=2.1.296
+user2-nogit-lazy-interrupt|nogit|goal|MODEL=haiku CC_VERSION=2.1.296 LAZY=1 FAULT=interrupt
+leftover-pointer|single ready leftover|goal|MODEL=haiku CC_VERSION=2.1.296
+continue-after-quit|single ready|continue|MODEL=haiku CC_VERSION=2.1.296 LANDED=1 BUDGET=1800 PROXY=1
+single-295|single|goal|MODEL=haiku CC_VERSION=2.1.295
+single-via-ccr|single|goal|MODEL=haiku CC_VERSION=2.1.296 VIA=ccr
+kill-mid-setup|nogit|kill|MODEL=haiku CC_VERSION=2.1.296 FAULT=kill
 EOF
 }
 milestone() { cat <<'EOF'
-milestone-planners|single ready|milestone|MODEL=sonnet CC_VERSION=2.1.295 LANDED=1 BUDGET=2700 PROXY=1 EPIC_PLANNERS=2
+milestone-planners|single ready|milestone|MODEL=haiku CC_VERSION=2.1.295 LANDED=1 BUDGET=2700 PROXY=1 EPIC_PLANNERS=2
 EOF
 }
 clarify() { cat <<'EOF'
-clarify-vague|single ready landing|vague|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=ask BUDGET=300
-clarify-yolo|single ready landing|vague-yolo|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=assumed BUDGET=300
-clarify-deep|single ready landing|deep|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=deep ORACLE_DIALOGS=10 ORACLE_TURNS=20 BUDGET=420
-clarify-clear|single ready|goal|MODEL=sonnet CC_VERSION=2.1.296 CLARIFY=none BUDGET=300
+clarify-vague|single ready landing|vague|MODEL=haiku CC_VERSION=2.1.296 CLARIFY=ask BUDGET=300
+clarify-yolo|single ready landing|vague-yolo|MODEL=haiku CC_VERSION=2.1.296 CLARIFY=assumed BUDGET=300
+clarify-deep|single ready landing|deep|MODEL=haiku CC_VERSION=2.1.296 CLARIFY=deep ORACLE_DIALOGS=10 ORACLE_TURNS=20 BUDGET=420
+clarify-clear|single ready|goal|MODEL=haiku CC_VERSION=2.1.296 CLARIFY=none BUDGET=300
 EOF
 }
 full() {   # the cross product, minus cells that cannot exist (user1 needs kit/, continue needs a set-up repo)
-  local f s m v via lz e
+  local f s v via lz e m=haiku
   for f in single monorepo nogit "single gitignore" "single legacy-beads" "single red" "single ready leftover" "monorepo red"; do
     for s in goal slow user1 continue; do
       [ $s = user1 ] && [[ $f != monorepo* ]] && continue; [ $s = continue ] && [[ $f != *ready* ]] && continue
-      for m in haiku sonnet opus; do for v in 2.1.295 2.1.296; do for via in direct ccr; do for lz in 0 1; do
+      for v in 2.1.295 2.1.296; do for via in direct ccr; do for lz in 0 1; do
         e="MODEL=$m CC_VERSION=$v"; [ $via = ccr ] && e+=" VIA=ccr"; [ $lz = 1 ] && e+=" LAZY=1"; [ $s = continue ] && e+=" LANDED=1 BUDGET=1800"
         echo "${f// /+}-$s-$m-${v##*.}-$via$([ $lz = 1 ] && echo -lazy)|$f|$s|$e"
-      done; done; done; done
+      done; done; done
     done
   done
 }
 CELLS=$($TIER | grep -E "^(${FILTER:-.*})\|" ) || { echo "no cells"; exit 2; }
 n=$(wc -l <<<"$CELLS")
-# estimate: US$ and minutes per cell by model, from the measured quick tier (README); a landed cell runs the whole plan (x4)
-est() { awk -F'|' -v j="$J" '{ m = $4 ~ /opus/ ? "opus" : $4 ~ /sonnet/ ? "sonnet" : "haiku"; k = $4 ~ /LANDED/ ? 4 : 1
-  usd += k * (m == "opus" ? 1.5 : m == "sonnet" ? 1.2 : 0.4); min += k * 8 }
+# live runs are haiku only (H0): a cell naming any other model is refused; tui.sh also forces every subagent and pins every cadre route to haiku
+bad=$(grep -vE 'MODEL=haiku( |$)' <<<"$CELLS") && { echo "not haiku:"; echo "$bad"; exit 2; }
+# estimate: US$ and minutes per cell, from the measured quick tier (README); a landed cell runs the whole plan (x4)
+est() { awk -F'|' -v j="$J" '{ k = $4 ~ /LANDED/ ? 4 : 1; usd += k * 0.4; min += k * 8 }
   END { printf "%d cells · about US$%.0f · about %d min with -j %d (%d min serial)\n", NR, usd, min / j + 8, j, min }' <<<"$CELLS"; }
 echo "tier $TIER · plugin ${SPIKE:-$(dirname "$H")} @ $(git -C "${SPIKE:-$(dirname "$H")}" rev-parse --short HEAD)"; est
-[ -n "$DRY" ] && { cut -d'|' -f1,2,3,4 <<<"$CELLS" | column -t -s'|'; exit 0; }
+[ -n "$DRY" ] && { echo "models: main --model haiku · subagents CLAUDE_CODE_SUBAGENT_MODEL=haiku (FORCE=1) · cadre routes (pins, ~/.claude/cadre.json): $("$H/tui.sh" pins | node -e 'const o=JSON.parse(require("fs").readFileSync(0)),m=new Set,w=x=>x&&typeof x=="object"&&(x.model&&m.add(x.model),Object.values(x).forEach(w));w(o);console.log([...m].join(",")+" ("+JSON.stringify(o).length+" B, "+(JSON.stringify(o).match(/\"model\"/g)||[]).length+" keys)")') · reviewer: forced by env (its keys refuse haiku)"; cut -d'|' -f1,2,3,4 <<<"$CELLS" | column -t -s'|'; exit 0; }
 RUN=$H/out/matrix/$TIER-$(date +%Y%m%d-%H%M%S); mkdir -p "$RUN"; echo "evidence: $RUN"
 export H RUN
 # each cell: its own container (tui name = cell name + run stamp), env from the 4th column

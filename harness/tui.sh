@@ -1,6 +1,6 @@
 #!/bin/bash
 # Interactive claude 2.1.295 in a container, driven through tmux. See harness/README.md.
-#   tui.sh start <name> [--scenario <name>]   (--scenario: seed the board/events/secret/ui atoms from scenarios/<name>.ts; needs the CADRE_DEV session.start block)  env: NO_GIT_IDENT=1 (no git identity in the container); CADRE_SOURCE=marketplace (install from GitHub, CADRE_REF=<branch|tag>) instead of the local checkout; COLS=120 ROWS=40 MODEL=haiku PERM=bypassPermissions SCAFFOLD=<script> CLAUDE_ARGS="..." SESSION_ARGS (appended)
+#   tui.sh start <name> [--scenario <name>]   (--scenario: seed the board/events/secret/ui atoms from scenarios/<name>.ts; needs the CADRE_DEV session.start block)  env: NO_GIT_IDENT=1 (no git identity in the container); CADRE_SOURCE=marketplace (install from GitHub, CADRE_REF=<branch|tag>) instead of the local checkout; COLS=120 ROWS=40 MODEL=haiku (the only model live runs use) PERM=bypassPermissions SCAFFOLD=<script> CLAUDE_ARGS="..." SESSION_ARGS (appended)
 #   tui.sh send <name> <text...>   types text + Enter;  keys <name> <tmux keys...> (Up, Enter, C-c ...)
 #   tui.sh type <name> <text>      types text, no Enter
 #   tui.sh wait-for <name> <regex> [secs=60] [pane|jsonl|debug]   exit 0 on match (prints the match), 1 on timeout
@@ -9,6 +9,12 @@
 #   more start env: CC_VERSION=2.1.296 (mount ~/.local/share/claude/versions/<v>), VIA=ccr (claude-code-router in between), LAZY=1 (lazy.txt appended to the system prompt), CWD=<subdir> (start there), SPIKE=<plugin checkout> (default: this repo), PROXY=1 (bench/effort-proxy.mjs logs each request's model + effort to out/effort.jsonl; not with VIA=ccr)
 #   a scaffold may leave .harness-store.json in the work dir: merged into the plugin's $.store file before claude starts
 H=$(cd "$(dirname "$0")" && pwd); R=$(dirname "$H"); T=${TUI_DIR:-/tmp/cadre-tui}
+# pins: the ~/.claude/cadre.json that puts every cadre route on haiku (H0). CLAUDE_CODE_SUBAGENT_MODEL_FORCE covers subagents only; these cover the rest of the routing keys.
+# The reviewer's keys refuse haiku (registry floor), so they keep their defaults here and only the FORCE env puts reviewers on haiku (the oracle's routing check reads the same env).
+if [ "$1" = pins ]; then exec node --experimental-transform-types --no-warnings --import "$R/tests/dev/register.mjs" -e '
+const { REG } = await import(process.argv[1] + "/config/defaults.ts"), o = {}
+for (const k of Object.keys(REG)) if (/^roles\.(?!reviewer\.)\w+\.(byRisk\.\w+\.(escalate\.)?)?model$/.test(k)) { let n = o; const p = k.split("."); for (const s of p.slice(0, -1)) n = n[s] ??= {}; n.model = "haiku" }
+console.log(JSON.stringify(o))' --input-type=module "$R"; fi
 . "$H/check.sh"
 c=$1; n=$2; shift 2; C=cadre-tui-$n; D=$T/$n
 tm() { docker exec "$C" tmux "$@"; }
@@ -32,13 +38,14 @@ start)
   git -C "$D/work" config user.email q@x 2>/dev/null
   ID='-e GIT_AUTHOR_NAME=cadre -e GIT_AUTHOR_EMAIL=cadre@localhost -e GIT_COMMITTER_NAME=cadre -e GIT_COMMITTER_EMAIL=cadre@localhost'; [ -n "$NO_GIT_IDENT" ] && ID=   # NO_GIT_IDENT=1: a machine with no git identity
   docker run -d --rm --name "$C" --user "$(id -u):$(id -g)" \
-    $ID -e TERM=xterm-256color $EXTRA_ENV -e CADRE_REF \
+    $ID -e CLAUDE_CODE_SUBAGENT_MODEL=haiku -e CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 -e TERM=xterm-256color $EXTRA_ENV -e CADRE_REF \
     --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined \
     -v "$D/projects":/cchome/.claude/projects -v "${CRED:-$HOME/.claude/.credentials.json}":/cchome/.claude/.credentials.json \
     -v "$D/plug":/work/spike -v "$D/work":/work/run -v "$D/out":/out $VOL -w /work/run --entrypoint sleep cadre-harness infinity >/dev/null || exit 1
   # pre-seed first-run state: theme + onboarding done + folder trusted (no dialogs); anything else still appears -> handled below
   W=/work/run${CWD:+/$CWD}
   docker exec "$C" sh -c "echo '{\"hasCompletedOnboarding\":true,\"theme\":\"dark\",\"projects\":{\"/work/run\":{\"hasTrustDialogAccepted\":true,\"hasCompletedProjectOnboarding\":true},\"$W\":{\"hasTrustDialogAccepted\":true,\"hasCompletedProjectOnboarding\":true}}}' > /cchome/.claude.json"
+  "$0" pins | docker exec -i "$C" sh -c 'cat > /cchome/.claude/cadre.json' || exit 1   # every cadre route on haiku
   # plugin $.store (one JSON file per plugin; id = name_source-<sha256(name@source)[:12]>): the fixture's seed, e.g. the machine-setup stamp
   [ -f "$D/work/.harness-store.json" ] && { docker exec -i "$C" sh -c 'mkdir -p -m 700 /cchome/.claude/plugins/store && cat > /cchome/.claude/plugins/store/cadre_inline-8e6dc893c684.json' <"$D/work/.harness-store.json"; rm "$D/work/.harness-store.json"; }
   ENV=; [ -n "$PROXY" ] && { docker exec -d "$C" node /work/spike/harness/bench/effort-proxy.mjs /out/effort.jsonl; ENV="ANTHROPIC_BASE_URL=http://127.0.0.1:8899"; }   # PROXY=1: log each request's model + effort (never content or headers)
