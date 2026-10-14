@@ -16,7 +16,8 @@ import { life } from './session'
 import { emit } from './events'
 import { modelText } from './say'
 import { isMs } from './milestone'
-import { charge } from './lifecycle'
+import { charge, intend, settleIntent } from './lifecycle'
+import { sessionOf } from './board'
 
 export const FRAMES = ['turn.complete', 'command.run']
 // the session's mode: drive.spawn (CADRE_SPAWN maps onto it: config/index.envLayer); a non-interactive session runs main (config/index.headlessMain)
@@ -37,7 +38,7 @@ export async function syncMode(h: Host): Promise<void> {
 
 DRIVE.sync = syncMode
 
-const inflight = new Set<string>()   // a per-task in-flight key: two turn ends at once never start one task twice (admission's CAS holds across sessions)
+const inflight = new Set<string>()   // `task:role` in flight: two turn ends at once never start one task's step twice (admission's CAS holds across sessions)
 // the spawner's step at a turn end or /cadre: start every agent the board wants, within maxParallel, counted against the drive bounds
 export async function spawnStep(h: Host, event: string): Promise<void> {
   if (!FRAMES.includes(event) || !h.spawnAgent) throw new Error(`spawn refused: ${event} is not a frame an agent's events stay under`)
@@ -48,7 +49,7 @@ export async function spawnStep(h: Host, event: string): Promise<void> {
   await sendQueued(h)   // a rework a close queued (a conflict on the plan tip): its worker is resumed now
   const s = await h.board.read(), cfg = await cfgOf(h), usd = (await h.usage?.().catch(() => undefined))?.cost?.usd
   let free = cfg.maxParallel > 0 ? cfg.maxParallel - s.tasks.filter(t => t.state === 'active').length : Infinity
-  const go = spawnable(modelView(s), await h.bind.read()).filter(x => !inflight.has(x.id) && (x.role !== 'claim' || free-- > 0))
+  const go = spawnable(modelView(s), await h.bind.read()).filter(x => !inflight.has(`${x.id}:${x.role}`) && (x.role !== 'claim' || free-- > 0))
   if (go.length && (await tally(h, cfg, usd, go.length))) for (const x of go) await one(h, x.id, x.role)
   if (go.length && (await h.ui.read()).goal === IDLE) await h.ui.update(u => ({ ...u, goal: undefined }))   // the idle fallback is not needed: agents run
   if (event === 'turn.complete') await drive(h, cfg, usd, true)   // what is main's own, if anything: one turn (a command frame may not submit)
@@ -78,13 +79,13 @@ export const told = (h: Host, line: string) => h.ui.update(u => ({ ...u, digest:
 
 async function one(h: Host, id: string, role: string) {
   if (life.ending) return   // the session is quitting: an agent started now would die with it, its claim left behind
-  inflight.add(id)
+  const k = `${id}:${role}`, n = await intend(h, id, role, await sessionOf(h)); inflight.add(k)
   try {
-    const r = await h.spawnAgent!({ prompt: modelText('agent-brief', `${role === 'planner' ? 'PLAN' : 'TASK'}-${id}`), description: `${role === 'claim' ? 'start' : role} ${id}` })   // PLAN-<epic>: admission starts its planner
+    const r = await h.spawnAgent!({ prompt: modelText('agent-brief', n), description: `${role === 'claim' ? 'start' : role} ${id}` })   // PLAN-<epic>: admission starts its planner
     if (r?.agentId) await h.ui.update(u => ({ ...u, own: [...((u.own as string[]) ?? []), r.agentId!].slice(-100) }))   // its task-notification never reaches main (core/reuse.submit)
     if (r?.deny) h.log(`${id} not started: ${r.deny}`)   // a deny is admission's answer (a gate, a lease): the gate or the next turn end deals with it
   } catch (x) {   // admission undid the claim and rethrew: the task budget's startFails; at limits.startFails the run stops for the human
     const n = await charge(h, id, 'startFails'), max = (await cfgOf(h)).limits.startFails
     h.log(`${id} could not start (${n}/${max}): ${x}`); if (n >= max) await stop(h, `${id} could not start ${n} times: ${String(x).slice(0, 120)}`)
-  } finally { inflight.delete(id) }
+  } finally { inflight.delete(k); await settleIntent(h, n) }
 }

@@ -80,7 +80,7 @@ export function contextLine(s: Omit<Snapshot, 'seq' | 'cost'>, idle: string[] = 
 // ready task of a live epic (role 'claim': admission picks its first step). With the binding table, also active steps no live agent runs (tester -> worker, a decision).
 export function spawnable(s: Omit<Snapshot, 'seq' | 'cost'>, bind?: Record<string, { taskId: string; role: string; retired?: boolean }>): { id: string; role: string }[] {
   const ts = s.tasks as SnapTask[], es = s.plan?.epics ?? [], live = (t: SnapTask) => !t.epic || es.find(e => e.id === t.epic)?.state === 'running'   // milestone (ADR 0015): a stopped epic's tasks wait
-  const runs = (t: SnapTask) => Object.entries(bind ?? {}).some(([a, b]) => b.taskId === t.id && (a.startsWith('~') || (b.role === t.step && !b.retired)))
+  const runs = (t: SnapTask) => Object.entries(bind ?? {}).some(([a, b]) => b.taskId === t.id && b.role === t.step && (a.startsWith('~') || !b.retired))   // per step: another step's start does not hold this one
   return [...ts.filter(t => t.state === 'review' && t.step === 'reviewer' && !t.owner && !runs(t)).map(t => ({ id: t.id, role: 'reviewer' })),
     ...(bind ? ts.filter(t => t.state === 'active' && (t.step === 'tester' || t.step === 'worker') && !runs(t)).map(t => ({ id: t.id, role: t.step })) : []),
     ...ts.filter(t => isReady(t, ts) && live(t)).map(t => ({ id: t.id, role: 'claim' })),

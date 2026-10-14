@@ -80,7 +80,7 @@ export async function step(h: Host, agentId: string, e: RunEvent): Promise<Run |
   const cur: Run | undefined = had ?? (b && { taskId: b.taskId, role: b.role, step: b.step, state: null, epoch: 0, log: [] })
   if (!had && ['call', 'forced', 'stopped'].includes(e.type)) return undefined   // observation: never a reason to end a run
   if (!cur) return void (e.type === 'resume' && e.taskId && (await queueResume(h, { agentId, taskId: e.taskId, text: e.text })))
-  if (e.type === 'spawn.ok') { e = { ...e, epoch: await charge(h, b!.taskId, 'epoch') }; await h.bind.update(({ [`~${b!.taskId}`]: _r, ...t }) => ({ ...t, [agentId]: b! })) }
+  if (e.type === 'spawn.ok') { e = { ...e, epoch: await charge(h, b!.taskId, 'epoch') }; await h.bind.update(({ [`~${b!.taskId}:${b!.step}`]: _r, ...t }) => ({ ...t, [agentId]: b! })) }
   let fx: Effect[] = []
   const now = await put<Run>(h, 'runs', agentId, cur, r => { const x = next(r!, e); fx = x.effects; return x.run })
   for (const f of fx) {
@@ -90,13 +90,26 @@ export async function step(h: Host, agentId: string, e: RunEvent): Promise<Run |
   }
   return now
 }
-// a spawn's reservation (admission): CAS, false while another spawn holds it or a live agent of that role is bound
+// a spawn's reservation (admission), one per task and step: CAS, false while another spawn of that step holds it or a live agent of that role is bound
 export async function reserve(h: Host, id: string, role: Role, sessionId: string): Promise<boolean> {
-  let got = false
-  await h.bind.update(b => { got = !b[`~${id}`] && !Object.keys(b).some(a => b[a].taskId === id && b[a].role === role); return got ? { ...b, [`~${id}`]: { taskId: id, role, step: '', worktree: '~', sessionId, ctxTokens: 0, startedAt: 0 } } : b })
+  let got = false, k = `~${id}:${role}`
+  await h.bind.update(b => { got = !b[k] && !Object.keys(b).some(a => b[a].taskId === id && b[a].role === role); return got ? { ...b, [k]: { taskId: id, role, step: role, worktree: '~', sessionId, ctxTokens: 0, startedAt: 0 } } : b })
   return got
 }
-export const unreserve = (h: Host, id: string) => h.bind.update(({ [`~${id}`]: _r, ...t }) => t)
+export const unreserve = (h: Host, id: string, step: string) => h.bind.update(({ [`~${id}:${step}`]: _r, ...t }) => t)
+
+// ---- spawn intent (ADR 0024 §2.6 invariant 5): the spawner records {task, role} under a nonce and the prompt is the nonce alone; admission resolves it. A cadre
+// spawn whose nonce does not resolve is refused, never an explorer. The record lives until the spawn call returns, so a session that died mid-claim leaves it for
+// the next session start (core/session.prune), which releases the half-made claim. ponytail: one $.store key for all intents (read-modify-write), few at a time ----
+export interface Intent { taskId: string; role: string; session: string; at: number }
+const intents = async (h: Host) => ((await h.store.get(await scoped(h, 'intents'))) as Record<string, Intent> | undefined) ?? {}
+const setIntents = async (h: Host, f: (m: Record<string, Intent>) => Record<string, Intent>) => h.store.set(await scoped(h, 'intents'), f(await intents(h)))
+export async function intend(h: Host, taskId: string, role: string, session: string): Promise<string> {
+  const n = `run-${h.rand(6)}`, at = await h.now(); await setIntents(h, m => ({ ...m, [n]: { taskId, role, session, at } })); return n
+}
+export const intentOf = async (h: Host, nonce: string): Promise<Intent | undefined> => (await intents(h))[nonce]
+export const intentsOf = intents
+export const settleIntent = (h: Host, nonce: string) => setIntents(h, ({ [nonce]: _done, ...m }) => m)
 // after a /clear (core/session): this process's binding comes back under the new session id when its run record survived; without one it is lost
 export async function restore(h: Host, a: string, b: Binding): Promise<boolean> {
   if (!(await runOf(h, a))) { await emit(h, 'agent.unbound', { agentId: a, reason: 'lost' }, { agentId: a, taskId: b.taskId }); return false }

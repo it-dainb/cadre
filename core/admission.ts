@@ -26,7 +26,7 @@ import { lockCore, watch } from './rebase'
 import { notesOf, pathsOf, sliceNotes, specTestsOf, untested } from './validate'
 import { branchOf, epicOf } from './milestone'
 import { plannerBrief } from './planner'
-import { budgetOf, reserve, step as lifeStep, unreserve } from './lifecycle'
+import { budgetOf, intentOf, reserve, step as lifeStep, unreserve } from './lifecycle'
 
 export interface Deps {
   store: TaskStore; cfg: Config; reg: TypeRegistry; root: string; home: string; wtRoot: string; key: string; actor: string; session: string
@@ -53,9 +53,12 @@ const stepsOf = (d: Deps) => (type: string, lane?: string) => { const p = pipeOf
 export async function admitWith(h: Host, d: Deps, e: any, next: ((e: any) => any) & { origin?: { plugin: string } }): Promise<any> {
   if (e.isTeammate) return deny('agent teams are not available; use a plain Agent call')
   if (e.workflow) return deny('workflow agents are not available; use a plain Agent call')
-  const s = await h.board.read(), pl = /^PLAN-(\S+)$/.exec(String(e.prompt ?? '').trim())?.[1]
-  if (pl && next.origin?.plugin === 'cadre' && epicOf(s, pl)) return planner(h, d, e, next, s, pl)   // the spawner's planner of a ready epic (ADR 0021); from anyone else it is a plain question
-  const ids = idsIn(e.prompt ?? '', s.tasks.map(t => t.id))
+  const s = await h.board.read(), mine = next.origin?.plugin === 'cadre', it = mine ? await intentOf(h, String(e.prompt ?? '').trim()) : undefined   // the spawner's own start names its intent
+  if (mine && !it) { h.log(`spawn refused: no intent ${String(e.prompt ?? '').slice(0, 40)}`); return deny('this start has no task behind it, so it was not started') }   // never an explorer
+  if (it && it.role !== 'planner' && !s.tasks.some(x => x.id === it.taskId)) return deny(`${it.taskId} is no longer on the board`)
+  if (it?.role === 'planner') return epicOf(s, it.taskId) ? planner(h, d, e, next, s, it.taskId) : deny(`${it.taskId} has no plan to draft now`)   // a ready epic's planner (ADR 0021)
+  if (it) e = { ...e, prompt: modelText('agent-brief', '') }   // the brief's notes are main's words only
+  const ids = it ? [it.taskId] : idsIn(e.prompt ?? '', s.tasks.map(t => t.id))
   if (ids.length > 1) return deny(`one agent takes one task, but the prompt names ${ids.join(', ')}; spawn one agent per task`)
   if (ids.length && s.drive.on && !s.drive.stopped && s.drive.spawn === 'mod' && next.origin?.plugin !== 'cadre') return deny(`${ids[0]} starts by itself; do not spawn agents for the plan's tasks. An Agent without a task id (to explore or ask) is fine`)   // mod mode (ADR 0018): only the spawner's own call, never main's
   if (!ids.length) {   // marker-less: a read-only explorer; forks pass untouched
@@ -83,7 +86,7 @@ async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTa
   let r: any
   try { r = await next({ ...e, subagentType: `cadre:${role}`, prompt: modelText('agent-brief', prompt), model: r0.model, cwd }) } catch (err) { await undo(); throw err }
   if (r?.deny) { await undo(); return r }
-  if (!r?.agentId) { await unreserve(h, t.id); return r }
+  if (!r?.agentId) { await unreserve(h, t.id, step); return r }
   if (typeof r.model === 'string' && r.model !== run.model) Object.assign(run, { ran: r.model })   // the id Claude Code resolved the alias to (its agent.spawn result)
   await lifeStep(h, r.agentId, { type: 'spawn.ok', mode: e.permissionMode, bind: { taskId: t.id, role, step, worktree: wt, sessionId: d.session, ctxTokens: 0, startedAt: await h.now(), ...(r0.effort ? { effort: r0.effort } : {}) } })
   await emit(h, 'agent.bound', { agentId: r.agentId, taskId: t.id, role, ...(rt ? { tier: rt } : {}), model: run.model, ...((run as any).ran ? { ran: (run as any).ran } : {}), effort: run.effort, setting: r0.setting, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }, { agentId: r.agentId, taskId: t.id, actor: 'mod' })
@@ -178,7 +181,7 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
 async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapshot, t: SnapTask) {
   const task = await d.store.get(t.id), role = ROLE[t.step], now = await h.now(), bind = await h.bind.read(), mine = agentsOf(bind, t.id)
   if (!role || (role === 'tester' && !d.view)) return deny(`${t.id}: step ${t.step || '?'} runs without an agent; wait and call TaskList`)
-  if (mine.some(a => a.startsWith('~'))) return deny(`${t.id} is already being spawned; wait`)
+  if (mine.some(a => a.startsWith('~') && bind[a].role === role)) return deny(`${t.id} is already being spawned; wait`)   // another step's start may run beside it
   if (role === 'worker' && stepsOf(d)(t.type, t.lane).includes('red') && !task.meta['cadre.specCommit']) return deny(`${t.id}: its spec tests are not recorded yet; the tester step must finish first`)
   const live = leaseLive(task, now) && (await held(h, await ownerOf(h, t.id))) === 'other'   // a claim of a gone session (quit) or of this process (/clear) does not wait for the lease to lapse
   if (live && !mine.length) return deny(`${t.id} is being worked on from another session; leave it`)
@@ -196,7 +199,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
   }
   for (const a of mine) await lifeStep(h, a, { type: 'end', cause: 'released', reason: live ? 'rebind' : 'stale' })
   if (!(await reserve(h, t.id, role, d.session))) return deny(`${t.id} is already being spawned; wait`)
-  const undo = () => unreserve(h, t.id)
+  const undo = () => unreserve(h, t.id, role)
   try {
     if (t.state === 'blocked') await apply(h, { kind: 'unblock', id: t.id, at: now, actor: 'mod' }, stepsOf(d))
     await owner(h, d, t.id); await d.store.resume(t.id, d.actor)
@@ -219,7 +222,7 @@ async function review(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
   const task = await d.store.get(t.id), src = task.meta['cadre.sourceCommit']
   if (!src) return deny(`${t.id} has no commit to review yet`)
   if (!(await reserve(h, t.id, 'reviewer', d.session))) return deny(`${t.id} already has a reviewer; wait for its verdict`)
-  const wt = task.meta['cadre.worktree'] ?? wtPath(d.wtRoot, d.key, t.id), base = task.meta['cadre.base'] ?? src, undo = () => unreserve(h, t.id)
+  const wt = task.meta['cadre.worktree'] ?? wtPath(d.wtRoot, d.key, t.id), base = task.meta['cadre.base'] ?? src, undo = () => unreserve(h, t.id, 'reviewer')
   try {
     const diffStat = await G.diffStat(h.run, wt, `${base}..${src}`), diff = await G.diffPatch(h.run, wt, `${base}..${src}`)
     const epicMeta = s.epic ? (await d.store.get(s.epic).catch(() => null))?.meta['cadre.corePaths'] : undefined, core: string[] = (() => { try { return JSON.parse(epicMeta ?? '[]') } catch { return [] } })()
@@ -236,7 +239,7 @@ async function planner(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snaps
   const ep = epicOf(s, id)!
   if (s.drive.planner !== 'agent' || (ep.state !== 'ready' && ep.state !== 'planning')) return deny(`${id} has no plan to draft now`)
   if (!(await reserve(h, id, 'planner', d.session))) return deny(`${id} already has a planner; wait`)
-  const undo = () => unreserve(h, id)
+  const undo = () => unreserve(h, id, 'planner')
   try { return await launch(h, d, e, next, { id } as SnapTask, 'planner', await plannerBrief(h, d, s, ep), d.root, 'planner', d.root, undo, undefined) } catch (err) { await undo(); throw err }
 }
 

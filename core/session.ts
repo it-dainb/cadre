@@ -9,7 +9,7 @@ import { ask, flagDecision, holds } from './decide'
 import { specAsk } from './tdd'
 import { propose } from './integrate'
 import { UI, agentsOf, idleOf, isCold, leaseLive, modelView, safe, sessionOf, stamp } from './board'
-import { pruneRuns, restore, step } from './lifecycle'
+import { intentsOf, pruneRuns, restore, settleIntent, step } from './lifecycle'
 import { ring } from './events'
 import { RUNS, nextAction } from './render'
 import { queueCard, renderCard } from './briefs'
@@ -219,6 +219,12 @@ export async function prune(h: Host): Promise<void> {
   if (keep.length !== q.length) await h.store.set(await qk(h), keep)
   const p = (await h.store.get(await pk(h))) as any
   await pruneRuns(h, ok)
+  for (const [n, it] of Object.entries(await intentsOf(h))) {   // a start a session left mid-claim (it died between the claim's writes): the half-made claim goes back
+    if ((await held(h, it.session)) === 'other') continue   // a live session's start in flight
+    const t = await store.get(it.taskId).catch(() => null), actor = String((await h.store.get(await scoped(h, 'actor'))) ?? '')
+    if (it.role === 'claim' && t?.category === 'active' && t.assignee === actor && !Object.values(await h.bind.read()).some(b => b.taskId === it.taskId)) await store.release(it.taskId, actor, 'interrupted start').catch(() => {})
+    await settleIntent(h, n)
+  }
   if (p?.bind) { const b: Record<string, Binding> = {}; for (const [a, v] of Object.entries(p.bind as Record<string, Binding>)) if (!a.startsWith('~') && (await ok(v.taskId))) b[a] = v; await h.store.set(await pk(h), { ...p, bind: b }) }
   const quk = await scoped(h, 'quarantine'), qu = ((await h.store.get(quk)) as { ts: number }[] | undefined) ?? []
   if (qu.some(x => now - x.ts > 30 * 86_400_000)) await h.store.set(quk, qu.filter(x => now - x.ts <= 30 * 86_400_000))
