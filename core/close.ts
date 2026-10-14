@@ -188,7 +188,7 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
   if (r.role !== b.role) throw new Error(`role: this agent is bound as ${b.role}, got ${r.role}`)
   if (!(t.step === b.step && STEP_CAT[b.step] === t.state)) throw new Error(`${t.id} is ${t.state}·${t.step}: nothing to report at your step`)
   if (r.role === 'tester') {
-    const task = await d.store.get(t.id), g = await testerDone(h, d, task, task.meta['cadre.worktree'], b.worktree, r.tests, agentId)
+    const task = await d.store.get(t.id), g = await testerDone(h, d, task, task.meta['cadre.worktree'], b.worktree, r.tests, agentId, r.run)
     if (!g.ok) {   // bounded (limits.testerRounds, across agents): past it, or a setup fault the tester cannot fix, the task blocks once with one dialog naming the check
       const n = num(task.meta['cadre.testerRounds']) + 1
       if (!g.setup && n < d.cfg.limits.testerRounds) { await d.store.setMeta(t.id, { 'cadre.testerRounds': String(n) }, d.actor); throw new Error(`red gate refused: ${g.why}\n${g.card}`) }

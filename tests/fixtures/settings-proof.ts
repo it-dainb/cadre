@@ -9,6 +9,8 @@ export const ELSEWHERE: Record<string, [string, string]> = {
   maxParallel: ['tests/admission.test.ts', 'd.cfg.maxParallel = 2'], 'milestone.maxEpics': ['tests/milestone.test.ts', 'cfg.milestone.maxEpics = maxEpics'],
   'roles.testerView': ['tests/admission.test.ts', "d.cfg.roles.testerView = 'full'"], 'roles.tdd.author': ['tests/admission.test.ts', "d.cfg.roles.tdd.author = 'same'"],
   'milestone.epicPlanner': ['tests/planner.test.ts', "cfg.milestone.epicPlanner = 'main'"], 'planner.maxRounds': ['tests/planner.test.ts', 'cfg.planner.maxRounds = 2'],
+  'tdd.testerCommand.use': ['tests/git/tdd.test.mjs', 'settings: tdd.testerCommand.use off'], 'tdd.testerCommand.adopt': ['tests/git/tdd.test.mjs', 'settings: tdd.testerCommand.adopt off'],
+  'tdd.collectErrors': ['tests/git/tdd.test.mjs', 'settings: tdd.collectErrors'],
   packages: ['tests/admission.test.ts', "d.cfg.packages = [{ root: '.', setup:"],
   adapters: ['tests/protocol/protocol.test.mjs', 'const config = { ...cfgDefaults(), adapters, sync }'], sync: ['tests/protocol/protocol.test.mjs', 'const config = { ...cfgDefaults(), adapters, sync }'],
 }

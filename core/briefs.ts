@@ -29,7 +29,7 @@ export interface BriefIn {
   id: string; title: string; type: string; description?: string; scenarios?: string; contract?: string; notes?: string
   paths?: string[]; testPaths?: string[]; locked?: string[]; redCard?: string; greenCard?: string; deps?: { id: string; title: string; out?: string }[]
   findings?: string[]; decisions?: string[]; handoff?: string; others?: string[]; protectedPaths?: string[]; shared?: string; mission?: string; core?: string; slice?: string; uncovered?: string[]   // uncovered: set when the coverage rule is on (review.coverage.enforce); the scenario ids no locked test name carries
-  sourceCommit?: string; diffStat?: string; diff?: string; audit?: string; report?: string; changelog?: string; flags?: string[]; question?: string; focus?: string
+  runAsk?: boolean; sourceCommit?: string; diffStat?: string; diff?: string; audit?: string; report?: string; changelog?: string; flags?: string[]; question?: string; focus?: string
 }
 // contract JSON ({symbols:[{name,kind,params,returns,errors?,doc?,status}]} | {none,reason}) -> compact lines
 export function renderContract(design?: string): string {
@@ -55,7 +55,7 @@ export function brief(role: Role, b: BriefIn): string {
   const contract = sec('Contract', renderContract(b.contract)), files = (why: string) => (b.paths?.length ? `\nFiles: ${b.paths.join(', ')}${why}` : '')   // the task's declared paths, in the task block
   if (role === 'explorer') return join([plan, head, `# ${b.question !== undefined ? 'QUESTION' : `TASK-${b.id}`}\n${b.question ?? b.title}`, sec('Scope', 'read-only; no edits, no shell'), mine, notes])
   if (role === 'tester')
-    return join([plan, head, `# SPEC TASK-${b.id}${files(' (the code this task changes)')}`, spec([sec('Scenarios', b.scenarios), contract]), sec('Test paths', b.testPaths), mine, sec('Folder', 'tests only; read FILES.md first: it lists what you can see (you cannot list directories)'), notes])
+    return join([plan, head, `# SPEC TASK-${b.id}${files(' (the code this task changes)')}`, spec([sec('Scenarios', b.scenarios), contract]), sec('Test paths', b.testPaths), b.runAsk ? sec('How your tests run', RUN_ASK) : '', mine, sec('Folder', 'tests only; read FILES.md first: it lists what you can see (you cannot list directories)'), notes])
   if (role === 'reviewer')
     return join([plan, head, `# REVIEW TASK-${b.id}${files(' (a change outside these files is a finding, not a fail on its own)')}`, sec('Source commit', b.sourceCommit), sec('Diff', [b.diffStat ?? '', cap(b.diff ?? '', 3072)]),
       spec([sec('Scenarios', b.scenarios), contract, sec('Spec tests', b.locked)]),
@@ -66,6 +66,8 @@ export function brief(role: Role, b: BriefIn): string {
       sec('Findings / checks', [...(b.findings ?? []), b.greenCard ?? '']), sec('Decisions', b.decisions), sec('Handoff', b.handoff),
       sec('Paths of other active tasks', (b.others ?? []).slice(0, 10))]), mine, notes])
 }
+// the tester proposes its test command, cadre runs it (ADR 0023): task language only
+export const RUN_ASK = 'In your report, give run: the command that runs only your test files, as an argument list with no shell, e.g. {"command":["node","--test","test/login.test.js"]}; add cwd (a folder relative to this one) only if the runner must start there. If the runner can write a JUnit XML report, make it write to $CADRE_JUNIT and set junit to "$CADRE_JUNIT" (pytest --junitxml=$CADRE_JUNIT; node --test --test-reporter=junit --test-reporter-destination=$CADRE_JUNIT; jest with jest-junit). You do not run it: it is run for you, and every test you list must fail with an assertion now, not with an import or setup error.'
 // the reviewer's coverage rule (ADR 0022), task language: enforced by close (a pass with a missing or weak scenario is refused)
 export const COVER = 'Every scenario needs a spec test named after its id that really checks it. In coverage, give each scenario its test and ok:true only when that test truly checks the behavior; a scenario with no test, or a weak one (ok:false), means verdict changes with a major finding for it.'
 // ---- deltas (4.3): <= 1 KB per bound agentId, drained by the tool.call wrap into context, or by a queued resume ----

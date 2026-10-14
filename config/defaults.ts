@@ -27,6 +27,8 @@ export const defaults = () => ({
   sync: {} as Record<string, unknown>,
   types: typeDefaults() as unknown, packages: [] as { root: string; knownRed?: string[]; [k: string]: unknown }[],
   suites: { integration: 'all' as string | string[] },
+  // ADR 0023: the tester proposes the command that runs its tests, cadre runs it for red (and green); with no test check it becomes the package's
+  tdd: { testerCommand: { use: true, adopt: true }, collectErrors: ['ERROR collecting', 'errors? during collection', 'ImportError', 'ModuleNotFoundError', 'Cannot find module', 'ERR_MODULE_NOT_FOUND', 'SyntaxError', 'Test suite failed to run', '\\[build failed\\]', '\\[setup failed\\]', 'no tests ran', 'No tests found'] },
   review: { coverage: { enforce: true }, deepLabels: ['security', 'breaking'], maxRework: 3, coreTask: 'core', coreDiff: 'thorough', tiers: { light: { files: 5, lines: 100, paths: 2 }, thorough: { files: 20, lines: 500 }, risky: ['**/auth/**', '**/security/**', '**/crypto/**', '**/permission*/**', '**/migrations/**', '.github/**', '.gitlab-ci.yml', 'Dockerfile', '**/package.json', '**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/go.mod', '**/Cargo.toml', '**/pyproject.toml', '**/requirements*.txt'] } },
   limits: { reportRetries: 3, nudges: 2, attempts: 3, rebaseRounds: 2, testerRounds: 3 },
   lanes: { fullAt: 3, milestoneAt: 8 },
@@ -88,6 +90,9 @@ export const REG: Record<string, Meta> = {
   'roles.testerView': m(C, 'view: the tester sees only the interface; full: the whole tree', { cls: 'S', opts: ['full', 'view'], tighten: 'enum' }),
   'roles.tdd.author': m(C, 'separate: a tester agent writes the tests; same: the worker does', { opts: ['separate', 'same'] }),
   'limits.testerRounds': m(C, 'tester reports refused at the red gate (tests not failing for the right reason) before the task blocks and asks you', N(1, 10)),
+  'tdd.testerCommand.use': m(C, "the tester names the command that runs its tests; cadre runs it to prove red (and green); off: only the package's test check"),
+  'tdd.testerCommand.adopt': m(C, "a package with no test check takes the tester's command (verified red) as its test check, written to the repo settings file"),
+  'tdd.collectErrors': m(C, "output patterns (regex) that mean the tests did not run (collection, import or setup error): the tester's report is refused naming the line", { ok: v => strs(v) ?? ((v as string[]).find(x => { try { new RegExp(x); return false } catch { return true } }) ? 'expected valid regular expressions' : null) }),
   packages: m(C, 'packages with their checks (set by init)', { open: true }), 'suites.integration': m(C, "checks run at integration ('all' or a list)", { ok: v => (v === 'all' ? null : strs(v)) }),
   strictness: m(SF, 'strict: guards refuse; advisory: guards warn', { cls: 'S', opts: ['advisory', 'strict'], tighten: 'enum' }),
   mcpAllow: m(SF, 'MCP tools task agents may call', { cls: 'S', tighten: 'list', ok: strs }), jail: m(SF, 'checks run in a sandbox: off, auto (when available), on', { cls: 'S', opts: ['off', 'auto', 'on'], tighten: 'enum' }),

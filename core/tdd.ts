@@ -70,6 +70,73 @@ export async function red(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, te
   return { ok: true, card: `red ✓ ${tests.length} failing (${secs(r.ms)})\n${lines.join('\n')}`, tests: tests.map(t => find(r.cases!, t.name)!.name) }
 }
 
+// ---- the tester's own command (ADR 0023: the tester proposes, cadre verifies). Run like a check (offline sandbox, writes discarded, timeout), at the spec
+// commit; $CADRE_JUNIT (env, and substituted in the argv: no shell expands it) is where a runner writes JUnit, read back from the scratch ----
+export interface TestRun { command: string[]; junit?: string; cwd?: string }
+const ABS = /(?<![\w.~-])(?:file:\/\/)?\/(?:[^\s'"\/:]+\/)+/g   // a runner's output names files by absolute path: the tester reads only names relative to its folder
+const JX = /\$\{?CADRE_JUNIT\}?/g
+async function runTests(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, run: TestRun, gate: 'red' | 'green' | 'pass') {
+  const mode = await modeOf(h, d), scratch = `${d.wtRoot}/${d.key}.scratch/${task.id}-run`, jx = mode === 'none' ? `${scratch}/cadre/junit.xml` : '/tmp/cadre/junit.xml'   // jailed: the scratch is /tmp
+  await h.run(['rm', '-rf', scratch]); await h.run(['mkdir', '-p', `${scratch}/cadre`])
+  const at = rootOf(pkg) ? `${wt}/${pkg.root}` : wt, t0 = await h.now()
+  const r = await G.checkRun(h.run, mode, { wt, scratch, pkgRoot: run.cwd ? `${at}/${run.cwd}` : at, argv: run.command.map(a => a.replace(JX, jx)), writable: d.cfg.jailWritable, env: { CADRE_JUNIT: jx } }, 600000)
+  const xml = await h.readText(`${scratch}/cadre/junit.xml`); await h.run(['rm', '-rf', scratch])
+  const ms = (await h.now()) - t0, cases = xml === null ? undefined : junit(xml), out = `${r.stdout}\n${r.stderr}`.replace(ABS, '')
+  await emit(h, 'check.ran', { taskId: task.id, name: 'spec tests', ok: (gate === 'red') === !!r.exitCode, phase: gate === 'pass' ? 'green' : gate, secs: Math.round(ms / 1000), exit: r.exitCode }, { taskId: task.id })
+  return { exit: r.exitCode, ms, out: out.slice(-65536), tail: out.slice(-600), cases }
+}
+// the first output line that says the tests never ran (tdd.collectErrors), or null
+export const collectLine = (out: string, pats: readonly string[]): string | null => {   // pattern order is priority: the first pattern that matches any line names it
+  const ls = out.split('\n').map(l => l.replace(/^#\s*/, '').trim())
+  for (const p of pats) { const re = new RegExp(p), l = ls.find(x => re.test(x)); if (l) return l.slice(0, 200) }
+  return null
+}
+// without JUnit: some output line names the test and says it failed (node:test "not ok", pytest "FAILED", go "--- FAIL", jest "✕").
+// ponytail: a word match on the runner's text; a runner that prints neither the name nor a failure word needs JUnit
+const FAILED = /\bnot ok\b|\bFAIL(?:ED|URE|S)?\b|\bfail(?:ed|ing|ure|s)?\b|✕|✗|×/
+const failsIn = (out: string, name: string) => { const tail = name.split(/::|[#>]/).pop()!.trim(); return out.split('\n').some(l => (l.includes(name) || (tail.length > 2 && l.includes(tail))) && FAILED.test(l)) }
+async function redRun(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, tests: { name: string }[], run: TestRun, pass: boolean): Promise<Gate> {
+  const r = await runTests(h, d, task, wt, pkg, run, pass ? 'pass' : 'red'), no = (why: string): Gate => ({ ok: false, why, card: `red ✗ ${why}` })
+  const col = collectLine(r.out, d.cfg.tdd?.collectErrors ?? []), syms = symbolsOf(task.design), sk = !!pkg.tdd?.skeleton
+  const didNot = col && !errorOk(col, syms, sk) ? no(`the tests did not run: ${col}`) : null   // an import of a status:new symbol (no skeleton) is the right red, as an <error> is
+  if (pass) return r.exit ? didNot ?? no(`its tests must pass (test task) but exit=${r.exit}: ${r.tail.slice(-300)}`) : { ok: true, card: `tests ✓ pass (${secs(r.ms)})`, tests: r.cases?.map(c => c.name) ?? tests.map(t => t.name) }
+  if (!r.exit) return no('the tests pass at the spec commit; red needs them failing')
+  if (r.cases) {
+    const lines: string[] = []
+    for (const t of tests) {
+      const c = find(r.cases, t.name)
+      if (!c) return didNot ?? no(`test "${t.name}" is not in the JUnit report`)
+      if (c.status === 'passed' || c.status === 'skipped') return no(`test "${t.name}" ${c.status} at red; it must fail`)
+      if (c.status === 'error' && !errorOk(c.text, syms, sk)) return didNot ?? no(`errors, not failures: fix test setup ("${t.name}": ${c.text.slice(0, 160)})`)
+      lines.push(`- ${t.name}: ${c.text.slice(0, 120)}`)
+    }
+    return { ok: true, card: `red ✓ ${tests.length} failing (${secs(r.ms)})\n${lines.join('\n')}`, tests: tests.map(t => find(r.cases!, t.name)!.name) }
+  }
+  if (col) return didNot ?? { ok: true, card: `red ✓ exit=${r.exit}: ${col} (${secs(r.ms)})`, tests: tests.map(t => t.name) }
+  if (run.junit) return no('no JUnit report was written to $CADRE_JUNIT; make the runner write it there, or leave junit out')
+  const miss = tests.find(t => !failsIn(r.out, t.name)); if (miss) return no(`the output does not show test "${miss.name}" failing (exit=${r.exit}): ${r.tail.slice(-300)}`)
+  return { ok: true, card: `red ✓ exit=${r.exit}, ${tests.length} failing (${secs(r.ms)})`, tests: tests.map(t => t.name) }
+}
+
+// ---- adoption: a package with no test check takes the verified command (minus this task's own test files, when they are separate arguments) as its "test"
+// check. cadre writes it to the repo file (never Claude) and records the decision; Settings shows the packages row's source as "tester" ----
+export async function adopt(h: Host, d: Deps, pkg: Pkg, run: TestRun, files: string[], id: string): Promise<string | null> {
+  if (run.cwd) { h.log(`test check not adopted for ${pkg.root}: the command starts in ${run.cwd}`); return null }   // a check has no cwd and no shell to cd
+  const own = (a: string) => files.includes(a.split('::')[0]), keep = run.command.filter(a => !own(a)), argv = keep.length && keep.length < run.command.length ? keep : run.command
+  const rp = pkg.tdd?.report ?? '/tmp/cadre/junit.xml', test = argv.map(a => a.replace(JX, rp)), uses = argv.some(a => a.includes('CADRE_JUNIT'))
+  const patch = (p: Pkg & { testBy?: string }) => ({ ...p, checks: { ...p.checks, test }, ...(p.verify?.length && !p.verify.includes('test') ? { verify: [...p.verify, 'test'] } : {}), ...(uses && !p.tdd?.report ? { tdd: { ...p.tdd!, report: rp } } : {}), testBy: 'tester' })
+  const file = `${d.root}/.cadre/config.json`; let j: any = {}
+  try { j = JSON.parse((await h.readText(file)) ?? '{}') } catch { j = {} }
+  const list: Pkg[] = Array.isArray(j.packages) ? j.packages : (d.cfg.packages as Pkg[]).map(({ knownRed: _k, ...p }) => p)
+  j.packages = list.some(p => p.root === pkg.root) ? list.map(p => (p.root === pkg.root ? patch(p) : p)) : [...list, patch(pkg)]
+  await h.write(file, `${JSON.stringify(j, null, 2)}\n`)
+  Object.assign(pkg, patch(pkg))   // this run sees it too (the next load reads the file)
+  const text = `test check set from the tester: ${test.join(' ')}`
+  await d.store.record('decision', text, `package ${pkg.root} had no test check; the tester's command for ${id} ran and failed as red needs, so it is now the package's "test" check.`, id).catch(() => undefined)
+  await emit(h, 'drive.decided', { kind: 'setting', text, taskId: id }, { taskId: id, actor: 'mod' })
+  return text
+}
+
 // ---- failure baseline (ADR 0014 G, generalises knownRed): a check that was red when the plan started gates only on NEW failures. Measured once per plan and
 // check, lazily (the first time it fails), at the plan's start commit (merge-base of the plan branch and dev) in a throwaway worktree; kept in epic meta cadre.baseline ----
 type Base = { exit: number; fails?: string[] }
@@ -94,21 +161,29 @@ export async function oldFailure(h: Host, d: Deps, pkg: Pkg, name: string, cases
   return now ? null : `${name} was already red before the plan`
 }
 
+const testRunOf = (d: Deps, task: Task): TestRun | null => { try { return d.cfg.tdd?.testerCommand.use !== false && task.meta['cadre.testRun'] ? JSON.parse(task.meta['cadre.testRun']) : null } catch { return null } }
 // ---- green (9): verify at the current tree passes (or fails only as it did before the plan); spec tests present and passed (skipped != passed); knownRed runs but never gates ----
 export async function green(h: Host, d: Deps, task: Task, wt: string): Promise<Gate> {
   const pkg = pkgOf(d, task); if (!pkg) return { ok: false, why: 'no package', card: 'green ✗ no package' }
   const no = (why: string): Gate => ({ ok: false, why, card: `green ✗ ${why}` }), names = [...new Set([...verifyOf(pkg), ...(pkg.tdd?.report ? [redOf(pkg)] : [])])]
   let ms = 0, cases: Case[] | undefined; const kr: string[] = []
+  const tr = testRunOf(d, task)
+  if (tr) {   // the worker's step runs the tester's command too, now expected to pass, plus the package checks
+    const r = await runTests(h, d, task, wt, pkg, tr, 'green'); ms += r.ms
+    if (r.exit) return no(`the spec tests fail (exit=${r.exit}): ${r.tail.slice(-300)}`)
+    const spec = JSON.parse(task.meta['cadre.specTests'] ?? '[]') as string[], bad = r.cases ? spec.filter(n => find(r.cases!, n)?.status !== 'passed') : []
+    if (bad.length) return no(`spec test(s) not passed: ${bad.slice(0, 5).join(', ')}`)
+  }
   for (const n of names) {
     const r = await runCheck(h, d, task, wt, pkg, n, verifyOf(pkg).includes(n) ? 'green' : undefined); ms += r.ms; if (n === redOf(pkg)) cases = r.cases
     if (verifyOf(pkg).includes(n) && r.exit) { const k = await oldFailure(h, d, pkg, n, r.cases); if (!k) return no(`${n} fails (exit=${r.exit}): ${r.tail.slice(-300)}`); kr.push(k) }
   }
-  if (pkg.tdd?.report) {
+  if (pkg.tdd?.report && !tr) {   // with the tester's command, its own run checked the spec tests (the names are its runner's)
     const spec = JSON.parse(task.meta['cadre.specTests'] ?? '[]') as string[], bad = spec.filter(n => find(cases ?? [], n)?.status !== 'passed')
     if (bad.length) return no(`spec test(s) not passed: ${bad.slice(0, 5).join(', ')}`)
   }
   for (const n of pkg.knownRed ?? []) if (pkg.checks[n]) kr.push(`${n}=${(await runCheck(h, d, task, wt, pkg, n)).exit}`)
-  return { ok: true, card: `green ✓ ${names.join('+')} (${secs(ms)})${kr.length ? ` · knownRed ${kr.join(' ')}` : ''}` }
+  return { ok: true, card: `green ✓ ${[...(tr ? ['spec tests'] : []), ...names].join('+')} (${secs(ms)})${kr.length ? ` · knownRed ${kr.join(' ')}` : ''}` }
 }
 
 // ---- copy-in (4): view files under tdd.paths, only those, by path; skeleton for status:new symbols; one commit = specCommit ----
@@ -147,23 +222,26 @@ export async function lockedViolations(run: G.Run, wt: string, spec: string, loc
 }
 
 // ---- tester report (3.4 tester -> red✓): audit, copy-in, red, lock, advance. A refused gate leaves the task at the tester step (caller counts the retry). ----
-export async function testerDone(h: Host, d: Deps, task: Task, wt: string, view: string, tests: { path: string; name: string }[], agentId?: string): Promise<Gate> {
+export async function testerDone(h: Host, d: Deps, task: Task, wt: string, view: string, tests: { path: string; name: string }[], agentId?: string, run?: TestRun): Promise<Gate> {
   const pkg = pkgOf(d, task); if (!pkg?.tdd) return { ok: false, setup: true, why: 'its package has no tdd config', card: 'red ✗ no tdd config' }
   // live 0.12.1: a package with only a compile check, so red ran compile, it passed, and every report was refused as "the tests pass": the tests never ran. Red needs a check that runs them
-  if (!pkg.tdd.check && redOf(pkg) !== 'test') return { ok: false, setup: true, why: `package ${pkg.root} has no test check, so the tests never ran (red would run only "${redOf(pkg)}"); add a "test" check (or tdd.check) to its package in .cadre/config.json`, card: 'red ✗ no test check' }
+  const use = run && d.cfg.tdd?.testerCommand.use !== false ? run : undefined, noTest = !pkg.tdd.check && redOf(pkg) !== 'test'
+  if (noTest && !use) return { ok: false, setup: true, why: `package ${pkg.root} has no test check, so the tests never ran (red would run only "${redOf(pkg)}"); add a "test" check (or tdd.check) to its package in .cadre/config.json`, card: 'red ✗ no test check' }
   const pipe = pipeOf(d.reg), steps = pipe(task.type, task.meta['cadre.lane']), hasRed = steps.includes('red'), au = await auditView(h, d, task, view, agentId)
   const pre = await G.tip(h.run, wt, 'HEAD'), undo = () => G.op(h, async () => { await G.git(h.run, wt, ['reset', '--hard', '-q', pre]); await G.git(h.run, wt, ['clean', '-fdq']) }).catch(() => {})   // a refused gate must not leave the copy-in behind (a retry would see "identical")
   let spec: string
   try { spec = await copyIn(h, d, task, wt, view, pkg) } catch (e) { await undo(); return { ok: false, why: String((e as Error).message), card: `red ✗ ${(e as Error).message}` } }
-  const g = await red(h, d, task, wt, pkg, tests, !hasRed), card = `${g.card}\n${au.text}`
+  const g = use ? await redRun(h, d, task, wt, pkg, tests, use, !hasRed) : await red(h, d, task, wt, pkg, tests, !hasRed), card = `${g.card}\n${au.text}`
   if (!g.ok) { await undo(); return { ...g, card } }
   const miss = d.cfg.review.coverage.enforce ? untested(task.acceptance, g.tests ?? []) : []   // ADR 0022: a scenario no test is named after never reaches the worker
   if (miss.length) { await undo(); return { ok: false, why: `no test is named after ${miss.join(', ')}: write a test for every scenario and name it after the scenario id (e.g. "${miss[0]}: …")`, card: `red ✗ no test for ${miss.join(', ')}` } }
   const base = task.meta['cadre.base'] ?? spec, locked = await lockedOf(h.run, wt, base, spec, pkg)
   await setLocks(h, task.id, locked.map(p => `${wt}/${p}`))
-  await d.store.setMeta(task.id, { 'cadre.specCommit': spec, 'cadre.red': card, 'cadre.specTests': JSON.stringify(g.tests ?? []), 'cadre.locked': JSON.stringify(locked), ...(steps.includes('worker') ? {} : { 'cadre.sourceCommit': spec }) }, d.actor)
+  await d.store.setMeta(task.id, { 'cadre.specCommit': spec, 'cadre.red': card, 'cadre.specTests': JSON.stringify(g.tests ?? []), 'cadre.locked': JSON.stringify(locked), 'cadre.testRun': use ? JSON.stringify(use) : '', ...(steps.includes('worker') ? {} : { 'cadre.sourceCommit': spec }) }, d.actor)
+  const adopted = use && noTest && !pkg.checks.test && d.cfg.tdd?.testerCommand.adopt !== false ? await adopt(h, d, pkg, use, tests.map(t => t.path), task.id) : null
   for (let i = 0; i < (hasRed ? 2 : 1); i++) await apply(h, { kind: 'advance', id: task.id, at: await h.now(), actor: 'mod' }, pipe)   // tester -> red -> worker
   const nx = (await h.board.read()).tasks.find(x => x.id === task.id)?.step; if (nx) await d.store.setMeta(task.id, { 'cadre.step': nx }, d.actor)   // beads keeps the step: a /clear rebuilds the board from it (a worker's report was refused 'active·tester')
+  if (adopted) h.log(adopted)   // the human's (Activity, decisions); the tester is not told
   return { ...g, card }
 }
 

@@ -114,7 +114,7 @@ export function forcedOf(env: Record<string, string | undefined>): { model?: str
 // Settings rows (DESIGN 12, ADR 0019): every registered key with category, class, default, effective value and its source. Source = the last layer whose cumulative
 // result differs from the one before it, so a refused repo value is not the source; 'forced' = a Claude Code env var overrides it (`warn` says how).
 // ponytail: a layer that sets a key to its default reads as [default].
-export type Src = 'default' | 'user' | 'repo' | 'env' | 'forced' | 'fixed'
+export type Src = 'default' | 'user' | 'repo' | 'env' | 'forced' | 'fixed' | 'tester'   // tester: a package's test check cadre adopted from the tester's command (ADR 0023)
 export interface Row { key: string; cat: Cat; cls: Cls; desc: string; safety: boolean; value: unknown; def: unknown; src: Src; kind: 'bool' | 'enum' | 'number' | 'text' | 'list' | 'json'; opts?: string[]; warn?: string }
 const leaves = (o: unknown, p = ''): [string, unknown][] => (plain(o) && !isOpen(p) ? Object.entries(o).flatMap(([k, v]) => leaves(v, p ? `${p}.${k}` : k)) : [[p, o]])
 export const keysOf = () => leaves(defaults()).map(([k]) => k)
@@ -127,6 +127,7 @@ export function rows(layers: Layer[], env: Record<string, string | undefined> = 
     steps.forEach((c, i) => { const v = at(c, key); if (JSON.stringify(v) !== JSON.stringify(prev)) src = srcOf(layers[i].name); prev = v })
     const r = REG[key], opts = r.opts as string[] | undefined, mf = fo.model && /^roles\.\w+\.(byRisk\.\w+\.(escalate\.)?)?model$/.test(key), ef = fo.effort && /^roles\.\w+\.(byRisk\.\w+\.(escalate\.)?)?effort$/.test(key)
     const warn = mf || ef ? [mf && `CLAUDE_CODE_SUBAGENT_MODEL_FORCE puts every agent on ${fo.model}`, ef && `CLAUDE_CODE_EFFORT_LEVEL puts every agent on effort ${fo.effort}`].filter(Boolean).join('; ') : undefined
+    if (key === 'packages' && src === 'repo' && Array.isArray(prev) && prev.some(p => p?.testBy === 'tester')) src = 'tester'
     return { key, cat: r.cat, cls: r.cls, desc: r.desc, safety: r.cls === 'S' || !!r.tighten, value: prev, def, src: warn ? 'forced' : src, kind: r.open ? 'json' : typeof def === 'boolean' ? 'bool' : opts ? 'enum' : typeof def === 'number' ? 'number' : Array.isArray(def) ? 'list' : 'text', ...(opts ? { opts } : {}), ...(warn ? { warn } : {}) }
   }).sort((a, b) => CATS.indexOf(a.cat) - CATS.indexOf(b.cat))
 }

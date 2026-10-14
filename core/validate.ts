@@ -129,6 +129,17 @@ export async function capped(h: Host, key: string): Promise<boolean> { return ((
 
 // Report envelope (DESIGN 6.2): entry point for wave 3 (`tools/index`); semantic checks (6.3: files exist at sourceCommit...) are theirs to add.
 // Returns an example-bearing error or null.
+// the tester's test command (ADR 0023): an argv run without a shell, inside the offline sandbox like any check. Only a test runner: a shell or a file/git/network
+// tool as argv[0] is refused (the jail discards writes and has no network, but with jail off it runs on the host; the tests themselves are code the checks run anyway)
+const NOT_RUNNER = /^(sh|bash|zsh|dash|ksh|fish|env|sudo|su|doas|rm|mv|cp|dd|ln|chmod|chown|git|curl|wget|ssh|scp|nc|kill|xargs)$/
+export function runShape(run: any): string | null {
+  const eg = 'e.g. {"command":["node","--test","test/login.test.js"]}'
+  if (!run || typeof run !== 'object' || !Array.isArray(run.command) || !run.command.length || run.command.length > 64 || !run.command.every((a: unknown) => typeof a === 'string' && a && a.length < 1000)) return `run.command: expected the argument list that runs only your tests, no shell, ${eg}`
+  if (NOT_RUNNER.test(String(run.command[0]).split('/').pop()!)) return `run.command: "${run.command[0]}" is not a test runner; give the runner itself, ${eg}`
+  if (run.cwd !== undefined && (typeof run.cwd !== 'string' || run.cwd.startsWith('/') || run.cwd.split('/').includes('..'))) return 'run.cwd: expected a folder relative to your test folder, e.g. "web"'
+  if (run.junit !== undefined && typeof run.junit !== 'string') return 'run.junit: expected "$CADRE_JUNIT" (the path your runner writes its JUnit XML report to)'
+  return null
+}
 const ROLE_KEYS: Record<string, string[]> = { worker: ['outcome', 'summary'], tester: ['outcome', 'summary', 'tests'], reviewer: ['verdict', 'summary', 'findings', 'coverage', 'contractStatus'], explorer: [], planner: ['tasks'] }
 export function validateReport(r: any): string | null {
   if (!r || typeof r !== 'object') return bad('report', '{"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"}', r)
@@ -138,6 +149,7 @@ export function validateReport(r: any): string | null {
   if (r.role === 'explorer' && !str(r.answer)) return 'answer: required for role explorer'
   if (r.role === 'worker' && !['done', 'blocked', 'spec_change'].includes(r.outcome)) return bad('outcome', 'done|blocked|spec_change', r.outcome)
   if (r.role === 'reviewer' && !['pass', 'changes'].includes(r.verdict)) return bad('verdict', 'pass|changes', r.verdict)
+  if (r.role === 'tester' && r.run !== undefined) { const e = runShape(r.run); if (e) return e }
   if (typeof r.summary === 'string' && r.summary.length > 1500) return `summary: at most 1500 chars, got ${r.summary.length}`
   return null
 }
