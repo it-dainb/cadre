@@ -3,7 +3,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { SPECS } from '../tools/index'
 import { runShape, validateReport } from '../core/validate'
 import { RUN_ASK, brief } from '../core/briefs'
-import { collectLine } from '../core/tdd'
+import { collectLine, missing } from '../core/tdd'
 import { defaults, rows } from '../config/index'
 
 const rep = { schemaVersion: 1, role: 'tester', outcome: 'done', summary: 's', tests: [{ path: 'test/a.test.mjs', name: 'S1 ok', scenario: 'S1' }] }
@@ -49,6 +49,22 @@ describe('collect errors', () => {
   test('the setting is checked: a list of valid regular expressions', () => {
     const r = rows([{ name: '.cadre/config.json', trust: 'repo', value: { tdd: { collectErrors: ['('] } } }]).find(x => x.key === 'tdd.collectErrors')!
     expect(r.src).toBe('default')
+  })
+})
+
+describe('missing runner or module', () => {
+  test('exit 127, command not found and execvp name the runner; a module nobody installed names the module', () => {
+    expect(missing(127, '', [], false)).toMatch(/missing runner, exit=127/)
+    expect(missing(1, 'sh: 1: pytest: command not found', [], false)).toMatch(/missing runner.*pytest: command not found/)
+    expect(missing(1, 'execvp(3) failed: No such file or directory', [], false)).toMatch(/missing runner/)
+    expect(missing(1, 'E   ModuleNotFoundError: No module named "my_project_dep"', [], false)).toMatch(/missing module.*my_project_dep/)
+    expect(missing(1, "Error: Cannot find module 'left-pad'", [], false)).toMatch(/missing module.*left-pad/)
+  })
+  test('not these: a relative import, an assertion failure, and an import of a new contract symbol', () => {
+    expect(missing(1, "Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'nope.mjs'", [], false)).toBe(null)
+    expect(missing(1, "Cannot find module '../src/a'", [], false)).toBe(null)
+    expect(missing(1, 'not ok 1 - S1 ok', [], false)).toBe(null)
+    expect(missing(1, 'No module named "my_project.signin"', [{ name: 'signin', kind: 'function', status: 'new' }], false)).toBe(null)
   })
 })
 

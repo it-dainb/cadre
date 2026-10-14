@@ -35,6 +35,15 @@ export function errorOk(text: string, syms: Sym[], skeleton: boolean): boolean {
   return !skeleton && syms.some(s => s.status === 'new' && tok.has(last(s.name))) && !syms.some(s => s.status !== 'new' && tok.has(last(s.name)))
 }
 
+// a runner or a module that is not installed is a machine problem no tester round fixes (exit 127, "command not found", execvp, "No module named", "Cannot find module"):
+// (a relative or file import is the tester's own path: it stays a tester round) the gate sets `setup`, so the task blocks at once with one dialog naming it. An import of a status:new symbol (no skeleton) is still the right red (errorOk).
+export function missing(exit: number, out: string, syms: Sym[], sk: boolean): string | null {
+  const l = out.split('\n').find(x => /command not found|execvp/.test(x))
+  if (exit === 127 || l) return `the test runner is not installed (missing runner, exit=${exit}): ${(l ?? out.trim().split('\n').pop() ?? '').slice(0, 200)}; install it, then run again`
+  const m = out.split('\n').find(x => /No module named|Cannot find module '(?![./])[^']*(?<!\.[cm]?[jt]sx?)'/.test(x) && !errorOk(x, syms, sk))
+  return m ? `a module the tests need is not installed (missing module): ${m.trim().slice(0, 200)}; install it, then run again` : null
+}
+
 // ---- running a package check offline (G.checkRun: overlay, else a copy of the tree) ----
 export const verifyOf = (p: Pkg) => (p.verify?.length ? p.verify : [p.checks.test ? 'test' : Object.keys(p.checks)[0]])
 export const redOf = (p: Pkg) => p.tdd?.check ?? (verifyOf(p).includes('test') ? 'test' : verifyOf(p)[0])
@@ -55,6 +64,7 @@ const secs = (ms: number) => `${(ms / 1000).toFixed(1)}s`
 // ---- red (5): tdd.check at specCommit must fail; with a report every listed test is a <failure>. `pass`: the `test` type has no red; its tests must pass instead ----
 export async function red(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, tests: { name: string }[], pass = false): Promise<Gate> {
   const r = await runCheck(h, d, task, wt, pkg, redOf(pkg), pass ? 'pass' : 'red'), no = (why: string): Gate => ({ ok: false, why, card: `red ✗ ${why}` })
+  const mis = r.exit ? missing(r.exit, r.tail, symbolsOf(task.design), !!pkg.tdd?.skeleton) : null; if (mis) return { ok: false, setup: true, why: mis, card: `red ✗ ${mis}` }
   if (pass) return r.exit ? no(`its tests must pass (test task) but exit=${r.exit}: ${r.tail.slice(-300)}`) : { ok: true, card: `tests ✓ pass (${secs(r.ms)})`, tests: r.cases?.map(c => c.name) ?? tests.map(t => t.name) }
   if (!r.exit) return no('the tests pass at the spec commit; red needs them failing')
   if (!pkg.tdd?.report) return { ok: true, card: `red ✓ exit=${r.exit} (${secs(r.ms)})`, tests: tests.map(t => t.name) }
@@ -99,6 +109,7 @@ async function redRun(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, tests:
   const r = await runTests(h, d, task, wt, pkg, run, pass ? 'pass' : 'red'), no = (why: string): Gate => ({ ok: false, why, card: `red ✗ ${why}` })
   const col = collectLine(r.out, d.cfg.tdd?.collectErrors ?? []), syms = symbolsOf(task.design), sk = !!pkg.tdd?.skeleton
   const didNot = col && !errorOk(col, syms, sk) ? no(`the tests did not run: ${col}`) : null   // an import of a status:new symbol (no skeleton) is the right red, as an <error> is
+  const mis = r.exit ? missing(r.exit, r.out, syms, sk) : null; if (mis) return { ok: false, setup: true, why: mis, card: `red ✗ ${mis}` }
   if (pass) return r.exit ? didNot ?? no(`its tests must pass (test task) but exit=${r.exit}: ${r.tail.slice(-300)}`) : { ok: true, card: `tests ✓ pass (${secs(r.ms)})`, tests: r.cases?.map(c => c.name) ?? tests.map(t => t.name) }
   if (!r.exit) return no('the tests pass at the spec commit; red needs them failing')
   if (r.cases) {
