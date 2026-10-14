@@ -78,7 +78,7 @@ export async function redraw(h: Host, store: TaskStore, reg: TypeRegistry): Prom
   const drafts = await draftsOf(store, s.epic), missing = await planMissing(store, s, drafts, reg)
   const planId = s.plan?.id ?? null
   await h.board.update(b => ({ ...b, approval: { planId, missing } }))
-  if (!planId || missing.length) await settleIf(h, 'plan:')   // nothing to approve yet
+  if (!planId || missing.length || (await drafting(h))) await settleIf(h, 'plan:')   // nothing to approve yet, or main is still drafting: its turn end draws the card (mainTurn)
   else {
     const sc = (t: Task) => (t.acceptance ?? '').split('\n').filter(Boolean).length, m = await missionOf_(store, s), ll = laneLine(s.plan, drafts, reg), lo = laneOption(s.plan, drafts, reg, (await cfgOf(h)).lanes)   // a mission card shows the mission itself
     const mis = await withMission(store, s), as = await assumedOf(store, s), all = drafts.reduce((n, t) => n + sc(t), 0), k = Math.max(1, (drafts.length > 5 ? 4 : 5) - (mis ? 1 : 0) - as.length)   // body <= 6 lines, each fact once (BRAND P2): the count on the lane line, scenarios per task, none when 0
@@ -106,8 +106,16 @@ export async function touched(h: Host, store: TaskStore, reg: TypeRegistry): Pro
   const missing = await redraw(h, store, reg), sheet = await sheetOf(store, await draftsOf(store, (await h.board.read()).epic), reg)
   await h.board.update(b => ({ ...b, sheet }) as typeof b)
   const s = await h.board.read()
-  if (s.plan) await stamp(h, (await emit(h, 'approval.pending', { planId: s.plan.id, missing })).seq)
+  if (s.plan && !(await drafting(h))) await stamp(h, (await emit(h, 'approval.pending', { planId: s.plan.id, missing })).seq)
   return missing
+}
+// main's turn (turn.start .. turn.complete, an abort included). While it runs, every TaskCreate/addBlockedBy changes the plan, so a card offered then is answered
+// against a moving draft (live 0.13.0: 3 refused presses and 3 approvals for one plan, an approval landing between main's calls). The card is drawn once, at its end.
+export const drafting = async (h: Host): Promise<boolean> => !!(await h.ui.read()).mainTurn
+export async function mainTurn(h: Host, on: boolean): Promise<void> {
+  await h.ui.update(u => ({ ...u, mainTurn: on || undefined }))
+  const s = await h.board.read()
+  if (!on && s.approval.planId && !s.approval.missing.length && !(s.decisions ?? []).some(d => d.id === `plan:${s.approval.planId}`)) await touched(h, await storeOf(h), await registryOf(h))
 }
 
 // ---- origin ----
@@ -236,6 +244,7 @@ export async function dispatch(h: Host, c: Command, route: Route): Promise<Out> 
 // re-asks); otherwise the option's command runs as origin dialog. commands/cadre passes its router.
 export async function answer(h: Host, id: string, key: string, hash: string, route: Route, vals: Record<string, string> = {}): Promise<Out> {
   const d = ((await h.board.read()).decisions ?? []).find(x => x.id === id), o = d?.options.find(x => x.key === key)?.run
+  if (!d && id.startsWith('plan:') && (await drafting(h))) return refuse('Claude is still changing the plan; it comes back when Claude is done')   // the dialog does not re-ask it
   if (!d || d.hash !== hash || !o) return refuse('it changed; review again')   // nothing runs
   const [cmd, ...args] = o.split(/\s+/).filter(Boolean).flatMap(a => (a === '{fields}' ? (d.fields ?? []).map(f => `${f.key}=${vals[f.key] ?? f.value ?? ''}`) : [a]))   // fields as k=v argv elements
   await h.ui.update(u => ({ ...u, answering: id }))   // while its command runs (an approval: seconds of store calls) no surface offers "press 1" on it again (ui/model.attention)

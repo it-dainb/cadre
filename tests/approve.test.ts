@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import '../commands/agentrun'   // registers RUN.recheck (the mission approval re-checks a running init)
 import { FULL, plan, world } from './fixtures/native/world'
+import { answer, mainTurn } from '../core/dispatch'
 
 describe('approval sheet data (board.sheet, drawn by ui/)', () => {
   test('per draft: type, tdd, changelog, scenarios, contract with status; a changed symbol carries the prior accepted signature', async () => {
@@ -95,5 +96,36 @@ describe('approve: bound to the decision hash, completeness (DESIGN 3.1, ADR 001
     expect((await w.text({ cmd: 'reject', args: [p, 'not', 'now'] })).text).toBe(`Plan ${p}: 1 draft dropped.`)
     expect(await w.h.board.read()).toMatchObject({ plan: null, epic: null, tasks: [] })
     expect((await w.store.list({})).map(t => t.type)).toEqual(['decision'])
+  })
+})
+
+// live (0.13.0): the card popped once the first task was complete, while main still drafted; each TaskCreate / addBlockedBy changed it under the human's
+// press ("it changed; review again" x3), and approvals landed between main's calls (3 approvals, 3 approved briefs for one plan)
+describe('one approval per plan: the card waits for main to finish its turn', () => {
+  const route = async () => ({ text: 'routed' })
+  const planCard = async (w: Awaited<ReturnType<typeof world>>) => (await w.h.board.read()).decisions?.filter(d => d.id.startsWith('plan:')) ?? []
+  test('drafting in one turn: no card mid-turn, one card at its end over every task and dep, one press approves all of it', async () => {
+    const w = await world(); await mainTurn(w.h, true)
+    const { plan: p, task } = await plan(w)
+    expect(await planCard(w)).toEqual([]); expect((await w.h.board.read()).approval).toEqual({ planId: p, missing: [] })   // complete, but main is still at it
+    const b = (await w.call('TaskCreate', { subject: 'More', description: '', metadata: { ...FULL, paths: ['src/more.ts'] } })).result.task.id
+    await w.call('TaskUpdate', { taskId: b, addBlockedBy: [task] })
+    expect(await planCard(w)).toEqual([])
+    await mainTurn(w.h, false)
+    const cards = await planCard(w); expect(cards).toHaveLength(1)
+    expect((await answer(w.h, cards[0].id, 'a', cards[0].hash, route)).text).toMatch(new RegExp(`^Plan ${p} approved: 2 tasks ready`))
+    expect((await w.store.list({ parent: p })).filter(t => t.category === 'draft')).toEqual([])
+    expect(await planCard(w)).toEqual([])
+  })
+  test('a card answered while main changes the plan is refused once, never re-asked mid-turn; it comes back at the turn end', async () => {
+    const w = await world(); const { plan: p, task } = await plan(w)
+    const old = (await planCard(w))[0]
+    await mainTurn(w.h, true); await w.call('TaskUpdate', { taskId: task, subject: 'changed' })
+    expect(await planCard(w)).toEqual([])
+    expect((await answer(w.h, old.id, 'a', old.hash, route)).text).toBe('refused: Claude is still changing the plan; it comes back when Claude is done')
+    expect((await w.store.get(task)).category).toBe('draft')
+    await mainTurn(w.h, false)
+    const now = await planCard(w); expect(now).toHaveLength(1); expect(now[0].hash).not.toBe(old.hash)
+    expect((await answer(w.h, now[0].id, 'a', now[0].hash, route)).text).toMatch(new RegExp(`^Plan ${p} approved: 1 task ready`))
   })
 })
