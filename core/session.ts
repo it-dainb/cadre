@@ -218,7 +218,7 @@ export async function prune(h: Host): Promise<void> {
   for (const x of q) if (await ok(x.taskId)) keep.push(x)
   if (keep.length !== q.length) await h.store.set(await qk(h), keep)
   const p = (await h.store.get(await pk(h))) as any
-  await pruneRuns(h, ok)
+  await pruneRuns(h, id => store.get(id).then(t => t.category !== 'done' && t.category !== 'cancelled', () => false))   // not inFlight: an epic its planner drafts is todo
   for (const [n, it] of Object.entries(await intentsOf(h))) {   // a start a session left mid-claim (it died between the claim's writes): the half-made claim goes back
     if ((await held(h, it.session)) === 'other') continue   // a live session's start in flight
     const t = await store.get(it.taskId).catch(() => null), actor = String((await h.store.get(await scoped(h, 'actor'))) ?? '')

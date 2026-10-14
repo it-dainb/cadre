@@ -48,7 +48,7 @@ export function next(run: Run, e: RunEvent): { run: Run; effects: Effect[] } {
   if (run.state === null) return go({ state: 'ended', cause: 'lost' }, [{ kind: 'unbind', reason: 'lost' }])   // a binding cadre has no record of (an older store, a lost key)
   if (e.type === 'stopped' || e.type === 'forced') return { run: { ...run, deadline: e.type === 'forced' ? run.deadline ?? e.at + BACKSTOP : undefined }, effects: [] }
   if (s === 'ended') return { run, effects: [] }
-  if (e.type === 'end') return go({ state: 'ended', cause: e.cause }, [{ kind: 'unbind', reason: e.reason }], { ...run, deadline: undefined })
+  if (e.type === 'end') return go({ state: 'ended', cause: e.cause }, [{ kind: 'unbind', reason: e.reason }])   // a forced exit's deadline outlives its task: only its turn's end or the backstop clears it
   if (e.type === 'call') {
     const calls = { sig: e.sig, n: run.calls?.sig === e.sig ? run.calls.n + 1 : 1 }, r: Run = { ...run, calls, tools: [...new Set([...(run.tools ?? []), e.tool])] }, trip = calls.n >= REPEAT && !run.exit
     return { run: trip || !run.tools?.includes(e.tool) ? { ...r, ...(trip ? { exit: 'loop' as const } : {}), log: [...run.log, { state: s!, event: trip ? 'loop' : `call ${e.tool}` }].slice(-LOG) } : r, effects: [] }
@@ -128,15 +128,17 @@ export async function retry(h: Host, taskId: string, k: keyof Budget, to = 0): P
   await put<Budget>(h, 'budgets', taskId, fresh, b => ({ ...fresh, ...b, [k]: to }))
 }
 // the store is small (ST-15): a closed task's runs and budget go at once; at session start every ended run, or one whose task is no longer in flight, goes
-export async function prune(h: Host, taskId: string | undefined, agentIds: string[]): Promise<void> {
-  const drop = (k: Kind, ids: string[]) => h.ui.update(u => ({ ...u, [k]: Object.fromEntries(Object.entries(mapOf(u, k)).filter(([a]) => !ids.includes(a))) }))
+export async function prune(h: Host, taskId: string | undefined, ids: string[]): Promise<void> {
+  const keep = new Set<string>(); for (const a of ids) if ((await runOf(h, a))?.deadline) keep.add(a)   // a forced exit the backstop still watches stays until its turn ends or it is stopped
+  const agentIds = ids.filter(a => !keep.has(a)), drop = (k: Kind, ids: string[]) => h.ui.update(u => ({ ...u, [k]: Object.fromEntries(Object.entries(mapOf(u, k)).filter(([a]) => !ids.includes(a))) }))
   await drop('runs', agentIds); for (const a of agentIds) await h.store.del(await keyOf(h, 'runs', a))
   await h.store.set(await keyOf(h, 'index'), (((await h.store.get(await keyOf(h, 'index'))) as string[] | undefined) ?? []).filter(a => !agentIds.includes(a)))
   if (taskId) { await drop('budgets', [taskId]); await h.store.del(await keyOf(h, 'budgets', taskId)) }
 }
-export async function pruneRuns(h: Host, live: (taskId: string) => Promise<boolean>): Promise<void> {
+// open: the run's task (or the epic a planner drafts) is not done or cancelled
+export async function pruneRuns(h: Host, open: (taskId: string) => Promise<boolean>): Promise<void> {
   const gone: string[] = []
-  for (const a of ((await h.store.get(await keyOf(h, 'index'))) as string[] | undefined) ?? []) { const r = await runOf(h, a); if (!r || r.state?.state === 'ended' || !(await live(r.taskId))) gone.push(a) }
+  for (const a of ((await h.store.get(await keyOf(h, 'index'))) as string[] | undefined) ?? []) { const r = await runOf(h, a); if (!r || (!r.deadline && (r.state?.state === 'ended' || !(await open(r.taskId))))) gone.push(a) }
   if (gone.length) await prune(h, undefined, gone)
 }
 
@@ -160,6 +162,7 @@ export async function backstop(h: Host, me: string): Promise<void> {
   const now = await h.now(), bind = await h.bind.read()
   for (const a of ((await h.store.get(await keyOf(h, 'index'))) as string[] | undefined) ?? []) {
     const r = await runOf(h, a); if (!r?.deadline || r.deadline > now || (bind[a] && bind[a].sessionId !== me)) continue
+    await step(h, a, { type: 'stopped' })   // first: one TaskStop and one dialog per deadline, also when this run had already ended
     await h.stopAgent?.(a).catch(x => h.log(`stop ${a}: ${x}`)); await step(h, a, { type: 'end', cause: 'lost', reason: 'stalled' })
     await ask(h, { id: `stalled:${a}`, kind: 'flag', title: `${r.taskId}: an agent did not stop`, hash: a, tab: 'epic', sel: r.taskId, lines: [`Its work was done, but it kept running past ${BACKSTOP / 1000} s, so it was stopped. Its task goes on.`], options: [{ key: 'k', label: 'OK', verb: 'keep' }] })
   }

@@ -118,6 +118,8 @@ export const judge = (e: any): string | undefined => {
 // hands back without a report is cadre's to bound: its turn end nudges it, then auto-reports or releases it. The message is replaced: main never reads an agent's prose.
 export const EXIT = ['SubagentHandback', 'StructuredOutput']
 const HANDED = 'This agent has stopped; its task goes on without you. Nothing to do for it.'
+// pure (the failure path has no $): the exit call as it goes on, the hand-back's prose replaced
+export const exitCall = (e: any) => (e.tool === 'SubagentHandback' ? { ...e, input: { ...e.input, message: modelText('context', HANDED) } } : e)
 // exit rules 3 and 4 on an agent's call: a tool first seen on its run is journaled, and one that is no cadre tool, not its role's, not an MCP server's is noted for
 // Doctor (observation only: the verdict below is the same); the same call REPEAT times in a row spends the run, which then ends at its next step
 async function watchCall(h: Host, e: any, role: string): Promise<string | undefined> {
@@ -127,7 +129,7 @@ async function watchCall(h: Host, e: any, role: string): Promise<string | undefi
 }
 // #5 tool.call guards: L1 allowlist, fence. Judge before next. Advisory: denies become warnings.
 export const guard: Hook = async (h, e, next) => {
-  if (EXIT.includes(e.tool)) return next(e.tool === 'SubagentHandback' ? { ...e, input: { ...e.input, message: modelText('context', HANDED) } } : e)
+  if (EXIT.includes(e.tool)) return next(exitCall(e))
   const deny = async (): Promise<string | undefined> => {
     const bad = escape(e); if (bad) return bad
     const w = await who(h, e.agentId), pol = await policyOf(h), run = w.main ? await leaseOf(h) : undefined   // main during a setup/init run: Bash plus the lease's files
@@ -171,6 +173,9 @@ export const send: Hook = async (h, e, next) => {
   if (!e.agentId && b[e.to] && s.drive.on && !s.drive.stopped && s.drive.spawn === 'mod') return { isDelivered: false, reason: modelText('deny', 'cadre resumes this agent when its task needs it; do not message it') }   // mod mode: main never messages an agent (ADR 0024 §2.6)
   // main messaging an agent whose step is over (live: it re-prompted the finished tester as if it were the worker, then stopped): the next step is a NEW agent
   if (!e.agentId && b[e.to] && t && t.step !== own.step) return { isDelivered: false, reason: modelText('deny', `${t.id}'s ${own.role} has finished; do not message it. ${t.step === 'merge' ? `Complete TASK-${t.id} (TaskUpdate ${t.id} completed)` : `Start the next agent with Agent prompt "TASK-${t.id}"`}`) }
+  // main mode: an agent that is done or parked would be ended at its next step (exit rule 5), so main's words would go nowhere: say what moves it instead
+  const rs = !e.agentId && b[e.to] && t ? (await runOf(h, e.to))?.state?.state : undefined
+  if (rs && !['running', 'refused', 'silent'].includes(rs)) return { isDelivered: false, reason: modelText('deny', rs === 'waiting' ? `${t!.id} waits for a decision: give it with TaskUpdate ${t!.id} metadata.decision; its agent is resumed with it` : `${t!.id}'s ${own.role} has handed in its work; do not message it. cadre resumes it when ${t!.id} needs it`) }
   const known = new Set(ts.map(x => x.id))
   const other = idsIn(`${e.to} ${e.text}`, known).find(id => id !== own.taskId)
   return other ? { isDelivered: false, reason: modelText('deny', `you work on ${own.taskId} only; do not name ${other}`) } : next(e)

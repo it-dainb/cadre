@@ -3,7 +3,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { PASS, world } from './fixtures/replay/world'
 import { EXIT, guard, judge } from '../policy/guards'
 import { denyCall } from '../hooks/register'
-import { BACKSTOP, REPEAT, backstop, exitStep, runOf, step } from '../core/lifecycle'
+import { BACKSTOP, REPEAT, backstop, exitStep, pruneRuns, runOf, step } from '../core/lifecycle'
 import { stopped } from '../core/close'
 import { arm } from '../core/drive'
 import { machine } from '../commands/doctor'
@@ -117,5 +117,27 @@ describe('rule 5: forced clean exit, and the backstop', () => {
     expect((await stepOf(x.h, { agentId: 'ag1' })).asked).toBe(0)
     const w = await world(); await arm(w.h, 'auto'); await w.turn(); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' }); await w.turn()
     expect((await stepOf(w.h, { agentId: 'ag2' })).asked).toBe(1); await w.rep('ag2', PASS); expect((await stepOf(w.h, { agentId: 'ag2' })).asked).toBe(0)
+  })
+})
+
+describe('review fixes: the backstop holds', () => {
+  test('a forced reviewer whose task closes at once keeps its deadline: still answered for, still stopped by the backstop (pruning waits)', async () => {
+    const w = await world(), stops: string[] = []; Object.assign(w.h, { stopAgent: async (x: string) => { stops.push(x) } })
+    await arm(w.h, 'auto'); await w.turn(); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' }); await w.turn()
+    await w.rep('ag2', PASS); expect((await stepOf(w.h, { agentId: 'ag2' })).asked).toBe(0)
+    await w.turn(); expect((await w.h.board.read()).tasks[0].state).toBe('done')   // closed: its runs are pruned, but not the one the backstop watches
+    expect((await stepOf(w.h, { agentId: 'ag2' })).asked).toBe(0)
+    await pruneRuns(w.h, async () => false); w.clock.now += BACKSTOP + 1000; await backstop(w.h, 's1'); expect(stops).toEqual(['ag2'])
+  })
+  test('an ended run (an explorer that answered): one TaskStop and one dialog per deadline, however many ticks', async () => {
+    const w = await world({ type: 'spike' }), stops: string[] = []; Object.assign(w.h, { stopAgent: async (x: string) => { stops.push(x) } })
+    await w.at('ag1', w.ids[0], 'explorer'); await w.rep('ag1', { role: 'explorer', answer: 'src/a.ts:3', citations: [] }); await stepOf(w.h, { agentId: 'ag1' })
+    w.clock.now += BACKSTOP + 1000; for (let i = 0; i < 4; i++) await backstop(w.h, 's1')
+    expect(stops).toEqual(['ag1']); expect(((await w.h.board.read()).decisions ?? []).map(d => d.id)).toEqual(['stalled:ag1'])
+    await w.h.board.update(b => ({ ...b, decisions: [] })); await backstop(w.h, 's1'); expect((await w.h.board.read()).decisions).toEqual([])   // the OK is not undone
+  })
+  test('the failure path rewrites the hand-back too: main never reads the agent\'s prose', () => {
+    const next = Object.assign((e: any) => e, { called: false, error: { kind: 'thrown', message: 'boom' } })
+    expect(denyCall({ ui: { log: () => {} } }, { tool: 'SubagentHandback', agentId: 'ag1', input: { message: 'my long prose' } }, next).input.message).not.toContain('prose')
   })
 })

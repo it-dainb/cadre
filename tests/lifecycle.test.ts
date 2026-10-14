@@ -5,6 +5,7 @@ import { queueResume } from '../core/reuse'
 import { stopped } from '../core/close'
 import { BUDGET } from './fixtures/budget.generated'
 import { oldState } from '../commands/doctor'
+import { start } from '../core/session'
 import { PASS, world, type World } from './fixtures/replay/world'
 import { arm } from '../core/drive'
 
@@ -174,5 +175,14 @@ describe('clean break: Doctor names state the previous version left', () => {
     expect(await oldState(w.h, [{ ...open, meta: { 'cadre.attempts': '2' } }])).toBe(true); expect(await oldState(w.h, [{ category: 'done', meta: { 'cadre.attempts': '2' } }])).toBe(false)
     await w.h.ui.update(u => ({ ...u, handed: ['ag1'] })); expect(await oldState(w.h, [open])).toBe(true); await w.h.ui.update(({ handed: _x, ...u }) => u)
     await w.h.bind.update(b => ({ ...b, old: b.ag1 })); expect(await oldState(w.h, [open])).toBe(true)
+  })
+})
+
+describe('review fixes: session start keeps a planner\'s run', () => {
+  test('a run on an epic that is still being planned (todo, not in flight) survives the session-start prune', async () => {
+    const w = await world(), e = w.epic   // the plan's epic: approved, category todo
+    await step(w.h, 'pl1', { type: 'spawn.ok', bind: { taskId: e, role: 'planner', step: 'planner', worktree: '/r', sessionId: 's1', ctxTokens: 0, startedAt: 0 } })
+    await w.h.ui.update(() => ({})); await start(w.h)
+    expect((await runOf(w.h, 'pl1'))?.state).toEqual({ state: 'running' })
   })
 })

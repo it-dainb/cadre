@@ -120,6 +120,15 @@ describe('replays 1-11: the field failures', () => {
   })
 })
 
+describe('review fixes', () => {
+  test('main mode: main messaging an agent that waits for a decision is told how to answer it (its next step would be ended unread)', async () => {
+    const w = await world({ mode: 'main' }), [id] = w.ids; await w.at('ag1', id, 'worker')
+    expect(await w.rep('ag1', { role: 'worker', outcome: 'blocked', summary: 'stuck', reason: 'which format?' })).toContain('blocked recorded')
+    const r = await send(w.h, { to: 'ag1', text: 'use JSON' }, async () => ({ isDelivered: true })) as any
+    expect(r.isDelivered).toBe(false); expect(r.reason).toContain(`TaskUpdate ${id} metadata.decision`)
+  })
+})
+
 describe('replays 12-20: regressions from the log', () => {
   test('#12 an agent that reported can hand back after /clear', async () => {
     const w = await world(), [id] = w.ids; await w.at('ag1', id, 'worker')
