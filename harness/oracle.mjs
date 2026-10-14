@@ -106,7 +106,8 @@ for (const e of drv.filter(e => e.kind === 'press1' && offered(e.t))) {
          if (nTurns > TURNS) fail('turn-budget', `${nTurns} turns before the plan (budget ${TURNS})`) }
 }
 // 7. cadre's state lives at the repo top level only (a .cadre/ or .beads/ below it = the root followed main's shell)
-{ const s = read(join(dir, 'stray-state')).trim(); if (s) fail('wrong-root', `state written below the repo root: ${s.split('\n').join(', ')}`) }
+// REPO=<folder>: the fixture's repo lives in that folder of the work dir (underscore-id), so its state is at ./<folder>/.cadre
+{ const s = read(join(dir, 'stray-state')).split('\n').filter(l => l && !(process.env.REPO && new RegExp(`^\\./${process.env.REPO}/\\.(cadre|beads)$`).test(l))).join('\n'); if (s) fail('wrong-root', `state written below the repo root: ${s.split('\n').join(', ')}`) }
 // 8. after Claude Code restarts (a quit, a crash) the session that is gone may neither block nor vanish:
 //    gone-session: no "running in another session" (a cell has one session); restart-named: the first bare /cadre names the unfinished setup or plan and the next step
 {
