@@ -9,6 +9,7 @@ import { askAnswer, askOf } from '../core/asks'
 import { planned } from '../core/planner'
 import { refuse, clearRetries, validateReport } from '../core/validate'
 import * as G from '../core/git'
+import { step } from '../core/lifecycle'
 
 export const TOOLS = ['report', 'inspect', 'run_check'] as const
 const S = { type: 'string' }, ARR = { type: 'array' }
@@ -27,19 +28,20 @@ const bad = (m: string) => `error: ${m}`
 async function onReport(h: Host, d: Deps, agentId: string | undefined, r: any): Promise<string> {
   const key = `report:${agentId ?? 'main'}`
   if (!agentId) return bad('only a spawned agent reports')
-  const env = validateReport(r); if (env) return bad(await refuse(h, key, env))
+  const env = validateReport(r); if (env) { await step(h, agentId, { type: 'report.refused' }); return bad(await refuse(h, key, env)) }
   if (!(await h.bind.read())[agentId] && (await askOf(h, agentId))) return r.role === 'explorer' ? askAnswer(h, agentId, r) : bad('role: you are an explorer; report role "explorer" with answer and citations')
-  if ((await h.bind.read())[agentId]?.role === 'planner') return r.role === 'planner' ? planned(h, d, agentId, r) : bad('role: you are the planner; report role "planner" with tasks')   // a ready epic's planner (core/planner)
+  if ((await h.bind.read())[agentId]?.role === 'planner') return r.role === 'planner' ? planned(h, d, agentId, r).then(async t => (await step(h, agentId, { type: t.startsWith('error') ? 'report.refused' : 'report.ok' }), t)) : bad('role: you are the planner; report role "planner" with tasks')   // a ready epic's planner (core/planner)
+  const b = (await h.bind.read())[agentId], ok = async () => step(h, agentId, { type: 'report.ok', wait: (await h.board.read()).tasks.find(t => t.id === b?.taskId)?.state === 'blocked' })
   try {
-    const text = await report(h, d, agentId, r); await clearRetries(h, key); return text
+    const text = await report(h, d, agentId, r); await clearRetries(h, key); await ok(); return text
   } catch (x) {
     const msg = (x as Error).message, n = (((await h.ui.read()).retries as Record<string, number>) ?? {})[key] ?? 0
     // semantic (6.3) failures only; after limits.reportRetries the report is accepted unvalidated + flagged
     if (n >= d.cfg.limits.reportRetries && /^(findings|coverage|contractStatus|verdict)/.test(msg)) {
       const b = (await h.bind.read())[agentId]; if (b) await raise(h, b.taskId, 'report-unvalidated')
-      const text = await report(h, d, agentId, r, { lax: true }); await clearRetries(h, key); return text
+      const text = await report(h, d, agentId, r, { lax: true }); await clearRetries(h, key); await ok(); return text
     }
-    return bad(await refuse(h, key, msg))
+    await step(h, agentId, { type: 'report.refused' }); return bad(await refuse(h, key, msg))
   }
 }
 

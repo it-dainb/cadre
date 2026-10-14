@@ -26,6 +26,7 @@ import { lockCore, watch } from './rebase'
 import { notesOf, pathsOf, sliceNotes, specTestsOf, untested } from './validate'
 import { branchOf, epicOf } from './milestone'
 import { plannerBrief } from './planner'
+import { step as lifeStep } from './lifecycle'
 
 export interface Deps {
   store: TaskStore; cfg: Config; reg: TypeRegistry; root: string; home: string; wtRoot: string; key: string; actor: string; session: string
@@ -86,6 +87,7 @@ async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTa
   if (r?.agentId) {
     if (typeof r.model === 'string' && r.model !== run.model) Object.assign(run, { ran: r.model })   // the id Claude Code resolved the alias to (its agent.spawn result)
     await bindAgent(h, r.agentId, { taskId: t.id, role, step, worktree: wt, sessionId: d.session, ctxTokens: 0, startedAt: await h.now(), ...(r0.effort ? { effort: r0.effort } : {}) })
+    await lifeStep(h, r.agentId, { type: 'spawn.ok', taskId: t.id, role, step })
     await emit(h, 'agent.bound', { agentId: r.agentId, taskId: t.id, role, ...(rt ? { tier: rt } : {}), model: run.model, ...((run as any).ran ? { ran: (run as any).ran } : {}), effort: run.effort, setting: r0.setting, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }, { agentId: r.agentId, taskId: t.id, actor: 'mod' })
     if (task) await safe(h, 'runs', async () => { let a: unknown[] = []; try { a = JSON.parse((await d.store.get(t.id)).meta['cadre.runs'] || '[]') } catch {}; await d.store.setMeta(t.id, { 'cadre.runs': JSON.stringify([...a, run].slice(-20)) }, d.actor) })
     await h.store.set(`cadre:${d.key}:hb:${t.id}`, { s: d.session, at: 0 })   // the owner session (core/session.ownerOf): another session judges the claim by it; at 0: the next tick renews the claim
@@ -201,7 +203,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
     }
     if (how === 'readd') await setup(h, d, task, wt)
   }
-  for (const a of mine) { await unbindAgent(h, a); await emit(h, 'agent.unbound', { agentId: a, reason: live ? 'rebind' : 'stale' }, { agentId: a, taskId: t.id }) }
+  for (const a of mine) { await lifeStep(h, a, { type: 'end', cause: 'released' }); await unbindAgent(h, a); await emit(h, 'agent.unbound', { agentId: a, reason: live ? 'rebind' : 'stale' }, { agentId: a, taskId: t.id }) }
   if (!(await reserve(h, d, t.id, role))) return deny(`${t.id} is already being spawned; wait`)
   const undo = async () => { await unbindAgent(h, `~${t.id}`) }
   try {

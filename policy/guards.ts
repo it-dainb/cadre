@@ -8,6 +8,7 @@ import { PROTECTED } from '../core/git'
 import { idsIn } from '../core/briefs'
 import { strictOf } from '../config/index'
 import { RETRIES } from '../core/validate'
+import { runOf } from '../core/lifecycle'
 
 // Paths the guards need, written to $.store `cadre:<repoKey>:policy` by init/session.start/tdd (absolute, realpath'd). Absent keys disable the rule they feed.
 export interface Policy { repo?: string; wtRoot?: string; home?: string; mcpAllow?: string[]; locks?: Record<string, string[]>; core?: Record<string, string[]>; protect?: string[]; effectCheck?: string; epicPrefix?: string; changelog?: string }
@@ -113,14 +114,15 @@ export const judge = (e: any): string | undefined => {
 
 // Auto permission mode gives every background agent a hand-back contract (Claude Code adds SubagentHandback to its tools and re-asks for it up to 3 times at its
 // turn end; flag tengu_lively_waffle, 2.1.287 and 2.1.295 alike). Refused, the agent could never end (live 0.12.0; live 0.12.1: a tester whose report the red gate
-// refused bounced until Claude Code gave up). An agent can ALWAYS end: it passes once the agent has called report at all (accepted or refused: a refused step goes
+// refused bounced until Claude Code gave up). An agent can ALWAYS end: it passes once its run has called report at all (accepted or refused: a refused step goes
 // back through cadre's own bounded loop, nudges + limits.testerRounds/attempts), or after RETRIES refusals of the hand-back itself.
 // Its message is replaced: main never reads an agent's prose (core/asks), the report already went where it belongs.
 const HB = (e: any) => e.tool === 'SubagentHandback' && !!e.agentId
 const HANDED = 'This agent has stopped; its task goes on without you. Nothing to do for it.'
+const OWES = ['running', 'silent']   // its run has not called report yet; a /clear keeps the run (its record survives in $.store). An agent with no run (a marker-less explorer) goes by ui.handed
 async function handback(h: Host, id: string): Promise<string | undefined> {
-  const u = await h.ui.read(), k = `handback:${id}`, n = ((u.retries as Record<string, number>) ?? {})[k] ?? 0
-  if (((u.handed as string[] | undefined) ?? []).includes(id) || n >= RETRIES) return undefined
+  const u = await h.ui.read(), k = `handback:${id}`, n = ((u.retries as Record<string, number>) ?? {})[k] ?? 0, s = (await runOf(h, id))?.state
+  if ((s ? !OWES.includes(s.state) : ((u.handed as string[] | undefined) ?? []).includes(id)) || n >= RETRIES) return undefined
   await h.ui.update(x => ({ ...x, retries: { ...((x.retries as Record<string, number>) ?? {}), [k]: n + 1 } }))
   return `call report first; once you have called it, SubagentHandback ends your run (attempt ${n + 1}/${RETRIES})`
 }

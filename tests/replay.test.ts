@@ -124,11 +124,11 @@ describe('replays 1-11: the field failures', () => {
 })
 
 describe('replays 12-20: regressions from the log', () => {
-  test('#12 known until L1a: an agent that reported can hand back after /clear', async () => {
+  test('#12 an agent that reported can hand back after /clear', async () => {
     const w = await world(), [id] = w.ids; await w.at('ag1', id, 'worker')
     expect(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' })).toContain('report accepted')
     await w.h.ui.update(() => ({}))   // /clear empties ui
-    await known('L1a', async () => expect((await w.hb('ag1')).deny).toBeUndefined())
+    expect((await w.hb('ag1')).deny).toBeUndefined()
   })
   test('#13 two turn ends at once: one close, no second squash', async () => {
     const w = await world(), [rv] = await inReview(w), run0 = w.h.run; let other: Promise<void> | undefined
