@@ -189,19 +189,15 @@ describe('replays 12-20: regressions from the log', () => {
 })
 
 // classify on the golden board (a1 done, a2 active·worker, a3 todo), each expected state written by hand
-describe('classify: today\'s agent states', () => {
-  const at = (taskId: string, role: any, step = role, o = {}) => ({ taskId, role, step, worktree: '/wt', sessionId: 's1', ctxTokens: 0, startedAt: 0, ...o })
-  const tasks = EPIC.tasks, blocked = tasks.map(t => (t.id === 'a2' ? { ...t, state: 'blocked' as const } : t)), review = tasks.map(t => (t.id === 'a2' ? { ...t, state: 'review' as const, step: 'reviewer' } : t))
+describe('classify: the read view of the run records', () => {
+  const at = (taskId: string, role: any, step = role) => ({ taskId, role, step, worktree: '/wt', sessionId: 's1', ctxTokens: 0, startedAt: 0 })
+  const run = (state: any) => ({ 'ag-2': { taskId: 'a2', role: 'worker', step: 'worker', state, epoch: 1, log: [] } }), tasks = EPIC.tasks, bind = { 'ag-2': at('a2', 'worker') }
   const rows = [
-    ['the owner at its step', { bind: { 'ag-2': at('a2', 'worker') }, tasks }, 'ag-2', undefined, { state: 'running' }],
     ['a spawn reserved', { bind: { '~a3': at('a3', 'worker', '') }, tasks }, '~a3', undefined, { state: 'reserved' }],
-    ['its run record says so (nudged once)', { bind: { 'ag-2': at('a2', 'worker') }, tasks, runs: { 'ag-2': { taskId: 'a2', role: 'worker', step: 'worker', state: { state: 'silent', n: 1 }, epoch: 1, log: [] } } }, 'ag-2', undefined, { state: 'silent', n: 1 }],
-    ['context over: retired', { bind: { 'ag-2': at('a2', 'worker', 'worker', { retired: true }) }, tasks }, 'ag-2', undefined, { state: 'retired' }],
-    ['its task blocked', { bind: { 'ag-2': at('a2', 'worker') }, tasks: blocked }, 'ag-2', undefined, { state: 'waiting', on: 'decision' }],
-    ['the worker while its change is reviewed', { bind: { 'ag-2': at('a2', 'worker') }, tasks: review }, 'ag-2', undefined, { state: 'waiting', on: 'review' }],
-    ['the reviewer while the worker reworks', { bind: { r: at('a2', 'reviewer') }, tasks }, 'r', undefined, { state: 'waiting', on: 'rework' }],
-    ['a tester whose step is over', { bind: { t: at('a2', 'tester') }, tasks }, 't', undefined, { state: 'idle-bound' }],
-    ['still bound to a done task', { bind: { 'ag-1': at('a1', 'worker', 'merge') }, tasks }, 'ag-1', undefined, { state: 'ended', cause: 'done' }],
+    ['its run record: running', { bind, tasks, runs: run({ state: 'running' }) }, 'ag-2', undefined, { state: 'running' }],
+    ['its run record: nudged once', { bind, tasks, runs: run({ state: 'silent', n: 1 }) }, 'ag-2', undefined, { state: 'silent', n: 1 }],
+    ['its run record: parked for a decision', { bind, tasks, runs: run({ state: 'waiting', on: 'decision' }) }, 'ag-2', undefined, { state: 'waiting', on: 'decision' }],
+    ['bound with no run record: lost (its next event ends it)', { bind, tasks }, 'ag-2', undefined, { state: 'ended', cause: 'lost' }],
     ['unbound, its task done', { bind: {}, tasks }, 'ag-1', 'a1', { state: 'ended', cause: 'done' }],
     ['unbound, its task back to todo', { bind: {}, tasks }, 'ag-3', 'a3', { state: 'ended', cause: 'released' }],
     ['unbound, task unknown', { bind: {}, tasks }, 'ag-9', undefined, { state: 'ended', cause: 'lost' }],

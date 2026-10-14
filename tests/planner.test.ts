@@ -2,6 +2,7 @@
 // main's drafts (fields, duplicates, the missing list with the path overlap), approved automatically and recorded; a refused plan goes back to the same planner,
 // planner.maxRounds refusals stop the epic; milestone.epicPlanner 'main' keeps main planning.
 import { describe, expect, test } from 'claude-code/testing'
+import { runOf } from '../core/lifecycle'
 import { decide } from '../commands/cadre'
 import { defaults } from '../config/index'
 import { admitWith, type Deps } from '../core/admission'
@@ -73,7 +74,7 @@ describe("the planner's report: main's draft checks, rounds, auto-approval", () 
     expect(s.plan!.epics![0].state).toBe('running'); expect(ts.map(t => [t.title, t.state])).toEqual([['Writer', 'todo'], ['Command', 'todo']]); expect(ts[1].deps.map(x => x.id)).toEqual([ts[0].id])
     expect(await w.records()).toContain(`auto: plan ${a} approved automatically for milestone ${w.m} · drafted by the planner`)
     expect((await ev(w)).some(e => e.type === 'drive.decided' && e.data.kind === 'plan' && /drafted by the planner/.test(e.data.text))).toBe(true)
-    expect((await w.h.bind.read()).ag1.step).toBe('done')   // bound until its turn ends: its last requests keep the routed effort
+    expect((await w.h.bind.read()).ag1).toBeDefined(); expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'idle-bound' })   // bound until its turn ends: its last requests keep the routed effort
     await stopped(w.h, w.d, { agentId: 'ag1', reason: 'answer' }); expect((await w.h.bind.read()).ag1).toBeUndefined(); expect((await w.store.get(a)).meta['cadre.planRounds']).toBe('2')   // its turn end is no extra round
     expect(w.submitted).toEqual([])
     expect(spawnable(modelView(s), await w.h.bind.read()).filter(x => x.role === 'claim').map(x => x.id)).toEqual([ts[0].id])

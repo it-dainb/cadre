@@ -7,7 +7,7 @@ import { raise, report, runCheck } from '../core/close'
 import { warm } from '../core/session'
 import { askAnswer, askOf } from '../core/asks'
 import { planned } from '../core/planner'
-import { refuse, clearRetries, tried, validateReport } from '../core/validate'
+import { refuse, tried, validateReport } from '../core/validate'
 import * as G from '../core/git'
 import { charge, runOf, step } from '../core/lifecycle'
 
@@ -38,13 +38,12 @@ async function onReport(h: Host, d: Deps, agentId: string | undefined, r: any): 
   if ((await h.bind.read())[agentId]?.role === 'planner') return r.role === 'planner' ? planned(h, d, agentId, r).then(async t => (await step(h, agentId, { type: t.startsWith('error') ? 'report.refused' : 'report.ok' }), t)) : bad('role: you are the planner; report role "planner" with tasks')   // a ready epic's planner (core/planner)
   const b = (await h.bind.read())[agentId], ok = async () => step(h, agentId, { type: 'report.ok', wait: (await h.board.read()).tasks.find(t => t.id === b?.taskId)?.state === 'blocked' })
   try {
-    const text = await report(h, d, agentId, r); await clearRetries(h, key); await ok(); return text
+    const text = await report(h, d, agentId, r); await ok(); return text
   } catch (x) {
-    const msg = (x as Error).message, s = (await runOf(h, agentId))?.state, n = s ? (s.state === 'refused' ? s.n : 0) : (((await h.ui.read()).retries as Record<string, number>) ?? {})[key] ?? 0
+    const msg = (x as Error).message, s = (await runOf(h, agentId))?.state, n = s?.state === 'refused' ? s.n : 0   // refusals so far, on its run
     // semantic (6.3) failures only; after limits.reportRetries the report is accepted unvalidated + flagged
     if (n >= d.cfg.limits.reportRetries && /^(findings|coverage|contractStatus|verdict)/.test(msg)) {
-      const b = (await h.bind.read())[agentId]; if (b) await raise(h, b.taskId, 'report-unvalidated')
-      const text = await report(h, d, agentId, r, { lax: true }); await clearRetries(h, key); await ok(); return text
+      await raise(h, b.taskId, 'report-unvalidated'); const text = await report(h, d, agentId, r, { lax: true }); await ok(); return text
     }
     return no(msg)
   }

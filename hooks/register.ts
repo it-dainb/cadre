@@ -6,7 +6,7 @@ import type { Register } from 'claude-code'
 import type { Host } from '../types'
 import { UI, emptySnapshot } from '../core/board'
 import { emptyRing, subscribe } from '../core/events'
-import { drain, step, compact, submit } from '../core/reuse'
+import { drain, meter, compact, submit } from '../core/reuse'
 import { goal, watchdog } from '../core/drive'
 import { FRAMES, spawnStep, syncMode } from '../core/spawner'
 import { quit, wake, warm } from '../core/session'
@@ -198,7 +198,7 @@ export const register: Register = (on, opts) => {
   // 8. prompt.submit, prompt.attachment, turn.step, session.compact, command.run, config.set
   on('prompt.submit', async ($, e, next) => { if (!(await wake(host($)))) return next(e); const h = host($); if (!e.agentId && e.origin?.kind === 'composer') await ack(h).catch(() => {}); return submit(h, e, e2 => context(h, e2, next)) }).catch(passOn)
   on('prompt.attachment', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return attachment(host($), e, next) })
-  on('turn.step', async function* ($, e, next) { const h = host($); if (!(await wake(h))) return yield* next(e); return yield* step(h, e, next) })
+  on('turn.step', async function* ($, e, next) { const h = host($); if (!(await wake(h))) return yield* next(e); return yield* meter(h, e, next) })
   on('session.compact', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return compact(host($), e, next) }).catch(passOn)
   on('command.run', { command: 'cadre' }, async ($, e, next) => { const old = (await read($, secret)).old; if (old) return { text: oldLine(old) }; const h = spawner($, next); await ack(h).catch(() => {}); const r = await run(h, e, next); if (await wake(h).catch(() => false)) await spawnStep(h, next.event).catch(x => $.ui.log(`spawner: ${x}`)); return r }).catch(denyCmd)   // a typed /cadre (continue) is a frame to start agents from (core/spawner)
   on('command.run', { command: 'goal' }, ($, e, next) => goal(host($), e, next)).catch(passOn)   // observer only: pass-through, never rewritten (9)

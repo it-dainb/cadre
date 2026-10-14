@@ -8,7 +8,7 @@ import { StoreError, type Task, type TaskStore } from '../task-management/store'
 import { kindOf, pipeOf, type TypeRegistry } from '../task-management/registry'
 import { repoKeyOf } from '../commands/init'
 import { cfgOf, storeOf } from './dispatch'
-import { agentsOf, bindAgent, commit, leaseLive, safe, sessionOf, unbindAgent } from './board'
+import { agentsOf, commit, leaseLive, safe, sessionOf } from './board'
 import { FOCUS, parseNumstat, riskOf, route, type Tier } from './risk'
 import { held, ownerOf, savePointer, stampAlive } from './session'
 import { BLOCKING, apply, epicNext } from './machine'
@@ -26,7 +26,7 @@ import { lockCore, watch } from './rebase'
 import { notesOf, pathsOf, sliceNotes, specTestsOf, untested } from './validate'
 import { branchOf, epicOf } from './milestone'
 import { plannerBrief } from './planner'
-import { budgetOf, step as lifeStep } from './lifecycle'
+import { budgetOf, reserve, step as lifeStep, unreserve } from './lifecycle'
 
 export interface Deps {
   store: TaskStore; cfg: Config; reg: TypeRegistry; root: string; home: string; wtRoot: string; key: string; actor: string; session: string
@@ -83,23 +83,14 @@ async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTa
   let r: any
   try { r = await next({ ...e, subagentType: `cadre:${role}`, prompt: modelText('agent-brief', prompt), model: r0.model, cwd }) } catch (err) { await undo(); throw err }
   if (r?.deny) { await undo(); return r }
-  await unbindAgent(h, `~${t.id}`)
-  if (r?.agentId) {
-    if (typeof r.model === 'string' && r.model !== run.model) Object.assign(run, { ran: r.model })   // the id Claude Code resolved the alias to (its agent.spawn result)
-    await bindAgent(h, r.agentId, { taskId: t.id, role, step, worktree: wt, sessionId: d.session, ctxTokens: 0, startedAt: await h.now(), ...(r0.effort ? { effort: r0.effort } : {}) })
-    await lifeStep(h, r.agentId, { type: 'spawn.ok', taskId: t.id, role, step })
-    await emit(h, 'agent.bound', { agentId: r.agentId, taskId: t.id, role, ...(rt ? { tier: rt } : {}), model: run.model, ...((run as any).ran ? { ran: (run as any).ran } : {}), effort: run.effort, setting: r0.setting, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }, { agentId: r.agentId, taskId: t.id, actor: 'mod' })
-    if (task) await safe(h, 'runs', async () => { let a: unknown[] = []; try { a = JSON.parse((await d.store.get(t.id)).meta['cadre.runs'] || '[]') } catch {}; await d.store.setMeta(t.id, { 'cadre.runs': JSON.stringify([...a, run].slice(-20)) }, d.actor) })
-    await h.store.set(`cadre:${d.key}:hb:${t.id}`, { s: d.session, at: 0 })   // the owner session (core/session.ownerOf): another session judges the claim by it; at 0: the next tick renews the claim
-    await safe(h, 'pointer', () => savePointer(h))   // S22: a /clear before main's next turn.complete must still find this binding (the pointer was saved only there)
-  }
+  if (!r?.agentId) { await unreserve(h, t.id); return r }
+  if (typeof r.model === 'string' && r.model !== run.model) Object.assign(run, { ran: r.model })   // the id Claude Code resolved the alias to (its agent.spawn result)
+  await lifeStep(h, r.agentId, { type: 'spawn.ok', bind: { taskId: t.id, role, step, worktree: wt, sessionId: d.session, ctxTokens: 0, startedAt: await h.now(), ...(r0.effort ? { effort: r0.effort } : {}) } })
+  await emit(h, 'agent.bound', { agentId: r.agentId, taskId: t.id, role, ...(rt ? { tier: rt } : {}), model: run.model, ...((run as any).ran ? { ran: (run as any).ran } : {}), effort: run.effort, setting: r0.setting, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }, { agentId: r.agentId, taskId: t.id, actor: 'mod' })
+  if (task) await safe(h, 'runs', async () => { let a: unknown[] = []; try { a = JSON.parse((await d.store.get(t.id)).meta['cadre.runs'] || '[]') } catch {}; await d.store.setMeta(t.id, { 'cadre.runs': JSON.stringify([...a, run].slice(-20)) }, d.actor) })
+  await h.store.set(`cadre:${d.key}:hb:${t.id}`, { s: d.session, at: 0 })   // the owner session (core/session.ownerOf): another session judges the claim by it; at 0: the next tick renews the claim
+  await safe(h, 'pointer', () => savePointer(h))   // S22: a /clear before main's next turn.complete must still find this binding (the pointer was saved only there)
   return r
-}
-// CAS reservation in the binding table ("claiming/reviewing" transients live in $.state): false when another spawn holds it or a live agent of that role is bound.
-async function reserve(h: Host, d: Deps, id: string, role: Role): Promise<boolean> {
-  let got = false
-  await h.bind.update(b => { got = !b[`~${id}`] && !agentsOf(b, id).some(a => b[a].role === role); return got ? { ...b, [`~${id}`]: { taskId: id, role, step: '', worktree: '~', sessionId: d.session, ctxTokens: 0, startedAt: 0 } } : b })
-  return got
 }
 const viewed = (d: Deps, role: Role) => role === 'tester' && !!d.view && d.cfg.roles.testerView !== 'full' && d.cfg.roles.tdd.author !== 'same'   // testerView:full or author:same (3.5): the tester step works in the worktree
 const agentOf = (d: Deps, role: Role): Role => (role === 'tester' && d.cfg.roles.tdd.author === 'same' ? 'worker' : role)   // author:same: the worker agent, tester brief (3.5)
@@ -203,9 +194,9 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
     }
     if (how === 'readd') await setup(h, d, task, wt)
   }
-  for (const a of mine) { await lifeStep(h, a, { type: 'end', cause: 'released' }); await unbindAgent(h, a); await emit(h, 'agent.unbound', { agentId: a, reason: live ? 'rebind' : 'stale' }, { agentId: a, taskId: t.id }) }
-  if (!(await reserve(h, d, t.id, role))) return deny(`${t.id} is already being spawned; wait`)
-  const undo = async () => { await unbindAgent(h, `~${t.id}`) }
+  for (const a of mine) await lifeStep(h, a, { type: 'end', cause: 'released', reason: live ? 'rebind' : 'stale' })
+  if (!(await reserve(h, t.id, role, d.session))) return deny(`${t.id} is already being spawned; wait`)
+  const undo = () => unreserve(h, t.id)
   try {
     if (t.state === 'blocked') await apply(h, { kind: 'unblock', id: t.id, at: now, actor: 'mod' }, stepsOf(d))
     await owner(h, d, t.id); await d.store.resume(t.id, d.actor)
@@ -227,8 +218,8 @@ async function review(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
   if (t.step !== 'reviewer') return deny(`${t.id} passed review; main completes it (TaskUpdate completed)`)
   const task = await d.store.get(t.id), src = task.meta['cadre.sourceCommit']
   if (!src) return deny(`${t.id} has no commit to review yet`)
-  if (!(await reserve(h, d, t.id, 'reviewer'))) return deny(`${t.id} already has a reviewer; wait for its verdict`)
-  const wt = task.meta['cadre.worktree'] ?? wtPath(d.wtRoot, d.key, t.id), base = task.meta['cadre.base'] ?? src, undo = async () => { await unbindAgent(h, `~${t.id}`) }
+  if (!(await reserve(h, t.id, 'reviewer', d.session))) return deny(`${t.id} already has a reviewer; wait for its verdict`)
+  const wt = task.meta['cadre.worktree'] ?? wtPath(d.wtRoot, d.key, t.id), base = task.meta['cadre.base'] ?? src, undo = () => unreserve(h, t.id)
   try {
     const diffStat = await G.diffStat(h.run, wt, `${base}..${src}`), diff = await G.diffPatch(h.run, wt, `${base}..${src}`)
     const epicMeta = s.epic ? (await d.store.get(s.epic).catch(() => null))?.meta['cadre.corePaths'] : undefined, core: string[] = (() => { try { return JSON.parse(epicMeta ?? '[]') } catch { return [] } })()
@@ -244,8 +235,8 @@ async function review(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
 async function planner(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapshot, id: string) {
   const ep = epicOf(s, id)!
   if (s.drive.planner !== 'agent' || (ep.state !== 'ready' && ep.state !== 'planning')) return deny(`${id} has no plan to draft now`)
-  if (!(await reserve(h, d, id, 'planner'))) return deny(`${id} already has a planner; wait`)
-  const undo = async () => { await unbindAgent(h, `~${id}`) }
+  if (!(await reserve(h, id, 'planner', d.session))) return deny(`${id} already has a planner; wait`)
+  const undo = () => unreserve(h, id)
   try { return await launch(h, d, e, next, { id } as SnapTask, 'planner', await plannerBrief(h, d, s, ep), d.root, 'planner', d.root, undo, undefined) } catch (err) { await undo(); throw err }
 }
 

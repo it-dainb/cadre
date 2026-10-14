@@ -45,9 +45,8 @@ export const commit = (h: Host, fn: (s: Snapshot) => Snapshot): Promise<Snapshot
 export const stamp = (h: Host, seq: number): Promise<Snapshot> => h.board.update(s => (seq > s.seq ? { ...s, seq } : s))
 
 // Binding table: agentId -> Binding (DESIGN 4.4.4); one agent = one task.
-export const bindAgent = (h: Host, agentId: string, b: Binding) => h.bind.update(t => ({ ...t, [agentId]: b }))
-export const unbindAgent = (h: Host, agentId: string) => h.bind.update(({ [agentId]: _gone, ...rest }) => rest)
-export const bindingOf = (t: Record<string, Binding>, agentId?: string): Binding | undefined => (agentId ? t[agentId] : undefined)
+// plain fields only; everything else in a binding is written by core/lifecycle.step
+export const patchBinding = (h: Host, a: string, f: Partial<Pick<Binding, 'lastReviewedCommit' | 'ctxTokens' | 'lastAt' | 'sessionId'>>) => h.bind.update(t => (t[a] ? { ...t, [a]: { ...t[a], ...f } } : t))
 export const agentsOf = (t: Record<string, Binding>, taskId: string): string[] => Object.keys(t).filter(a => t[a].taskId === taskId)
 // active tasks of this session at an agent step that no live agent runs (the tester reported: the worker is not spawned yet). The context line and drive name
 // the step for them instead of "running · wait" (live: main stalled there). Another session's claim (its hb owner) is never idle here.

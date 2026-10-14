@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { agentsOf, bindAgent, bindingOf, canon, commit, conditionOf, emptySnapshot, fnv1a64, humanView, isCold, modelView, stamp, unbindAgent, viewHash, withConditions } from '../core/board'
+import { step } from '../core/lifecycle'
+import { agentsOf, canon, commit, conditionOf, emptySnapshot, fnv1a64, humanView, isCold, modelView, stamp, viewHash, withConditions } from '../core/board'
 import { emit } from '../core/events'
 import { EMPTY_KEYS, EPIC } from './fixtures/readmodel/snapshot.golden'
 import { GOLDEN, SAMPLE } from './fixtures/events/golden'
@@ -71,12 +72,12 @@ describe('CAS + binding table', () => {
     await commit(h, s => ({ ...s, mission: 'm' })); await stamp(h, 5); await stamp(h, 3)
     expect(await h.board.read()).toMatchObject({ mission: 'm', seq: 5 })
   })
-  test('bind / unbind / lookup; one agent = one task', async () => {
+  test('bind / unbind / lookup; one agent = one task', async () => {   // bound and unbound through the lifecycle (core/lifecycle.step)
     const h = fakeHost(), b = { taskId: 't1', role: 'worker' as const, step: 'worker', worktree: '/wt/t1', sessionId: 's', ctxTokens: 0, startedAt: 1 }
-    await bindAgent(h, 'ag1', b); await bindAgent(h, 'ag2', { ...b, role: 'reviewer' as const, step: 'reviewer' }); await bindAgent(h, 'ag3', { ...b, taskId: 't2' })
+    for (const [a, x] of [['ag1', b], ['ag2', { ...b, role: 'reviewer' as const, step: 'reviewer' }], ['ag3', { ...b, taskId: 't2' }]] as const) await step(h, a, { type: 'spawn.ok', bind: x })
     const t = await h.bind.read()
-    expect(bindingOf(t, 'ag1')).toEqual(b); expect(bindingOf(t, 'nope')).toBeUndefined(); expect(bindingOf(t, undefined)).toBeUndefined()
+    expect(t.ag1).toEqual(b); expect(t.nope).toBeUndefined()
     expect(agentsOf(t, 't1').sort()).toEqual(['ag1', 'ag2'])
-    await unbindAgent(h, 'ag1'); expect(Object.keys(await h.bind.read()).sort()).toEqual(['ag2', 'ag3'])
+    await step(h, 'ag1', { type: 'end', cause: 'done', reason: 'answer' }); expect(Object.keys(await h.bind.read()).sort()).toEqual(['ag2', 'ag3'])
   })
 })

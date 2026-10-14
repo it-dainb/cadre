@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
+import { step } from '../core/lifecycle'
 import { NOTHING, continueRun, proc, prune, quit, unfinished, rehydrate, savePointer, stampAlive } from '../core/session'
 import { drain, queueResume } from '../core/reuse'
 import { admit } from '../core/admission'
@@ -53,7 +54,8 @@ async function running(mode: 'auto' | 'yolo' = 'yolo') {
   await h1.board.update((s: any) => ({ ...s, seq: 3, epic: m.epic, containment: { state: 'contained', unsandboxed: 0 }, plan: { id: m.epic, slug: 'auth', state: 'approved', epicBranch: 'epic/auth', mode },
     tasks: [task(m.a, { state: 'active', step: 'worker', owner: ACTOR }), task(m.b, { state: 'review', step: 'reviewer', owner: ACTOR }), task(m.c)] }))
   expect(await arm(h1, mode)).toBe(`drive ${mode} on`)
-  await h1.bind.update(() => ({ w1: { taskId: m.a, role: 'worker', step: 'worker', worktree: `/wtx/${m.a}`, sessionId: 'S1', ctxTokens: 0, startedAt: T0 }, r1: { taskId: m.b, role: 'reviewer', step: 'reviewer', worktree: `/wtx/${m.b}`, sessionId: 'S1', ctxTokens: 0, startedAt: T0 } }))
+  await step(h1, 'w1', { type: 'spawn.ok', bind: { taskId: m.a, role: 'worker', step: 'worker', worktree: `/wtx/${m.a}`, sessionId: 'S1', ctxTokens: 0, startedAt: T0 } })   // as admission binds them
+  await step(h1, 'r1', { type: 'spawn.ok', bind: { taskId: m.b, role: 'reviewer', step: 'reviewer', worktree: `/wtx/${m.b}`, sessionId: 'S1', ctxTokens: 0, startedAt: T0 } })
   for (const id of [m.a, m.b]) m.kv.set(`${K}:hb:${id}`, { s: 'S1', at: T0 })
   await stampAlive(h1); await savePointer(h1)
   return { ...m, h1 }

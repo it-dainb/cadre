@@ -170,7 +170,7 @@ test('usage limit: the agent\'s task goes back without an attempt, drive pauses 
   let now = 0; const reset = new Date(Date.now() + 3_600_000).toISOString()
   w.h.usage = async () => ({ cost: { usd: 0 }, rateLimits: [{ kind: 'five_hour', percentUsed: 100, resetsAt: reset }] })
   await stopped(w.h, w.dep, { agentId: 'ag1', reason: 'error', answer: 'API Error' })
-  const t = (await w.h.board.read()).tasks[0]; assert.equal(t.state, 'todo'); assert.ok(Object.values(await budgetOf(w.h, id)).every(v => v === 0))   // no charge at all
+  const t = (await w.h.board.read()).tasks[0]; assert.equal(t.state, 'todo'); { const { epoch: _spawns, ...charged } = await budgetOf(w.h, id); assert.ok(Object.values(charged).every(v => v === 0)) }   // no charge at all
   assert.match((await w.h.board.read()).drive.paused, /usage limit until/); assert.deepEqual(await w.h.bind.read(), {})
   await w.turn(); assert.equal(w.spawned.length, 1)
   await w.h.ui.update(u => ({ ...u, limit: 1 })); await w.turn(); assert.equal(w.spawned.length, 2)   // past the reset: it starts again

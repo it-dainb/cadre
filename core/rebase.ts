@@ -13,14 +13,13 @@ import { idsIn, pushDelta } from './briefs'
 import { mirror } from './dispatch'
 import { setup } from './admission'
 import { taskBranch, wtPath } from './branches'
-import { queueResume } from './reuse'
 import { decided } from './drive'
 import { ask } from './decide'
 import { card } from './render'
 import { policyOf, setPolicy } from '../policy/guards'
 import { overlap, pathsOf } from './validate'
 import * as G from './git'
-import { budgetOf, charge } from './lifecycle'
+import { budgetOf, charge, step } from './lifecycle'
 
 const num = (v?: string) => Number(v ?? 0) || 0
 const sha7 = (s: string) => s.slice(0, 7)
@@ -55,7 +54,7 @@ export async function rework(h: Host, d: Deps, t: SnapTask, task: Task, tip: str
   const text = modelText('nudge', [`The plan moved on while ${t.id} waited to merge${by.length ? `: ${by.join(', ')} landed` : ''}. Your branch now has the new plan tip merged in (round ${n}/${ROUNDS}).`,
     conf.length ? `Resolve the conflicts in: ${conf.join(', ')} (keep both changes where they do not contradict).` : `Its checks fail on the merged tree${detail ? `:\n${detail.slice(0, 800)}` : ''}.`,
     'Keep your change, keep every test green; locked tests stay as they are. Then report done again.'].join('\n'))
-  const w = await worker(h, t.id); if (w) await queueResume(h, { agentId: w, taskId: t.id, text })
+  const w = await worker(h, t.id); if (w) await step(h, w, { type: 'resume', text })
   await decided(h, 'rebase', `${t.id}: reworked onto the plan tip ${sha7(tip)} (${why}${by.length ? ` after ${by.join(', ')}` : ''}), round ${n}/${ROUNDS}`, t.id)
   await h.board.update(s => ({ ...s, tasks: s.tasks.map(x => (x.id === t.id ? { ...x, card: card({ id: t.id, title: t.title, role: 'main', to: 'worker', flags: x.flags, next: w ? 'worker resumed: it updates its change onto the plan' : `spawn TASK-${t.id} (worker)` }) } : x)) }))
   return `${t.id} was not merged: the plan moved (${why === 'conflict' ? `conflicts in ${conf.join(', ') || 'its files'}` : 'its checks fail on the new tip'}). Its worker updates it (round ${n}/${ROUNDS}); it comes back for review. ${w ? 'Wait for it (TaskList).' : `Spawn TASK-${t.id} again.`}`

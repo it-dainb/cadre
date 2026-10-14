@@ -6,7 +6,8 @@ import type { Binding, Hook, Host } from '../types'
 import type { TaskStore } from '../task-management/store'
 import { scoped } from '../commands/init'
 import { cfgOf, storeOf } from './dispatch'
-import { UI, modelView, safe, sessionOf, viewHash } from './board'
+import { UI, modelView, patchBinding, safe, sessionOf, viewHash } from './board'
+import { runOf, step } from './lifecycle'
 import { nextAction } from './render'
 import { subscribe } from './events'
 import { brief, drainDelta } from './briefs'
@@ -17,22 +18,24 @@ import { drive, goalSeen } from './drive'
 
 const counted = (h: Host, q: Entry[], me: string) => h.board.update(s => ({ ...s, resumesQueued: q.filter(x => x.sessionId === me).length }))
 
-// ---- resume queue (4.4): anything may queue; only drain sends. One entry per agentId; a later text is appended. ----
-export async function queueResume(h: Host, r: { agentId: string; taskId: string; text: string }): Promise<void> {
+// ---- resume queue (4.4): core/lifecycle queues (a run's wake); only drain sends. One entry per agentId and run (task epoch): a later text is appended once, an
+// older run's wake is dropped. ----
+export async function queueResume(h: Host, r: { agentId: string; taskId: string; text: string; epoch?: number }): Promise<void> {
   const b = (await h.bind.read())[r.agentId]
   if (b && b.taskId !== r.taskId) return void h.log(`resume to ${r.agentId} refused: it works on ${b.taskId}, not ${r.taskId}`)
   const me = await sessionOf(h), k = await qk(h), q = ((await h.store.get(k)) as Entry[] | undefined) ?? [], old = q.find(x => x.agentId === r.agentId)
-  const text = old && old.text !== r.text ? `${old.text}\n\n${r.text}` : r.text
-  const next = [...q.filter(x => x.agentId !== r.agentId), { sessionId: b?.sessionId ?? me, agentId: r.agentId, taskId: r.taskId, text }]
+  if (old && (old.epoch ?? 0) > (r.epoch ?? 0)) return   // a wake for an older run of this agent
+  const text = !old || old.epoch !== r.epoch ? r.text : old.text.split('\n\n').includes(r.text) ? old.text : `${old.text}\n\n${r.text}`   // one wake per run: the same text never twice
+  const next = [...q.filter(x => x.agentId !== r.agentId), { sessionId: b?.sessionId ?? me, agentId: r.agentId, taskId: r.taskId, text, ...(r.epoch !== undefined ? { epoch: r.epoch } : {}) }]
   await h.store.set(k, next); await counted(h, next, me)
 }
 
 // fresh instead of resume (4.4.3): over maxContextPct, or idle past the cache TTL with context > 30 %. Window = 200k unless the model says otherwise.
 const ctxPct = (b: Binding) => Math.round((b.ctxTokens / 200_000) * 100)
 export const stale = (b: Binding, now: number, cfg: any) => ctxPct(b) > cfg.reuse.maxContextPct || (now - (b.lastAt ?? b.startedAt) > cfg.reuse.cacheTtlMs && ctxPct(b) > 30)
-async function retire(h: Host, a: string, b: Binding, why: string) {   // the agent stays bound but retired: admission rebinds it fresh with a computed handoff
-  await h.bind.update(t => (t[a] ? { ...t, [a]: { ...t[a], retired: true } } : t))
-  h.toast(`cadre: ${b.taskId} needs a fresh agent · spawn TASK-${b.taskId}`)
+async function retire(h: Host, a: string, b: Binding): Promise<boolean> {   // the agent stays bound but retired: admission rebinds it fresh with a computed handoff; a waiting run is never retired
+  if ((await step(h, a, { type: 'retire' }))?.state?.state === 'waiting') return false
+  h.toast(`cadre: ${b.taskId} needs a fresh agent · spawn TASK-${b.taskId}`); return true
 }
 async function sendMine(h: Host, store: TaskStore | undefined, cfg: any) {
   const me = await sessionOf(h), k = await qk(h), q = ((await h.store.get(k)) as Entry[] | undefined) ?? [], mine = q.filter(x => x.sessionId === me)
@@ -43,13 +46,13 @@ async function sendMine(h: Host, store: TaskStore | undefined, cfg: any) {
     const b = bind[r.agentId]
     const ask = r.taskId.startsWith('ask-') && (await askOf(h, r.agentId))   // a marker-less explorer's nudge (core/asks): no task, no lease
     if (!ask && store && !inFlight(await store.get(r.taskId))) continue   // the task closed or went back to todo: nothing to resume (entries of another session are never this session's to send)
-    if (!ask && (!b || b.retired)) continue
+    if (!ask && (!b || b.retired || (r.epoch ?? Infinity) < ((await runOf(h, r.agentId))?.epoch ?? 0))) continue   // unbound, retired, or a wake for an older run
     if (ask) { const res = await h.sendTo!(r.agentId, modelText('nudge', r.text)); if (!res.isDelivered) h.log(`${ask.id} could not be resumed: ${res.reason ?? 'not delivered'}`); continue }
-    if (stale(b, now, cfg)) { await retire(h, r.agentId, b, `context ${ctxPct(b)}%`); continue }
+    if (stale(b, now, cfg) && (await retire(h, r.agentId, b))) continue
     const delta = await drainDelta(h, r.agentId)
     await h.ui.update(u => ({ ...u, drainTo: r.agentId }))   // marks cadre's own send so policy/guards.send does not isolate it (reviewer findings quote other ids)
     const res = await h.sendTo!(r.agentId, modelText('nudge', delta ? `${r.text}\n\n${delta}` : r.text)).finally(() => h.ui.update(u => ({ ...u, drainTo: undefined })))
-    if (!res.isDelivered) await retire(h, r.agentId, b, res.reason ?? 'not delivered')
+    if (!res.isDelivered) await retire(h, r.agentId, b)
   }
 }
 
@@ -62,8 +65,7 @@ subscribe(async (h, ev) => {
   const id = String(ev.data.taskId), bind = await h.bind.read(), a = Object.keys(bind).find(k => bind[k].taskId === id && bind[k].role === 'worker' && bind[k].step === 'tester')
   if (!a) return
   const t = await (await storeOf(h)).get(id)
-  await h.bind.update(x => (x[a] ? { ...x, [a]: { ...x[a], step: 'worker' } } : x))
-  await queueResume(h, { agentId: a, taskId: id, text: brief('worker', { id, title: t.title, type: t.type, description: t.description, scenarios: t.acceptance, contract: t.design,
+  await step(h, a, { type: 'resume', step: 'worker', text: brief('worker', { id, title: t.title, type: t.type, description: t.description, scenarios: t.acceptance, contract: t.design,
     locked: t.meta['cadre.locked'] ? JSON.parse(t.meta['cadre.locked']) : undefined, redCard: t.meta['cadre.red'] }) })
 })
 
@@ -79,14 +81,14 @@ export function usdOf(u: U, cfg: any): number | undefined {   // cost.prices: {<
   return p && (u.in * p.in + u.out * p.out + u.cr * (p.cacheRead ?? 0) + u.cw * (p.cacheWrite ?? 0)) / 1e6
 }
 const ck = (id: string) => `cadre:cost:${id}`
-export async function* step(h: Host, e: any, next: (e: any) => any): AsyncGenerator<any, any, any> {
+export async function* meter(h: Host, e: any, next: (e: any) => any): AsyncGenerator<any, any, any> {
   const b = e.agentId && (await h.bind.read())[e.agentId], eff = b?.effort
   const r = yield* next(eff && eff !== 'default' ? { ...e, effort: eff } : e)   // TM-03: the effort admission routed for this run (core/risk.route: roles.<role>.byRisk.<risk>, recorded on the binding); none = the agent file's
   if (r?.usage) await safe(h, 'cost', async () => {
     const id = e.agentId ?? 'main'
     await h.store.set(ck(id), add(((await h.store.get(ck(id))) as U) ?? zero(), r.usage)); const ak = await scoped(h, 'cost:all'); await h.store.set(ak, add(((await h.store.get(ak)) as U) ?? zero(), r.usage))
     const ctx = (r.usage.input_tokens ?? 0) + (r.usage.cache_read_input_tokens ?? 0) + (r.usage.cache_creation_input_tokens ?? 0), now = await h.now()
-    if (e.agentId) await h.bind.update(t => (t[e.agentId] ? { ...t, [e.agentId]: { ...t[e.agentId], ctxTokens: ctx, lastAt: now } } : t))
+    if (e.agentId) await patchBinding(h, e.agentId, { ctxTokens: ctx, lastAt: now })
     if (b) { const pct = ctxPct({ ...b, ctxTokens: ctx }); await h.board.update(s => ({ ...s, tasks: s.tasks.map(t => (t.id === b.taskId && t.ctx !== pct ? { ...t, ctx: pct } : t)) })) }   // SnapTask.ctx: the owner's context fill
   })
   return r

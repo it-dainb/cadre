@@ -1,8 +1,11 @@
 // The run record (core/lifecycle): the pure next() as a state × event table, step() over $.state with its $.store mirror, and the invariants it carries so far.
 import { describe, expect, test } from 'claude-code/testing'
-import { next, runOf, step, type Run, type RunEvent, type RunState } from '../core/lifecycle'
+import { budgetOf, next, pruneRuns, restore, runOf, step, type Run, type RunEvent, type RunState } from '../core/lifecycle'
+import { queueResume } from '../core/reuse'
+import { stopped } from '../core/close'
+import { BUDGET } from './fixtures/budget.generated'
 import { RETRIES } from '../core/validate'
-import { PASS, world } from './fixtures/replay/world'
+import { PASS, world, type World } from './fixtures/replay/world'
 import { arm } from '../core/drive'
 
 const run = (state: RunState | null): Run => ({ taskId: 't1', role: 'worker', step: 'worker', state, epoch: 1, log: [] })
@@ -10,25 +13,30 @@ const S = {
   running: { state: 'running' }, refused: { state: 'refused', n: 1 }, silent: { state: 'silent', n: 1 }, idle: { state: 'idle-bound' }, waiting: { state: 'waiting', on: 'decision' },
   done: { state: 'ended', cause: 'done' },
 } as const satisfies Record<string, RunState>
-const E: Record<string, RunEvent> = { ok: { type: 'report.ok' }, park: { type: 'report.ok', wait: true }, refused: { type: 'report.refused' }, nudged: { type: 'turn.end' }, released: { type: 'end', cause: 'released' } }
+const E: Record<string, RunEvent> = { ok: { type: 'report.ok' }, park: { type: 'report.ok', wait: true }, refused: { type: 'report.refused' }, nudged: { type: 'turn.end', text: 'n' },
+  resumed: { type: 'resume', text: 'r' }, retired: { type: 'retire' }, released: { type: 'end', cause: 'released', reason: 'stopped' } }
+const wake = (text: string) => [{ kind: 'wake', text }], gone = [{ kind: 'unbind', reason: 'stopped' }], ended = { state: 'ended', cause: 'released' } as const
 
 describe('next(): state × event', () => {
-  const want: Record<keyof typeof S, Record<string, RunState>> = {
-    running: { ok: S.idle, park: S.waiting, refused: S.refused, nudged: S.silent, released: { state: 'ended', cause: 'released' } },
-    refused: { ok: S.idle, park: S.waiting, refused: { state: 'refused', n: 2 }, nudged: S.silent, released: { state: 'ended', cause: 'released' } },
-    silent: { ok: S.idle, park: S.waiting, refused: S.refused, nudged: { state: 'silent', n: 2 }, released: { state: 'ended', cause: 'released' } },
-    idle: { ok: S.idle, park: S.waiting, refused: S.refused, nudged: S.silent, released: { state: 'ended', cause: 'released' } },
-    waiting: { ok: S.waiting, park: S.waiting, refused: S.waiting, nudged: S.waiting, released: { state: 'ended', cause: 'released' } },   // invariant 2: parked until its end
-    done: { ok: S.done, park: S.done, refused: S.done, nudged: S.done, released: S.done },   // terminal: nothing moves it
+  type Cell = [RunState, object[]?]
+  const want: Record<keyof typeof S, Record<string, Cell>> = {
+    running: { ok: [S.idle], park: [S.waiting], refused: [S.refused], nudged: [S.silent, wake('n')], resumed: [S.running, wake('r')], retired: [{ state: 'retired' }, [{ kind: 'retire' }]], released: [ended, gone] },
+    refused: { ok: [S.idle], park: [S.waiting], refused: [{ state: 'refused', n: 2 }], nudged: [S.silent, wake('n')], resumed: [S.refused, wake('r')], retired: [{ state: 'retired' }, [{ kind: 'retire' }]], released: [ended, gone] },
+    silent: { ok: [S.idle], park: [S.waiting], refused: [S.refused], nudged: [{ state: 'silent', n: 2 }, wake('n')], resumed: [S.silent, wake('r')], retired: [{ state: 'retired' }, [{ kind: 'retire' }]], released: [ended, gone] },
+    idle: { ok: [S.idle], park: [S.waiting], refused: [S.refused], nudged: [S.silent, wake('n')], resumed: [S.running, wake('r')], retired: [{ state: 'retired' }, [{ kind: 'retire' }]], released: [ended, gone] },
+    // invariant 2: a parked run is never retired, nudged or refused out of its wait; an answer (resume) or its end moves it
+    waiting: { ok: [S.waiting], park: [S.waiting], refused: [S.waiting], nudged: [S.waiting], resumed: [S.running, wake('r')], retired: [S.waiting], released: [ended, gone] },
+    done: { ok: [S.done], park: [S.done], refused: [S.done], nudged: [S.done], resumed: [S.done], retired: [S.done], released: [S.done] },   // terminal: nothing moves it
   }
-  for (const [s, row] of Object.entries(want)) for (const [ev, to] of Object.entries(row))
-    test(`${s} + ${ev} -> ${to.state}`, () => { const r = next(run(S[s as keyof typeof S]), E[ev]); expect(r.run.state).toEqual(to); expect(r.effects).toEqual([]) })
-  test('spawn.ok starts a run on its task, the epoch counts the spawns of the agent', () => {
-    const r = next(run(S.done), { type: 'spawn.ok', taskId: 't2', role: 'tester', step: 'tester' }).run
-    expect(r).toMatchObject({ taskId: 't2', role: 'tester', step: 'tester', state: S.running, epoch: 2 })
+  for (const [s, row] of Object.entries(want)) for (const [ev, [to, fx = []]] of Object.entries(row))
+    test(`${s} + ${ev} -> ${to.state}`, () => { const r = next(run(S[s as keyof typeof S]), E[ev]); expect(r.run.state).toEqual(to); expect(r.effects).toEqual(fx) })
+  test('spawn.ok starts a run on its task at the task\'s spawn count (its epoch)', () => {
+    const r = next(run(S.done), { type: 'spawn.ok', bind: { taskId: 't2', role: 'tester', step: 'tester', worktree: '/wt', sessionId: 's', ctxTokens: 0, startedAt: 0 }, epoch: 4 }).run
+    expect(r).toMatchObject({ taskId: 't2', role: 'tester', step: 'tester', state: S.running, epoch: 4 })
   })
+  test('a resume to a new step moves the run to it (the test author goes on as the worker)', () => { expect(next(run(S.idle), { type: 'resume', text: 'r', step: 'tester' }).run.step).toBe('tester') })
   test('a binding with no record ends lost and is unbound, whatever the event', () => {
-    for (const e of Object.values(E)) expect(next(run(null), e)).toMatchObject({ run: { state: { state: 'ended', cause: 'lost' } }, effects: [{ kind: 'unbind', cause: 'lost' }] })
+    for (const e of Object.values(E)) expect(next(run(null), e)).toMatchObject({ run: { state: { state: 'ended', cause: 'lost' } }, effects: [{ kind: 'unbind', reason: 'lost' }] })
   })
   test('the log keeps the last 20 steps: state, event, cause', () => {
     let r = run(S.running); for (let i = 0; i < 25; i++) r = next(r, E.refused).run
@@ -63,12 +71,12 @@ describe('step(): the run record', () => {
   test('a binding with no run record ends lost and is unbound at its next event', async () => {
     const w = await world(), [id] = w.ids; await w.at('ag1', id, 'worker')
     await w.h.ui.update(u => ({ ...u, runs: {} })); w.kv.delete(`cadre:${w.dep.key}:run:ag1`)   // the record is gone (an older store)
-    await step(w.h, 'ag1', { type: 'turn.end' })
+    await step(w.h, 'ag1', { type: 'turn.end', text: 'go on' })
     expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'ended', cause: 'lost' }); expect((await w.h.bind.read()).ag1).toBeUndefined()
     expect(Object.values((await w.h.events.read()).epics).flat().some(e => e.type === 'agent.unbound' && e.data.reason === 'lost')).toBe(true)
   })
   test('an agent with neither a binding nor a record has no run', async () => {
-    const w = await world(); expect(await step(w.h, 'stranger', { type: 'turn.end' })).toBeUndefined(); expect(await runOf(w.h, 'stranger')).toBeUndefined()
+    const w = await world(); expect(await step(w.h, 'stranger', { type: 'turn.end', text: 'go on' })).toBeUndefined(); expect(await runOf(w.h, 'stranger')).toBeUndefined()
   })
   test('an explorer\'s answer ends its run done; a landed task prunes its agents\' records', async () => {
     const x = await world({ type: 'spike' }); await x.at('ag1', x.ids[0], 'explorer')
@@ -88,5 +96,74 @@ describe('invariant 1: an agent can always end', () => {
     await w.h.ui.update(u => ({ ...u, runs: { ag1: { ...((u.runs as any).ag1), state: S[s] } } }))
     let bounced = 0; while ((await w.hb('ag1')).deny) bounced++
     expect(bounced).toBe(s === 'running' || s === 'silent' ? RETRIES : 0)
+  })
+})
+
+describe('one writer: binding, wake and budget writes only in core/lifecycle', () => {
+  test('the frozen scan of the product code finds none elsewhere (patchBinding writes plain fields only)', () => { expect(BUDGET.writesOutside).toEqual([]) })
+})
+
+describe('invariant 2: a waiting run is never retired, nudged or released', () => {
+  test('parked for a decision: its turn end, an API error and a retire leave it waiting and bound; nothing is sent', async () => {
+    const w = await world(), [id] = w.ids; await w.at('ag1', id, 'worker')
+    expect(await w.rep('ag1', { role: 'worker', outcome: 'blocked', summary: 'stuck', reason: 'which format?' })).toContain('blocked recorded')
+    await w.stop('ag1'); await stopped(w.h, w.dep, { agentId: 'ag1', reason: 'error' }); await step(w.h, 'ag1', { type: 'retire' })
+    expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'waiting', on: 'decision' }); expect((await w.h.bind.read()).ag1).toMatchObject({ taskId: id }); expect((await w.h.bind.read()).ag1.retired).toBeUndefined()
+    expect(w.sent).toEqual([]); expect((await budgetOf(w.h, id)).silentRuns).toBe(0)
+  })
+})
+
+describe('invariant 3: every end, and an idle-bound run, yields exactly one next step', () => {
+  // what the task gets next: agents spawned, dialogs about it, its landing (the plan completing after it is the plan's own step)
+  const steps = async (w: World, go: () => Promise<unknown>) => {
+    const id = w.ids[0], n = async () => w.spawned.length + ((await w.h.board.read()).decisions ?? []).filter(d => d.id.includes(id)).length + ((((await w.h.ui.read()).digest as string[]) ?? []).filter(l => l.startsWith(`${id} `)).length)
+    const before = await n(); await go(); return (await n()) - before
+  }
+  test('ended released (its turn died without a report): one new agent', async () => {
+    const w = await world(), [id] = w.ids; await arm(w.h, 'auto'); await w.at('ag1', id, 'worker')
+    await stopped(w.h, w.dep, { agentId: 'ag1', reason: 'error' })
+    expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'ended', cause: 'released' }); expect(await steps(w, w.turn)).toBe(1)
+  })
+  test('ended blocked (silent runs at the cap): one dialog, no agent', async () => {
+    const w = await world(), [id] = w.ids; w.cfg.limits.silentRuns = 1; await arm(w.h, 'auto'); await w.at('ag1', id, 'worker')
+    expect(await steps(w, async () => { await stopped(w.h, w.dep, { agentId: 'ag1', reason: 'error' }); await w.turn() })).toBe(1)
+    expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'ended', cause: 'blocked' }); expect(w.spawned).toEqual([])
+  })
+  test('ended lost (a binding with no record): one new agent', async () => {
+    const w = await world(), [id] = w.ids; await arm(w.h, 'auto'); await w.at('ag1', id, 'worker'); await w.h.ui.update(u => ({ ...u, runs: {} })); w.kv.delete(`cadre:${w.dep.key}:run:ag1`)
+    await step(w.h, 'ag1', { type: 'report.refused' }); expect((await w.h.bind.read()).ag1).toBeUndefined()
+    expect(await steps(w, w.turn)).toBe(1)
+  })
+  test('idle-bound after the worker\'s report: one reviewer; idle-bound after a pass: one landing (ended done)', async () => {
+    const w = await world(); await arm(w.h, 'auto'); await w.turn(); w.spawned.length = 0
+    await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' }); expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'idle-bound' })
+    expect(await steps(w, w.turn)).toBe(1); expect(w.spawned.map(x => x[2])).toEqual(['cadre:reviewer'])
+    await w.rep('ag2', PASS); expect(await steps(w, w.turn)).toBe(1); expect((await w.h.board.read()).tasks[0].state).toBe('done')
+  })
+})
+
+describe('exactly-once wake, by task epoch', () => {
+  test('the same wake twice goes out once; a wake for an older run of the agent is dropped', async () => {
+    const w = await world(), [id] = w.ids; await w.at('ag1', id, 'worker')
+    expect((await budgetOf(w.h, id)).epoch).toBe(1); expect((await runOf(w.h, 'ag1'))?.epoch).toBe(1)
+    await step(w.h, 'ag1', { type: 'resume', text: 'fix the finding' }); await step(w.h, 'ag1', { type: 'resume', text: 'fix the finding' })
+    await queueResume(w.h, { agentId: 'ag1', taskId: id, text: 'from before', epoch: 0 })   // an older run's wake
+    await w.stop('ag2'); expect(w.sent.map(x => x[1])).toEqual(['fix the finding'])
+  })
+})
+
+describe('the store stays small', () => {
+  test('session start prunes ended runs and runs of tasks no longer in flight', async () => {
+    const w = await world({ n: 2 }), [a, b] = w.ids; await w.at('ag1', a, 'worker'); await w.at('ag2', b, 'worker')
+    await step(w.h, 'ag1', { type: 'end', cause: 'released', reason: 'stopped' })
+    await pruneRuns(w.h, async () => true)
+    expect(w.kv.has(`cadre:${w.dep.key}:run:ag1`)).toBe(false); expect(w.kv.has(`cadre:${w.dep.key}:run:ag2`)).toBe(true); expect(w.kv.get(`cadre:${w.dep.key}:runs`)).toEqual(['ag2'])
+    await pruneRuns(w.h, async t => t !== b); expect(w.kv.get(`cadre:${w.dep.key}:runs`)).toEqual([])
+  })
+  test('after /clear a binding comes back only with its run record', async () => {
+    const w = await world(), [id] = w.ids, b = { taskId: id, role: 'worker' as const, step: 'worker', worktree: '/wt', sessionId: 's2', ctxTokens: 0, startedAt: 0 }
+    expect(await restore(w.h, 'ag9', b)).toBe(false); expect((await w.h.bind.read()).ag9).toBeUndefined()
+    await w.at('ag1', id, 'worker'); await w.h.ui.update(() => ({})); await w.h.bind.update(() => ({}))   // a /clear
+    expect(await restore(w.h, 'ag1', b)).toBe(true); expect((await w.h.bind.read()).ag1.sessionId).toBe('s2')
   })
 })

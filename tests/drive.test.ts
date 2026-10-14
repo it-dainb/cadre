@@ -1,6 +1,6 @@
 // Autonomy modes (ADR 0013): `/cadre yolo <goal>`, drive armed at approval (never before, never answers a dialog), the gate policy per mode, hard stops, stop/resume.
 import { describe, expect, test } from 'claude-code/testing'
-import { charge } from '../core/lifecycle'
+import { charge, step } from '../core/lifecycle'
 import { decide, parse, route, run } from '../commands/cadre'
 import { arm, kick } from '../core/drive'
 import { report } from '../core/close'
@@ -36,7 +36,7 @@ async function go(mode: 'auto' | 'yolo', approve = true) {
 const bindWorker = async (w: Awaited<ReturnType<typeof go>>) => {
   await w.store.claim(w.t, (await resolveDeps(w.h)).actor); await w.setTask({ state: 'active', step: 'worker', owner: 'ag1' })
   const me = (await w.h.secret.read()).session!
-  await w.h.bind.update(b => ({ ...b, ag1: { taskId: w.t, role: 'worker', step: 'worker', worktree: '/wt/t', sessionId: me, ctxTokens: 0, startedAt: 0 } }))
+  await step(w.h, 'ag1', { type: 'spawn.ok', bind: { taskId: w.t, role: 'worker', step: 'worker', worktree: '/wt/t', sessionId: me, ctxTokens: 0, startedAt: 0 } })   // as admission binds it
 }
 
 describe('T6.1 /cadre yolo <goal>: the mode rides on the plan', () => {
@@ -170,7 +170,7 @@ describe('T6.3 gate policy', () => {
       const w = await go('auto'); await w.store.claim(w.t, (await resolveDeps(w.h)).actor); await w.store.setMeta(w.t, { 'cadre.sourceCommit': 'c1', 'cadre.worktree': '/wt/t' }, 'x'); for (let i = 0; i < 3; i++) await charge(w.h, w.t, 'rework')
       await w.setTask({ state: 'review', step: 'reviewer' })
       if (critical) await w.h.board.update(b => ({ ...b, tasks: [...b.tasks, { ...b.tasks[0], id: 'z9', state: 'todo', step: '', deps: [{ id: w.t, type: 'blocks' }] }] }))
-      await w.h.bind.update(b => ({ ...b, rv: { taskId: w.t, role: 'reviewer', step: 'reviewer', worktree: '/wt/t', sessionId: 's', ctxTokens: 0, startedAt: 0 } }))
+      await step(w.h, 'rv', { type: 'spawn.ok', bind: { taskId: w.t, role: 'reviewer', step: 'reviewer', worktree: '/wt/t', sessionId: 's', ctxTokens: 0, startedAt: 0 } })
       const r = await report(w.h, await resolveDeps(w.h), 'rv', { role: 'reviewer', verdict: 'changes', summary: 'still off by one', findings: [{ severity: 'major', file: 'a.ts', issue: 'off by one' }], coverage: [], contractStatus: [] }, { lax: true })
       const b = await w.board(), t = b.tasks.find(x => x.id === w.t)!
       if (!critical) { expect(r).toContain('was cancelled'); expect(t.state).toBe('cancelled'); expect((await w.evs()).some(e => e.type === 'drive.decided' && e.data.kind === 'rework')).toBe(true) }

@@ -8,7 +8,8 @@ import { cfgOf, gateDraw, mirror, missionOf, redraw, registryOf, storeOf } from 
 import { ask, flagDecision, holds } from './decide'
 import { specAsk } from './tdd'
 import { propose } from './integrate'
-import { UI, agentsOf, idleOf, isCold, leaseLive, modelView, safe, sessionOf, stamp, unbindAgent } from './board'
+import { UI, agentsOf, idleOf, isCold, leaseLive, modelView, safe, sessionOf, stamp } from './board'
+import { pruneRuns, restore, step } from './lifecycle'
 import { ring } from './events'
 import { RUNS, nextAction } from './render'
 import { queueCard, renderCard } from './briefs'
@@ -23,7 +24,7 @@ import { contain } from '../policy/containment'
 import { asciiOf } from '../config/index'
 
 export const qk = async (h: Host) => `cadre:${repoKeyOf(await h.cwd())}:resumes`
-export interface Entry { sessionId: string; agentId: string; taskId: string; text: string }
+export interface Entry { sessionId: string; agentId: string; taskId: string; text: string; epoch?: number }
 
 // ---- resume card (8.2) from the board (+ decisions from the store) ----
 export async function cardOf(h: Host, s: Snapshot, store?: TaskStore): Promise<{ text: string; decisions: number }> {
@@ -135,7 +136,7 @@ async function hydrate(h: Host): Promise<boolean> {
   let gone = 0   // this process's agents survive a /clear: kept while their task is in flight
   for (const [a, b] of Object.entries((p.bind ?? {}) as Record<string, Binding>)) {
     if (a.startsWith('~')) continue
-    if (same && inFlight(await store.get(b.taskId).catch(() => ({})))) await h.bind.update(t => ({ ...t, [a]: { ...b, sessionId: me } })); else gone++
+    if (!(same && inFlight(await store.get(b.taskId).catch(() => ({}))) && (await restore(h, a, { ...b, sessionId: me })))) gone++
   }
   const q = ((await h.store.get(await qk(h))) as Entry[] | undefined) ?? [], ids = new Set(Object.keys(await h.bind.read()))
   await h.store.set(await qk(h), q.map(x => (ids.has(x.agentId) ? { ...x, sessionId: me } : x)))
@@ -176,7 +177,7 @@ export async function continueRun(h: Host): Promise<string> {
     if (mine.some(a => !bind[a].retired)) continue   // its agent works in this session
     const o = await ownerOf(h, t.id), task = await store.get(t.id).catch(() => null)
     if (!task || ((await held(h, o)) === 'other' && (o || leaseLive(task, now)))) { if (task) other.push(t.id); continue }   // a live session's task (or an unknown owner's live claim) is never taken
-    for (const a of mine) await unbindAgent(h, a)
+    for (const a of mine) await step(h, a, { type: 'end', cause: 'released', reason: 'continue' })
     await h.store.set(await scoped(h, `hb:${t.id}`), { s: me, at: 0 })   // this session owns it now: admission's rebind no longer waits for the old claim
     if (t.state === 'review') await h.board.update(x => ({ ...x, tasks: x.tasks.map(y => (y.id === t.id ? { ...y, owner: undefined } : y)) }))   // the reviewer is gone: "spawn the reviewer" again
     go.push(t.state === 'review' ? `spawn TASK-${t.id} (reviewer)` : `spawn TASK-${t.id} (it starts from its last checkpoint)`); took.push(`${t.id} ${t.step}`)
@@ -217,6 +218,7 @@ export async function prune(h: Host): Promise<void> {
   for (const x of q) if (await ok(x.taskId)) keep.push(x)
   if (keep.length !== q.length) await h.store.set(await qk(h), keep)
   const p = (await h.store.get(await pk(h))) as any
+  await pruneRuns(h, ok)
   if (p?.bind) { const b: Record<string, Binding> = {}; for (const [a, v] of Object.entries(p.bind as Record<string, Binding>)) if (!a.startsWith('~') && (await ok(v.taskId))) b[a] = v; await h.store.set(await pk(h), { ...p, bind: b }) }
   const quk = await scoped(h, 'quarantine'), qu = ((await h.store.get(quk)) as { ts: number }[] | undefined) ?? []
   if (qu.some(x => now - x.ts > 30 * 86_400_000)) await h.store.set(quk, qu.filter(x => now - x.ts <= 30 * 86_400_000))

@@ -16,7 +16,7 @@ describe('the task budget', () => {
   test('human.retry{red} resets red only; the rebase Retry sets rebase only', async () => {
     const w = await world(), [id] = w.ids
     for (const k of ['red', 'red', 'rework', 'rebase', 'rebase', 'startFails', 'nudges'] as const) await charge(w.h, id, k)
-    await retry(w.h, id, 'red'); expect(await budgetOf(w.h, id)).toEqual({ startFails: 1, silentRuns: 0, nudges: 1, refusals: 0, red: 0, rework: 1, rebase: 2 })
+    await retry(w.h, id, 'red'); expect(await budgetOf(w.h, id)).toEqual({ startFails: 1, silentRuns: 0, nudges: 1, refusals: 0, red: 0, rework: 1, rebase: 2, epoch: 0 })
     await retry(w.h, id, 'rebase', 1); expect((await budgetOf(w.h, id)).rebase).toBe(1); expect((await budgetOf(w.h, id)).rework).toBe(1)
   })
   test('a Retry from another session re-reads the newest record: it resets its counter and keeps every other', async () => {
@@ -34,7 +34,7 @@ describe('the task budget', () => {
     const w = await world(), [id] = w.ids; await arm(w.h, 'auto'); await w.turn()
     Object.assign(w.h, { usage: async () => ({ cost: { usd: 0 }, rateLimits: [{ kind: 'five_hour', percentUsed: 100, resetsAt: new Date(Date.now() + 3_600_000).toISOString() }] }) })
     await stopped(w.h, w.dep, { agentId: 'ag1', reason: 'error', answer: 'API Error' })
-    expect((await w.h.board.read()).tasks[0].state).toBe('todo'); expect(Object.values(await budgetOf(w.h, id)).every(v => v === 0)).toBe(true)
+    expect((await w.h.board.read()).tasks[0].state).toBe('todo'); const { epoch: _spawns, ...charged } = await budgetOf(w.h, id); expect(Object.values(charged).every(v => v === 0)).toBe(true)
   })
   test('settings: limits.startFails 2 stops the run at the 2nd failed start of one task', async () => {
     const w = await world(), [id] = w.ids; w.cfg.limits.startFails = 2; await arm(w.h, 'auto')

@@ -9,7 +9,7 @@ import { guard } from '../../../policy/guards'
 import { drain } from '../../../core/reuse'
 import { observeWith } from '../../../core/close'
 import { spawnStep } from '../../../core/spawner'
-import { classify, step as lifeStep } from '../../../core/lifecycle'
+import { classify, runOf, step as lifeStep } from '../../../core/lifecycle'
 import { fakeHost, task } from '../../support'
 
 export const TIP = 'c0ffee1', HEAD = 'feed001'   // the plan tip; every task tree's HEAD (a commit past its base)
@@ -58,11 +58,11 @@ export async function world(o: { n?: number; type?: string; ids?: string[]; mode
       await store.claim(id, dep.actor); await store.setMeta(id, { 'cadre.step': step, 'cadre.worktree': `/wt/${id}`, 'cadre.branch': `docs/${id}`, 'cadre.base': 'base000' }, dep.actor)
       await h.board.update((s: any) => ({ ...s, tasks: s.tasks.map((t: any) => (t.id === id ? { ...t, state: step === 'reviewer' ? 'review' : 'active', step, owner: dep.actor } : t)) }))
       if (step === 'reviewer') await store.move(id, 'review', dep.actor)
-      await h.bind.update((b: Record<string, Binding>) => ({ ...b, [agentId]: { taskId: id, role, step, worktree: `/wt/${id}`, sessionId: dep.session, ctxTokens: 0, startedAt: 0 } }))
-      await lifeStep(h, agentId, { type: 'spawn.ok', taskId: id, role, step })   // as admission records it
+      kv.set(`cadre:${dep.key}:hb:${id}`, { s: dep.session, at: 0 })
+      await lifeStep(h, agentId, { type: 'spawn.ok', bind: { taskId: id, role, step, worktree: `/wt/${id}`, sessionId: dep.session, ctxTokens: 0, startedAt: 0 } })   // as admission binds it
     },
     state: async (agentId: string, taskId?: string) => {
-      return classify({ bind: await h.bind.read(), tasks: (await h.board.read()).tasks, runs: (await h.ui.read()).runs as any }, agentId, taskId)
+      return classify({ bind: await h.bind.read(), tasks: (await h.board.read()).tasks, runs: { [agentId]: (await runOf(h, agentId))! } }, agentId, taskId)   // the record, or its mirror after a /clear
     },
   }
   return w

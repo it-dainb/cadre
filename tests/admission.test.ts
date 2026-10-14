@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { charge } from '../core/lifecycle'
+import { charge, step } from '../core/lifecycle'
 import { admitWith, beat } from '../core/admission'
 import { leaseLive } from '../core/board'
 import type { Deps } from '../core/admission'
 import { defaults, resolve } from '../config/index'
 import { MemoryStore } from '../task-management/adapters/memory/store'
-import { agentsOf, bindAgent } from '../core/board'
+import { agentsOf } from '../core/board'
 import { idsIn } from '../core/briefs'
 import { repoKeyOf } from '../commands/init'
 import { ofEpic } from '../core/events'
@@ -264,7 +264,7 @@ describe('multi-session leases (two hosts, one store)', () => {
   })
   test('heartbeat: only this session\'s bindings, once per interval', async () => {
     const w = world(), a = await w.mk('a'), b = await w.mk('b'), { epic, ids } = await w.plan({}, {}); await w.board(a.h, epic, ids)
-    await admitWith(a.h, a.d, spawn(ids[0]), ok('ag1').next); await bindAgent(a.h, 'other', { taskId: ids[1], role: 'worker', step: 'worker', worktree: '/x', sessionId: 's-b', ctxTokens: 0, startedAt: 0 })
+    await admitWith(a.h, a.d, spawn(ids[0]), ok('ag1').next); await step(a.h, 'other', { type: 'spawn.ok', bind: { taskId: ids[1], role: 'worker', step: 'worker', worktree: '/x', sessionId: 's-b', ctxTokens: 0, startedAt: 0 } })
     const beats: string[] = []; const spy = (d: Deps): Deps => ({ ...d, store: Object.assign(Object.create(d.store), { heartbeat: async (id: string) => { beats.push(id) } }) })
     await beat(a.h, spy(a.d)); await beat(a.h, spy(a.d)); expect(beats).toEqual([ids[0]])
     w.clock.now += 121_000; await beat(a.h, spy(a.d)); expect(beats).toEqual([ids[0], ids[0]]); await beat(b.h, spy(b.d)); expect(beats).toHaveLength(2)

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { compact, drain, queueResume, step, submit } from '../core/reuse'
+import { compact, drain, meter, queueResume, submit } from '../core/reuse'
+import { step } from '../core/lifecycle'
 import { UI } from '../core/board'
 import { checkpoint } from '../core/effect'
 import { arm, casDrive, drive, goal } from '../core/drive'
@@ -16,11 +17,13 @@ import { MemoryStore } from '../task-management/adapters/memory/store'
 import { defaults as types } from '../task-management/registry'
 import { fakeHost, task } from './support'
 import { repoKeyOf, scoped } from '../commands/init'
-import type { Binding } from '../types'
+import type { Binding, Host } from '../types'
 import { guard, setPolicy } from '../policy/guards'
 import { send as guardSend } from '../policy/guards'
 import { controlOf } from '../task-management/sync-engine/loop'
 
+// agents bound as admission binds them (a run record each)
+const bound = async (h: Host, m: Record<string, Binding>) => { await h.bind.update(() => ({})); for (const [a, b] of Object.entries(m)) await step(h, a, { type: 'spawn.ok', bind: b }) }
 const B = (taskId: string, sessionId: string, o: Partial<Binding> = {}): Binding => ({ taskId, role: 'worker', step: 'worker', worktree: `/wt/${taskId}`, sessionId, ctxTokens: 1000, startedAt: 1000, ...o })
 // a host with a memory store, config, a recording sender/submitter and a scripted git (clean tree unless `dirty`)
 async function mk(o: { session?: string; usd?: number; pct?: number; dirty?: string[]; cfg?: (c: any) => void; journal?: boolean } = {}) {
@@ -63,7 +66,7 @@ describe('G9 /cadre resolve accept (UI-DESIGN 5.4)', () => {
 describe('resume queue + drain (#1, 4.4)', () => {
   test('queued resumes go out only after next, only for this session; other sessions\' entries stay (S31-style)', async () => {
     const { h, a, b, sent, order } = await mk()
-    await h.bind.update(() => ({ ag1: B(a, 'S1'), ag2: B(b, 'S2') }))
+    await bound(h, { ag1: B(a, 'S1'), ag2: B(b, 'S2') })
     await queueResume(h, { agentId: 'ag1', taskId: a, text: 'rework: fix S2' })
     await queueResume(h, { agentId: 'ag2', taskId: b, text: 'for the other session' })
     expect((await h.board.read()).resumesQueued).toBe(1)
@@ -77,7 +80,7 @@ describe('resume queue + drain (#1, 4.4)', () => {
   test('G6b: the drain\'s own resume may quote another task id (guards.send exempts it); a model send naming it is still refused; the mark is cleared', async () => {
     const { h, a, b, sent } = await mk(), pass = async () => ({ isDelivered: true })
     h.sendTo = async (id: string, text: string) => { const r = await guardSend(h, { to: id, text }, pass); if ((r as any).isDelivered) sent.push([id, text]); return r }
-    await h.bind.update(() => ({ ag1: B(a, 'S1') }))
+    await bound(h, { ag1: B(a, 'S1') })
     await queueResume(h, { agentId: 'ag1', taskId: a, text: `reviewer found: also breaks ${b}` })
     await turn(h, { reason: 'answer' })
     expect(sent).toEqual([['ag1', `reviewer found: also breaks ${b}`]]); expect((await h.ui.read()).drainTo).toBeUndefined()
@@ -85,7 +88,7 @@ describe('resume queue + drain (#1, 4.4)', () => {
   })
   test('one entry per agent (texts merge); a resume to another task is refused; deltas ride the resume', async () => {
     const { h, a, b, sent } = await mk()
-    await h.bind.update(() => ({ ag1: B(a, 'S1') }))
+    await bound(h, { ag1: B(a, 'S1') })
     await queueResume(h, { agentId: 'ag1', taskId: a, text: 'one' }); await queueResume(h, { agentId: 'ag1', taskId: a, text: 'two' }); await queueResume(h, { agentId: 'ag1', taskId: b, text: 'x' })
     await pushDelta(h, 'ag1', 'dep bd-0 closed')
     await turn(h, { reason: 'answer' })
@@ -93,7 +96,7 @@ describe('resume queue + drain (#1, 4.4)', () => {
   })
   test('fresh instead of resume: over maxContextPct or undelivered -> retired (admission rebinds), nothing sent; stale lease -> dropped', async () => {
     const { h, a, b, sent, store } = await mk()
-    await h.bind.update(() => ({ ag1: B(a, 'S1', { ctxTokens: 150_000 }), ag2: B(b, 'S1') }))
+    await bound(h, { ag1: B(a, 'S1', { ctxTokens: 150_000 }), ag2: B(b, 'S1') })
     await queueResume(h, { agentId: 'ag1', taskId: a, text: 'r' }); await queueResume(h, { agentId: 'ag2', taskId: b, text: 'r' })
     await turn(h, { reason: 'answer' })
     expect(sent).toEqual([]); expect((await h.bind.read()).ag1.retired).toBe(true); expect(h.toasts.join()).toContain(`spawn TASK-${a}`)
@@ -115,8 +118,8 @@ describe('checkpoints (8.4) and cost ledger (7)', () => {
   })
   test('turn.step usage per agent -> binding ctx; its turn.complete overwrites cadre.cost on the task; main mirrors usd/cache/ctx', async () => {
     const { h, a, store } = await mk({ pct: 34, usd: 3.5 })
-    await h.bind.update(() => ({ ag1: B(a, 'S1') }))
-    const run = async (agentId?: string) => { const g = step(h, { agentId }, async function* () { return { usage: { input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 900, cache_creation_input_tokens: 0, model: 'claude-sonnet' } } } as any); let r = await g.next(); while (!r.done) r = await g.next(); return r.value }
+    await bound(h, { ag1: B(a, 'S1') })
+    const run = async (agentId?: string) => { const g = meter(h, { agentId }, async function* () { return { usage: { input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 900, cache_creation_input_tokens: 0, model: 'claude-sonnet' } } } as any); let r = await g.next(); while (!r.done) r = await g.next(); return r.value }
     expect((await run('ag1')).usage.input_tokens).toBe(100)
     expect((await h.bind.read()).ag1.ctxTokens).toBe(1000)
     await turn(h, { reason: 'answer', agentId: 'ag1' })
@@ -139,18 +142,19 @@ describe('compaction (8.3, S49) and rehydrate (8.2, 13.4)', () => {
   })
   test('agent: next with instructions keeping the task; no plan: next as is', async () => {
     const { h, a } = await mk()
-    await h.bind.update(() => ({ ag1: B(a, 'S1') }))
+    await bound(h, { ag1: B(a, 'S1') })
     expect((await compact(h, { agentId: 'ag1', messages: [] }, (e: any) => e)).instructions).toContain(`task ${a}`)
     const bare = fakeHost(); expect(await compact(bare, { messages: [] }, () => 'engine')).toBe('engine')
   })
   const cleared = async (h: any) => {   // a /clear: fresh $.state and session id, same $.store and beads
     const f = fakeHost() as any; Object.assign(f, { taskStore: h.taskStore, config: h.config, usage: h.usage, submit: h.submit })
-    for (const k of ['board', 'resumes']) f.store.set(`cadre:${repoKeyOf('/repo')}:${k}`, await h.store.get(`cadre:${repoKeyOf('/repo')}:${k}`))
+    const runs = ((await h.store.get(`cadre:${repoKeyOf('/repo')}:runs`)) as string[] | undefined) ?? []   // the run records survive too
+    for (const k of ['board', 'resumes', 'runs', ...runs.map(x => `run:${x}`)]) f.store.set(`cadre:${repoKeyOf('/repo')}:${k}`, await h.store.get(`cadre:${repoKeyOf('/repo')}:${k}`))
     return f
   }
   test('after /clear: pointer + live bindings come back, card queued once, banner called; drive continues with its lease moved to the new session', async () => {
     const { h, a, epic, submitted } = await mk()
-    await h.bind.update(() => ({ ag1: B(a, 'S1'), ag9: B('gone', 'S1') }))
+    await bound(h, { ag1: B(a, 'S1'), ag9: B('gone', 'S1') })
     await arm(h, 'auto')
     await turn(h, { reason: 'answer' })   // drives once and saves the pointer
     const banner: any[] = []; UI.banner = async (_h, o) => { banner.push(o) }
@@ -166,7 +170,7 @@ describe('compaction (8.3, S49) and rehydrate (8.2, 13.4)', () => {
   })
   test('M1: a background agent\'s turn.complete (not main prompt.submit) rehydrates the cold board and its bindings', async () => {
     const { h, a, epic } = await mk()
-    await h.bind.update(() => ({ ag1: B(a, 'S1') }))
+    await bound(h, { ag1: B(a, 'S1') })
     await turn(h, { reason: 'answer' })   // main: saves the pointer
     const fresh = await cleared(h)
     expect((await fresh.board.read()).epic).toBeNull()
@@ -284,7 +288,7 @@ describe('result card paths (6.4, S39, S40)', () => {
   })
   test('foreground Agent call whose agent never reported (the step did not move): the card says wait (the mod is resuming it), do not respawn', async () => {
     const { h, a } = await mk()   // a is active at step worker; ag1 is its worker
-    await h.bind.update(() => ({ ag1: B(a, 'S1') }))
+    await bound(h, { ag1: B(a, 'S1') })
     await h.board.update((s: any) => ({ ...s, tasks: s.tasks.map((t: any) => (t.id === a ? { ...t, card: `TASK ${a} tester → worker\nnext: spawn worker` } : t)) }))
     const r = await wrap(h, { tool: 'Agent', prompt: `do TASK-${a}` }, () => ({ result: { content: [{ type: 'text', text: 'raw answer' }] } }))
     expect(r.result.content[0].text).toContain('wait: the worker is finishing its report')
@@ -299,7 +303,7 @@ describe('result card paths (6.4, S39, S40)', () => {
   })
   test('agent calls: deltas drained into context; tester calls logged for the view audit', async () => {
     const { h, a } = await mk()
-    await h.bind.update(() => ({ ag1: B(a, 'S1'), t1: B(a, 'S1', { role: 'tester', worktree: '/v' }) }))
+    await bound(h, { ag1: B(a, 'S1'), t1: B(a, 'S1', { role: 'tester', worktree: '/v' }) })
     await pushDelta(h, 'ag1', 'decision: use bcrypt')
     expect(await wrap(h, { tool: 'Read', agentId: 'ag1', file_path: '/wt/x' }, () => ({ result: 'ok' }))).toEqual({ result: 'ok', context: ['decision: use bcrypt'] })
     await wrap(h, { tool: 'Read', agentId: 't1', input: { file_path: '/v/t.test.ts' } }, () => ({ result: 'ok' }))
@@ -311,7 +315,7 @@ describe('result card paths (6.4, S39, S40)', () => {
 describe('tdd author:same (3.5)', () => {
   test('red -> worker: the tester-step agent is re-stepped and resumed with the worker brief at the next drain', async () => {
     const { h, a, sent } = await mk()
-    await h.bind.update(() => ({ ag1: B(a, 'S1', { step: 'tester' }), ag2: B(a, 'S1', { role: 'reviewer', step: 'reviewer' }) }))
+    await h.bind.update(() => ({})); for (const [x, b] of [['ag1', B(a, 'S1', { step: 'tester' })], ['ag2', B(a, 'S1', { role: 'reviewer', step: 'reviewer' })]] as const) await step(h, x, { type: 'spawn.ok', bind: b })   // as admission binds them
     await emit(h, 'task.phase_changed', { taskId: a, from: 'red', to: 'worker' }, { taskId: a })
     expect((await h.bind.read()).ag1.step).toBe('worker'); expect(sent).toEqual([])
     await turn(h, { reason: 'answer' })
@@ -335,16 +339,16 @@ describe('drive done / plan flags (9)', () => {
 describe('round 2: effort, pruning, tester deny log', () => {
   test('turn.step applies the effort admission routed (on the binding); none leaves the frontmatter', async () => {
     const { h, a } = await mk()
-    await h.bind.update(() => ({ t1: B(a, 'S1', { step: 'tester', effort: 'high' }), w1: B(a, 'S1') }))
+    await bound(h, { t1: B(a, 'S1', { step: 'tester', effort: 'high' }), w1: B(a, 'S1') })
     const seen: any[] = []
-    const run = async (agentId: string) => { const g = step(h, { agentId }, async function* (e: any) { seen.push(e); return { usage: null } } as any); let r = await g.next(); while (!r.done) r = await g.next() }
+    const run = async (agentId: string) => { const g = meter(h, { agentId }, async function* (e: any) { seen.push(e); return { usage: null } } as any); let r = await g.next(); while (!r.done) r = await g.next() }
     await run('t1'); await run('w1')
     expect(seen[0].effort).toBe('high'); expect('effort' in seen[1]).toBe(false)
   })
   test('session.start pruning: stale-lease resume entries, closed/expired pointer bindings, quarantine older than 30 days', async () => {
     const { h, a, b } = await mk()
     const day = 86_400_000
-    await h.bind.update(() => ({ ag1: B(a, 'S1'), ag2: B(b, 'S1') }))
+    await bound(h, { ag1: B(a, 'S1'), ag2: B(b, 'S1') })
     await queueResume(h, { agentId: 'ag1', taskId: a, text: 'x' }); await queueResume(h, { agentId: 'ag2', taskId: b, text: 'y' })   // a is claimed (lease live), b is not
     await h.store.set(`cadre:${repoKeyOf('/repo')}:board`, { epic: 'e', bind: await h.bind.read() })
     await h.store.set(await scoped(h, 'quarantine'), [{ ts: -40 * day }, { ts: -day }])
@@ -355,7 +359,7 @@ describe('round 2: effort, pruning, tester deny log', () => {
   })
   test('guards: a tester call the guards deny still reaches the view call log (3.5.2)', async () => {
     const { h, a } = await mk()
-    await h.bind.update(() => ({ t1: B(a, 'S1', { role: 'tester', step: 'tester', worktree: '/v' }) }))
+    await bound(h, { t1: B(a, 'S1', { role: 'tester', step: 'tester', worktree: '/v' }) })
     const r: any = await guard(h, { tool: 'Bash', agentId: 't1', command: 'ls' }, () => ({ ok: 1 }))
     expect(typeof r.deny).toBe('string')
     expect(await h.store.get('cadre:tlog:t1')).toEqual([{ tool: 'Bash', path: undefined, outcome: r.deny }])
@@ -365,14 +369,14 @@ describe('round 2: effort, pruning, tester deny log', () => {
 describe('fx-data: board ctx, per-repo keys, checkpoint only while the task works', () => {
   test('turn.step mirrors the owner ctx% onto its board task; the model view ignores it; cost:all is per repo', async () => {
     const { h, a } = await mk()
-    await h.bind.update(() => ({ ag1: B(a, 'S1') }))
-    const g = step(h, { agentId: 'ag1' }, async function* () { return { usage: { input_tokens: 40_000, output_tokens: 1 } } } as any); let r = await g.next(); while (!r.done) r = await g.next()
+    await bound(h, { ag1: B(a, 'S1') })
+    const g = meter(h, { agentId: 'ag1' }, async function* () { return { usage: { input_tokens: 40_000, output_tokens: 1 } } } as any); let r = await g.next(); while (!r.done) r = await g.next()
     const s = await h.board.read(); expect(s.tasks[0].ctx).toBe(20); expect(JSON.stringify(modelView(s))).not.toContain('"ctx"')
     expect(await h.store.get(`cadre:${repoKeyOf('/repo')}:cost:all`)).toBeDefined(); expect(await h.store.get('cadre:cost:all')).toBeUndefined()
   })
   test('L3: a worker turn after report{done} (task in review) is not checkpointed', async () => {
     const { h, a, runs } = await mk({ dirty: ['src/a.ts'] })
-    await h.bind.update(() => ({ ag1: B(a, 'S1') }))
+    await bound(h, { ag1: B(a, 'S1') })
     await turn(h, { reason: 'answer', agentId: 'ag1' }); expect(runs.some(r => r.join(' ').includes('checkpoint'))).toBe(true)
     runs.length = 0; await h.board.update((s: any) => ({ ...s, tasks: s.tasks.map((t: any) => (t.id === a ? { ...t, state: 'review', step: 'reviewer' } : t)) }))
     await turn(h, { reason: 'answer', agentId: 'ag1' }); expect(runs.some(r => r.join(' ').includes('checkpoint'))).toBe(false)

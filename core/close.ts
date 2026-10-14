@@ -8,11 +8,10 @@ import { LIFECYCLE } from '../native/tasks'
 import { ROUTES } from './dispatch'
 import { resolveDeps, type Deps } from './admission'
 import { coverageGaps, specTestsOf } from './validate'
-import { agentsOf, fnv1a64, unbindAgent } from './board'
+import { agentsOf, fnv1a64, patchBinding } from './board'
 import { apply, STEP_CAT, transition } from './machine'
 import { emit } from './events'
 import { card, comment, commitMessage, noReportCard, startNew, type Rec } from './render'
-import { queueResume } from './reuse'
 import { checkpoint, resolveGit, sweep } from './effect'
 import { policyOf } from '../policy/guards'
 import { integrateEpic } from './integrate'
@@ -43,8 +42,7 @@ export const clear = async (h: Host, id: string, pre: string) => {
   await patch(h, id, t => ({ ...t, flags: t.flags.filter(f => !f.startsWith(pre)) }))
   for (const f of had) await emit(h, 'flag.resolved', { taskId: id, flag: f }, { taskId: id })
 }
-type End = 'done' | 'released' | 'blocked' | 'cancelled'
-async function unbind(h: Host, agentId: string, reason: string, taskId: string | undefined, cause: End) { await step(h, agentId, { type: 'end', cause }); await unbindAgent(h, agentId); await emit(h, 'agent.unbound', { agentId, reason }, { agentId, taskId }) }
+const end = (h: Host, agentId: string, reason: string, cause: 'done' | 'released' | 'blocked' | 'cancelled') => step(h, agentId, { type: 'end', cause, reason })
 async function record(h: Host, d: Deps, id: string, kind: string, actor: string, computed: Record<string, unknown>, claimed: Record<string, unknown> = {}) {   // 6.5: meta + comment, same text
   const text = comment({ schemaVersion: 1, kind, taskId: id, at: await h.now(), actor, computed, claimed } as Rec)
   await d.store.setMeta(id, { [`cadre.rec.${kind}`]: text.slice(0, 1800) }, d.actor); await d.store.comment(id, text, d.actor)
@@ -119,7 +117,7 @@ async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any, aut
   await followups(d, t.id, r.followups)
   const bind = await h.bind.read(), rv = ownerOf(bind, t.id, 'reviewer'), last = rv && bind[rv].lastReviewedCommit
   if (!rv) await patch(h, t.id, x => ({ ...x, owner: undefined }))   // no reviewer yet: the next step is "spawn the reviewer", not "running" (live: main waited on a reviewer that never existed); a bound one is resumed below
-  if (rv) await queueResume(h, { agentId: rv, taskId: t.id, text: `Re-review ${t.id}: the worker reworked. Review ${last ? `${sha7(last)}..` : ''}${sha7(C)} (sourceCommit ${C}) and report your verdict.` })
+  if (rv) await step(h, rv, { type: 'resume', text: `Re-review ${t.id}: the worker reworked. Review ${last ? `${sha7(last)}..` : ''}${sha7(C)} (sourceCommit ${C}) and report your verdict.` })
   const flags = ((await h.board.read()).tasks.find(x => x.id === t.id)?.flags) ?? []
   await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'worker', to: 'review', green, ...st, commit: C, flags, next: rv ? 'reviewer resumed' : startNew(t.id, 'reviewer', 'worker') }) }))
   return `report accepted: commit ${sha7(C)}, ${st.files} files (+${st.add} −${st.del})${green ? `, verify ${green.ok ? '✓' : '✗'}` : ''}. Now in review; stop and wait.`
@@ -146,7 +144,7 @@ async function verdict(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
   const inDiff = new Set((await G.git(h.run, wt, ['diff', '--name-only', `${task.meta['cadre.base'] ?? C}..${C}`])).split('\n'))
   const findings = (r.findings as any[]).map(f => ({ ...f, inDiff: inDiff.has(f.file) }))
   const m = await apply(h, { kind: 'verdict', id: t.id, at, actor: 'reviewer', verdict: r.verdict }, pipe(d)); if (!m.ok) throw new Error(m.error)
-  await h.bind.update(x => (x[agentId] ? { ...x, [agentId]: { ...x[agentId], lastReviewedCommit: C } } : x))
+  await patchBinding(h, agentId, { lastReviewedCommit: C })
   await record(h, d, t.id, 'review', 'reviewer', { verdict: r.verdict, sourceCommit: C, findings: findings.length }, { summary: r.summary, findings, coverage: r.coverage, contractStatus: r.contractStatus })
   if (r.verdict === 'pass') {
     await d.store.setMeta(t.id, { 'cadre.review': `pass@${C}`, 'cadre.step': 'merge' }, d.actor)
@@ -167,7 +165,7 @@ async function verdict(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
   await clear(h, t.id, 'rework:'); if (n > max) await raise(h, t.id, `rework:${n}/${max}`)
   const bind = await h.bind.read(), w = ownerOf(bind, t.id, 'worker')
   const text = `Review of ${sha7(C)} asks for changes (${n}/${max}):\n${r.summary}\n${findings.map(f => `- [${f.severity}] ${f.file}${f.line ? `:${f.line}` : ''} ${f.issue}${f.fix ? ` (fix: ${f.fix})` : ''}`).join('\n')}\nFix them, then report done again.`.slice(0, 3000)
-  if (w) await queueResume(h, { agentId: w, taskId: t.id, text })
+  if (w) await step(h, w, { type: 'resume', text })
   await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'reviewer', to: 'worker', commit: C, flags: x.flags, next: w ? 'worker resumed' : startNew(t.id, 'worker', 'reviewer') }) }))
   return `verdict accepted: changes (${n}/${max}). Stop.`
 }
@@ -180,7 +178,7 @@ async function explorerDone(h: Host, d: Deps, t: SnapTask, agentId: string, r: a
   await d.store.close(t.id, { outcome: 'done', note: String(r.answer ?? '').slice(0, 500), session: d.session })
   const next = await lastNext(h, (await h.board.read()).plan?.id, 'read the answer (TaskGet)')
   await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'explorer', to: 'done', flags: x.flags, next }) }))
-  await unbind(h, agentId, 'answer', t.id, 'done'); return 'answer recorded; the spike is done. Stop.'
+  await end(h, agentId, 'answer', 'done'); return 'answer recorded; the spike is done. Stop.'
 }
 
 // The one entry for an accepted report (tools/index validated the envelope). Returns the text the agent sees; a thrown Error is a refusal the agent may retry.
@@ -220,7 +218,7 @@ async function redAsk(h: Host, d: Deps, id: string, why: string) {
 async function release(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: string, why: string) {
   const n = await charge(h, t.id, 'silentRuns')
   if (b.worktree) await checkpoint(h, d.store, d.actor, t.id, b.worktree).catch(() => {})
-  await unbind(h, agentId, 'stopped', t.id, n >= d.cfg.limits.silentRuns ? 'blocked' : 'released')
+  await end(h, agentId, 'stopped', n >= d.cfg.limits.silentRuns ? 'blocked' : 'released')
   if (n >= d.cfg.limits.silentRuns) { await blockTask(h, d, t, `${n} attempts ended without a report`, 'attempts', {}); return }
   await apply(h, { kind: 'release', id: t.id, at: await h.now(), actor: 'mod' }, pipe(d)); await d.store.release(t.id, d.actor, why)
 }
@@ -231,11 +229,11 @@ export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
   if (e.reason === 'answer') {
     const s = (await runOf(h, e.agentId))?.state, k = s?.state === 'silent' ? s.n : 0   // this run's nudges so far
     if (k < d.cfg.limits.nudges) {
-      await step(h, e.agentId, { type: 'turn.end' }); await charge(h, t.id, 'nudges'); await queueResume(h, { agentId: e.agentId, taskId: t.id, text: NUDGE[b.role] })
+      await step(h, e.agentId, { type: 'turn.end', text: NUDGE[b.role] }); await charge(h, t.id, 'nudges')
       await patch(h, t.id, x => ({ ...x, card: noReportCard(x, b.role, b.step) }))   // (wrap builds the same card for the Agent result, which returns before this stop is observed)
       return
     }
-    if (b.role === 'reviewer') { await patch(h, t.id, x => ({ ...x, owner: undefined })); return unbind(h, e.agentId, 'stopped', t.id, 'released') }   // a verdict is never invented; main spawns a fresh reviewer
+    if (b.role === 'reviewer') { await patch(h, t.id, x => ({ ...x, owner: undefined })); return end(h, e.agentId, 'stopped', 'released') }   // a verdict is never invented; main spawns a fresh reviewer
     const text = String(e.answer ?? '').slice(0, b.role === 'explorer' ? 2000 : 300)
     try {
       if (b.role === 'worker') { await workerDone(h, d, t, b, { summary: `(auto-report: stopped without report) ${text}` }, true); await step(h, e.agentId, { type: 'report.ok' }) }
@@ -244,8 +242,8 @@ export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
     } catch (x) { await release(h, d, t, b, e.agentId, `auto-report failed: ${(x as Error).message}`.slice(0, 200)) }
     return
   }
-  if (await limited(h, e)) { await unbind(h, e.agentId, 'stopped', t.id, 'released'); if (b.role === 'reviewer') return patch(h, t.id, x => ({ ...x, owner: undefined })); await apply(h, { kind: 'release', id: t.id, at: await h.now(), actor: 'mod' }, pipe(d)); return void (await d.store.release(t.id, d.actor, 'usage limit')) }   // not an attempt: the drive waits for the reset
-  if (b.role === 'reviewer') { await patch(h, t.id, x => ({ ...x, owner: undefined })); return unbind(h, e.agentId, 'stopped', t.id, 'released') }
+  if (await limited(h, e)) { await end(h, e.agentId, 'stopped', 'released'); if (b.role === 'reviewer') return patch(h, t.id, x => ({ ...x, owner: undefined })); await apply(h, { kind: 'release', id: t.id, at: await h.now(), actor: 'mod' }, pipe(d)); return void (await d.store.release(t.id, d.actor, 'usage limit')) }   // not an attempt: the drive waits for the reset
+  if (b.role === 'reviewer') { await patch(h, t.id, x => ({ ...x, owner: undefined })); return end(h, e.agentId, 'stopped', 'released') }
   await release(h, d, t, b, e.agentId, String(e.reason ?? 'stopped'))
 }
 export async function observeWith(h: Host, d: Deps, e: any, next: (e: any) => any): Promise<any> {
@@ -257,7 +255,7 @@ export const observe: Hook = async (h, e, next) => observeWith(h, await resolveD
 
 // ---- close (3.4, 3.8): review✓ -> squash into the epic -> done -> cleanup ----
 async function cleanup(h: Host, d: Deps, id: string, task: Task, keep?: string) {
-  const gone = agentsOf(await h.bind.read(), id); for (const a of gone) await unbind(h, a, 'answer', id, keep ? 'cancelled' : 'done')
+  const gone = agentsOf(await h.bind.read(), id); for (const a of gone) await end(h, a, 'answer', keep ? 'cancelled' : 'done')
   await prune(h, id, gone)   // the ended records and the budget of a closed task go
   const wt = task.meta['cadre.worktree'], br = task.meta['cadre.branch']
   if (keep && br && (await G.exists(h.run, d.root, br))) await G.git(h.run, d.root, ['update-ref', keep, await G.tip(h.run, d.root, br)])
@@ -320,7 +318,7 @@ async function releaseTask(h: Host, d: Deps, id: string): Promise<string | null>
   const t = (await h.board.read()).tasks.find(x => x.id === id), task = await d.store.get(id), wt = task.meta['cadre.worktree']
   if (!t) return `no task ${id}`
   if (!['active', 'review', 'blocked'].includes(t.state)) return `${id} is ${t.state}: nothing to release`
-  for (const a of agentsOf(await h.bind.read(), id)) await unbind(h, a, 'stopped', id, 'released')
+  for (const a of agentsOf(await h.bind.read(), id)) await end(h, a, 'stopped', 'released')
   if (wt && (await h.stat(wt))) await checkpoint(h, d.store, d.actor, id, wt).catch(() => {})
   const m = await apply(h, { kind: 'release', id, at: await h.now(), actor: 'main' }, pipe(d)); if (!m.ok) return m.error
   await d.store.release(id, d.actor, 'released by main'); return null
@@ -355,7 +353,7 @@ async function unblock(h: Host, d: Deps, id: string, text: string, flag: string)
   const m = await apply(h, { kind: 'unblock', id, at: await h.now(), actor: 'main' }, pipe(d)); if (!m.ok) return m.error
   await d.store.resume(id, d.actor); await d.store.setMeta(id, { 'cadre.decision': text.slice(0, 1000), 'cadre.blocked': '' }, d.actor)
   await d.store.record('decision', `${id}: ${text.slice(0, 60)}`, text, id); await clear(h, id, flag)
-  const w = ownerOf(await h.bind.read(), id, 'worker'); if (w) await queueResume(h, { agentId: w, taskId: id, text })
+  const w = ownerOf(await h.bind.read(), id, 'worker'); if (w) await step(h, w, { type: 'resume', text })
   return null
 }
 const wrapL = (f: (h: Host, d: Deps, id: string, e: any) => Promise<string | null>) => async (h: Host, id: string, e: any) => f(h, await resolveDeps(h), id, e)
