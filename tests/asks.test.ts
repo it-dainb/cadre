@@ -53,6 +53,14 @@ describe('one output contract: a marker-less explorer (ask)', () => {
     expect(await handleWith(h, {} as any, { tool: 'mcp__cadre__report', agentId: 'agent-x1y2z3', input: { schemaVersion: 1, role: 'explorer', answer: 'src/parse.ts:12 parse()', citations: [{ path: 'src/parse.ts', line: 12 }] } }).then((r: any) => r.result)).toBe('answer recorded. Stop.')
     const r = await hb(PROSE); expect(r.deny).toBeUndefined(); expect(r.tool).toBe('SubagentHandback'); expect(r.input.message).not.toContain('parser')
   })
+  test('an agent can always end: its hand-back passes after a REFUSED report too, and after the refusal cap without any report (live 0.12.1: the tester bounced forever)', async () => {
+    const { h } = await mk(), hb = (agentId: string) => guard(h, { tool: 'SubagentHandback', agentId, input: { message: PROSE } }, async (e: any) => e) as Promise<any>
+    expect((await hb('agent-x1y2z3')).deny).toContain('report')
+    expect(await handleWith(h, {} as any, { tool: 'mcp__cadre__report', agentId: 'agent-x1y2z3', input: { schemaVersion: 1, role: 'explorer' } }).then((r: any) => r.result)).toContain('error: answer: required')   // refused
+    const r = await hb('agent-x1y2z3'); expect(r.deny).toBeUndefined(); expect(r.input.message).not.toContain('parser')
+    const n: string[] = []; for (let i = 0; i < 4; i++) n.push((await hb('agent-q9')).deny ?? 'passed')   // never reported: bounded refusals, then it ends
+    expect(n.slice(0, 3).every(x => x.includes('report'))).toBe(true); expect(n.at(-1)).toBe('passed')
+  })
   test('background: the task-notification becomes the card (auto-reported answer, one line <= 200), main reads no agent prose; TaskGet has the full answer', async () => {
     const { h, stop, note } = await mk()
     await stop(); await stop(); await stop()

@@ -6,7 +6,7 @@ import type { Decision, Host, Snapshot } from '../types'
 export const yoloOn = (d: Snapshot['drive']): boolean => d.on && !d.stopped && d.mode === 'yolo'
 export const BLOCKING = /^(git:|external$|drift$|conflict$|lost-|integration-failed$)/   // core/machine re-exports it (events needs it without a load cycle)
 // the flags drive holds on (core/drive.gate): under yolo only these become a decision for the human; the rest stay on the task, recorded (yolo: zero dialogs after approval)
-export const holds = (flag: string): boolean => BLOCKING.test(flag) || flag.startsWith('rework:') || flag.startsWith('quarantine')
+export const holds = (flag: string): boolean => BLOCKING.test(flag) || flag === 'red' || flag.startsWith('rework:') || flag.startsWith('quarantine')   // red: tests that cannot be made red are the human's (core/close.redAsk)
 
 export const ask = async (h: Host, d: Decision): Promise<void> => {
   await h.board.update(b => { const l = b.decisions ?? [], i = l.findIndex(x => x.id === d.id); return { ...b, decisions: i < 0 ? [...l, d] : l.map((x, j) => (j === i ? d : x)) } })   // replace keeps its place in the queue

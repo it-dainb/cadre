@@ -58,6 +58,7 @@ const ALLOW = {
   'core/session.ts': /readText\(`\$\{await h\.cwd\(\)\}\/\.cadre\/config\.json`\)/,   // existence only: the repo opted in
   'commands/doctor.ts': /readText\(`\$\{root\}\/\.cadre\/config\.json`\)|cadre\.json/,   // existence only; a fix line names the file
   'core/drive.ts': /cadre\.json/,   // hashes the file's bytes: a settings change nobody approved stops a drive
+  'core/tdd.ts': /no test check, so the tests never ran/,   // the red gate's setup block names the file to fix (text, not a read)
   'core/discover.ts': /config\.json/, 'policy/guards.ts': /cadre\.json|config\.json/,   // the guard refuses Claude's writes to the settings files (init alone may write the repo file)
     // comments/refusal text naming the file
 }

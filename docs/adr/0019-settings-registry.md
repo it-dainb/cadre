@@ -38,7 +38,7 @@ Every routing decision is a registered key; `core/risk.route` reads only the one
 
 ## Made settings (were hard-coded)
 
-`limits.nudges` (2), `limits.attempts` (3), `limits.rebaseRounds` (2; task reworks onto a moved tip and epic resolve rounds), `lanes.fullAt` (3), `lanes.milestoneAt` (8), `ui.notify` (on), `ui.escalateAfterMs` (120000). `limits.reportRetries` was silently capped at 3; its range is now 1..3. ADR 0017's locked routing is the default, every cell written out (see Routing is explicit).
+`limits.nudges` (2), `limits.attempts` (3), `limits.rebaseRounds` (2; task reworks onto a moved tip and epic resolve rounds), `limits.testerRounds` (3; tester reports the red gate refuses before the task blocks with one dialog), `lanes.fullAt` (3), `lanes.milestoneAt` (8), `ui.notify` (on), `ui.escalateAfterMs` (120000). `limits.reportRetries` was silently capped at 3; its range is now 1..3. ADR 0017's locked routing is the default, every cell written out (see Routing is explicit).
 
 ## Fixed in their effect (were registered but did nothing)
 

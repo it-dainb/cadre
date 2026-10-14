@@ -182,3 +182,30 @@ test('a refused red leaves no copy-in commit; the identical retry reaches the ga
   const again = await T.testerDone(w.h, w.d, await mkTask(w), wt, view, [{ path: 'test/s.json', name: 'a' }])
   assert.match(again.why, /pass at the spec commit/)   // not "identical to the base; nothing to lock"
 })
+
+// ---- the red loop (live 0.12.1, generic names): a refused red never traps the tester; the task blocks once with one dialog naming the check ----
+const CL = await import('../../core/close.ts')
+const { ROUTES } = await import('../../core/dispatch.ts')
+const bindTester = async (w, wt, view) => { w.meta['cadre.worktree'] = wt; await w.h.bind.update(b => ({ ...b, ag1: { taskId: 'm-1', role: 'tester', step: 'tester', worktree: view, sessionId: 's', ctxTokens: 0, startedAt: 0 } })) }
+const rep = { role: 'tester', outcome: 'done', summary: 's', tests: [{ path: 'test/s.json', name: 'a' }] }
+
+test('a package with no test check: red would run only "compile" and call it green; the first tester report blocks the task with one dialog naming the missing check', async () => {
+  const w = world({ pkg: { checks: { compile: ['true'] }, verify: undefined, tdd: { paths: ['test/**'] } } }), { wt, view, res } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a'])
+  assert.equal(res.ok, false); assert.equal(res.setup, true); assert.match(res.why, /no test check/)
+  await bindTester(w, wt, view)
+  assert.match(await CL.report(w.h, w.d, 'ag1', rep), /waits for the user/)   // not thrown: the agent may end
+  const s = await w.h.board.read(); assert.equal(s.tasks[0].state, 'blocked'); assert.deepEqual(s.tasks[0].flags, ['red'])
+  assert.equal(s.decisions.length, 1); assert.equal(s.decisions[0].id, 'flag:m-1:red'); assert.match(s.decisions[0].lines.join('\n'), /no test check[\s\S]*compile/)
+})
+
+test('settings: limits.testerRounds 2: the 2nd refused red blocks the task with one dialog naming the check; Retry sends it back to the tester with fresh rounds', async () => {
+  const w = world(); w.d.cfg.limits.testerRounds = 2
+  const { wt, view } = await tester(w, { 'test/s.json': tc('a', 'passed') }, ['a']); await bindTester(w, wt, view)
+  await assert.rejects(CL.report(w.h, w.d, 'ag1', rep), /red gate refused: the tests pass at the spec commit/)
+  assert.equal((await w.h.board.read()).tasks[0].state, 'active')
+  assert.match(await CL.report(w.h, w.d, 'ag1', rep), /waits for the user/)
+  const s = await w.h.board.read(); assert.equal(s.tasks[0].state, 'blocked'); assert.equal(s.decisions.length, 1)
+  assert.match(s.decisions[0].lines.join('\n'), /check "test"[\s\S]*pass at the spec commit/); assert.deepEqual(s.decisions[0].options.map(o => o.label), ['Retry', 'Cancel task'])
+  assert.match((await ROUTES.resolve(w.h, { args: ['m-1', 'retry'] })).text, /back to the tester/)
+  const t = (await w.h.board.read()).tasks[0]; assert.deepEqual([t.state, t.step, t.flags], ['active', 'tester', []]); assert.equal(w.meta['cadre.testerRounds'], '')
+})

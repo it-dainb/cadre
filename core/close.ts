@@ -8,7 +8,7 @@ import { LIFECYCLE } from '../native/tasks'
 import { ROUTES } from './dispatch'
 import { resolveDeps, type Deps } from './admission'
 import { coverageGaps, specTestsOf } from './validate'
-import { agentsOf, unbindAgent } from './board'
+import { agentsOf, fnv1a64, unbindAgent } from './board'
 import { apply, STEP_CAT, transition } from './machine'
 import { emit } from './events'
 import { card, comment, commitMessage, noReportCard, startNew, type Rec } from './render'
@@ -16,12 +16,12 @@ import { queueResume } from './reuse'
 import { checkpoint, resolveGit, sweep } from './effect'
 import { policyOf } from '../policy/guards'
 import { integrateEpic } from './integrate'
-import { green as tddGreen, lockedViolations, verifyOf, resolveSpec, specChange, testerDone } from './tdd'
+import { green as tddGreen, lockedViolations, verifyOf, redOf, resolveSpec, specChange, testerDone } from './tdd'
 import { modeOf, pkgOf } from './specview'
 import * as G from './git'
 import { decided, hardStop, limited, stop } from './drive'
 import { queueBrief } from './lanes'
-import { yoloOn } from './decide'
+import { ask, yoloOn } from './decide'
 import { capAsk, coreLanded, refresh, rework, trial } from './rebase'
 import { branchOf, epicOf, goOn } from './milestone'
 import { planStopped } from './planner'
@@ -189,7 +189,13 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
   if (!(t.step === b.step && STEP_CAT[b.step] === t.state)) throw new Error(`${t.id} is ${t.state}·${t.step}: nothing to report at your step`)
   if (r.role === 'tester') {
     const task = await d.store.get(t.id), g = await testerDone(h, d, task, task.meta['cadre.worktree'], b.worktree, r.tests, agentId)
-    if (!g.ok) throw new Error(`red gate refused: ${g.why}\n${g.card}`)
+    if (!g.ok) {   // bounded (limits.testerRounds, across agents): past it, or a setup fault the tester cannot fix, the task blocks once with one dialog naming the check
+      const n = num(task.meta['cadre.testerRounds']) + 1
+      if (!g.setup && n < d.cfg.limits.testerRounds) { await d.store.setMeta(t.id, { 'cadre.testerRounds': String(n) }, d.actor); throw new Error(`red gate refused: ${g.why}\n${g.card}`) }
+      await d.store.setMeta(t.id, { 'cadre.testerRounds': '' }, d.actor); await redAsk(h, d, t.id, g.setup ? g.why! : `check "${redOf(pkgOf(d, task)!)}" after ${n} tester rounds: ${g.why}`)
+      await blockTask(h, d, t, `red: ${g.why}`, 'red', { summary: r.summary, tests: r.tests })
+      return 'Your tests are kept, but they cannot be made to fail for the right reason here; the task now waits for the user. Stop.'
+    }
     await record(h, d, t.id, 'red', 'tester', { gate: 'red ✓' }, { summary: r.summary, tests: r.tests }); await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'tester', to: 'worker', flags: x.flags, next: startNew(t.id, 'worker', 'tester') }) }))
     return `${g.card}\nred accepted; stop.`
   }
@@ -200,6 +206,12 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
   if (spec) { await specChange(h, d, t.id, why); await record(h, d, t.id, 'blocked', t.step, { why }, { summary: r.summary, reason: r.reason }); await raise(h, t.id, 'spec_change') }
   else { await d.store.setMeta(t.id, { 'cadre.question': why }, d.actor); await blockTask(h, d, t, why, 'blocked', { summary: r.summary, reason: r.reason, questions: r.questions }) }   // yolo: main answers it from this (core/drive)
   return spec ? 'spec change recorded; it is decided for you. Stop and wait.' : 'blocked recorded; you are resumed with the answer. Stop and wait.'
+}
+
+// the red block's dialog (asked before the flag is raised, so it wins over the generic one): what failed, Retry (back to the tester, fresh rounds) or Cancel
+async function redAsk(h: Host, d: Deps, id: string, why: string) {
+  await ask(h, { id: `flag:${id}:red`, kind: 'flag', title: `${id}: its tests cannot be made red`, tab: 'epic', sel: id, hash: fnv1a64(why), lines: [...why.slice(0, 400).split('\n').filter(Boolean), 'Retry: fix the cause (the package checks, or the test setup), then a new tester writes the tests again. Cancel task: end it.'],
+    options: [{ key: 'r', label: 'Retry', verb: 'restore', run: `resolve ${id} retry` }, { key: 'x', label: 'Cancel task', verb: 'cancel', run: `resolve ${id} cancel` }] })
 }
 
 // ---- #2 turn.complete: L3 sweep every turn; an agent that stopped without reporting is nudged x2, auto-reported, or released ----
@@ -388,6 +400,11 @@ ROUTES.resolve = async (h, c) => {
     const task = await d.store.get(a), tip = await G.tip(h.run, d.root, branchOf(s0, t))
     await d.store.setMeta(a, { 'cadre.rebase': String(d.cfg.limits.rebaseRounds - 1), 'cadre.blocked': '' }, d.actor); await clear(h, a, 'conflict'); await clear(h, a, 'merge-red')
     return { text: (await rework(h, d, (await h.board.read()).tasks.find(x => x.id === a)!, { ...task, meta: { ...task.meta, 'cadre.rebase': String(d.cfg.limits.rebaseRounds - 1) } }, tip, 'conflict')) ?? `${a}: not reworked` }
+  }
+  if (t && b === 'retry' && t.flags.includes('red')) {   // the red dialog's Retry (redAsk): back to the tester step, rounds reset
+    const r = await apply(h, { kind: 'rewind', id: a, at: await h.now(), actor: 'human', on: 'tester' }, pipe(d)); if (!r.ok) return { text: r.error }
+    await d.store.resume(a, d.actor); await d.store.setMeta(a, { 'cadre.blocked': '', 'cadre.testerRounds': '' }, d.actor); await clear(h, a, 'red')
+    return { text: `${a}: back to the tester; spawn it` }
   }
   if (!t || !['keep', 'accept', 'reject', 'cancel'].includes(b)) return { text: 'usage: /cadre resolve <taskId> keep|accept|reject|cancel · /cadre resolve git keep|restore' }
   const out = async (e: Promise<string | null>) => ({ text: (await e) ?? `${a}: ${b} done` })

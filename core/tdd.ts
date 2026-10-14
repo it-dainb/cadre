@@ -14,7 +14,7 @@ import { untested } from './validate'
 import { policyOf, setPolicy } from '../policy/guards'
 import { queueResume } from './reuse'
 
-export interface Gate { ok: boolean; why?: string; card: string; tests?: string[] }
+export interface Gate { ok: boolean; why?: string; card: string; tests?: string[]; setup?: true }   // setup: the tester cannot fix it (the config must change); the task blocks at once
 export interface Case { name: string; status: 'passed' | 'failure' | 'error' | 'skipped'; text: string }
 export interface Sym { name: string; status: string }
 
@@ -37,7 +37,7 @@ export function errorOk(text: string, syms: Sym[], skeleton: boolean): boolean {
 
 // ---- running a package check offline (G.checkRun: overlay, else a copy of the tree) ----
 export const verifyOf = (p: Pkg) => (p.verify?.length ? p.verify : [p.checks.test ? 'test' : Object.keys(p.checks)[0]])
-const redOf = (p: Pkg) => p.tdd?.check ?? (verifyOf(p).includes('test') ? 'test' : verifyOf(p)[0])
+export const redOf = (p: Pkg) => p.tdd?.check ?? (verifyOf(p).includes('test') ? 'test' : verifyOf(p)[0])
 async function runCheck(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, name: string, gate?: 'red' | 'green' | 'pass') {   // gate: the phase whose result is announced (check.ran)
   const argv = pkg.checks[name]; if (!argv) throw new Error(`${pkg.root}: no check "${name}"`)
   const mode = await modeOf(h, d), scratch = `${d.wtRoot}/${d.key}.scratch/${task.id}-chk`, rp = pkg.tdd?.report
@@ -148,7 +148,9 @@ export async function lockedViolations(run: G.Run, wt: string, spec: string, loc
 
 // ---- tester report (3.4 tester -> red✓): audit, copy-in, red, lock, advance. A refused gate leaves the task at the tester step (caller counts the retry). ----
 export async function testerDone(h: Host, d: Deps, task: Task, wt: string, view: string, tests: { path: string; name: string }[], agentId?: string): Promise<Gate> {
-  const pkg = pkgOf(d, task); if (!pkg?.tdd) return { ok: false, why: 'its package has no tdd config', card: 'red ✗ no tdd config' }
+  const pkg = pkgOf(d, task); if (!pkg?.tdd) return { ok: false, setup: true, why: 'its package has no tdd config', card: 'red ✗ no tdd config' }
+  // live 0.12.1: a package with only a compile check, so red ran compile, it passed, and every report was refused as "the tests pass": the tests never ran. Red needs a check that runs them
+  if (!pkg.tdd.check && redOf(pkg) !== 'test') return { ok: false, setup: true, why: `package ${pkg.root} has no test check, so the tests never ran (red would run only "${redOf(pkg)}"); add a "test" check (or tdd.check) to its package in .cadre/config.json`, card: 'red ✗ no test check' }
   const pipe = pipeOf(d.reg), steps = pipe(task.type, task.meta['cadre.lane']), hasRed = steps.includes('red'), au = await auditView(h, d, task, view, agentId)
   const pre = await G.tip(h.run, wt, 'HEAD'), undo = () => G.op(h, async () => { await G.git(h.run, wt, ['reset', '--hard', '-q', pre]); await G.git(h.run, wt, ['clean', '-fdq']) }).catch(() => {})   // a refused gate must not leave the copy-in behind (a retry would see "identical")
   let spec: string
