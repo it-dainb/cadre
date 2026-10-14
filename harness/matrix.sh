@@ -4,7 +4,8 @@
 # A cell: name | fixtures (base, then overlays) | scenario | env for tui.sh/cell.sh/oracle.mjs. Env knobs of the matrix itself:
 #   S=1: the scripted model (harness/scripted: a second plugin answers every model request; the stub proxy refuses any request it has no stub for, so
 #        an S cell costs no quota and oracle.mjs fails it on any refused request). An S cell <name> and its L twin <name>-live in one run must agree.
-#   KNOWN=<slice>: the cell checks a slice that has not landed; its FAIL shows as known:<slice> and does not fail the run.
+#   KNOWN=<slice>: the cell checks a slice that has not landed; a FAIL of its own oracle (ORACLE=…, not-landed) shows as known:<slice> and does not
+#   fail the run; any other invariant (zero-quota, errors, …) still fails it.
 H=$(cd "$(dirname "$0")" && pwd); TIER=${1:-quick}; shift; J=3; DRY=
 while [ $# -gt 0 ]; do case $1 in -j) J=$2; shift;; -n) DRY=1;; esac; shift; done
 quick() { cat <<'EOF'
@@ -70,7 +71,8 @@ xargs -P "$J" -d '\n' -I{} bash -c 'IFS="|" read -r name fix scen envs <<<"$1"; 
 echo; node -e '
 const fs = require("fs"), run = process.argv[1], rows = []
 for (const c of fs.readdirSync(run)) { if (!fs.existsSync(`${run}/${c}.line`)) continue; const f = `${run}/${c}/verdict.json`; if (!fs.existsSync(f)) { if (fs.statSync(`${run}/${c}`).isDirectory()) rows.push([c, "-", "NO VERDICT", "", "", "", "", ""]); continue }
-  const v = JSON.parse(fs.readFileSync(f)), s = v.stats, known = (fs.readFileSync(`${run}/${c}.env`, "utf8").match(/(?:^| )KNOWN=(\S+)/) ?? [])[1]
+  const v = JSON.parse(fs.readFileSync(f)), s = v.stats, envs = fs.readFileSync(`${run}/${c}.env`, "utf8"), own = ["not-landed", (envs.match(/(?:^| )ORACLE=(\S+)/) ?? [])[1]]
+  const known = v.fails.every(f => own.includes(f.invariant)) && (envs.match(/(?:^| )KNOWN=(\S+)/) ?? [])[1]   // known masks only the cell own oracle and its landing, never a leak or an error
   rows.push([c, v.pass ? "PASS" : known ? `known:${known}` : "FAIL", v.pass ? "" : [...new Set(v.fails.map(f => f.invariant))].join(","), s.secsToPlan ?? "-", s.dialogs, s.turns, s.usd, Math.round(s.secs / 60), v.pass ? "" : v.fails[0].evidence.slice(0, 90)]) }
 const head = ["cell", "verdict", "failing invariant", "s to plan", "dialogs", "turns", "US$", "min", "evidence"]
 const w = head.map((h, i) => Math.max(h.length, ...rows.map(r => String(r[i] ?? "").length)))

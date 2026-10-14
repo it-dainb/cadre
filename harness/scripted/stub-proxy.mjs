@@ -6,6 +6,8 @@
 //   auto_mode_classifier: auto mode's permission classifier (source=side_query, stage xml_s1; its first message opens with "<transcript>"):
 //     answered "<block>no</block><severity>0</severity>" = allow under either of its answer formats.
 //     So a scripted auto run never sees a classifier refusal; that path needs a real-model run.
+//   agent_summary: the progress line of a background agent running > ~30 s (a fork of its transcript, streamed; its last message asks to "Describe your
+//     most recent action in 3-5 words"): answered "Working on the task".
 //   usage_limit: injected. While `<log dir>/limit` exists (its text: seconds to the reset), the next unstubbed request opens a limit window: every
 //     unstubbed request until the reset gets a 429 usage-limit answer with the unified rate-limit headers (the usage-limit cell's scripted worker asks once).
 import http from 'node:http'
@@ -14,8 +16,19 @@ import { appendFileSync, existsSync, readFileSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 const log = process.argv[2], stubbed = join(dirname(log), 'stubbed.jsonl'), flag = join(dirname(log), 'limit')
 let resetAt = 0   // epoch s; a limit window is open while now < resetAt
-const KINDS = { quota_check: b => b.max_tokens === 1 && b.messages?.length === 1 && b.messages[0].content === 'quota', auto_mode_classifier: b => !b.stream && /^<transcript>/.test(b.messages?.[0]?.content?.[0]?.text ?? '') }
-const TEXT = { quota_check: ['.', 'max_tokens', null], auto_mode_classifier: ['<block>no</block><severity>0</severity>', 'end_turn', null] }
+const KINDS = { quota_check: b => b.max_tokens === 1 && b.messages?.length === 1 && b.messages[0].content === 'quota', auto_mode_classifier: b => !b.stream && /^<transcript>/.test(b.messages?.[0]?.content?.[0]?.text ?? ''),
+  agent_summary: b => /Describe your most recent action in 3-5 words/.test(JSON.stringify(b.messages?.at(-1) ?? '')) }
+const TEXT = { quota_check: ['.', 'max_tokens', null], auto_mode_classifier: ['<block>no</block><severity>0</severity>', 'end_turn', null], agent_summary: ['Working on the task', 'end_turn', null] }
+// a stubbed answer, whole or streamed as the request asked
+function reply(res, b, [text, stop_reason, stop_sequence]) {
+  const msg = { id: 'msg_s0stub', type: 'message', role: 'assistant', model: b.model, content: [{ type: 'text', text }], stop_reason, stop_sequence, usage: { input_tokens: 1, output_tokens: 1 } }
+  if (!b.stream) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify(msg)) }
+  res.writeHead(200, { 'content-type': 'text/event-stream' })
+  const ev = (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`)
+  ev('message_start', { message: { ...msg, content: [], stop_reason: null } }); ev('content_block_start', { index: 0, content_block: { type: 'text', text: '' } })
+  ev('content_block_delta', { index: 0, delta: { type: 'text_delta', text } }); ev('content_block_stop', { index: 0 })
+  ev('message_delta', { delta: { stop_reason, stop_sequence }, usage: { output_tokens: 1 } }); ev('message_stop', {}); res.end()
+}
 const line = (b, path, kind) => JSON.stringify({ at: Date.now(), path, kind, model: b.model, max_tokens: b.max_tokens, stream: !!b.stream, n: b.messages?.length, tools: b.tools?.length ?? 0, keys: Object.keys(b).sort().join(',') })
 http.createServer((req, res) => {
   const chunks = []
@@ -25,8 +38,7 @@ http.createServer((req, res) => {
     const kind = path === '/v1/messages' ? Object.keys(KINDS).find(k => KINDS[k](b)) : undefined
     if (kind) {
       appendFileSync(stubbed, line(b, path, kind) + '\n')
-      res.writeHead(200, { 'content-type': 'application/json' })
-      return res.end(JSON.stringify({ id: 'msg_s0stub', type: 'message', role: 'assistant', model: b.model, content: [{ type: 'text', text: TEXT[kind][0] }], stop_reason: TEXT[kind][1], stop_sequence: TEXT[kind][2], usage: { input_tokens: 1, output_tokens: 1 } }))
+      return reply(res, b, TEXT[kind])
     }
     if (path.startsWith('/v1/messages') && existsSync(flag)) { resetAt = Math.floor(Date.now() / 1000) + (+readFileSync(flag, 'utf8') || 90); rmSync(flag) }
     if (path.startsWith('/v1/messages') && Date.now() / 1000 < resetAt) {

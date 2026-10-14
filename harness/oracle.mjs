@@ -239,7 +239,8 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
       stats.devmoved = d
       if (!d.reachable) fail('devmoved', `the user's commit ${d.sha.slice(0, 7)} is not on dev`)
       if (d.onDev !== d.sum || d.file !== d.sum) fail('devmoved', `USER.md changed (dev ${d.onDev}, checkout ${d.file}, written ${d.sum})`)
-      if (d.status) fail('devmoved', `the user's checkout (${d.head}) is dirty after the landing: ${d.status}`)
+      const dirty = d.status.split(';').filter(l => l && !/ \.cadre\//.test(l)).join(';')   // cadre's own state dir aside
+      if (dirty) fail('devmoved', `the user's checkout (${d.head}) is dirty after the landing: ${dirty}`)
     }
     if (others > 1) fail('devmoved', `${others} dialogs besides the plan's`)
   }
