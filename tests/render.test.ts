@@ -31,6 +31,14 @@ describe('main context line (DESIGN 4.5)', () => {
   })
 })
 
+describe('nextAction under yolo', () => {
+  test('main decides a blocked or spec-change task; any other human-held flag waits for the user', () => {
+    const y = (flags: string[]) => nextAction(modelView({ ...snap(), drive: { on: true, mode: 'yolo' }, tasks: [task('a6', { state: 'blocked', step: 'worker', flags })] } as never))
+    expect(y(['blocked'])).toBe('decide a6 yourself (TaskUpdate a6 metadata.decision)')
+    expect(y(['needs_human'])).toBe('a6 waits for the user (go on with the rest)')
+  })
+})
+
 describe('spawnable: what an agent should start for, as data', () => {
   test('reviewers nobody runs, then every ready task; nextAction words the same (one ready per turn)', () => {
     const s = { ...snap(), tasks: [...snap().tasks, task('a8', { state: 'review', step: 'reviewer' })] }

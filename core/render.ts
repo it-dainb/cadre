@@ -93,7 +93,7 @@ export function nextAction(s: Omit<Snapshot, 'seq' | 'cost'>, idle: string[] = [
   if (s.plan?.state === 'draft') return s.approval.missing.length ? 'complete the draft plan (see missing)' : `ask the human to approve ${s.plan.id}`
   if (!mod) a.push(...ts.filter(t => t.state === 'review' && t.step === 'merge').map(t => `complete TASK-${t.id}`))
   const y = s.drive?.on && !s.drive.stopped && s.drive.mode === 'yolo'   // yolo: main answers blocked tasks itself (core/drive)
-  a.push(...ts.filter(t => t.state === 'blocked').map(t => (y ? `decide ${t.id} yourself (TaskUpdate ${t.id} metadata.decision)` : t.flags.includes('spec_change') ? `wait: the user decides the spec change of ${t.id} in its own dialog` : `${t.id} waits for the user (go on with the rest)`)))   // live: main asked the spec change a second time
+  a.push(...ts.filter(t => t.state === 'blocked').map(t => (y && t.flags.some(f => f === 'spec_change' || f === 'blocked') ? `decide ${t.id} yourself (TaskUpdate ${t.id} metadata.decision)` : t.flags.includes('spec_change') ? `wait: the user decides the spec change of ${t.id} in its own dialog` : `${t.id} waits for the user (go on with the rest)`)))   // live: main asked the spec change a second time
   const sp = mod ? [] : spawnable(s), es = s.plan?.epics ?? []   // mod mode (ADR 0018): the spawner starts all of these, idle steps included
   a.push(...sp.filter(x => x.role === 'reviewer').map(x => `spawn TASK-${x.id} (reviewer)`))
   if (!mod) a.push(...ts.filter(t => t.state === 'active' && idle.includes(t.id)).map(t => startNew(t.id, t.step)))
