@@ -1,7 +1,7 @@
 #!/bin/bash
 # S0 scripted runs: zero quota by design. Every model request is answered by the scripted mod (hooks/register.ts); PROXY=1 logs any request that
 # still reaches the network to effort.jsonl, which must stay empty. Haiku everywhere as the fallback (H0).
-#   harness/scripted/run.sh plan  [name]          one `single` plan (fixtures "single ready", scenario goal, LANDED=1) with cadre + the scripted mod (inner)
+#   harness/scripted/run.sh plan  [name]          (commit first: the plugin is HEAD) one `single` plan (fixtures "single ready", scenario goal, LANDED=1) with cadre + the scripted mod (inner)
 #   harness/scripted/run.sh probe [name] [tags]   the scripted mod alone: /s0 end, /s0 hb, /s0 wedge (forced-exit forms; TaskStop from a timer)
 # Env: CC_VERSION=<host build> PERM=auto|bypassPermissions (probe) BUDGET (plan, s). Evidence: harness/out/scripted/<name>/
 H=$(cd "$(dirname "$0")/.." && pwd); R=$(dirname "$H"); S=$H/scripted
@@ -16,8 +16,7 @@ leak() {   # the zero-quota check: the proxy ran, and logged nothing
 }
 case $c in
 plan)
-  git clone -q "$R" "$TMP/spike" && rm -rf "$TMP/spike/harness/scripted" && cp -a "$S" "$TMP/spike/harness/scripted" && cp "$S/stub-proxy.mjs" "$TMP/spike/harness/bench/effort-proxy.mjs" && snap "$TMP/spike" || exit 1
-  SPIKE=$TMP/spike CLAUDE_ARGS="--plugin-dir /work/spike/harness/scripted" OUT_DIR=$O/cell LANDED=1 BUDGET=${BUDGET:-600} "$H/cell.sh" "$n" "single ready" goal | tee "$O/cell.txt"
+  PROXY_JS=harness/scripted/stub-proxy.mjs CLAUDE_ARGS="--plugin-dir /work/spike/harness/scripted" OUT_DIR=$O/cell LANDED=1 BUDGET=${BUDGET:-600} "$H/cell.sh" "$n" "single ready" goal | tee "$O/cell.txt"
   # (b): cadre's ledger saw the scripted usage (it sits above the scripted mod); the store is in the work dir, read with bd in a shell container
   SHELL_MODE=1 WORK=$TUI_DIR/$n/work OUT=$O "$H/run.sh" -c 'cd /work/run && BEADS_DIR=.cadre/store bd list --all --json 2>/dev/null | node -e "for (const t of JSON.parse(require(\"fs\").readFileSync(0,\"utf8\"))) console.log(t.id, t.status, (t.metadata||{})[\"cadre.cost\"] ?? \"-\")"; git log --oneline dev | head -5' >"$O/store.txt" 2>&1
   cp "$TUI_DIR/$n/out/stubbed.jsonl" "$O/cell/" 2>/dev/null; cat "$O/store.txt"; grep -h 'SCRIPTED\|turn.step' "$O"/cell/debug-*.log | grep -c SCRIPTED | sed 's/^/scripted lines: /'

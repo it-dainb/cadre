@@ -6,7 +6,7 @@
 #   tui.sh wait-for <name> <regex> [secs=60] [pane|jsonl|debug]   exit 0 on match (prints the match), 1 on timeout
 #   tui.sh capture <name> [file]   pane text (to file or stdout);  jsonl <name>: transcript path(s);  debug <name>: debug log path
 #   tui.sh resize <name> <cols> <rows>;  restart <name> (quit claude, start it again in the same container);  stop <name>  (keeps $T/<name> evidence)
-#   more start env: CC_VERSION=2.1.296 (mount ~/.local/share/claude/versions/<v>), VIA=ccr (claude-code-router in between), LAZY=1 (lazy.txt appended to the system prompt), CWD=<subdir> (start there), SPIKE=<plugin checkout> (default: this repo), PROXY=1 (bench/effort-proxy.mjs logs each request's model + effort to out/effort.jsonl; not with VIA=ccr)
+#   more start env: CC_VERSION=2.1.296 (mount ~/.local/share/claude/versions/<v>), VIA=ccr (claude-code-router in between), LAZY=1 (lazy.txt appended to the system prompt), CWD=<subdir> (start there), SPIKE=<plugin checkout> (default: this repo), PROXY=1 (bench/effort-proxy.mjs logs each request's model + effort to out/effort.jsonl; not with VIA=ccr; PROXY_JS=<path in the plugin> runs another proxy, e.g. harness/scripted/stub-proxy.mjs)
 #   a scaffold may leave .harness-store.json in the work dir: merged into the plugin's $.store file before claude starts
 H=$(cd "$(dirname "$0")" && pwd); R=$(dirname "$H"); T=${TUI_DIR:-/tmp/cadre-tui}
 # pins: the ~/.claude/cadre.json that puts every cadre route on haiku (H0). CLAUDE_CODE_SUBAGENT_MODEL_FORCE covers subagents only; these cover the rest of the routing keys.
@@ -21,7 +21,7 @@ tm() { docker exec "$C" tmux "$@"; }
 ready() {   # deterministic dialog handling: Enter on any known first-run prompt until the composer shows
   for i in $(seq 60); do
     p=$(tm capture-pane -t q -p)
-    if grep -q 'bypass permissions on\|? for shortcuts\|esc to interrupt' <<<"$p"; then echo ready; return 0; fi
+    if grep -q 'bypass permissions on\|auto mode on\|? for shortcuts\|esc to interrupt' <<<"$p"; then echo ready; return 0; fi
     if grep -qi 'Bypass Permissions mode' <<<"$p"; then tm send-keys -t q Down Enter
     elif grep -qi 'trust\|Choose the text style\|Press Enter\|Yes, I accept\|Do you want to use this API key' <<<"$p"; then tm send-keys -t q Enter; fi
     sleep 1
@@ -48,7 +48,7 @@ start)
   "$0" pins | docker exec -i "$C" sh -c 'cat > /cchome/.claude/cadre.json' || exit 1   # every cadre route on haiku
   # plugin $.store (one JSON file per plugin; id = name_source-<sha256(name@source)[:12]>): the fixture's seed, e.g. the machine-setup stamp
   [ -f "$D/work/.harness-store.json" ] && { docker exec -i "$C" sh -c 'mkdir -p -m 700 /cchome/.claude/plugins/store && cat > /cchome/.claude/plugins/store/cadre_inline-8e6dc893c684.json' <"$D/work/.harness-store.json"; rm "$D/work/.harness-store.json"; }
-  ENV=; [ -n "$PROXY" ] && { docker exec -d "$C" node /work/spike/harness/bench/effort-proxy.mjs /out/effort.jsonl; ENV="ANTHROPIC_BASE_URL=http://127.0.0.1:8899"; }   # PROXY=1: log each request's model + effort (never content or headers)
+  ENV=; [ -n "$PROXY" ] && { docker exec -d "$C" node "/work/spike/${PROXY_JS:-harness/bench/effort-proxy.mjs}" /out/effort.jsonl; ENV="ANTHROPIC_BASE_URL=http://127.0.0.1:8899"; }   # PROXY=1: log each request's model + effort (never content or headers)
   [ "$VIA" = ccr ] && { K=$(docker exec -i "$C" bash -s <"$H/ccr-up.sh") || { echo "ccr: $K"; exit 1; }; ENV="ANTHROPIC_BASE_URL=http://127.0.0.1:3456 ANTHROPIC_AUTH_TOKEN=$K"; }
   PLUG="--plugin-dir /work/spike"
   if [ "$CADRE_SOURCE" = marketplace ]; then PLUG=

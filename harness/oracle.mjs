@@ -176,6 +176,82 @@ if (process.env.CLARIFY) {
     : want === 'deep' ? (qs.length >= 1 && qs.length <= 8 && qs.every(n => n === 1) ? '' : `questions per call ${JSON.stringify(qs)} (want 1-8 calls of 1)`) : `unknown CLARIFY=${want}`
   if (why) fail('clarify', why)
 }
+// 14. the 0.14 cells (harness/README.md "0.14 cells"). S=1: the scripted model answered everything; ORACLE=<cell>: that cell's one-line oracle.
+//     store/<ms>.json: cadre's $.store snapshots (scenarios/_lib.sh); run records `…:run:<agentId>` {role, state, log}, budgets `…:budget:<taskId>`.
+if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fail('zero-quota', `${r.split('\n').length} request(s) the stub proxy refused: ${r.split('\n')[0]}`) }
+{
+  const snaps = (existsSync(join(dir, 'store')) ? readdirSync(join(dir, 'store')) : []).filter(f => f.endsWith('.json')).sort().map(f => { try { return { t: +basename(f, '.json'), s: JSON.parse(read(join(dir, 'store', f))) } } catch { return null } }).filter(Boolean)
+  const pick = (s, k) => Object.fromEntries(Object.entries(s).flatMap(([key, v]) => { const m = key.match(new RegExp(`:${k}:([^:]+)$`)); return m && v ? [[m[1], v]] : [] }))
+  const runs = s => pick(s, 'run'), lost = r => r.state?.state === 'ended' && r.state.cause === 'lost'
+  const subs = walk(join(dir, 'jsonl')).filter(f => f.includes('/subagents/') && f.endsWith('.jsonl')).map(f => {
+    const ls = read(f).split('\n').filter(Boolean).flatMap(l => { try { return [JSON.parse(l)] } catch { return [] } }), u = ls.find(d => d.type === 'user')
+    const c = u?.message?.content, brief = typeof c === 'string' ? c : Array.isArray(c) ? c.filter(b => b.type === 'text').map(b => b.text).join(' ') : ''
+    return { f, brief, t: Date.parse(u?.timestamp ?? '') || 0, uses: ls.filter(d => d.type === 'assistant').flatMap(d => (Array.isArray(d.message?.content) ? d.message.content : []).filter(b => b.type === 'tool_use')) }
+  })
+  const sorted = v => (v && typeof v === 'object' ? (Array.isArray(v) ? v.map(sorted) : Object.fromEntries(Object.keys(v).sort().map(k => [k, sorted(v[k])]))) : v)
+  const others = drv.filter(e => e.kind === 'dialog').length   // dialogs besides the plan's
+  const o = process.env.ORACLE
+  if (o && !snaps.length && o !== 'underscore') fail(o, 'no store snapshots (scenarios/_lib.sh snapshots)')
+  if (o === 'every') {   // every role in auto mode reaches a terminal run state; 0 ended{lost}; <= 1 dialog; no tool call repeated >= N in a row
+    const all = Object.assign({}, ...snaps.map(x => runs(x.s))), last = runs(snaps.at(-1)?.s ?? {}), N = +(process.env.ORACLE_REPEAT ?? 3)
+    const gone = snaps.flatMap(x => Object.entries(runs(x.s)).filter(([, r]) => lost(r)).map(([a]) => a)), open = Object.entries(last).filter(([, r]) => r.state?.state !== 'ended')
+    const roles = new Set(Object.values(all).map(r => r.role)), want = (process.env.ORACLE_ROLES ?? 'tester,worker,reviewer').split(',')
+    stats.runs = Object.fromEntries(Object.entries(all).map(([a, r]) => [a, `${r.role}:${(r.log ?? []).map(x => x.state).join('>')}`]))
+    if (gone.length) fail('every', `ended{lost}: ${[...new Set(gone)].join(', ')}`)
+    if (open.length) fail('every', `not ended at the end: ${open.map(([a, r]) => `${r.role} ${a} ${r.state?.state}`).join(', ')}`)
+    if (want.some(r => !roles.has(r))) fail('every', `roles never run: ${want.filter(r => !roles.has(r)).join(', ')} (ran: ${[...roles].join(', ')})`)
+    if (others > 1) fail('every', `${others} dialogs besides the plan's: ${drv.filter(e => e.kind === 'dialog').map(e => e.text).join(' / ')}`)
+    for (const x of subs) { let n = 0, prev = ''; for (const u of x.uses) { const k = u.name + JSON.stringify(sorted(u.input)); n = k === prev ? n + 1 : 1; prev = k; if (n === N) fail('every', `${u.name} repeated ${N}x in a row in ${basename(x.f)}`) } }
+  }
+  if (o === 'forced') {   // an agent past its budget ends with 0 model tokens on the forced step, the engine logs a normal end, its turn.complete fires once
+    const f = dlines.find(l => /cadre \(user\) answered turn\.step without next/.test(l)), w = dlines.find(l => /SCRIPTED step agent=\S+ who=worker/.test(l))?.match(/agent=(\S+)/)[1]
+    if (!f) fail('forced', 'cadre never answered a request itself (no forced step)')
+    else if (w) {
+      const after = dlines.filter(l => ts(l) > ts(f)), tc = after.filter(l => l.includes(`SCRIPTED turn.complete agent=${w} `))
+      if (after.some(l => l.includes(`SCRIPTED step agent=${w} `))) fail('forced', `the worker asked the model again after the forced step`)
+      if (tc.length !== 1 || !/reason=answer/.test(tc[0] ?? '')) fail('forced', `worker turn.complete after the forced step: ${tc.length}x ${tc.map(l => l.match(/reason=\S+/)?.[0]).join(',')} (want 1x reason=answer)`)
+    }
+  }
+  if (o === 'underscore') {   // a repo folder and task id with `_`: the cadre spawn resolves, 0 explorer spawns (main's clarify explorer aside)
+    const ex = subs.filter(x => /Explorer brief/.test(x.brief)).length, wk = subs.filter(x => /Worker brief/.test(x.brief) && /TASK-\w*_\w*-/.test(x.brief)).length
+    Object.assign(stats, { explorers: ex, workers: wk })
+    if (ex > 1) fail('underscore', `${ex} explorers (main's one allowed)`)
+    if (!wk) fail('underscore', 'no worker spawned for a task id with `_`')
+  }
+  if (o === 'limit') {   // the band shows resetAt; the task budget unchanged; after the reset exactly one spawn
+    const hit = read(join(dir, 'stubbed.jsonl')).split('\n').filter(l => l.includes('"usage_limit"')).map(l => JSON.parse(l).at)
+    if (!hit.length) fail('limit', 'the usage limit was never injected')
+    else {
+      const t0 = hit[0], b = x => pick(x.s, 'budget'), before = snaps.filter(x => x.t < t0).map(b).at(-1) ?? {}, after = snaps.filter(x => x.t > t0).map(b).filter(m => Object.keys(m).length).at(-1) ?? {}
+      const drift = Object.keys(before).flatMap(id => Object.keys(before[id]).filter(k => k !== 'epoch' && after[id] && after[id][k] !== before[id][k]).map(k => `${id}.${k} ${before[id][k]}->${after[id][k]}`))
+      const shown = panes.some(p => p.t > t0 && /limit[^\n]*\b\d{1,2}:\d{2}\b/i.test(band(p.text))), spawns = subs.filter(x => /Worker brief/.test(x.brief) && x.t > t0).length
+      Object.assign(stats, { limitHits: hit.length, spawnsAfter: spawns })
+      if (!shown) fail('limit', 'the band never showed the reset time')
+      if (drift.length) fail('limit', `the limit charged the budget: ${drift.join(', ')}`)
+      if (spawns !== 1) fail('limit', `${spawns} worker spawns after the limit (want 1)`)
+    }
+  }
+  if (o === 'devmoved') {   // a user commit on dev mid-run: running branches rebased, the user's files byte-identical, <= 1 dialog
+    const d = existsSync(join(dir, 'devmoved.json')) ? JSON.parse(read(join(dir, 'devmoved.json'))) : null
+    if (!d) fail('devmoved', 'the user commit never happened (the worker never started)')
+    else {
+      stats.devmoved = d
+      if (!d.reachable) fail('devmoved', `the user's commit ${d.sha.slice(0, 7)} is not on dev`)
+      if (d.onDev !== d.sum || d.file !== d.sum) fail('devmoved', `USER.md changed (dev ${d.onDev}, checkout ${d.file}, written ${d.sum})`)
+      if (d.status) fail('devmoved', `the user's checkout (${d.head}) is dirty after the landing: ${d.status}`)
+    }
+    if (others > 1) fail('devmoved', `${others} dialogs besides the plan's`)
+  }
+  if (o === 'clear') {   // records after /clear: kept or lost (the result sets the /clear handling); fails only without evidence
+    const t = drv.find(e => e.kind === 'send' && e.text.trim() === '/clear')?.t
+    const live = t && Object.entries(runs(snaps.filter(x => x.t < t).at(-1)?.s ?? {})).filter(([, r]) => r.state?.state !== 'ended').map(([a]) => a)
+    if (!live?.length) fail('clear', t ? 'no agent was running at /clear' : 'no /clear sent')
+    else {
+      const later = snaps.filter(x => x.t > t).map(x => runs(x.s)), fate = a => (later.some(m => m[a] && lost(m[a])) ? 'lost' : later.some(m => m[a]) ? 'kept' : 'gone')
+      stats.clear = Object.fromEntries(live.map(a => [a, fate(a)]))
+    }
+  }
+}
 stats.usd = +debug.map(ls => Math.max(0, ...ls.map(l => +(l.match(/cost=\$([\d.]+)/)?.[1] ?? 0)))).reduce((a, b) => a + b, 0).toFixed(2)
 stats.secs = Math.round((tEnd - (drv[0]?.t ?? tEnd)) / 1000)
 const cell = basename(dir), v = { cell, pass: !fails.length, fails, stats, setup: drv[0]?.text }
