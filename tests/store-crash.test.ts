@@ -16,9 +16,10 @@ function sh(fs: Fs, argv: readonly string[]): { exitCode: number; stdout: string
   const a = argv.slice(4), ok = (stdout = '') => ({ exitCode: 0, stdout, stderr: '' }), num = (n: string) => /^\d+$/.test(n)
   switch (kind(argv)) {
     case 'scan': {
-      const [d, since, full] = a, out: string[] = []
-      if (full === '1') for (const p of under(fs, `${d}/d`)) out.push(`D ${base(p)} ${fs.get(p)!.t}`)
-      for (const p of under(fs, `${d}/j`)) { const n = base(p); if (n.startsWith('snap.')) out.push(`S ${fs.get(p)!.t}`); else if (num(n) && Number(n) > Number(since)) out.push(`E ${n} ${fs.get(p)!.t}`) }
+      const [d, since, full] = a, out: string[] = [], mk = (k: string) => k + under(fs, `${d}/j`).map(base).filter(n => n.startsWith('snap.')).map(n => ` ${n.slice(5)}`).join('')
+      if (full === '1') { out.push(mk('M')); for (const p of under(fs, `${d}/d`)) out.push(`D ${base(p)} ${fs.get(p)!.t}`) }
+      let h = 0; for (const p of under(fs, `${d}/j`)) { const n = base(p); if (n.startsWith('snap.')) out.push(`S ${fs.get(p)!.t}`); else if (num(n)) { h = Math.max(h, Number(n)); if (Number(n) > Number(since)) out.push(`E ${n} ${fs.get(p)!.t}`) } }
+      out.push(`H ${h}`); if (full === '1') out.push(mk('N'))
       return ok(out.join('\n'))
     }
     case 'commit': {
@@ -129,6 +130,46 @@ describe('file store crash safety', () => {
     await a.setMeta(id, { v: '2' }, 'a'); await a.compact(0); await a.setMeta(id, { w: '1' }, 'a'); wake(); await p
     const t = await new FileStore(hostOf(fs), D, 'R').get(id); expect(t.meta).toEqual({ v: '2', w: '1' })
     expect((await a.setMeta(id, { z: '1' }, 'a')).revision).toBe(String(Number(t.revision) + 1))
+  })
+
+  test('a full scan paused between its doc and journal passes across a fold rescans: no stale after-image is committed', async () => {
+    const fs: Fs = new Map(), b = new FileStore(hostOf(fs), D, 'B')
+    await b.init({ types: reg, journal: true }); const ep = await b.createEpic('e', 'g'), id = (await b.createDraft({ title: 't', description: '', type: 'feature', parent: ep })).id
+    for (let i = 1; i <= 5; i++) await b.setMeta(id, { c: String(i) }, 'b')
+    await b.compact(0); for (let i = 6; i <= 25; i++) await b.setMeta(id, { c: String(i) }, 'b')   // docs hold c=5, entries c=6..25
+    let park: Promise<void> | undefined, wake = () => {}
+    const split = { run: async (argv: readonly string[]) => {   // the first full scan: docs + first marker now, the rest after the fold
+      if (kind(argv) !== 'scan' || argv[6] !== '1' || park) return sh(fs, argv)
+      const pre = sh(fs, argv).stdout.split('\n').filter(l => /^[MD]/.test(l)); park = new Promise(r => (wake = r)); await park
+      return { exitCode: 0, stderr: '', stdout: [...pre, ...sh(fs, argv).stdout.split('\n').filter(l => !/^[MD]/.test(l))].join('\n') }
+    }, write: async (p: string, s: string) => { fs.set(p, { t: s }) }, now: async () => Date.now(), rand: () => (++r).toString(16).padStart(8, '0') }
+    const p = new FileStore(split, D, 'A').setMeta(id, { r: 'a' }, 'a'); while (!park) await Promise.resolve()
+    await b.compact(0); wake(); await p
+    expect((await new FileStore(hostOf(fs), D, 'C').get(id)).meta).toEqual({ c: '25', r: 'a' })
+  })
+
+  test('a doc unlinked under its read (an empty line) rescans instead of hydrating a delete', async () => {
+    const { fs, a, id } = await seeded(); await a.compact(0); let torn = false
+    const s = new FileStore(hostOf(fs, { run: argv => { if (kind(argv) !== 'scan' || torn) return undefined; torn = true; const o = sh(fs, argv); return { ...o, stdout: o.stdout.replace(new RegExp(`^D ${id}\\.(\\d+) .*$`, 'm'), `D ${id}.$1 `) } } }), D, 'S')
+    expect((await s.get(id)).id).toBe(id)
+  })
+
+  test('one store per directory and session: a retry after a Timeout through another hook reuses the op id; each view runs on its own Host; warm reads scan only the tail', async () => {
+    const { fs, id } = await seeded(), dir = `${D}/of`; for (const [p, f] of [...fs]) if (p.startsWith(`${D}/`)) fs.set(p.replace(D, dir), f)
+    let late: (() => unknown) | undefined; const scans: string[] = []
+    const h1 = hostOf(fs, { run: argv => { if (kind(argv) === 'scan') scans.push(argv[6]); return kind(argv) === 'commit' && !late ? (late = () => sh(fs, argv), { exitCode: 1, stdout: '', stderr: 'aborted' }) : undefined } })
+    expect(await code(FileStore.of(h1, dir, 'S').setMeta(id, { x: '1' }, 's'))).toBe('Timeout'); late!()
+    const h2 = hostOf(fs, { run: argv => { if (kind(argv) === 'scan') scans.push(argv[6]); return undefined } }), c1 = h1.calls
+    const live = () => under(fs, `${dir}/j`).filter(p => /^\d+$/.test(base(p))).length, n = live(), t = await FileStore.of(h2, dir, 'S').setMeta(id, { x: '1' }, 's')
+    expect(h1.calls).toBe(c1); expect(t.meta.x).toBe('1')
+    expect(live()).toBe(n)   // no second entry
+    expect(scans[0]).toBe('1'); expect(scans.slice(1).every(f => f === '0')).toBe(true)
+  })
+
+  test('a lost race backs off and retries past four tries', async () => {
+    const { fs, id } = await seeded(); let lost = 0
+    const s = new FileStore(hostOf(fs, { run: argv => kind(argv) === 'commit' && lost < 6 ? (lost++, fs.delete(argv[4]), { exitCode: 17, stdout: '', stderr: '' }) : undefined }), D, 'S')
+    expect((await s.setMeta(id, { x: '1' }, 's')).meta.x).toBe('1'); expect(lost).toBe(6)
   })
 
   test('events after compaction keep every entry above the cursor; a cursor below the fold is TooOld', async () => {

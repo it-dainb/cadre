@@ -100,8 +100,9 @@ export class MemoryStore implements TaskStore {
     return this.touch(t, 'close', o.session)
   }
   async control() { this.db(); return structuredClone(this.ctl) }
-  async setControl(patch: Record<string, unknown>, ifRevision?: string) {
-    this.db(); if (ifRevision !== undefined && this.ctl.revision !== ifRevision) throw new StoreError('GuardMismatch', `control is at revision ${this.ctl.revision}`)
+  async setControl(patch: Record<string, unknown>, ifRevision?: string | Record<string, unknown>) {   // a record = per-key CAS: each key must still hold that value
+    this.db(); if (typeof ifRevision === 'string' && this.ctl.revision !== ifRevision) throw new StoreError('GuardMismatch', `control is at revision ${this.ctl.revision}`)
+    for (const [k, v] of typeof ifRevision === 'object' ? Object.entries(ifRevision) : []) if (JSON.stringify(this.ctl.doc[k]) !== JSON.stringify(v)) throw new StoreError('GuardMismatch', `control ${k} changed`)
     this.ctl = { revision: String(Number(this.ctl.revision) + 1), doc: { ...this.ctl.doc, ...patch } }; return structuredClone(this.ctl)
   }
   async events(since?: string, limit = 500) {

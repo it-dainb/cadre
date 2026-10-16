@@ -128,6 +128,10 @@ export function contract(name: string, make: () => TaskStore) {
       const r1 = await s.setControl({ drive: { session: 'A' } }, '0'); expect(r1).toEqual({ revision: '1', doc: { drive: { session: 'A' } } })
       expect(await code(s.setControl({ drive: { session: 'B' } }, '0'))).toBe('GuardMismatch')
       expect((await s.setControl({ 'sync.pm': 'c1' })).doc).toEqual({ drive: { session: 'A' }, 'sync.pm': 'c1' }); expect((await s.control()).revision).toBe('2')
+      // per-key CAS: another key's write does not lose the race; a change of that key does
+      expect((await s.setControl({ drive: { session: 'C' } }, { drive: { session: 'A' } })).doc.drive).toEqual({ session: 'C' })
+      expect(await code(s.setControl({ drive: { session: 'D' } }, { drive: { session: 'A' } }))).toBe('GuardMismatch')
+      expect((await s.setControl({ 'sync.x': 1 }, { 'sync.x': undefined })).doc['sync.x']).toBe(1)
     })
   })
 }

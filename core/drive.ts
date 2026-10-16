@@ -19,12 +19,12 @@ import { isMs, stopEpic } from './milestone'
 export const LEASE = 600_000
 export type Mode = 'auto' | 'yolo'
 interface DriveRec { on: boolean; level: 'epic'; epicId: string; mode?: Mode; stopped?: string; cause?: StopCause; ei?: Record<string, [number, number]>; turns: number; cost: number; last: number; sess: string; startedAt: number; lastSeq: number; idle: number; set?: string; cont?: string; lease: { session: string; until: number } }
-// CAS on the control doc: fn sees the current record and returns the next one (undefined = no write); a revision race retries (sync writes the same doc)
+// CAS on the control doc's `drive` key: fn sees the current record and returns the next one (undefined = no write); a race on that key retries (other keys of the doc move freely)
 export async function casDrive(_h: Host, store: TaskStore, fn: (r: DriveRec | undefined) => DriveRec | undefined): Promise<DriveRec | undefined> {
   for (let i = 0; i < 3; i++) {
     const c = await store.control(), r = c.doc.drive as DriveRec | undefined, n = fn(r)
     if (!n) return r
-    try { await store.setControl({ drive: n }, c.revision); return n } catch (e) { if (!(e instanceof StoreError && e.code === 'GuardMismatch')) throw e }
+    try { await store.setControl({ drive: n }, { drive: r }); return n } catch (e) { if (!(e instanceof StoreError && e.code === 'GuardMismatch')) throw e }
   }
   throw new StoreError('Busy', 'drive state kept moving')
 }

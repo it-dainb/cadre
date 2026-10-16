@@ -43,13 +43,13 @@ const git = atom({ plugin: 'cadre', key: 'git' } as const, { busy: false, epoch:
 const bind = atom({ plugin: 'cadre', key: 'bind' } as const, {})
 
 // The one TaskStore factory (init and dispatch both use `wire.store`): memory for CADRE_STORE=memory (tests), else the file store in .cadre/state, made on first use.
-// ponytail: one FileStore per call (a cold scan each); its cache must not outlive this hook's Host (L3). Cache per root if the scans show up.
+// One FileStore per root+session in this process (FileStore.of: warm scans, op ids kept across a Timeout); each call's view runs on its own hook's Host (L3).
 let mem: MemoryStore | undefined
 const ready = new Set<string>()   // roots whose store answered the probe this load
 wire.store = async (h, cfg, root) => {
   if (cfg.store.kind === 'memory') { if (!mem) { mem = new MemoryStore(); await mem.init({ types: cfg.types as any, journal: false }) } return mem }
   if (!(await h.store.get(`cadre:${repoKeyOf(root)}:actor`))) await h.store.set(`cadre:${repoKeyOf(root)}:actor`, `cadre/${h.rand(3)}`)
-  const s = new FileStore(h, `${root}/.cadre/state`, await sessionOf(h)); if (ready.has(root)) return s
+  const s = FileStore.of(h, `${root}/.cadre/state`, await sessionOf(h)); if (ready.has(root)) return s
   const p = await s.probe()
   if (!p.ok) { await h.secret.update(x => ({ ...x, active: false, storeOff: p.detail })); throw new StoreError('Unavailable', p.detail) }   // no activation (core/session.wake)
   if (p.detail !== 'initialized' || !p.journal) await s.init({ types: cfg.types as any, journal: true })

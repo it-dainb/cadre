@@ -68,3 +68,16 @@ test('probe: ln + sync work here; a directory where they fail is not ok', async 
   const ro = host({ run: (argv, o) => run(argv[2]?.includes('probe.') ? ['sh', '-c', 'exit 1'] : argv, o) })
   const p = await new FileStore(ro, fresh(), 'P').probe(); assert.equal(p.ok, false); assert.match(p.detail, /hard links/)
 })
+
+test('a full scan paused between its doc and journal passes while another session folds: the scan rescans, the folded writes survive', async () => {
+  const dir = fresh(), b = new FileStore(host(), dir, 'B'); await b.init({ types: reg, journal: true }); const e = await b.createEpic('E', 'g')
+  for (let i = 1; i <= 5; i++) await b.setMeta(e, { c: String(i) }, 'b')
+  await b.compact(0); for (let i = 6; i <= 25; i++) await b.setMeta(e, { c: String(i) }, 'b')   // docs hold c=5, entries c=6..25
+  const at = join(dir, '..', 'at'), go = join(dir, '..', 'go')   // the first full scan touches `at` after its doc pass and waits for `go`
+  let once = false
+  const paused = host({ run: (argv, o) => { if (!once && argv[2]?.includes("printf 'D %s") && argv[6] === '1') { once = true; argv = [...argv]; argv[2] = argv[2].replace('done; fi\n', `done; fi\n: > "${at}"; while [ ! -e "${go}" ]; do sleep 0.01; done\n`) } return run(argv, o) } })
+  const p = new FileStore(paused, dir, 'A').setMeta(e, { r: 'a' }, 'a')
+  while (!readdirSync(join(dir, '..')).includes('at')) await new Promise(r => setTimeout(r, 10))
+  await b.compact(0); writeFileSync(go, ''); await p
+  assert.deepEqual((await new FileStore(host(), dir, 'C').get(e)).meta, { c: '25', r: 'a' })
+})

@@ -37,6 +37,6 @@ export interface TaskStore {
   record(kind: 'mission' | 'decision', title: string, body: string, link?: TaskId): Promise<TaskId>
   close(id: TaskId, o: { outcome: 'done' | 'cancelled'; note?: string; session?: string; ifRevision?: string }): Promise<Task>
   control(): Promise<{ revision: string; doc: Record<string, unknown> }>   // the one repo-wide doc (drive record, sync leases + cursors); file + memory stores
-  setControl(patch: Record<string, unknown>, ifRevision?: string): Promise<{ revision: string; doc: Record<string, unknown> }>   // shallow merge; ifRevision -> GuardMismatch
+  setControl(patch: Record<string, unknown>, ifRevision?: string | Record<string, unknown>): Promise<{ revision: string; doc: Record<string, unknown> }>   // shallow merge; ifRevision (the doc's, or per key: {key: value read}) -> GuardMismatch
   events(since?: string, limit?: number): Promise<{ head: string; events: { seq: string; op: string; id: TaskId; actor: string; status?: string; assignee?: string; category?: Category; at?: number }[] } | null>   // category/at: for the ring rebuild (core/reuse)
 }

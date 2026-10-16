@@ -15,9 +15,11 @@ type Entry = { s: number; op: string; ret?: unknown; e0: number; ev: Ev[]; docs:
 
 // One `sh -c` per step, paths as positional args (no interpolation). s = sync FILE, or a full sync where `sync` takes no args (macOS).
 export const SCRIPTS = {
-  scan: `d=$1; [ -d "$d" ] || exit 0
-if [ "$3" = 1 ]; then for f in "$d"/d/*; do [ -f "$f" ] && printf 'D %s %s\\n' "\${f##*/}" "$(cat "$f")"; done; fi
-for f in "$d"/j/*; do [ -f "$f" ] || continue; n=\${f##*/}; case $n in snap.*) printf 'S %s\\n' "$(cat "$f")";; *[!0-9]*) ;; *) [ "$n" -gt "$2" ] && printf 'E %s %s\\n' "$n" "$(cat "$f")";; esac; done; exit 0`,
+  scan: `d=$1; [ -d "$d" ] || exit 0; [ -n "$4" ] && sleep "$4"
+k() { printf %s "$1"; for f in "$d"/j/snap.*; do [ -f "$f" ] && printf ' %s' "\${f##*.}"; done; echo; }
+if [ "$3" = 1 ]; then k M; for f in "$d"/d/*; do [ -f "$f" ] && printf 'D %s %s\\n' "\${f##*/}" "$(cat "$f")"; done; fi
+h=0; for f in "$d"/j/*; do [ -f "$f" ] || continue; n=\${f##*/}; case $n in snap.*) printf 'S %s\\n' "$(cat "$f")";; *[!0-9]*) ;; *) [ "$n" -gt "$h" ] && h=$n; [ "$n" -gt "$2" ] && printf 'E %s %s\\n' "$n" "$(cat "$f")";; esac; done
+echo "H $h"; [ "$3" = 1 ] && k N; exit 0`,
   commit: `mkdir -p "$3" && s "$1" || exit 2
 if ln "$1" "$2" 2>/dev/null; then
   for f in "$3"/snap.*; do [ -f "$f" ] && [ "\${f##*.}" -ge "$4" ] && { [ "$1" -ef "$2" ] && rm -f "$2"; rm -f "$1"; exit 18; }; done
@@ -32,7 +34,7 @@ for f in "$@"; do rm -f "$d/d/$f"; done; find "$d/tmp" -type f -mmin +30 -exec r
   probe: `mkdir -p "$1/tmp" && t="$1/tmp/probe.$2" && : > "$t" && ln "$t" "$t.l" && s "$t.l"; r=$?; rm -f "$t" "$t.l"; exit $r`,
 }
 const sh = (k: keyof typeof SCRIPTS, ...a: string[]) => ['sh', '-c', `s() { sync "$@" 2>/dev/null || sync; }\n${SCRIPTS[k]}`, '--', ...a]
-const TIMEOUT = 120_000, KEEP = 64, MAX_TAIL = 256   // compaction leaves the last KEEP entries (op-id lookups, event cursors) once the tail passes MAX_TAIL
+const TIMEOUT = 120_000, KEEP = 64, MAX_TAIL = 256, TRIES = 8   // compaction leaves the last KEEP entries (op-id lookups, event cursors) once the tail passes MAX_TAIL
 const json = (s: string) => { try { return JSON.parse(s) } catch { return undefined } }
 
 export class FileStore implements TaskStore {
@@ -42,24 +44,41 @@ export class FileStore implements TaskStore {
   private tail: Entry[] = []; private at = new Map<string, number>(); private stale: string[] = []   // entries above the snap · doc id -> seq · superseded doc files
   private pending = new Map<string, string>()          // call -> op id of a Timeout: the same call re-issues the same id
   private disk = new Map<string, number>()             // doc id -> seq of its newest file at the last full load
-  private static q = new Map<string, Promise<unknown>>()   // one op or read at a time per directory and session, across instances (a hook makes its own): the tick fans out beside tool.call
-  private serial<T>(f: () => Promise<T>): Promise<T> { const p = (FileStore.q.get(this.dir + this.sid) ?? Promise.resolve()).then(f, f); FileStore.q.set(this.dir + this.sid, p.catch(() => {})); return p }
+  private static q = new Map<string, Promise<unknown>>()   // one op or read at a time per directory and session, across instances (tests make several): the tick fans out beside tool.call
+  private serial<T>(f: () => Promise<T>): Promise<T> {
+    const h = this.next ?? this.h, g = () => { this.h = h; return f() }   // each step runs on the Host of the call that queued it
+    const p = (FileStore.q.get(this.dir + this.sid) ?? Promise.resolve()).then(g, g); FileStore.q.set(this.dir + this.sid, p.catch(() => {})); return p
+  }
   constructor(private h: FileHost, private dir: string, private sid: string) { this.mem = new MemoryStore(() => this.t) }
+  // The one store per directory and session in this process: warm incremental scans, and a Timeout's op id survives to the retry from the next hook.
+  // `h` serves only the calls made through the returned view: a hook's Host never runs another hook's step.
+  private static live = new Map<string, FileStore>()
+  private next?: FileHost
+  static of(h: FileHost, dir: string, sid: string): FileStore {
+    const k = `${dir}\0${sid}`; let s = FileStore.live.get(k); if (!s) FileStore.live.set(k, (s = new FileStore(h, dir, sid)))
+    return new Proxy(s, { get: (t, p) => { const v = (t as any)[p]; return typeof v !== 'function' ? v : (...a: unknown[]) => { t.next = h; try { return v.apply(t, a) } finally { t.next = undefined } } } })
+  }
 
   // bring the cache to the head: the tail above `seen`, or docs + tail when the cache is cold or the tail was folded
-  private async sync(full = this.seen < 0, tries = 0): Promise<void> {
-    const r = await this.h.run(sh('scan', this.dir, String(full ? 0 : this.seen), full ? '1' : '0'), { timeoutMs: TIMEOUT })
+  // A full scan lists the snap markers before the docs and after the journal: a fold between the passes (new snap, old docs) or a doc unlinked under its
+  // `cat` (an empty line) rescans; else an op on that cache would commit stale after-images at a valid head. H = the newest entry: below the cache = a reset dir.
+  private async sync(full = this.seen < 0, tries = 0, nap = ''): Promise<void> {
+    const again = (why: string) => { if (tries > 2) throw new StoreError('Unavailable', why); return this.sync(true, tries + 1) }
+    const r = await this.h.run(sh('scan', this.dir, String(full ? 0 : this.seen), full ? '1' : '0', nap), { timeoutMs: TIMEOUT })
     if (r.exitCode) throw new StoreError('Unavailable', `store scan: ${r.stderr.slice(0, 200)}`)
-    const docs: [string, number, unknown][] = [], es = new Map<number, any>(); let snap = { n: 0, ev: 0 }
+    const docs: [string, number, unknown][] = [], es = new Map<number, any>(), mk: string[] = []; let snap = { n: 0, ev: 0 }, hd = -1, torn = false
     for (const l of r.stdout.split('\n')) {
       const [k, a, ...rest] = l.split(' ')
       if (k === 'S') { const v = json([a, ...rest].join(' ')); if (v?.n > snap.n) snap = v }
       else if (k === 'E') es.set(Number(a), json(rest.join(' ')))
-      else if (k === 'D') { const i = a.lastIndexOf('.'); docs.push([a.slice(0, i), Number(a.slice(i + 1)), json(rest.join(' '))]) }
+      else if (k === 'D') { const i = a.lastIndexOf('.'), v = json(rest.join(' ')); torn ||= v === undefined; docs.push([a.slice(0, i), Number(a.slice(i + 1)), v]) }
+      else if (k === 'M' || k === 'N') mk.push(l.slice(1))
+      else if (k === 'H') hd = Number(a)
     }
-    if (!full && snap.n > this.seen) return this.sync(true, tries)
+    if (full && (torn || mk[0] !== mk[1])) return again('the store kept moving under a scan')
+    if (!full && (snap.n > this.seen || (hd >= 0 && Math.max(hd, snap.n) < this.seen))) return this.sync(true, tries)
     const base = Math.max(full ? 0 : this.seen, snap.n), top = Math.max(base, ...es.keys())
-    for (let s = base + 1; s <= top; s++) if (!es.get(s)?.docs) { if (tries > 2) throw new StoreError('Unavailable', `journal entry ${s} unreadable`); return this.sync(true, tries + 1) }   // a gap = a compaction mid-scan
+    for (let s = base + 1; s <= top; s++) if (!es.get(s)?.docs) return again(`journal entry ${s} unreadable`)   // a gap = a compaction mid-scan
     if (full) {
       const m = this.mem = new MemoryStore(() => this.t), best = new Map<string, [number, unknown]>(); this.at = new Map(); this.stale = []
       for (const [id, s, v] of docs) { const b = best.get(id); if (b && b[0] >= s) this.stale.push(`${id}.${s}`); else { if (b) this.stale.push(`${id}.${b[0]}`); best.set(id, [s, v]) } }
@@ -84,8 +103,8 @@ export class FileStore implements TaskStore {
   private op<T>(call: string, fn: (m: MemoryStore) => Promise<T>): Promise<T> { return this.serial(() => this.exec(call, fn)) }
   private async exec<T>(call: string, fn: (m: MemoryStore) => Promise<T>): Promise<T> {
     const id = this.pending.get(call) ?? this.h.rand(8); this.pending.delete(call)
-    for (let i = 0; i < 4; i++) {
-      await this.sync()
+    for (let i = 0; i < TRIES; i++) {
+      await this.sync(undefined, 0, i ? (Math.random() * 0.02 * 2 ** i).toFixed(3) : '')   // jittered backoff (scan's sleep): a lost race re-reads after a beat
       const hit = this.tail.find(e => e.op === id); if (hit) return hit.ret as T
       this.t = await this.h.now()
       const m = this.mem, before = structuredClone(m.tasks), ctl = m.ctl, jr = m.journal, s = this.seen + 1, docs: Record<string, unknown> = {}
@@ -158,7 +177,7 @@ export class FileStore implements TaskStore {
   heartbeat(id: TaskId) { return this.op(JSON.stringify(['hb', id]), m => m.heartbeat(id)) }
   update(id: TaskId, patch: Parameters<TaskStore['update']>[1], actor: string) { return this.op(JSON.stringify(['update', id, patch, actor]), m => m.update(id, patch, actor)) }
   setMeta(id: TaskId, kv: Record<string, string>, actor: string, ifRevision?: string) { return this.op(JSON.stringify(['meta', id, kv, actor, ifRevision]), m => m.setMeta(id, kv, actor, ifRevision)) }
-  setControl(patch: Record<string, unknown>, ifRevision?: string) { return this.op(JSON.stringify(['control', patch, ifRevision]), m => m.setControl(patch, ifRevision)) }
+  setControl(patch: Record<string, unknown>, ifRevision?: string | Record<string, unknown>) { return this.op(JSON.stringify(['control', patch, ifRevision]), m => m.setControl(patch, ifRevision)) }
   setExternalRef(id: TaskId, ref: string, actor: string) { return this.op(JSON.stringify(['ref', id, ref, actor]), m => m.setExternalRef(id, ref, actor)) }
   resolveGate(gateId: TaskId, reason: string) { return this.op(JSON.stringify(['gate', gateId, reason]), m => m.resolveGate(gateId, reason)) }
   record(kind: 'mission' | 'decision', title: string, body: string, link?: TaskId) { return this.op(JSON.stringify(['record', kind, title, body, link]), m => m.record(kind, title, body, link)) }

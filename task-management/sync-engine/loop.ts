@@ -1,5 +1,5 @@
 // Sync tick (DESIGN 11.4), level-triggered and state-based. Called from the one $.clock.every(5000): only the store + adapter processes + $.state, never a submit.
-// Per target: lease + cursor (a journal seq) in the store's control doc, CAS by revision; pull -> merge -> push by hash, heal every 15 min, backoff 30 s -> 5 min.
+// Per target: lease + cursor (a journal seq) in the store's control doc, CAS per field; pull -> merge -> push by hash, heal every 15 min, backoff 30 s -> 5 min.
 // Event-only adapters (`deliver`) ride the same tick; commands they return are refused (ADR 0012).
 import type { Host } from '../../types'
 import { canon, fnv1a64, modelView } from '../../core/board'
@@ -20,11 +20,11 @@ type State = { cursor?: string; since?: string; lastHeal?: number; lease?: { ses
 
 subscribe((h, ev) => { if (ev.type === 'task.transitioned') return h.ui.update(u => ({ ...u, syncWake: 1 })) })   // sync wake (11.4 step 5)
 
-// ---- lease: the control doc's `sync.<target>` field; a live lease of another session loses, a revision race loses ----
+// ---- lease: the control doc's `sync.<target>` field; a live lease of another session loses, a race on that field loses (other fields move freely) ----
 async function lease(store: TaskStore, target: string, session: string, now: number): Promise<State | null> {
   const k = `sync.${target}`, c = await store.control(), s = (c.doc[k] ?? {}) as State
   if (s.lease && s.lease.until > now && s.lease.session !== session) return null
-  try { return (await store.setControl({ [k]: { ...s, lease: { session, until: now + LEASE } } }, c.revision)).doc[k] as State } catch (e) { if (e instanceof StoreError && e.code === 'GuardMismatch') return null; throw e }
+  try { return (await store.setControl({ [k]: { ...s, lease: { session, until: now + LEASE } } }, { [k]: c.doc[k] })).doc[k] as State } catch (e) { if (e instanceof StoreError && e.code === 'GuardMismatch') return null; throw e }
 }
 
 // ---- backoff ----
