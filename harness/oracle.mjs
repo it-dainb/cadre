@@ -93,17 +93,17 @@ for (const e of drv.filter(e => e.kind === 'press1' && offered(e.t) && e.t + 500
   const hit = dlines.find(l => bad.test(l)) ?? panes.map(p => p.text.split('\n').find(l => bad.test(l))).find(Boolean)
   if (hit) fail('errors', hit.replace(/^\S+ \[\w+\] /, ''))
 }
-// main's own tool calls that went through, from its transcript (not the agents')
-const went = (() => {
+// main's own tool calls, from its transcript (not the agents'): mine = every call with its result {ok, text}; went = those that went through
+const mine = (() => {
   const ok = new Map(), calls = []
   for (const f of walk(join(dir, 'jsonl')).filter(f => f.endsWith('.jsonl') && !f.includes('/subagents/'))) for (const l of read(f).split('\n').filter(Boolean)) {
     let d; try { d = JSON.parse(l) } catch { continue }
     const c = d.message?.content; if (!Array.isArray(c)) continue
     if (d.type === 'assistant') for (const b of c) if (b.type === 'tool_use') calls.push(b)
-    if (d.type === 'user') for (const b of c) if (b.type === 'tool_result') ok.set(b.tool_use_id, !b.is_error)
+    if (d.type === 'user') for (const b of c) if (b.type === 'tool_result') ok.set(b.tool_use_id, { ok: !b.is_error, text: typeof b.content === 'string' ? b.content : JSON.stringify(b.content ?? '') })
   }
-  return calls.filter(b => ok.get(b.id))
-})()
+  return calls.map(b => ({ ...b, ok: ok.get(b.id)?.ok, text: ok.get(b.id)?.text ?? '' }))
+})(), went = mine.filter(b => b.ok)
 // 6. the goal reaches the plan dialog within the turn and dialog budget
 //    main's question call is one dialog however many tabs the watcher logged (one per question), and its one clarify round (ADR 0020: at most
 //    maxQuestions in ONE call) earns its dialog on top of set up, safety settings and the plan: on haiku a clear goal may still score unclear
@@ -285,6 +285,53 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
       const later = snaps.filter(x => x.t > t).map(x => runs(x.s)), fate = a => (later.some(m => m[a] && lost(m[a])) ? 'lost' : later.some(m => m[a]) ? 'kept' : 'gone')
       stats.clear = Object.fromEntries(live.map(a => [a, fate(a)]))
     }
+  }
+  // the 0.15 cells: main plans only with cadre's tools (plan-tools-lite, plan-tools-full)
+  if (o === 'plantools' || o === 'plantools-full') {   // lite: a plan, worker and reviewer ran; full: >= 2 tasks, a stale amend refused then retried, one explorer; both: no Task*, no Agent by main
+    const n = t => went.filter(b => b.name === `mcp__cadre__${t}`).length, banned = mine.filter(b => /^(Task(Create|Get|List|Update)|Agent)$/.test(b.name))
+    const am = mine.filter(b => b.name === 'mcp__cadre__amend'), role = r => subs.filter(x => new RegExp(`${r} brief`).test(x.brief)).length
+    Object.assign(stats, { plans: n('plan'), tasks: n('task'), amends: am.map(b => (b.ok ? 'ok' : 'refused')).join(','), explores: n('explore'), workers: role('Worker'), reviewers: role('Reviewer') })
+    if (banned.length) fail(o, `main called ${[...new Set(banned.map(b => b.name))].join(', ')}`)
+    if (!n('plan')) fail(o, 'main drafted no plan with the plan tool')
+    if (!role('Worker') || !role('Reviewer')) fail(o, `workers ${role('Worker')}, reviewers ${role('Reviewer')} (want both)`)
+    if (o === 'plantools-full') {
+      const stale = am.findIndex(b => !b.ok && /expectedRevision/.test(b.text))
+      if (n('task') < 2) fail(o, `${n('task')} tasks drafted (want >= 2)`)
+      if (stale < 0 || !am.slice(stale + 1).some(b => b.ok)) fail(o, `amends ${stats.amends || 'none'} (want a stale one refused, then one that went through)`)
+      if (n('explore') !== 1) fail(o, `${n('explore')} explorers (want 1)`)
+      if (role('Tester') < 2) fail(o, `${role('Tester')} testers (want one per task)`)
+    }
+  }
+  if (o === 'surface') {   // under the task-tool gate: the report tool and TodoWrite listed, no task-list tool; main's Agent refused; the spawned agent ends
+    const l = dlines.find(l => /SCRIPTED tools \[/.test(l)), names = l ? JSON.parse(l.slice(l.indexOf('['))) : null
+    const sp = dlines.find(l => /SCRIPTED spawned tools -> /.test(l))?.match(/"agentId":"([^"]+)"/)?.[1], ag = mine.filter(b => b.name === 'Agent')
+    Object.assign(stats, { tools: names, agent: sp ?? null, mainAgent: ag.map(b => (b.ok ? 'ran' : 'refused')).join(','), taskStop: clip(dlines.find(l => /SCRIPTED TaskStop /.test(l))?.split('SCRIPTED ')[1] ?? '') })
+    if (!names) fail(o, 'no tool list logged (/s0 tools)')
+    else { const miss = ['mcp__cadre__report', 'TodoWrite'].filter(t => !names.includes(t)), task = names.filter(t => /^Task(Create|Get|List|Update)$/.test(t))
+      if (miss.length) fail(o, `not listed: ${miss.join(', ')}`); if (task.length) fail(o, `task-list tools listed: ${task.join(', ')}`) }
+    if (ag.length !== 1 || ag[0].ok) fail(o, `main's Agent calls: ${stats.mainAgent || 'none'} (want one, refused)`)
+    if (!sp) fail(o, 'the spawn returned no agent id')
+    else if (!dlines.some(l => l.includes(`SCRIPTED turn.complete agent=${sp} `))) fail(o, `the spawned agent ${sp} never ended`)
+  }
+  if (o === 'continue') {   // a kill between the worker and the reviewer, then /cadre continue: the same task goes on; no worker after the kill; one reviewer after it
+    const k = drv.find(e => e.kind === 'fault' && /^kill/.test(e.text))?.t, task = b => b.match(/TASK-([\w-]+\.\d+)/)?.[1] ?? b.match(/\b([a-z][\w]*-[a-z0-9]+\.\d+)\b/)?.[1]
+    const ws = subs.filter(x => /Worker brief/.test(x.brief)), rv = subs.filter(x => /Reviewer brief/.test(x.brief) && x.t > k)
+    Object.assign(stats, { workers: ws.length, reviewersAfter: rv.length, tasks: [...new Set([...ws, ...rv].map(x => task(x.brief)))] })
+    if (!k) fail(o, 'the kill never happened (the worker never ended)')
+    else {
+      if (ws.length !== 1) fail(o, `${ws.length} worker runs (want 1: the work was done before the kill)`)
+      if (rv.length !== 1) fail(o, `${rv.length} reviewer runs after the restart (want 1)`)
+      else if (ws.length && task(rv[0].brief) !== task(ws[0].brief)) fail(o, `the reviewer after the restart works on ${task(rv[0].brief)}, the worker did ${task(ws[0].brief)}`)
+      if (!drv.some(e => e.kind === 'send' && e.t > k && /\/cadre continue/.test(e.text))) fail(o, 'no /cadre continue after the restart')
+    }
+  }
+  if (o === 'submodule') {   // the task landed in lib's own dev, and the parent's dev records that commit
+    const d = existsSync(join(dir, 'submodule.json')) ? JSON.parse(read(join(dir, 'submodule.json'))) : null
+    if (!d) fail(o, 'no submodule.json (the scenario never got past the landing)')
+    else { stats.submodule = d
+      if (!d.has) fail(o, `lib's dev (${d.dev?.slice(0, 7)}) has no src/titleCase.mjs`)
+      if (d.ptr !== d.dev) fail(o, `the parent's dev records lib at ${d.ptr?.slice(0, 7) || 'nothing'}, lib's dev is ${d.dev?.slice(0, 7)}`) }
+    if (!subs.some(x => /Worker brief/.test(x.brief))) fail(o, 'no worker ran')
   }
 }
 stats.usd = +debug.map(ls => Math.max(0, ...ls.map(l => +(l.match(/cost=\$([\d.]+)/)?.[1] ?? 0)))).reduce((a, b) => a + b, 0).toFixed(2)
