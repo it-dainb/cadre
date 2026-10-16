@@ -186,8 +186,8 @@ export async function landPending(h: Host, b: string, click = false): Promise<st
       const held = click ? undefined : ((await h.store.get(K)) as { key: string; why: string } | undefined)
       if (held?.key === key) { if (!(await asked(h, b))) await ask1(h, b, held.why); return 'held' }
       const F = `${root} ${b}`; if (inFlight.has(F)) return 'busy'
-      inFlight.add(F)
       const tmp = wtPath(await wtRootOf(h, cfg), repoKeyOf(root), `land-${b.replace(/\W/g, '-')}-${Math.random().toString(36).slice(2, 8)}`)
+      inFlight.add(F)
       let why: string | null = null
       try {
         const c = await trial(h, root, cur, sha)
