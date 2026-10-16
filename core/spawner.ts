@@ -38,7 +38,9 @@ export async function syncMode(h: Host): Promise<void> {
 
 DRIVE.sync = syncMode
 
-const inflight = new Set<string>()   // `task:role` in flight: two turn ends at once never start one task's step twice (admission's CAS holds across sessions)
+const inflight = new Set<string>()
+let gate: Promise<unknown> = Promise.resolve()
+const picking = <T>(f: () => Promise<T>): Promise<T> => { const r = gate.then(f, f); gate = r.catch(() => {}); return r }   // ponytail: one process-wide queue; across sessions the drive CAS still decides   // `task:role` in flight: two turn ends at once never start one task's step twice (admission's CAS holds across sessions)
 // the spawner's step at a turn end or /cadre: start every agent the board wants, within maxParallel, counted against the drive bounds
 export async function spawnStep(h: Host, event: string): Promise<void> {
   if (!FRAMES.includes(event) || !h.spawnAgent) throw new Error(`spawn refused: ${event} is not a frame an agent's events stay under`)
@@ -48,10 +50,16 @@ export async function spawnStep(h: Host, event: string): Promise<void> {
   const t = await h.now(); await h.ui.update(u => ({ ...u, idleAt: t }))   // a sign of life: the watchdog's window starts over
   if (await land(h) && !(await ready(h))) return   // what landed may finish the run
   await sendQueued(h)   // a rework a close queued (a conflict on the plan tip): its worker is resumed now
-  const s = await h.board.read(), cfg = await cfgOf(h), usd = (await h.usage?.().catch(() => undefined))?.cost?.usd
-  let free = cfg.maxParallel > 0 ? cfg.maxParallel - s.tasks.filter(t => t.state === 'active').length : Infinity
-  const go = spawnable(modelView(s), await h.bind.read()).filter(x => !inflight.has(`${x.id}:${x.role}`) && (x.role !== 'claim' || free-- > 0))
-  if (go.length && (await tally(h, cfg, usd, go.length))) for (const x of go) await one(h, x.id, x.role)
+  const cfg = await cfgOf(h), usd = (await h.usage?.().catch(() => undefined))?.cost?.usd
+  const go = await picking(async () => {   // one frame of this process at a time: read the board, pick within maxParallel, count them on the drive (a CAS three frames would contend on)
+    const s = await h.board.read()
+    let free = cfg.maxParallel > 0 ? cfg.maxParallel - s.tasks.filter(t => t.state === 'active').length - [...inflight].filter(k => k.endsWith(':claim')).length : Infinity   // claims still starting count too
+    const go = spawnable(modelView(s), await h.bind.read()).filter(x => !inflight.has(`${x.id}:${x.role}`) && (x.role !== 'claim' || free-- > 0))
+    for (const x of go) inflight.add(`${x.id}:${x.role}`)
+    let ok = false; try { ok = go.length > 0 && (await tally(h, cfg, usd, go.length)) } finally { if (!ok) for (const x of go) inflight.delete(`${x.id}:${x.role}`) }   // refused or thrown: the picks go back
+    return ok ? go : []
+  })
+  for (const x of go) await one(h, x.id, x.role)
   if (go.length && (await h.ui.read()).goal === IDLE) await h.ui.update(u => ({ ...u, goal: undefined }))   // the idle fallback is not needed: agents run
   if (event === 'turn.complete') await drive(h, cfg, usd, true)   // what is main's own, if anything: one turn (a command frame may not submit)
 }
@@ -88,7 +96,7 @@ async function explores(h: Host) {
   }
 }
 async function one(h: Host, id: string, role: string) {
-  if (life.ending) return   // the session is quitting: an agent started now would die with it, its claim left behind
+  if (life.ending) return void inflight.delete(`${id}:${role}`)   // the session is quitting: an agent started now would die with it, its claim left behind
   const k = `${id}:${role}`, n = await intend(h, id, role, await sessionOf(h)); inflight.add(k)
   try {
     const r = await h.spawnAgent!({ prompt: modelText('agent-brief', n), description: `${role === 'claim' ? 'start' : role} ${id}` })   // PLAN-<epic>: admission starts its planner

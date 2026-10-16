@@ -4,7 +4,7 @@ import { NUDGE as ASK_NUDGE, askOf, askStopped } from './asks'
 import type { Binding, Hook, Host, SnapTask } from '../types'
 import type { Task } from '../task-management/store'
 import { pipeOf } from '../task-management/registry'
-import { LIFECYCLE } from '../native/tasks'
+import { LIFECYCLE } from './plantools'
 import { ROUTES } from './dispatch'
 import { resolveDeps, type Deps } from './admission'
 import { coverageGaps, specTestsOf } from './validate'
@@ -176,7 +176,7 @@ async function explorerDone(h: Host, d: Deps, t: SnapTask, agentId: string, r: a
   const m = await apply(h, { kind: 'close', id: t.id, at, actor: 'mod', cites: (r.citations ?? []).length }, p); if (!m.ok) throw new Error(m.error)
   await record(h, d, t.id, 'answer', 'explorer', { citations: (r.citations ?? []).length }, { answer: r.answer })
   await d.store.close(t.id, { outcome: 'done', note: String(r.answer ?? '').slice(0, 500), session: d.session })
-  const next = await lastNext(h, (await h.board.read()).plan?.id, 'read the answer (TaskGet)')
+  const next = await lastNext(h, (await h.board.read()).plan?.id, 'read the answer (status)')
   await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'explorer', to: 'done', flags: x.flags, next }) }))
   await end(h, agentId, 'answer', 'done'); return 'answer recorded; the spike is done. Stop.'
 }
@@ -262,7 +262,7 @@ async function cleanup(h: Host, d: Deps, id: string, task: Task, keep?: string) 
   await h.run(['rm', '-rf', `${d.wtRoot}/${d.key}.views/${id}`])
 }
 // the close of the plan's last open task nudges main once (the card's next line) to complete the plan, so it lands and a new goal is accepted
-export const lastNext = async (h: Host, plan: string | undefined, or: string, epic?: string) => { const b = await h.board.read(); return plan && b.plan?.id === plan && b.plan.state === 'approved' && b.tasks.every(x => (epic && x.epic !== epic) || x.state === 'done' || x.state === 'cancelled') ? `every task ${epic ? `of epic ${epic} ` : ''}is done: complete ${epic ? 'it' : 'the plan'} (TaskUpdate ${epic ?? plan} completed)` : or }
+export const lastNext = async (h: Host, plan: string | undefined, or: string, epic?: string) => { const b = await h.board.read(); return plan && b.plan?.id === plan && b.plan.state === 'approved' && b.tasks.every(x => (epic && x.epic !== epic) || x.state === 'done' || x.state === 'cancelled') ? `every task ${epic ? `of epic ${epic} ` : ''}is done: complete ${epic ? 'it' : 'the plan'} (status {id:"${epic ?? plan}", set:"completed"})` : or }
 export async function closeTask(h: Host, d: Deps, id: string, actor: 'main' | 'mod' = 'main'): Promise<string | null> {   // 'mod': the spawner closes it (ADR 0018)
   const t = (await h.board.read()).tasks.find(x => x.id === id)
   if (!t) return `no task ${id}`
@@ -315,7 +315,7 @@ export async function closeTask(h: Host, d: Deps, id: string, actor: 'main' | 'm
   return null
 }
 
-// ---- release / cancel / decision (TaskUpdate pending|deleted, metadata.decision) ----
+// ---- release / cancel / decision (status set pending|deleted, decision) ----
 async function releaseTask(h: Host, d: Deps, id: string): Promise<string | null> {
   const t = (await h.board.read()).tasks.find(x => x.id === id), task = await d.store.get(id), wt = task.meta['cadre.worktree']
   if (!t) return `no task ${id}`
@@ -340,7 +340,7 @@ async function decide(h: Host, d: Deps, id: string, text: string): Promise<strin
   const meta = (await d.store.get(id)).meta
   if (meta['cadre.blocked'] === 'spec_change') {   // yolo: main accepts or rejects it, through the same path as the dialog (recorded)
     if (!y) return `${id} awaits a spec change decision: the human accepts or rejects it in the cadre dialog`
-    const m = /^\s*(accept|reject)\s*:\s*(\S[\s\S]*)$/i.exec(text); if (!m) return `${id}: metadata.decision must be "accept: <reason>" or "reject: <reason>"`   // the exact word and a colon: "acceptable… reject: …" must never read as accept
+    const m = /^\s*(accept|reject)\s*:\s*(\S[\s\S]*)$/i.exec(text); if (!m) return `${id}: decision must be "accept: <reason>" or "reject: <reason>"`   // the exact word and a colon: "acceptable… reject: …" must never read as accept
     const how = m[1].toLowerCase(), n = Number(meta['cadre.specAccepts'] || 0)
     if (how === 'accept' && n >= 2) { const w = `${id} asked to change its locked spec ${n + 1} times`; await stop(h, w, { taskId: id, flag: 'spec_change' }); return `${id}: the run stopped (${w}); the user decides this task in the cadre dialog now. Stop and wait.` }   // accept, rewind, accept… never counts as no progress: cap it
     const r = await resolveSpec(h, id, how, 'main'); if (!/accepted|rejected/.test(r.text)) return r.text
@@ -363,7 +363,7 @@ const isEpic = async (h: Host, id: string) => { const s = await h.board.read(); 
 LIFECYCLE.completed = wrapL(async (h, d, id, e) => ((await isEpic(h, id)) ? integrateEpic(h, id) : closeTask(h, d, id)))
 LIFECYCLE.pending = wrapL((h, d, id) => releaseTask(h, d, id))
 LIFECYCLE.deleted = wrapL(async (h, d, id, e) => ((await isEpic(h, id)) ? 'the epic cannot be deleted; reject the plan instead' : cancelTask(h, d, id, String(e.metadata?.reason ?? 'deleted by main'))))
-LIFECYCLE.decision = wrapL((h, d, id, e) => (typeof e.metadata?.decision === 'string' && e.metadata.decision.trim() ? decide(h, d, id, e.metadata.decision) : Promise.resolve('metadata.decision: expected the human\'s answer as a string')))
+LIFECYCLE.decision = wrapL((h, d, id, e) => (typeof e.metadata?.decision === 'string' && e.metadata.decision.trim() ? decide(h, d, id, e.metadata.decision) : Promise.resolve('decision: expected the answer as a string')))
 
 // accept on a sync flag: conflict -> re-apply the remote values kept in the task's meta; drift -> adopt the remote status through the machine (refused when illegal)
 async function acceptRemote(h: Host, d: Deps, t: SnapTask): Promise<string | null> {
@@ -393,10 +393,10 @@ ROUTES.resolve = async (h, c) => {
     const r = await resolveGit(h, flag, b); return { text: r.ok ? `${flag}: ${b} done` : `refused: ${r.error}` }
   }
   const s0 = await h.board.read(), d = await resolveDeps(h)
-  if (epicOf(s0, a) && b === 'keep') { await goOn(h, a); await emit(h, 'flag.resolved', { taskId: a, flag: 'stopped' }, { taskId: a }); return { text: `${a}: the epic goes on; call TaskUpdate ${a} completed again if its tasks are done` } }   // a stopped epic's Retry
+  if (epicOf(s0, a) && b === 'keep') { await goOn(h, a); await emit(h, 'flag.resolved', { taskId: a, flag: 'stopped' }, { taskId: a }); return { text: `${a}: the epic goes on; set it completed again (status) if its tasks are done` } }   // a stopped epic's Retry
   if (s0.plan && (a === s0.plan.id || a === s0.epic) && b === 'keep') {   // plan-level flags (integration-failed): a retry is TaskUpdate completed again
     await h.board.update(x => (x.plan ? { ...x, plan: { ...x.plan, flags: [] } } : x)); await emit(h, 'flag.resolved', { taskId: a, flag: (s0.plan.flags ?? []).join(',') || 'plan' }, { taskId: a })
-    return { text: `${a}: plan flags cleared; call TaskUpdate completed on the epic again` }
+    return { text: `${a}: plan flags cleared; set the epic completed again (status)` }
   }
   const t = s0.tasks.find(x => x.id === a)
   if (t && b === 'rebase' && t.state === 'blocked') {   // the cap dialog's Retry (core/rebase.capAsk): one more round by the same worker

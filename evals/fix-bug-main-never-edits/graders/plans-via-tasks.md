@@ -1,5 +1,5 @@
 ---
 type: tool_used
-tool: TaskCreate
+tool: mcp__cadre__plan
 min: 1
 ---

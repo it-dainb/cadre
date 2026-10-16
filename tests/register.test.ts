@@ -13,7 +13,7 @@ test('session.start: no $.agent.register (agents are plugin files, A28), /cadre 
   await $.session.start(START)
   expect(agents).toEqual([])
   expect(commands).toEqual([{ name: 'cadre', description: expect.any(String), argumentHint: '<sub> [args]', immediate: true }])
-  expect(env).toEqual(['CLAUDE_CODE_ENABLE_TODO_TOOLS=1', 'ENABLE_TOOL_SEARCH=false'])
+  expect(env).toEqual(['ENABLE_TOOL_SEARCH=false'])   // the task-tool gate lives in each project's settings (commands/init.GATE)
   await clock.advance(5000); await clock.advance(5000)   // the tick is a placeholder: it must not throw
 })
 
@@ -110,7 +110,7 @@ test('during a setup run main\'s stop is refused while a check is red; with no r
 })
 
 // main's tools are registered at session start only where their work is due (the set is fixed for the session); a refused one is kept for Doctor
-const MAIN_NAMES = ['plan', 'task', 'epic', 'amend', 'explore', 'ask']
+const MAIN_NAMES = ['plan', 'task', 'epic', 'amend', 'explore', 'ask', 'status']
 const startWith = async ($: any, on: any, o: { active: boolean; stamp?: string; refuse?: string }) => {
   const tools: string[] = []
   on('session.start', () => ({ cwd: '/work' })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('env.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined }))
@@ -128,4 +128,11 @@ test('tools at start: dormant, setup due (no stamp, or another Claude Code build
 })
 test('tools at start: an active repo gets every main tool; one Claude Code refuses is left out', async ($, on) => {
   expect(await startWith($, on, { active: true, stamp: '2.1.299', refuse: 'ask' })).toEqual(['report', 'inspect', 'run_check', ...MAIN_NAMES.filter(t => t !== 'ask'), 'preferences'])
+})
+
+test('main in an active repo: an Agent with no task in it and the built-in task tools are refused toward cadre\'s tools; an agent\'s Agent passes', async ($, on) => {
+  on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined })); on('env.get', () => ({ value: undefined })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' }))
+  on('fs.read', () => ({ value: '{}' })); on('fs.stat', () => ({ value: undefined })); on('tool.call', () => ({ result: 'ran' })); on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined }))
+  expect((await $.tool.call({ tool: 'Agent', prompt: 'where is login handled?', description: 'x' }) as any).deny).toContain('call explore with your question')
+  expect((await $.tool.call({ tool: 'TaskCreate', subject: 's', description: 'd' }) as any).deny).toContain('plan with the plan tools')
 })

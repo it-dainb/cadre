@@ -247,7 +247,7 @@ describe('review spawn', () => {
     await admitWith(h, d, spawn(id), ok('rv4').next); expect(JSON.parse((await w.store.get(id)).meta['cadre.runs']).at(-1)).toMatchObject({ model: 'haiku', forced: 'haiku/' })
   })
   test('review-passed (merge) is main\'s to complete; no sourceCommit yet is refused', async () => {
-    const m = await inReview('merge'); expect(((await admitWith(m.h, m.d, spawn(m.id), ok().next)) as any).deny).toContain('TaskUpdate completed')
+    const m = await inReview('merge'); expect(((await admitWith(m.h, m.d, spawn(m.id), ok().next)) as any).deny).toContain('status set completed')
     const r = await inReview('reviewer'); await r.w.store.setMeta(r.id, { 'cadre.sourceCommit': '' }, r.d.actor); expect(((await admitWith(r.h, r.d, spawn(r.id), ok().next)) as any).deny).toContain('no commit to review')
   })
   test('a rejected review spawn drops its reservation', async () => {

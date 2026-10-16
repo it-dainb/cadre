@@ -14,20 +14,20 @@ const str = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '
 const show = (v: unknown) => { const s = JSON.stringify(v); return s === undefined ? String(v) : s.length > 60 ? `${s.slice(0, 57)}...` : s }
 const bad = (path: string, want: string, got: unknown) => `${path}: expected ${want}, got ${show(got)}`
 
-// first malformed present field of a TaskCreate/TaskUpdate `metadata`, else null. null values clear a field and are fine.
+// first malformed present task field (the plan tools, a planner's task metadata), else null. null values clear a field and are fine.
 export function validateFields(m: Record<string, unknown>, reg: TypeRegistry): string | null {
   for (const k of Object.keys(m)) if (!(FIELDS as readonly string[]).includes(k)) return `metadata.${k}: unknown field (allowed: ${FIELDS.join(', ')})`
   const f = (k: string) => (m[k] === null ? undefined : m[k])
   if (f('kind') !== undefined && f('kind') !== 'plan' && f('kind') !== 'mission') return bad('metadata.kind', '"plan" or "mission"', m.kind)
   if (f('amend') !== undefined && typeof m.amend !== 'boolean') return bad('metadata.amend', 'true', m.amend)
   if (f('lane') !== undefined && !['ask', 'lite', 'full', 'milestone'].includes(m.lane as string)) return bad('metadata.lane', '"ask", "lite", "full" or "milestone"', m.lane)
-  if ((f('lane') !== undefined || f('reason') !== undefined) && m.kind !== 'plan') return 'metadata.lane, metadata.reason: set them on the plan\'s TaskCreate, with "kind":"plan"'
+  if ((f('lane') !== undefined || f('reason') !== undefined) && m.kind !== 'plan') return 'lane, reason: set them on the plan call'
   if (f('reason') !== undefined && !str(m.reason)) return bad('metadata.reason', 'one line, e.g. "one small fix in src/a.ts"', m.reason)
-  if (f('mission') !== undefined && (m.kind !== 'plan' || typeof m.mission !== 'string' || !m.mission.trim() || m.mission.length > 1000)) return bad('metadata.mission', 'on the plan\'s TaskCreate, one string "Goal: …\\nConstraints: …\\nNon-goals: …"', m.mission)   // ADR 0014: approved with the plan
+  if (f('mission') !== undefined && (m.kind !== 'plan' || typeof m.mission !== 'string' || !m.mission.trim() || m.mission.length > 1000)) return bad('metadata.mission', 'on the plan call, one string "Goal: …\\nConstraints: …\\nNon-goals: …"', m.mission)   // ADR 0014: approved with the plan
   if (f('paths') !== undefined && (m.kind !== undefined || !Array.isArray(m.paths) || !m.paths.length || m.paths.length > 20 || m.paths.some((p: unknown) => !str(p) || (p as string).length > 200))) return bad('metadata.paths', 'on a task, the files or folders it will change, e.g. ["src/auth/login.ts", "test/auth/**"]', m.paths)
   if (f('core') !== undefined && (m.kind !== undefined || typeof m.core !== 'boolean')) return bad('metadata.core', 'true on the one task with the code other tasks share', m.core)
-  if (f('assumed') !== undefined && (m.kind !== 'plan' || !Array.isArray(m.assumed) || !m.assumed.length || m.assumed.length > 5 || !m.assumed.every(x => str(x) && (x as string).length <= 200))) return bad('metadata.assumed', 'on the plan\'s TaskCreate, a list of 1-5 lines "<point>: what you assumed"', m.assumed)   // yolo clarify (ADR 0020): shown in the approval dialog
-  if (f('notes') !== undefined && (m.kind !== 'plan' || !(str(m.notes) ? m.notes.length <= 1500 : noteList(m.notes)))) return bad('metadata.notes', 'on the plan\'s TaskCreate, what an explorer found, keyed by the paths it concerns: [{"paths":["src/auth/"],"text":"…"}] (no paths = every task; at most 3000 characters in all)', m.notes)
+  if (f('assumed') !== undefined && (m.kind !== 'plan' || !Array.isArray(m.assumed) || !m.assumed.length || m.assumed.length > 5 || !m.assumed.every(x => str(x) && (x as string).length <= 200))) return bad('metadata.assumed', 'on the plan call, a list of 1-5 lines "<point>: what you assumed"', m.assumed)   // yolo clarify (ADR 0020): shown in the approval dialog
+  if (f('notes') !== undefined && (m.kind !== 'plan' || !(str(m.notes) ? m.notes.length <= 1500 : noteList(m.notes)))) return bad('metadata.notes', 'on the plan call, what an explorer found, keyed by the paths it concerns: [{"paths":["src/auth/"],"text":"…"}] (no paths = every task; at most 3000 characters in all)', m.notes)
   if (f('epic') !== undefined && (m.kind !== undefined || !str(m.epic))) return bad('metadata.epic', 'on a task, the id of the epic it belongs to, e.g. "m-2"', m.epic)   // milestone lane (ADR 0015)
   if (f('size') !== undefined && (m.kind !== undefined || !Number.isInteger(m.size) || (m.size as number) < 1 || (m.size as number) > 7)) return bad('metadata.size', 'on an epic, how many tasks it needs, 1 to 7', m.size)
   if (f('critique') !== undefined && (m.kind !== undefined || !str(m.critique) || (m.critique as string).length > 1500)) return bad('metadata.critique', 'on the milestone, what the critic found and what you changed (at most 1500 characters)', m.critique)

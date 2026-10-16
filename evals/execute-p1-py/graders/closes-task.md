@@ -1,6 +1,6 @@
 ---
 type: tool_used
-tool: TaskUpdate
-input_match: '"status"\s*:\s*"completed"'
+tool: mcp__cadre__status
+input_match: '"set"\s*:\s*"completed"'
 min: 1
 ---

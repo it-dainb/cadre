@@ -23,7 +23,7 @@ export const commitMessage = (c: Commit): string => {
 export interface Card { id: string; title: string; role: string; to: string; green?: { ok: boolean; check: string; secs: number }; files?: number; add?: number; del?: number; commit?: string; usd?: number; cachePct?: number; flags?: string[]; next: string }
 // an agent that stopped without calling report: the mod resumes it right after its stop (core/reuse drain, live: ~2 s), so main must not spawn it again and must not end the turn (a headless run would end with it)
 export const noReportCard = (t: { id: string; title: string; flags?: string[] }, role: string, step: string): string =>
-  card({ id: t.id, title: t.title, role, to: step, flags: t.flags, next: `wait: the ${role} is finishing its report. Do not spawn it again; call TaskList until ${t.id} leaves ${step}` })
+  card({ id: t.id, title: t.title, role, to: step, flags: t.flags, next: `wait: the ${role} is finishing its report. Do not spawn it again; call status until ${t.id} leaves ${step}` })
 // the next step after an agent finished: a NEW agent. Live (bench, sonnet main): "next: spawn TASK-x (worker)" under a tester's card read as the worker's own
 // empty report; main messaged the finished tester and ended its turn. So the line says who finished and the exact call. No ';' (nextAction joins on it).
 export const startNew = (id: string, step: string, done?: string): string => `${done ? `the ${done} has finished (do not message it). Now ` : ''}start a NEW agent for the ${step} step: Agent tool, prompt "TASK-${id}"`
@@ -93,19 +93,19 @@ export function nextAction(s: Omit<Snapshot, 'seq' | 'cost'>, idle: string[] = [
   if (s.plan?.state === 'draft') return s.approval.missing.length ? 'complete the draft plan (see missing)' : `ask the human to approve ${s.plan.id}`
   if (!mod) a.push(...ts.filter(t => t.state === 'review' && t.step === 'merge').map(t => `complete TASK-${t.id}`))
   const y = s.drive?.on && !s.drive.stopped && s.drive.mode === 'yolo'   // yolo: main answers blocked tasks itself (core/drive)
-  a.push(...ts.filter(t => t.state === 'blocked').map(t => (y && t.flags.some(f => f === 'spec_change' || f === 'blocked') ? `decide ${t.id} yourself (TaskUpdate ${t.id} metadata.decision)` : t.flags.includes('spec_change') ? `wait: the user decides the spec change of ${t.id} in its own dialog` : `${t.id} waits for the user (go on with the rest)`)))   // live: main asked the spec change a second time
+  a.push(...ts.filter(t => t.state === 'blocked').map(t => (y && t.flags.some(f => f === 'spec_change' || f === 'blocked') ? `decide ${t.id} yourself (status {id:"${t.id}", decision})` : t.flags.includes('spec_change') ? `wait: the user decides the spec change of ${t.id} in its own dialog` : `${t.id} waits for the user (go on with the rest)`)))   // live: main asked the spec change a second time
   const sp = mod ? [] : spawnable(s), es = s.plan?.epics ?? []   // mod mode (ADR 0018): the spawner starts all of these, idle steps included
   a.push(...sp.filter(x => x.role === 'reviewer').map(x => `spawn TASK-${x.id} (reviewer)`))
   if (!mod) a.push(...ts.filter(t => t.state === 'active' && idle.includes(t.id)).map(t => startNew(t.id, t.step)))
   const r = sp.find(x => x.role === 'claim'); if (r) a.push(`spawn TASK-${r.id}`)   // one per turn; the ready list on the line says the rest
   for (const e of es) {
     if (s.drive?.planner === 'agent' && (e.state === 'ready' || e.state === 'planning')) continue   // a planner agent drafts its tasks (ADR 0021): never main's step
-    if (e.state === 'ready') a.push(`plan epic ${e.id}: TaskCreate its tasks with metadata.epic "${e.id}", then TaskUpdate ${e.id} metadata.planned true`)
-    if (e.state === 'planning') a.push(`finish planning epic ${e.id} (see missing), then TaskUpdate ${e.id} metadata.planned true`)
-    if (!mod && e.state === 'running' && ts.every(t => t.epic !== e.id || closed(t))) a.push(`complete epic ${e.id}: TaskUpdate ${e.id} completed`)
+    if (e.state === 'ready') a.push(`plan epic ${e.id}: task calls with epic "${e.id}", then epic {id:"${e.id}", planned:true}`)
+    if (e.state === 'planning') a.push(`finish planning epic ${e.id} (see missing), then epic {id:"${e.id}", planned:true}`)
+    if (!mod && e.state === 'running' && ts.every(t => t.epic !== e.id || closed(t))) a.push(`complete epic ${e.id}: status {id:"${e.id}", set:"completed"}`)
   }
   if (a.length) return a.join('; ')
   if (mod) return RUNS
-  if (es.length) return es.every(e => e.state === 'landed') ? `complete the milestone: TaskUpdate ${s.plan?.id} completed` : 'wait'
-  return ts.length && ts.every(closed) ? `complete the epic: TaskUpdate ${s.plan?.id} completed` : 'wait'
+  if (es.length) return es.every(e => e.state === 'landed') ? `complete the milestone: status {id:"${s.plan?.id}", set:"completed"}` : 'wait'
+  return ts.length && ts.every(closed) ? `complete the epic: status {id:"${s.plan?.id}", set:"completed"}` : 'wait'
 }

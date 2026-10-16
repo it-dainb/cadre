@@ -98,7 +98,7 @@ describe('roadmap draft', () => {
     await w.call('TaskUpdate', { taskId: c, metadata: { size: 2 } }); await w.call('TaskUpdate', { taskId: b, addBlockedBy: [a] })
     expect((await w.h.board.read()).approval.missing).toEqual(['critic review (the roadmap rules say how)'])
     expect((await w.h.board.read()).decisions?.some(d => d.kind === 'plan') ?? false).toBe(false)   // no dialog before the critic
-    expect((await w.call('TaskUpdate', { taskId: m, metadata: { critique: 'fine' } })).result.error).toContain('spawn the critic Agent first')
+    expect((await w.call('TaskUpdate', { taskId: m, metadata: { critique: 'fine' } })).result.error).toContain('ask the critic first')
     await answered(w); expect((await w.call('TaskUpdate', { taskId: m, metadata: { critique: 'it found login after signup; added the dependency' } })).result.success).toBe(true)
     const d = (await w.h.board.read()).decisions!.find(x => x.kind === 'plan')!
     expect(d.title).toBe(`approve milestone ${m}`); expect(d.lines[0]).toBe('auto · milestone · 3 epics · three features: signup, login, reset')
@@ -106,8 +106,8 @@ describe('roadmap draft', () => {
   })
   test('validation: size 1-7 on an epic, epic only on a task, critique a bounded string, lane milestone accepted', async () => {
     const w = await world(); await w.call('TaskCreate', { subject: 'M', description: 'g', metadata: MSP })
-    expect((await w.call('TaskCreate', { subject: 'E', description: 'g', metadata: { size: 9 } })).deny).toContain('metadata.size')
-    expect((await w.call('TaskCreate', { subject: 'E', description: 'g', metadata: { epic: 5 } })).deny).toContain('metadata.epic')
+    expect((await w.call('TaskCreate', { subject: 'E', description: 'g', metadata: { size: 9 } })).deny).toContain('size: expected')
+    expect((await w.call('TaskCreate', { subject: 'E', description: 'g', metadata: { epic: 5 } })).deny).toContain('epic: expected')
     const v = await world(); await v.call('TaskCreate', { subject: 'P', description: 'g', metadata: { kind: 'plan' } })
     expect((await v.call('TaskCreate', { subject: 'T', description: 'g', metadata: { epic: 'm-9' } })).deny).toContain('only in a milestone')
   })
@@ -119,7 +119,7 @@ describe('one approval, then epics plan themselves', () => {
     expect(w.out).toContain(`Milestone ${w.m} approved: 3 epics ready`); expect(w.out).toContain('drive auto on')
     expect(w.calls.some(c => c.join(' ').includes(`milestone/${w.m}-user-accounts`))).toBe(true)
     const s = await w.board(); expect(s.plan!.epics!.map(e => e.state)).toEqual(['ready', 'waiting', 'waiting'])
-    expect(nextAction(modelView(s))).toBe(`plan epic ${w.c}: TaskCreate its tasks with metadata.epic "${w.c}", then TaskUpdate ${w.c} metadata.planned true`)
+    expect(nextAction(modelView(s))).toBe(`plan epic ${w.c}: task calls with epic "${w.c}", then epic {id:"${w.c}", planned:true}`)
     expect(String((await w.h.ui.read()).goal)).toContain(`Milestone ${w.m} is approved`)
   })
   test('JIT: tasks need metadata.epic of a ready epic; the first answer carries the plan rules; planned:true approves them automatically and records it', async () => {
@@ -149,9 +149,9 @@ describe('one approval, then epics plan themselves', () => {
   test('next: complete an epic whose tasks are done; complete the milestone when every epic landed', async () => {
     const w = await approved(); const { ids } = await planIt(w, w.c)
     await w.h.board.update(b => ({ ...b, tasks: b.tasks.map(t => ({ ...t, state: 'done' })) }))
-    expect(nextAction(modelView(await w.board()))).toContain(`complete epic ${w.c}: TaskUpdate ${w.c} completed`)
+    expect(nextAction(modelView(await w.board()))).toContain(`complete epic ${w.c}: status {id:"${w.c}", set:"completed"}`)
     await w.h.board.update(b => ({ ...b, plan: { ...b.plan!, epics: b.plan!.epics!.map(e => ({ ...e, state: 'landed' as const })) } }))
-    expect(nextAction(modelView(await w.board()))).toBe(`complete the milestone: TaskUpdate ${w.m} completed`); expect(ids.length).toBe(1)
+    expect(nextAction(modelView(await w.board()))).toBe(`complete the milestone: status {id:"${w.m}", set:"completed"}`); expect(ids.length).toBe(1)
   })
 })
 

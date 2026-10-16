@@ -77,14 +77,14 @@ describe('answers: the chosen label runs its option as origin dialog; the hash i
   test('Approve approves the plan and queues ONE continuation brief to main', async () => {
     const w = await world(), { plan: p, task } = await plan(w); await ui(w, () => 'Approve'); await answerDialog(w.h)
     expect((await w.store.get(task)).category).toBe('todo'); expect((await w.h.board.read()).plan?.state).toBe('approved'); expect(decisions(await read(w.h))).toEqual([])
-    expect(await goal(w.h)).toBe(`Plan ${p} is approved: spawn its ready tasks one by one (each by its id), follow the cards until every task is done, then complete the plan (TaskUpdate ${p} completed).`)
+    expect(await goal(w.h)).toBe(`Plan ${p} is approved: spawn its ready tasks one by one (each by its id), follow the cards until every task is done, then complete the plan (status {id:"${p}", set:"completed"}).`)
     expect((w.h as any).logs.at(-1)).toBe(`Plan ${p} approved: 1 task ready; epic branch epic/${p}-auth-login cut · drive auto on.`)
   })
   test('the close of the plan\'s last open task nudges main once (its card\'s next line) to complete the plan', async () => {
     const w = await world(), { plan: p, task } = await plan(w); await w.text({ cmd: 'approve', args: [p] })
     expect(await lastNext(w.h, p, 'wait')).toBe('wait')   // a task is still open
     await w.h.board.update(b => ({ ...b, tasks: b.tasks.map(t => (t.id === task ? { ...t, state: 'done' as const } : t)) }))
-    expect(await lastNext(w.h, p, 'wait')).toBe(`every task is done: complete the plan (TaskUpdate ${p} completed)`); expect(await lastNext(w.h, 'other', 'wait')).toBe('wait')
+    expect(await lastNext(w.h, p, 'wait')).toBe(`every task is done: complete the plan (status {id:"${p}", set:"completed"})`); expect(await lastNext(w.h, 'other', 'wait')).toBe('wait')
   })
   test('Reject drops the plan; no brief', async () => {
     const w = await world(); await plan(w); await ui(w, () => 'Reject'); await answerDialog(w.h)

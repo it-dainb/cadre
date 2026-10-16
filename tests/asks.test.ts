@@ -5,7 +5,7 @@ import { drain, submit } from '../core/reuse'
 import { wrap } from '../core/effect'
 import { handleWith } from '../tools/index'
 import { guard } from '../policy/guards'
-import { answer } from '../native/tasks'
+import { taskCall as answer } from './fixtures/native/world'
 import { NUDGE, askOf } from '../core/asks'
 import { defaults } from '../config/index'
 import { MemoryStore } from '../task-management/adapters/memory/store'
@@ -43,9 +43,9 @@ describe('one output contract: a marker-less explorer (ask)', () => {
     await stop(); expect(sent).toHaveLength(1)   // nudged
     expect(await handleWith(h, (await mk()).d as any, { tool: 'mcp__cadre__report', agentId: 'agent-x1y2z3', input: { schemaVersion: 1, role: 'explorer' } }).then((r: any) => r.result)).toContain('error: answer: required')   // the report tool stays the gate
     expect(await handleWith(h, {} as any, { tool: 'mcp__cadre__report', agentId: 'agent-x1y2z3', input: { schemaVersion: 1, role: 'explorer', answer: 'src/parse.ts:12 parse()', citations: [{ path: 'src/parse.ts', line: 12 }] } }).then((r: any) => r.result)).toBe('answer recorded. Stop.')
-    await stop(); expect(submitted).toEqual(['Result of ask-x1y2z3: EXPLORER ask-x1y2z3 "where is the parser?" · explorer → answered (1 citations) · flags: none · answer: src/parse.ts:12 parse() · next: full answer: TaskGet ask-x1y2z3'])
+    await stop(); expect(submitted).toEqual(['Result of ask-x1y2z3: EXPLORER ask-x1y2z3 "where is the parser?" · explorer → answered (1 citations) · flags: none · answer: src/parse.ts:12 parse() · next: full answer: explore {id:\"ask-x1y2z3\"}'])
     await stop(); expect(submitted).toHaveLength(1)   // once
-    expect((await note()).text).toBe('Agent ask-x1y2z3 finished; its answer was already given (TaskGet ask-x1y2z3).')
+    expect((await note()).text).toBe('Agent ask-x1y2z3 finished; its answer was already given (explore {id:"ask-x1y2z3"}).')
   })
   test('auto mode hand-back: never refused, before or after the report, and it carries no agent prose for main (live 0.12.0, 0.12.1: agents could not end)', async () => {
     const { h } = await mk(), hb = (agentId: string) => guard(h, { tool: 'SubagentHandback', agentId, input: { message: PROSE } }, async (e: any) => e) as Promise<any>

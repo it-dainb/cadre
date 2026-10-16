@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { PROMPTS } from '../agents/prompts'
 import { ROLES, file } from '../agents/index'
-import { SPECS } from '../tools/index'
-import { DESC, planRules } from '../native/tasks'
+import { MAIN, SPECS } from '../tools/index'
+import { planRules } from '../core/plantools'
 import { card, noReportCard } from '../core/render'
 import { defaults } from '../task-management/registry'
 import { GOLDEN } from './fixtures/briefs/golden'
@@ -15,7 +15,7 @@ import type { Binding } from '../types'
 
 describe('need-to-know wording: what a model reads names tasks, not machinery', () => {
   test('agent prompts and files, tool descriptions, plan rules, briefs, cards', () => {
-    expect(banned(PROMPTS, ROLES.map(file), SPECS.map(s => s.description), DESC, planRules(defaults()), GOLDEN, GOLD.context, GOLD.card, GOLD.get)).toEqual([])
+    expect(banned(PROMPTS, ROLES.map(file), [...SPECS, ...MAIN].map(s => s.description), planRules(defaults()), GOLDEN, GOLD.context, GOLD.card, GOLD.get)).toEqual([])
     for (const r of ['worker', 'tester']) expect(banned(noReportCard({ id: 'bd-a1', title: 'T' }, r, 'worker'), card({ id: 'a', title: 'b', role: 'r', to: 't', flags: ['quarantine:main'], next: 'n' }))).toEqual([])
   })
   test('every deny of the file guard, the call guard and send names the next action in plain words', async () => {

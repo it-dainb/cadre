@@ -127,7 +127,7 @@ export const submit: Hook = async (h, e, next) => {
   const agent = /<task-id>([^<]+)<\/task-id>/.exec(e.text ?? '')?.[1], tu = /<tool-use-id>([^<]+)<\/tool-use-id>/.exec(e.text ?? '')?.[1]
   if (agent && ((await h.ui.read()).own as string[] | undefined)?.includes(agent)) return { drop: 'cadre handled this agent' }   // started by the spawner (ADR 0018): main hears its landing in the digest, never a turn of its own
   const ask = await askOf(h, agent)   // a marker-less explorer: its card (once with the answer), never its text
-  if (ask) { await shown(h, agent!, ask); return next({ ...e, text: modelText('card', ask.told ? `Agent ${ask.id} finished; its answer was already given (TaskGet ${ask.id}).` : `Result of ${ask.id}: ${askCard(ask).replaceAll('\n', ' · ')}`) }) }
+  if (ask) { await shown(h, agent!, ask); return next({ ...e, text: modelText('card', ask.told ? `Agent ${ask.id} finished; its answer was already given (explore {id:"${ask.id}"}).` : `Result of ${ask.id}: ${askCard(ask).replaceAll('\n', ' · ')}`) }) }
   const taskId = agent && ((await h.bind.read())[agent]?.taskId ?? Object.values((await h.events.read()).epics).flat().reverse().find(x => x.type === 'agent.bound' && x.data.agentId === agent)?.taskId)
   const t = taskId && (await h.board.read()).tasks.find(x => x.id === taskId)
   if (!t || !t.card) return next(e)   // no card yet: the notification passes as is; the card rides the next context line

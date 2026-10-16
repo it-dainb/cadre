@@ -44,7 +44,7 @@ EOF
 scripted() { cells | grep -E '(^|[| ])S=1( |$)'; }
 full() {   # the cross product, minus cells that cannot exist (user1 needs kit/, continue needs a set-up repo)
   local f s v via lz e m=haiku
-  for f in single monorepo nogit "single gitignore" "single legacy-beads" "single red" "single ready leftover" "monorepo red"; do
+  for f in single monorepo nogit "single gitignore" "single red" "single ready leftover" "monorepo red"; do
     for s in goal slow user1 continue; do
       [ $s = user1 ] && [[ $f != monorepo* ]] && continue; [ $s = continue ] && [[ $f != *ready* ]] && continue
       for v in 2.1.295 2.1.296; do for via in direct ccr; do for lz in 0 1; do

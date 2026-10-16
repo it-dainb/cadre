@@ -49,7 +49,8 @@ describe('roster (DESIGN 4.1, A28)', () => {
   })
   test('main has no shell and no second loop owner; it keeps Task*/Agent/AskUserQuestion', async () => {
     for (const t of ['Bash', 'PowerShell', 'Monitor', 'CronCreate', 'CronDelete', 'ScheduleWakeup', 'TodoWrite']) expect(MAIN_TOOLS.includes(t)).toBe(false)
-    for (const t of ['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet', 'Agent', 'AskUserQuestion', 'SendMessage', 'mcp__cadre__inspect']) expect(MAIN_TOOLS.includes(t)).toBe(true)
+    for (const t of ['mcp__cadre__plan', 'mcp__cadre__task', 'mcp__cadre__status', 'Agent', 'AskUserQuestion', 'SendMessage', 'mcp__cadre__inspect']) expect(MAIN_TOOLS.includes(t)).toBe(true)
+    for (const t of ['TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet']) expect(MAIN_TOOLS.includes(t)).toBe(false)
   })
   test('mcpAllow extends the worker only', async () => {
     expect(allowlist('worker', ['mcp__x__y'])).toContain('mcp__x__y'); expect(allowlist('tester', ['mcp__x__y'])).not.toContain('mcp__x__y')

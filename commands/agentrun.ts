@@ -10,9 +10,9 @@ import { setupItems } from './doctor'
 import { LIMIT } from '../policy/guards'
 import { RUN } from '../core/dispatch'
 import { goal as goalBrief, queueBrief, sendBrief } from '../core/lanes'
-import { storeOf } from '../core/dispatch'
+import { cfgOf, storeOf } from '../core/dispatch'
 import { diff as jdiff } from '../policy/settings'
-import { EXPLORE } from '../core/clarify'
+const EXPLORE = 'mcp__cadre__explore'
 
 type Kind = 'setup' | 'init'
 const G: Record<Item['st'], string> = { ok: '✓', fail: '✗', wait: '…', todo: '·', warn: '!' }
@@ -100,11 +100,12 @@ export async function turnEnd(h: Host, e: { agentId?: string; answer?: string })
   await recheck(h, true)
 }
 // main's turn.start / tool.call (register.ts): the watchdog's clock, and the tool count the stop check reads
-export async function seen(h: Host, o: { start?: boolean; tool?: boolean; name?: string; type?: string } = {}): Promise<void> {   // name: main's tool, before it runs (a goal run); type: an Agent call's subagent_type
+export async function seen(h: Host, o: { start?: boolean; tool?: boolean; name?: string; ask?: boolean } = {}): Promise<void> {   // name: main's tool, before it runs (a goal run); ask: an explore call with a question
   const s0 = await h.secret.read(); if (!s0.run && !s0.goalRun?.on) return
-  const now = await h.now(), busy = o.start ? { busy: true } : {}
+  const now = await h.now(), busy = o.start ? { busy: true } : {}, g = s0.goalRun
+  const asked = o.name === EXPLORE && o.ask ? (g && !g.explored && (g.deep || (await cfgOf(h)).planning.clarify.enabled) ? { explored: true } : { spawned: true }) : {}   // a goal's first explore is its clarify explorer (ADR 0020); the next one asks the goal's own question
   await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, seen: now, ...busy, ...(o.tool ? { tools: (s.run.tools ?? 0) + 1 } : {}) } }
-    : s.goalRun?.on ? { ...s, goalRun: { ...s.goalRun, seen: now, ...busy, ...(o.name ? { last: o.name, ...(o.name === 'Agent' || o.name === 'Task' ? (o.type === EXPLORE ? { explored: true } : { spawned: true }) : {}) } : {}) } } : s))   // the clarify explorer (ADR 0020) is not the ask step: a goal that only explored still owes its plan
+    : s.goalRun?.on ? { ...s, goalRun: { ...s.goalRun, seen: now, ...busy, ...(o.name ? { last: o.name, ...asked } : {}) } } : s))   // the clarify explorer (ADR 0020) is not the ask step: a goal that only explored still owes its plan
 }
 
 // ---- Claude's stop during a run (classic Stop): while a check Claude owns is red, the stop is refused with the list (at most 3 per run). A second stop with no tool
@@ -146,10 +147,10 @@ async function goalMissing(h: Host): Promise<string | null> {
   const p = (await h.board.read()).plan
   if (p && p.slug !== 'mission' && p.state !== 'done-on-dev' && p.state !== 'released') {
     if (p.state !== 'draft' || (await (await storeOf(h)).list({ parent: p.id })).some(t => t.type !== 'gate' && t.category !== 'cancelled')) return null   // drafted, or a plan already open (the goal was refused: main tells the user). The store, any open child: a lite plan's own task counts, and one the approval is turning open while the board still says draft (live: main drafted it again)
-    return p.lane === 'milestone' ? `Roadmap ${p.id} has no epics yet: draft them now, one TaskCreate per epic as the roadmap rules say, then tell the user to approve it in the dialog (key 1 opens it) and stop.`
-      : `Plan ${p.id} has no tasks yet: draft them now, one TaskCreate per task as the plan rules say, then tell the user to approve it in the dialog (key 1 opens it) and stop.`
+    return p.lane === 'milestone' ? `Roadmap ${p.id} has no epics yet: draft them now, one epic call per epic as the roadmap rules say, then tell the user to approve it in the dialog (key 1 opens it) and stop.`
+      : `Plan ${p.id} has no tasks yet: draft them now, one task call per task as the plan rules say, then tell the user to approve it in the dialog (key 1 opens it) and stop.`
   }
-  return 'The goal is not planned yet: draft the plan now. TaskCreate with metadata {"kind": "plan", "lane": "<lite|full|milestone>", "reason": "<one line>"} (lite: that one call is the whole plan; full: then one TaskCreate per task; milestone: then one TaskCreate per epic), then tell the user to approve it in the dialog (key 1 opens it) and stop. For a question (ask), spawn one Agent with it instead, then stop.'
+  return 'The goal is not planned yet: draft the plan now. plan {"title", "description", "lane": "<lite|full|milestone>", "reason": "<one line>"} (lite: that one call is the whole plan; full: then one task call per task; milestone: then one epic call per epic), then tell the user to approve it in the dialog (key 1 opens it) and stop. For a question (ask), call explore with it instead, then stop.'
 }
 async function goalStop(h: Host): Promise<string | null> {
   const g = (await h.secret.read()).goalRun; if (!g?.on || g.last === 'AskUserQuestion') return null   // it asked the user: their answer comes next

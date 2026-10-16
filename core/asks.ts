@@ -20,7 +20,7 @@ export async function asked(h: Host, agentId: string, e: { prompt?: string; tool
 }
 // the card main sees instead of the agent's text: role, status, one line of the answer (<= 200), where the rest is
 export const askCard = (a: Ask): string => [`EXPLORER ${a.id} "${a.q}"`, a.answer === undefined ? 'explorer → finishing its answer' : `explorer → answered (${a.cites ?? 0} citations)`,
-  `flags: ${a.auto ? 'auto-reported' : 'none'}`, ...(a.answer === undefined ? ['next: wait; the answer arrives on its own. Do not ask again.'] : [`answer: ${one(a.answer, 200)}`, `next: full answer: TaskGet ${a.id}`])].join('\n')
+  `flags: ${a.auto ? 'auto-reported' : 'none'}`, ...(a.answer === undefined ? ['next: wait; the answer arrives on its own. Do not ask again.'] : [`answer: ${one(a.answer, 200)}`, `next: full answer: explore {id:"${a.id}"}`])].join('\n')
 export const askTask = (a: Ask) => ({ id: a.id, subject: a.q, description: `${a.auto ? '(auto-reported: the explorer stopped without its report)\n' : ''}${a.answer ?? '(no answer yet)'}`, status: a.answer === undefined ? 'in_progress' : 'completed', blocks: [], blockedBy: [] })
 
 // report{role:"explorer"} from an ask (tools/index, after the envelope check)

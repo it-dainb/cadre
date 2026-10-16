@@ -25,7 +25,7 @@ describe('L1 capability (13.1)', () => {
     const h = await mk()
     expect(denied(await call(h, { tool: 'Bash', command: 'ls' }))).toBe(true)
     expect(denied(await call(h, { tool: 'Edit', file_path: '/x/repo/a.ts' }))).toBe(true)
-    expect(JSON.stringify(await call(h, { tool: 'Edit', file_path: '/x/repo/a.ts' }))).toContain('TaskCreate')   // the deny names main's next action
+    expect(JSON.stringify(await call(h, { tool: 'Edit', file_path: '/x/repo/a.ts' }))).toContain('plan the change with plan and task')   // the deny names main's next action
     expect(denied(await call(h, { tool: 'CronCreate' }))).toBe(true)
     expect((await call(h, { tool: 'Edit', file_path: '/hm/u/.claude.json' })).deny).toBe('that path is managed for you and cannot be edited; leave it alone')   // its project mcpServers/allowedTools widen what runs
     expect(await call(h, { tool: 'Read', file_path: '/x/repo/a.ts' })).toEqual({ ok: 'Read' })

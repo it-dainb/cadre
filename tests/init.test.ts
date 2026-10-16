@@ -13,7 +13,8 @@ import { skeleton } from '../core/changelog'
 import { BUDGET } from './fixtures/budget.generated'
 import type { Host } from '../types'
 import { banned } from './fixtures/wording'
-import { answer as taskCall } from '../native/tasks'
+import { taskCall } from './fixtures/native/world'
+import { scoped } from '../commands/init'
 import { goal as goalBrief } from '../core/lanes'
 
 type R = { exitCode: number; stdout?: string; stderr?: string }
@@ -97,10 +98,18 @@ describe('safety settings: written by cadre only after the human confirms the di
     expect(d.lines.join('\n')).toContain('sandbox.enabled'); expect(d.lines.join('\n')).toContain(`~/.claude/cadre.json: + repos.${RK}`); expect(d.lines.join('\n')).not.toMatch(/\b[0-9a-f]{8}\b/); expect(await h.secret.read()).not.toHaveProperty('initConfirm')
     expect(files[`${ROOT}/.claude/settings.local.json`]).toBe('{"permissions":{"allow":["Read"]}}'); expect(files[`${HOME}/.claude/cadre.json`]).toBeUndefined()
     await items(h); expect((await h.board.read()).decisions?.filter(x => x.id === 'init:5')).toHaveLength(1)   // a re-check does not re-ask
-    expect(await confirm(h)).toBe('init: safety settings written')
+    expect(await confirm(h)).toBe('init: safety settings written · restart Claude Code for the task-tool settings to apply')
     const s = JSON.parse(files[`${ROOT}/.claude/settings.local.json`]); expect(s.permissions.allow).toEqual(['Read']); expect(s.sandbox.allowUnsandboxedCommands).toBe(false); expect(s.sandbox.filesystem.allowWrite).toContain(`${HOME}/.cache/pnpm`)
     expect(files[`${ROOT}/.claude/settings.local.json.bak`]).toBe('{"permissions":{"allow":["Read"]}}'); expect(JSON.parse(files[`${HOME}/.claude/cadre.json`]).repos[RK].jailWritable).toEqual([`${HOME}/.cache/pnpm`])
     expect((await policyOf(h)).repo).toBe(ROOT); expect(Object.values(await items(h)).every(v => v === 'ok')).toBe(true)
+    expect(s.env).toEqual({ CLAUDE_CODE_ENABLE_TASKS: 'false', CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' }); expect(s.permissions.deny).toBeUndefined()   // the task-tool gate; never an Agent deny (it would stop cadre's own spawns)
+    expect(await h.store.get(await scoped(h, 'settings'))).toEqual({ rev: 1, added: ['CLAUDE_CODE_ENABLE_TASKS', 'CLAUDE_CODE_ENABLE_TODO_TOOLS'] }); expect(files[`${HOME}/.claude/settings.json`]).toBeUndefined()   // per repo; the user settings untouched
+  })
+  test('an older cadre\'s project (sandbox set, todo flag on, no task gate): the card adds only the gate; its todo flag counts as cadre\'s', async () => {
+    const { h, files } = mk({ files: { ...READY, [`${ROOT}/.claude/settings.local.json`]: '{"env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1","FOO":"x"}}' } }); await items(h)
+    const d = (await card(h, 'init:5'))!; expect(d.lines.join('\n')).toContain('+ env.CLAUDE_CODE_ENABLE_TASKS: "false"'); expect(d.lines.join('\n')).not.toContain('+ env.CLAUDE_CODE_ENABLE_TODO_TOOLS')
+    await confirm(h); expect(JSON.parse(files[`${ROOT}/.claude/settings.local.json`]).env).toEqual({ CLAUDE_CODE_ENABLE_TODO_TOOLS: '1', FOO: 'x', CLAUDE_CODE_ENABLE_TASKS: 'false' })
+    expect(((await h.store.get(await scoped(h, 'settings'))) as any).added).toEqual(['CLAUDE_CODE_ENABLE_TASKS', 'CLAUDE_CODE_ENABLE_TODO_TOOLS'])
   })
   test('settings changed since the human saw them: nothing written', async () => {
     const { h, files } = mk({ files: READY }); await items(h); files[`${ROOT}/.claude/settings.local.json`] = '{"x":1}'
@@ -152,7 +161,7 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
   test('done: the run ends (and with it the lease), the card says all done with Close, a toast; a confirm on the safety card finishes it', async () => {
     const { h, tick } = mk({ files: READY }); await start(h, 'init'); await tick()
     expect((await cadreRun(h, { args: 'init confirm', origin: { kind: 'press' } }, () => ({}))).text).not.toContain('written')   // typed never confirms (ADR 0012); the card stays
-    const d = (await card(h, 'init:5'))!; expect((await decide(h, d.id, 'a', d.hash)).text).toBe('init: safety settings written · init: all done')
+    const d = (await card(h, 'init:5'))!; expect((await decide(h, d.id, 'a', d.hash)).text).toBe('init: safety settings written · restart Claude Code for the task-tool settings to apply · init: all done')
     expect((await h.secret.read()).run).toBeUndefined(); const c = (await card(h))!; expect(c.title).toBe('init · all done'); expect(c.options.map(o => o.label)).toEqual(['Close']); expect(h.toasts).toContain('cadre: init done')
     expect((await decide(h, c.id, 'x', c.hash)).text).toBe('init: cancelled'); expect(await card(h)).toBeUndefined()
   })
@@ -259,7 +268,7 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     expect(await stopCheck(h, {})).toContain('repository: no git repository yet (phase 1)'); await seen(h, { tool: true })
     g.repo = true; g.branches.add('main'); g.branches.add('dev'); Object.assign(files, READY)   // git init -b main, the first commit, dev, exclude, config, changelog
     expect(await stopCheck(h, {})).toBeNull(); await turnEnd(h, {}); const c = (await card(h, 'init:5'))!
-    expect((await decide(h, c.id, 'a', c.hash)).text).toBe('init: safety settings written · init: all done · Claude plans your goal'); await tick()
+    expect((await decide(h, c.id, 'a', c.hash)).text).toBe('init: safety settings written · restart Claude Code for the task-tool settings to apply · init: all done · Claude plans your goal'); await tick()
     expect(sent.at(-1)).toMatch(/^Goal from the user: implement MGIoU 1D/)
   })
   test('cancel ends the run and its lease; the card goes', async () => {
@@ -321,7 +330,7 @@ describe('settings watch (ADR 0010): a settings file changed outside cadre durin
   })
   test("cadre's own confirmed write (the safety settings card) is not a change from outside", async () => {
     const { h, tick } = mk({ files: { ...READY, [`${ROOT}/.claude/settings.local.json`]: '{}' } }); await start(h, 'init'); await tick()
-    const d = (await card(h, 'init:5'))!; expect((await decide(h, d.id, 'a', d.hash)).text).toBe('init: safety settings written · init: all done')
+    const d = (await card(h, 'init:5'))!; expect((await decide(h, d.id, 'a', d.hash)).text).toBe('init: safety settings written · restart Claude Code for the task-tool settings to apply · init: all done')
     expect(await card(h, 'run:settings')).toBeUndefined()
   })
   test('a repo where cadre is off: during a run only the settings rule applies', async () => {
@@ -385,7 +394,7 @@ describe('onboarding: /cadre <goal> in a repo cadre is not set up in', () => {
     expect((await card(h))!.lines).toContain('✓ mission: you approve it with the plan'); expect(await card(h, 'init:goal')).toBeUndefined()
     files[CFG] = READY[CFG]; await turnEnd(h, {}); await tick(); await seen()   // Claude wrote the config (phase 1, 4); the rest already holds
     expect((await card(h))!.quiet).toBe(true)   // the checklist never pops in a goal run: only the safety card does
-    const c = (await card(h, 'init:5'))!; expect((await decide(h, c.id, 'a', c.hash)).text).toBe('init: safety settings written · init: all done · Claude plans your goal')
+    const c = (await card(h, 'init:5'))!; expect((await decide(h, c.id, 'a', c.hash)).text).toBe('init: safety settings written · restart Claude Code for the task-tool settings to apply · init: all done · Claude plans your goal')
     expect(await card(h)).toBeUndefined(); expect((await h.secret.read()).run).toBeUndefined(); await tick()
     expect(sent.at(-1)).toMatch(/^Goal from the user: fix the login bug\nThere is no mission yet\.\n\n# Work on a goal/)
     expect((await wake(h))).toBe(true)
@@ -409,7 +418,7 @@ describe('onboarding: /cadre <goal> in a repo cadre is not set up in', () => {
     await goal(h, 'yolo fix the login bug'); const d = (await card(h, 'init:goal'))!; await decide(h, d.id, 's', d.hash)
     expect((await h.secret.read()).run?.goal).toEqual({ text: 'fix the login bug', mode: 'yolo' })
     files[CFG] = READY[CFG]; await turnEnd(h, {}); const c = (await card(h, 'init:5'))!
-    expect((await decide(h, c.id, 'a', c.hash)).text).toBe('init: safety settings written · init: all done · Claude plans your goal'); await tick()
+    expect((await decide(h, c.id, 'a', c.hash)).text).toBe('init: safety settings written · restart Claude Code for the task-tool settings to apply · init: all done · Claude plans your goal'); await tick()
     expect((await h.ui.read()).mode).toBe('yolo')
     const n = boot({ setUp: false }); expect((await goal(n.h, 'fix it')).text).toBe('Welcome to cadre · run /cadre setup once on this machine'); expect((await n.h.board.read()).decisions ?? []).toEqual([])
   })
@@ -450,7 +459,7 @@ describe('known red before a goal', () => {
     await h.secret.update(s => ({ ...s, run: { kind: 'init' as const, at: 0, turns: 0, follow: 0, guide: 'g', goal: { text: 'fix it', mode: 'auto' as const } } }))
     expect((await items(h))['commands pass on a clean checkout']).toBe('ok: known red before your goal: .: test · it must turn green')
     const d = (await card(h, 'init:5'))!; expect(d.lines).toContain('  known red before your goal: .: test · it must turn green')
-    expect(await confirm(h)).toBe('init: safety settings written')
+    expect(await confirm(h)).toBe('init: safety settings written · restart Claude Code for the task-tool settings to apply')
     expect(JSON.parse(files[USR]).repos[RK].packages).toEqual([{ root: '.', knownRed: ['test'] }])
     expect((await load(h, { home: HOME, root: ROOT, repoKey: RK })).config.packages[0].knownRed).toEqual(['test'])
     const plain = mk({ files: READY, extra: jailed(['npm test']) }); expect((await items(plain.h))['commands pass on a clean checkout']).toContain('fail: .: test fails on a clean checkout')   // no goal: unchanged
@@ -470,7 +479,7 @@ describe('known red before a goal', () => {
       if (j === 'git rev-parse HEAD') return { exitCode: 0, stdout: 'new\n' }
       return jailed()(argv)
     } })
-    await initItems(h); expect(await confirm(h)).toBe('init: safety settings written · setup committed')
+    await initItems(h); expect(await confirm(h)).toBe('init: safety settings written · setup committed · restart Claude Code for the task-tool settings to apply')
     expect(calls.map(a => a.join(' '))).toEqual(expect.arrayContaining(['git commit --no-verify -m chore: set up cadre -- CHANGELOG.md', 'git merge-base --is-ancestor old new', 'git update-ref refs/heads/dev new old']))
   })
 })
@@ -483,16 +492,16 @@ describe('a goal run: main does not stop before the lane\'s step', () => {
   const on = async () => { const m = mk({ files: G }); Object.assign(m.h, { taskStore: async () => m.s }); await warm(m.h); await goalBrief(m.h, 'add titleCase(s)'); expect(await stopCheck(m.h, {})).toBeNull(); await m.tick(); return m }   // not refused before main has the brief
   test('a stop with no plan is refused twice with the missing step; the third goes through and the band says the plan was not drafted', async () => {
     const { h } = await on()
-    for (let i = 0; i < GOAL_FOLLOW; i++) { const t = await stopCheck(h, {}); expect(t).toMatch(/^The goal is not planned yet: draft the plan now\. TaskCreate/); expect(banned(t!)).toEqual([]); await seen(h, { tool: true, name: 'Read' }) }
+    for (let i = 0; i < GOAL_FOLLOW; i++) { const t = await stopCheck(h, {}); expect(t).toMatch(/^The goal is not planned yet: draft the plan now\. plan \{/); expect(banned(t!)).toEqual([]); await seen(h, { tool: true, name: 'Read' }) }
     expect(await stopCheck(h, {})).toBeNull(); expect((await h.secret.read()).goalRun).toBeUndefined()
     expect((await h.ui.read()).halt).toBe("the plan wasn't drafted · /cadre add titleCase(s) to try again")
     expect(txt(band2({ b: await h.board.read(), ui: await h.ui.read(), sec: await h.secret.read() } as any, 100, {} as any)).join('\n')).toContain("the plan wasn't drafted")
     await goalBrief(h, 'add titleCase(s)'); expect((await h.ui.read()).halt).toBeUndefined()   // trying again clears it
   })
-  test('the plan drafted (lite): the stop goes through and the run ends; an Agent spawned (ask) too', async () => {
+  test('the plan drafted (lite): the stop goes through and the run ends; an explore asked (ask) too', async () => {
     const { h } = await on(); expect(await stopCheck(h, {})).not.toBeNull()
     await taskCall(h, lite, async () => 'NEXT'); expect(await stopCheck(h, {})).toBeNull(); expect((await h.secret.read()).goalRun).toBeUndefined()
-    const a = await on(); await seen(a.h, { name: 'Agent' }); expect(await stopCheck(a.h, {})).toBeNull()
+    const a = await on(); await seen(a.h, { name: 'mcp__cadre__explore', ask: true }); await seen(a.h, { name: 'mcp__cadre__explore', ask: true }); expect(await stopCheck(a.h, {})).toBeNull()   // the first is the clarify explorer
   })
   test('the lite plan\'s own task counts even while its approval turns it open and the board still says draft (live: main drafted it again)', async () => {
     const m = await on(); await taskCall(m.h, lite, async () => 'NEXT'); await seen(m.h, { name: 'Read' })
@@ -503,13 +512,13 @@ describe('a goal run: main does not stop before the lane\'s step', () => {
     const { h } = await on(); await taskCall(h, { ...lite, metadata: { kind: 'plan', lane: 'full', reason: 'a feature' } }, async () => 'NEXT')
     const one = { tool: 'TaskCreate', tool_use_id: 'u', subject: 'Add titleCase', description: 'd', metadata: { type: 'feature', paths: ['src/title.js', 'test/title.test.js'] } }
     const a = await taskCall(h, one, async () => 'NEXT') as any, id = a.result.task.id
-    expect((await taskCall(h, { ...one, subject: '  add  TITLECASE ' }, async () => 'NEXT') as any).deny).toBe(`${id} already covers this (the same subject): TaskUpdate ${id} instead of adding a second task`)
+    expect((await taskCall(h, { ...one, subject: '  add  TITLECASE ' }, async () => 'NEXT') as any).deny).toBe(`${id} already covers this (the same title): amend ${id} instead of adding a second task`)
     expect((await taskCall(h, { ...one, subject: 'Other', metadata: { ...one.metadata, paths: ['test/title.test.js', 'src/title.js'] } }, async () => 'NEXT') as any).deny).toMatch(/already covers this \(the same files and description\)/)
     expect((await taskCall(h, { ...one, subject: 'Other', description: 'the next step on the same file', metadata: { ...one.metadata, paths: ['src/title.js', 'test/title.test.js'] } }, async () => 'NEXT') as any).result.task.id).toBeDefined()   // same files, another step: the overlap check orders them
   })
   test('a full plan with no tasks yet: refused naming the tasks', async () => {
     const { h } = await on(); await taskCall(h, { ...lite, metadata: { kind: 'plan', lane: 'full', reason: 'a feature' } }, async () => 'NEXT')
-    expect(await stopCheck(h, {})).toMatch(/^Plan \S+ has no tasks yet: draft them now, one TaskCreate per task/)
+    expect(await stopCheck(h, {})).toMatch(/^Plan \S+ has no tasks yet: draft them now, one task call per task/)
   })
   test('a stop right after a question to the user is not refused and not counted', async () => {
     const { h } = await on(); await seen(h, { name: 'AskUserQuestion' }); expect(await stopCheck(h, {})).toBeNull()

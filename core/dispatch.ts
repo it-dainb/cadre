@@ -108,7 +108,7 @@ export async function touched(h: Host, store: TaskStore, reg: TypeRegistry): Pro
   if (s.plan && !(await drafting(h))) await stamp(h, (await emit(h, 'approval.pending', { planId: s.plan.id, missing })).seq)
   return missing
 }
-// main's turn (turn.start .. turn.complete, an abort included). While it runs, every TaskCreate/addBlockedBy changes the plan, so a card offered then is answered
+// main's turn (turn.start .. turn.complete, an abort included). While it runs, every plan tool call changes the plan, so a card offered then is answered
 // against a moving draft (live 0.13.0: 3 refused presses and 3 approvals for one plan, an approval landing between main's calls). The card is drawn once, at its end.
 export const drafting = async (h: Host): Promise<boolean> => !!(await h.ui.read()).mainTurn
 export async function mainTurn(h: Host, on: boolean): Promise<void> {
@@ -187,8 +187,8 @@ async function approve(h: Host, c: Command): Promise<Out> {
   const self = (await h.board.read()).drive.spawn === 'mod', runs = 'Its tasks start, get reviewed and land by themselves; you hear one line as each lands.'   // mod mode (ADR 0018): main's turn ends at once and the spawner starts the tasks
   const byAgent = (await h.board.read()).drive.planner === 'agent'   // milestone.epicPlanner agent (ADR 0021): main plans no epic
   await queueBrief(h, isMs(plan) && byAgent ? `Milestone ${plan.id} is approved. Each epic's tasks are planned, started, reviewed and land by themselves; you hear one line as each lands. Nothing to do now: tell the user it is running and stop.`
-    : isMs(plan) ? `Milestone ${plan.id} is approved. Plan each epic when the next: line names it (TaskCreate its tasks with metadata.epic, then TaskUpdate the epic with metadata.planned true)${self ? `. ${runs}` : ', spawn ready tasks one by one, follow the cards, and complete each epic when its tasks are done.'}`
-    : self ? `Plan ${plan.id} is approved. ${runs} Nothing to do now: tell the user it is running and stop.` : `Plan ${plan.id} is approved: spawn its ready tasks one by one (each by its id), follow the cards until every task is done, then complete the plan (TaskUpdate ${plan.id} completed).`)   // drive's first push; drive continues at each turn end (ADR 0013)
+    : isMs(plan) ? `Milestone ${plan.id} is approved. Plan each epic when the next: line names it (task calls with epic, then epic {id, planned:true})${self ? `. ${runs}` : ', spawn ready tasks one by one, follow the cards, and complete each epic when its tasks are done.'}`
+    : self ? `Plan ${plan.id} is approved. ${runs} Nothing to do now: tell the user it is running and stop.` : `Plan ${plan.id} is approved: spawn its ready tasks one by one (each by its id), follow the cards until every task is done, then complete the plan (status {id:"${plan.id}", set:"completed"}).`)   // drive's first push; drive continues at each turn end (ADR 0013)
   return { text: `${isMs(plan) ? 'Milestone' : 'Plan'} ${plan.id} approved: ${plural(ids.length, isMs(plan) ? 'epic' : 'task')} ready${note}${dr ? ` · ${dr}` : ''}.` }
 }
 async function reject(h: Host, c: Command): Promise<Out> {

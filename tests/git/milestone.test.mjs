@@ -69,7 +69,7 @@ test('the milestone takes dev\'s news after a landing; the last epic lands the m
 test('one landing at a time: a second epic waits while one integrates', async () => {
   const { h, ep } = await world()
   await h.board.update(b => ({ ...b, plan: { ...b.plan, state: 'integrating' } }))
-  assert.match(await integrateEpic(h, ep[1]), /already running; call TaskUpdate completed again after it/)
+  assert.match(await integrateEpic(h, ep[1]), /already running; set it completed again \(status\) after it/)
 })
 test('red on the merged result while driving: one fix task in that epic; the 2nd red stops that epic only, the other still lands', async () => {
   const { d, h, store, ms, ep } = await world(['sh', '-c', '! test -f a.txt'], true), before = sh(d, 'rev-parse', ms)

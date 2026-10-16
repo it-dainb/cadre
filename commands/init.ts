@@ -89,15 +89,19 @@ async function changelog(c: Ctx): Promise<string | null> {
   const t = await c.h.readText(`${c.root}/${c.cfg.changelog.path}`); return t === null ? `${c.cfg.changelog.path} is missing` : kac(t) && `${c.cfg.changelog.path} ${kac(t)}`
 }
 
-// ---- containment: cadre writes it, after the human confirms the diff on its card ----
+// ---- containment and the task-tool gate: cadre writes them, after the human confirms the diff on its card ----
+// The gate (this repo only, read at launch): the built-in task tools off, the todo list on. GATE_REV moves when the gate changes; a repo whose stamp
+// (scoped 'settings' = {rev, added}) or file lags is asked to run /cadre init again (commands/doctor.nudge). added: the env keys cadre put there.
+export const GATE = { CLAUDE_CODE_ENABLE_TASKS: 'false', CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' }, GATE_REV = 1
+export const gated = (local: J) => Object.entries(GATE).every(([k, v]) => local?.env?.[k] === v)
 const SANDBOX = (wt: string, repo: string, caches: string[]) => ({
-  env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' },
+  env: GATE,
   sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, autoAllowBashIfSandboxed: true, filesystem: { allowWrite: [wt, ...caches], denyWrite: [repo] } },   // ref entries are redundant under the repo-level deny (ADR 0001 S24)
 })
 const wtOf = async (c: Ctx) => `${await realRoot(c.h, await wtRootOf(c.h, c.cfg))}/${c.rk}`   // realpath'd like contain()'s wtRoot (symlinked ~/.cache)
 const realOf = async (c: Ctx) => (await c.h.stat(c.root, { resolve: true }))?.realPath ?? c.root
 async function contained(c: Ctx): Promise<boolean> {   // $.settings.read() is this session's: it shows the new file only after a restart, so a confirm this session counts
-  return (await c.h.board.read()).init.some(i => i.stage === 5 && i.state === 'done') || assess(await c.h.settings().catch(() => ({})), await realOf(c), await wtOf(c)).state === 'contained'
+  return (await c.h.board.read()).init.some(i => i.stage === 5 && i.state === 'done') || (assess(await c.h.settings().catch(() => ({})), await realOf(c), await wtOf(c)).state === 'contained' && gated(await readJ(c.h, `${c.root}/.claude/settings.local.json`)))
 }
 const redLine = (red: Red[]) => `known red before your goal: ${red.map(x => `${x.root}: ${x.n}`).join(', ')} · it must turn green`
 const grant = (pk: any[] = [], red: Red[]) => red.reduce((l, x) => (l.some(p => p.root === x.root) ? l.map(p => (p.root === x.root ? { ...p, knownRed: union(p.knownRed, [x.n]) } : p)) : [...l, { root: x.root, knownRed: [x.n] }]), pk)   // packages[].knownRed is granted only by the user layer (config relockKnownRed)
@@ -121,12 +125,14 @@ export async function confirm(h: Host): Promise<string> {
   const c = await ctxOf(h), pend = (await h.ui.read())['init.pending'] as { sig: string; caches: string[]; red?: Red[] } | undefined, good = await initConfirm(h, 5)
   if (!good || !pend) return 'init: nothing pending; the card shows the current diff'
   const p = await plan5(c, pend.caches, pend.red); if (p.sig !== pend.sig) return 'init: the settings files changed since you saw them; nothing written'
+  const was = await readJ(h, `${c.root}/.claude/settings.local.json`), added = Object.keys(GATE).filter(k => was.env?.[k] === undefined || (k === 'CLAUDE_CODE_ENABLE_TODO_TOOLS' && was.env[k] === '1'))   // an older cadre's todo flag counts as cadre's
   for (const [path, text] of p.writes) { const old = await h.readText(path); if (old !== null && old !== text) await h.write(`${path}.bak`, old); if (old !== text) await h.write(path, text) }
+  await h.store.set(await scoped(h, 'settings'), { rev: GATE_REV, added: [...new Set([...(((await h.store.get(await scoped(h, 'settings'))) as { added?: string[] } | undefined)?.added ?? []), ...added])] })
   await setPolicy(h, { repo: p.real, wtRoot: p.wt, home: c.home })   // the band follows on the tick (policy/containment.heal): the session reads the new file a moment later
   await h.ui.update(({ 'init.pending': _p, ...u }) => u); await settle(h, 'init:5')
   await h.board.update(b => ({ ...b, init: [...b.init.filter(i => i.stage !== 5), { stage: 5, state: 'done' }] }))
   const sha = await commitSetup(c).catch(() => null)
-  return `init: safety settings written${sha ? ' · setup committed' : ''}`
+  return `init: safety settings written${sha ? ' · setup committed' : ''} · restart Claude Code for the task-tool settings to apply`
 }
 
 // The setup files (config, changelog) must be committed: a clone and dev need them (a release refuses without the changelog on dev). cadre commits them after the

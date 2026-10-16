@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { confirmUser, doctor, machine, nudge, setupItems } from '../commands/doctor'
+import { confirmUser, doctor, machine, nudge, setupItems, toolsRow } from '../commands/doctor'
+import { scoped } from '../commands/init'
 import { defaults } from '../config/index'
 import { settle } from '../core/decide'
 import { banned } from './fixtures/wording'
@@ -73,27 +74,28 @@ describe('machine checks', () => {
 
 describe('setup checklist (ADR 0010): checks only, Claude fixes', () => {
   const NOBD = { git: 'git version 2.43.0', bwrap: 'bubblewrap 0.11.0', socat: 'x' }, DIR = `${HOME}/.cache/cadre/fix`, LINE = 'sudo sh ~/.cache/cadre/fix/bwrap-apparmor.sh'
-  const SET = { [USER]: '{"env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"}}' }
+  const SET = { [USER]: '{"theme":"dark"}' }
   test('nothing open: every item ok and the stamp is written', async () => {
     const h = mk({ files: SET }), its = await setupItems(h)
     expect(its.every(i => i.st === 'ok')).toBe(true); expect(await h.store.get('cadre:setup')).toMatchObject({ cc: '2.1.295' })
   })
   test('runs nothing that changes the machine: no install, no settings write; the fails name the command Claude runs', async () => {
     const h = mk({ tools: NOBD }), its = await setupItems(h)
-    expect(h.calls.some(a => a[0] === 'npm' && a[1] === 'install')).toBe(false); expect(h.writes).toEqual([]); expect(await h.store.get('cadre:setup')).toBeUndefined()
+    expect(h.calls.some(a => a[0] === 'npm' && a[1] === 'install')).toBe(false); expect(h.writes).toEqual([])
     expect(its.filter(i => i.st === 'fail')).toEqual([])
-    expect(its.find(i => i.st === 'wait')).toEqual({ name: 'user settings lack env CLAUDE_CODE_ENABLE_TODO_TOOLS="1"', st: 'wait', why: 'confirm the user settings: press 1' })   // never Claude's to edit
+    expect(its.find(i => i.st === 'wait')).toBeUndefined()   // nothing of cadre's goes into the user settings any more
     expect(banned(its.filter(i => i.st === 'fail').map(i => `${i.name}: ${i.why}`))).toEqual([])
     expect(h.logs).toHaveLength(1); await setupItems(h); expect(h.logs).toHaveLength(1)   // same result again: no new transcript row
   })
-  test('user settings: cadre shows the merge on a card and writes it only after Confirm (.bak, re-read); with nothing pending it writes nothing; changed bytes are refused', async () => {
-    const h = mk({ files: { [USER]: '{"theme":"dark"}\n' } }); await setupItems(h)
-    const d = (await h.board.read()).decisions!.find(x => x.id === 'init:91')!; expect(d.title).toBe('setup · user settings · confirm'); expect(d.lines.join('\n')).toContain('env.CLAUDE_CODE_ENABLE_TODO_TOOLS')
-    expect(h.files[USER]).toBe('{"theme":"dark"}\n'); await settle(h, 'init:91'); expect(await confirmUser(h)).toContain('nothing pending'); expect(h.files[USER]).toBe('{"theme":"dark"}\n')
-    await setupItems(h); h.files[USER] = '{"theme":"light"}\n'
-    expect(await confirmUser(h)).toContain('changed since you saw it'); expect(h.files[USER]).toBe('{"theme":"light"}\n')
+  test('user settings: an older cadre\'s todo flag is a warn row and a card that removes it only after Confirm (.bak, re-read); changed bytes are refused', async () => {
+    const OLD = '{"theme":"dark","env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"}}\n', h = mk({ files: { [USER]: OLD } }), its = await setupItems(h)
+    expect(its.find(i => i.st === 'warn' && i.name.startsWith('user settings carry'))).toBeDefined(); expect(its.some(i => i.st === 'fail')).toBe(false)   // a warn never blocks setup
+    const d = (await h.board.read()).decisions!.find(x => x.id === 'init:91')!; expect(d.title).toBe('setup · user settings · confirm'); expect(d.lines.join('\n')).toContain('- env.CLAUDE_CODE_ENABLE_TODO_TOOLS')
+    expect(h.files[USER]).toBe(OLD); await settle(h, 'init:91'); expect(await confirmUser(h)).toContain('nothing pending'); expect(h.files[USER]).toBe(OLD)
+    await setupItems(h); h.files[USER] = '{"theme":"light","env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1","X":"y"}}\n'
+    expect(await confirmUser(h)).toContain('changed since you saw it')
     await setupItems(h); expect(await confirmUser(h)).toBe('setup: user settings written')
-    expect(JSON.parse(h.files[USER])).toEqual({ theme: 'light', env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } }); expect(h.files[`${USER}.bak`]).toBe('{"theme":"light"}\n')
+    expect(JSON.parse(h.files[USER])).toEqual({ theme: 'light', env: { X: 'y' } }); expect(h.files[`${USER}.bak`]).toContain('CLAUDE_CODE_ENABLE_TODO_TOOLS')
     expect((await setupItems(h)).every(i => i.st === 'ok')).toBe(true)
   })
   test('git identity missing: a fail that says to ask, never a made-up identity', async () => {
@@ -102,7 +104,7 @@ describe('setup checklist (ADR 0010): checks only, Claude fixes', () => {
   })
   test('warn rows never block; no stamp while a fail is open; the toast asks for setup until a stamp for this build exists', async () => {
     const h = mk({ files: SET, cc: '2.1.296' }); expect((await setupItems(h)).filter(i => i.st === 'warn')).toHaveLength(1); expect(await h.store.get('cadre:setup')).toMatchObject({ cc: '2.1.296' })
-    const n = mk({ tools: NOBD }); await setupItems(n); expect(await n.store.get('cadre:setup')).toBeUndefined(); await nudge(n); expect(n.toasts).toEqual(['cadre: run /cadre setup'])
+    const n = mk({ files: SET, noIdent: { on: true } }); await setupItems(n); expect(await n.store.get('cadre:setup')).toBeUndefined(); await nudge(n); expect(n.toasts).toEqual(['cadre: run /cadre setup'])
   })
   test('sudo fixes: a script (0700, set -eu, header, the exact command), the item names the ONE short line; alternatives only in the README', async () => {
     const h = mk({ jail: 'none', files: { ...SET, '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n' } }), its = await setupItems(h)
@@ -173,4 +175,15 @@ describe('toasts', () => {
     await heal(h); expect((await h.board.read()).containment.state).toBe('contained'); expect(h.toasts).toEqual([])
     s = {}; await heal(h); expect((await h.board.read()).containment.state).toBe('contained')   // a real break shows at the next session start and in Doctor
   })
+})
+
+// the task-tool gate is per repo (commands/init.GATE, the stamp scoped 'settings'): one machine stamp, two repos; setting one up again leaves the other one asking
+test('the task-tool gate per repo: repo A set up again, repo B still toasts "run /cadre init" and shows the crit row', async () => {
+  const GATED = JSON.stringify({ env: { CLAUDE_CODE_ENABLE_TASKS: 'false', CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } })
+  const a = Object.assign(fakeHost({ files: { '/repo/.claude/settings.local.json': GATED } }), { version: async () => '2.1.299' }) as Host & { toasts: string[] }
+  const b = Object.assign(fakeHost({ files: { '/repo2/.claude/settings.local.json': '{"env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"}}' } }), { version: async () => '2.1.299', store: a.store, cwd: async () => '/repo2' }) as Host & { toasts: string[] }
+  await a.store.set('cadre:setup', { cc: '2.1.299' }); await a.store.set(await scoped(a, 'settings'), { rev: 1, added: ['CLAUDE_CODE_ENABLE_TASKS'] })
+  for (const h of [a, b]) await h.secret.update(s => ({ ...s, active: true, tools: { on: ['report', 'plan'], refused: [] } }))
+  await nudge(a); await nudge(b); expect(a.toasts).toEqual([]); expect(b.toasts).toEqual(['cadre: run /cadre init'])
+  expect(await toolsRow(a)).toEqual(['ok', 'cadre tools loaded']); expect(await toolsRow(b)).toEqual(['crit', 'settings.local lacks the task-tool gate', '/cadre init'])
 })

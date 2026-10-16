@@ -6,7 +6,7 @@ import { validateFields, missingList, overlap } from '../core/validate'
 import { defaults as typeDefaults } from '../task-management/registry'
 import { guard, policyOf, setPolicy } from '../policy/guards'
 import { brief } from '../core/briefs'
-import { planRules } from '../native/tasks'
+import { planRules } from '../core/plantools'
 import { task } from './support'
 import type { Binding } from '../types'
 import { lockCore } from '../core/rebase'
@@ -59,7 +59,7 @@ describe('briefs and planner rules', () => {
   })
   test('the plan rules ask for paths, a thin core first, vertical slices and one shared exploration; still within 1.5 KB', () => {
     const r = planRules(reg)
-    for (const s of ['metadata.paths', 'ONE thin core task first', 'vertical slice', 'smoke assertion', 'metadata.notes']) expect(r).toContain(s)
+    for (const s of ['paths per task', 'ONE thin core task first', 'vertical slice', 'smoke assertion', 'plan\'s notes']) expect(r).toContain(s)
     expect(new TextEncoder().encode(r).length).toBeLessThanOrEqual(1536)
   })
 })

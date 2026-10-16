@@ -117,10 +117,10 @@ describe('a lite plan end to end in the store (native/tasks)', () => {
   })
   test('validation: lane and reason only with kind plan; lane values; repro is a boolean', async () => {
     const w = await world()
-    expect((await w.call('TaskCreate', { subject: 'x', description: 'd', metadata: { kind: 'plan', lane: 'quick' } })).deny).toContain('metadata.lane')
+    expect((await w.call('TaskCreate', { subject: 'x', description: 'd', metadata: { kind: 'plan', lane: 'quick' } })).deny).toContain('lane: expected one of')
     await w.call('TaskCreate', { subject: 'P', description: 'd', metadata: { kind: 'plan', lane: 'full', reason: 'big' } })
-    expect((await w.call('TaskCreate', { subject: 'x', description: 'd', metadata: { lane: 'lite' } })).deny).toContain('with "kind":"plan"')
-    expect((await w.call('TaskCreate', { subject: 'x', description: 'd', metadata: { repro: 'yes' } })).deny).toContain('metadata.repro')
+    expect((await w.call('TaskCreate', { subject: 'x', description: 'd', metadata: { lane: 'lite' } })).deny).toContain('lane: unknown field')
+    expect((await w.call('TaskCreate', { subject: 'x', description: 'd', metadata: { repro: 'yes' } })).deny).toContain('repro: expected a boolean')
   })
 })
 
@@ -138,7 +138,7 @@ describe('the card: lane line + [l] Lane (core/lanes)', () => {
     expect(s.plan).toMatchObject({ lane: 'full', laneReason: 'changed by you', state: 'draft' }); expect(t.meta['cadre.lane']).toBe(''); expect(s.approval.missing[0]).toContain('scenarios')
     expect((await w.h.ui.read()).goal).toContain('full lane')
     expect(await changeLane(w.h, w.store, reg, id)).toContain('ask lane')
-    expect((await w.h.board.read()).plan).toBeNull(); expect(await w.store.list({ parent: id })).toEqual([]); expect((await w.h.ui.read()).goal).toContain('Spawn one Agent')
+    expect((await w.h.board.read()).plan).toBeNull(); expect(await w.store.list({ parent: id })).toEqual([]); expect((await w.h.ui.read()).goal).toContain('Call explore with this question')
     expect(await changeLane(w.h, w.store, reg, id)).toContain('refused')
   })
   test('lane is a press-only command: typed it is a hint', async () => {

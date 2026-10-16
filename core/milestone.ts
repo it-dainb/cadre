@@ -40,7 +40,7 @@ export async function roadmap(store: TaskStore, ms: string, max: number, prefix:
 export async function planEpic(h: Host, store: TaskStore, reg: TypeRegistry, id: string, by?: string): Promise<string | null> {   // by: who drafted it, when not main (core/planner)
   const s = await h.board.read(), p = s.plan, e = epicOf(s, id)
   if (!p || !e || p.state !== 'approved') return `${id} is not an epic of the running milestone`
-  if (e.state !== 'planning') return e.state === 'ready' ? `${id} has no tasks yet: TaskCreate them with metadata.epic "${id}" first` : `${id} is ${e.state}; plan an epic when the next: line names it`
+  if (e.state !== 'planning') return e.state === 'ready' ? `${id} has no tasks yet: add them with task, epic "${id}", first` : `${id} is ${e.state}; plan an epic when the next: line names it`
   const drafts = await draftsOf(store, id), miss = missingList(drafts, reg); if (miss.length) return `incomplete, missing: ${miss.join('; ')}`
   const root = await h.cwd()
   await op(h, async () => { if (!(await exists(h.run, root, e.branch))) await git(h.run, root, ['branch', e.branch, p.epicBranch]) })

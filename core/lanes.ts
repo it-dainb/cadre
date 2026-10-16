@@ -52,9 +52,9 @@ export async function retouch(h: Host, store: TaskStore, reg: TypeRegistry): Pro
 // the roadmap rules (main's planning API for the milestone lane), in the plan's first answer and in a lane change brief
 export const roadmapRules = (id = '<plan id>'): string => [
   'Roadmap rules',
-  '- Every later TaskCreate is one epic of this milestone: subject = its name, description = its goal in one line, metadata {"size": <its tasks, 1-7>, "paths": ["files or folders it changes"]}. Order epics with TaskUpdate addBlockedBy.',
-  '- An epic is a plan of 1-7 tasks that works on its own. Code that 2+ epics need goes into ONE thin core epic first (metadata.core:true, size 1-2) that blocks them. Two epics on one path need a dependency. Epics with no dependency path between them run at the same time.',
-  `- When "missing:" says critic review: spawn ONE Agent (no task id) with the whole roadmap in its prompt (each epic: id, name, goal, size, paths, dependencies) and ask it for gaps, overlaps, a wrong order, epics too big or too small, and a missing core epic. Fix what it gets right, then TaskUpdate ${id} with metadata.critique "<what it found and what you changed>".`,
+  '- Each epic is one epic call: title = its name, goal = its goal in one line, size = its tasks (1-7), paths = the files or folders it changes. Order epics with after: ["<id>"].',
+  '- An epic is a plan of 1-7 tasks that works on its own. Code that 2+ epics need goes into ONE thin core epic first (core:true, size 1-2) that the others wait for. Two epics on one path need a dependency. Epics with no dependency path between them run at the same time.',
+  `- When "missing:" says critic review: call explore ONCE with the whole roadmap in the question (each epic: id, name, goal, size, paths, dependencies) and ask for gaps, overlaps, a wrong order, epics too big or too small, and a missing core epic. Fix what it gets right, then amend ${id} with critique "<what it found and what you changed>".`,
   '- The user approves the roadmap only. Each epic\'s tasks are planned when the next: line names the epic.',
 ].join('\n')
 // the decision's first line (core/dispatch.redraw): "auto · lite · 1 task · fix · <reason>" (the mode drive runs it in, ADR 0013); an override names itself
@@ -82,7 +82,7 @@ export async function changeLane(h: Host, store: TaskStore, reg: TypeRegistry, p
     await store.dropDrafts([...drafts.map(t => t.id), p.id])
     await store.record('decision', `Plan ${p.id} moved to the ask lane`, epic.title)
     await h.board.update(b => ({ ...b, plan: null, epic: null, tasks: [], approval: { planId: null, missing: [] }, sheet: [] }) as typeof b); await settleIf(h, 'plan:')
-    await queueBrief(h, `The user moved "${epic.title}" to the ask lane: it needs an answer, not a change. Spawn one Agent with this question as its prompt and stop:\n${epic.title}\n${epic.description}`.trim())
+    await queueBrief(h, `The user made "${epic.title}" a question: it needs an answer, not a change. Call explore with this question and stop:\n${epic.title}\n${epic.description}`.trim())
     return `${p.id}: moved to the ask lane · Claude asks an explorer`
   }
   const ms = to === 'milestone' || p.lane === 'milestone'
@@ -90,7 +90,7 @@ export async function changeLane(h: Host, store: TaskStore, reg: TypeRegistry, p
   await store.setMeta(p.id, { 'cadre.lane': to, 'cadre.laneReason': 'changed by you' }, 'human')
   await retouch(h, store, reg)
   if (to === 'milestone') await queueBrief(h, `The user moved plan ${p.id} to the milestone lane: its tasks were dropped. Draft it as a roadmap of epics instead.\n${roadmapRules(p.id)}`)
-  else if (ms) await queueBrief(h, `The user moved plan ${p.id} from the milestone lane to one plan: its epics were dropped. Draft its tasks now (TaskCreate per task, as the plan rules say), then tell the user to approve it in the dialog (key 1 opens it).`)
+  else if (ms) await queueBrief(h, `The user made plan ${p.id} one plan instead of a milestone: its epics were dropped. Draft its tasks now (one task call per task, as the plan rules say), then tell the user to approve it in the dialog (key 1 opens it).`)
   else if (to === 'full') await queueBrief(h, `The user moved plan ${p.id} to the full lane. Give each task what the plan rules ask (scenarios, interface, changelog, package) and split it into tasks if needed; the "missing:" line says what is left. Then tell the user to approve it in the dialog (key 1 opens it).`)
   return `${p.id}: lane ${to}`
 }

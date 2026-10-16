@@ -17,8 +17,8 @@ Done when all seven hold.
 Nothing to run: cadre creates its task store in `.cadre/state` by itself.
 
 ## Phase 3: mission (only when no goal comes next)
-If your brief says the user's goal comes next, do nothing in this phase: no question and no TaskCreate. The mission goes into that goal's plan later.
-Otherwise ask the user with AskUserQuestion, in one round: the goal in one line, the constraints, the non-goals. Then draft it with TaskCreate: subject = the goal, description = `Goal: …\nConstraints: …\nNon-goals: …`, metadata `{"kind": "mission"}`.
+If your brief says the user's goal comes next, do nothing in this phase: no question and no plan call. The mission goes into that goal's plan later.
+Otherwise ask the user with AskUserQuestion, in one round: the goal in one line, the constraints, the non-goals. Then draft it with plan: `"kind": "mission"`, title = the goal, description = `Goal: …\nConstraints: …\nNon-goals: …`.
 Tell the user to approve the mission in the cadre dialog (key 1 opens it). Do not wait for it: go on with phase 4.
 
 ## Phase 4: build and test commands

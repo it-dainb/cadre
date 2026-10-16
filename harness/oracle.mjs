@@ -150,13 +150,13 @@ if (wantLanded && !drv.some(e => e.kind === 'landed')) fail('not-landed', `dev: 
 {
   const n = +(process.env.EPIC_PLANNERS ?? 0), js = walk(join(dir, 'jsonl')).filter(f => f.endsWith('.jsonl'))
   if (n) {
-    const ok = js.filter(f => /plan accepted: \d+ tasks approved/.test(read(f))).length, own = js.filter(f => !f.includes('/subagents/')).flatMap(f => read(f).split('\n')).find(l => l.includes('"name":"TaskCreate"') && /\\?"epic\\?":\s*\\?"/.test(l))
+    const ok = js.filter(f => /plan accepted: \d+ tasks approved/.test(read(f))).length, own = js.filter(f => !f.includes('/subagents/')).flatMap(f => read(f).split('\n')).find(l => l.includes('"name":"mcp__cadre__task"') && /\\?"epic\\?":\s*\\?"/.test(l))
     stats.planners = ok
     if (ok < n) fail('epic-planner', `${ok} of ${n} epic plans came from a planner agent`)
-    if (own) fail('epic-planner', `main drafted an epic's tasks: ${own.match(/"subject":"[^"]*"/)?.[0] ?? 'TaskCreate with metadata.epic'}`)
+    if (own) fail('epic-planner', `main drafted an epic's tasks: ${own.match(/"subject":"[^"]*"/)?.[0] ?? 'a task with epic'}`)
   }
 }
-// 12. clarify (CLARIFY=ask|none|assumed|deep): main's own calls before the plan, from its transcript (not the agents'): one explorer (Agent type Explore);
+// 12. clarify (CLARIFY=ask|none|assumed|deep): main's own calls before the plan, from its transcript (not the agents'): one explorer (its explore tool with a question);
 //     ask: one AskUserQuestion that went through, 1-3 questions; none: no question; assumed: no question and the plan dialog lists "assumed:"; deep: 1-8 questions, one per call
 if (process.env.CLARIFY) {
   const ok = new Map(), calls = []
@@ -166,7 +166,7 @@ if (process.env.CLARIFY) {
     if (d.type === 'assistant') for (const b of c) if (b.type === 'tool_use') calls.push(b)
     if (d.type === 'user') for (const b of c) if (b.type === 'tool_result') ok.set(b.tool_use_id, !b.is_error)
   }
-  const went = calls.filter(b => ok.get(b.id)), explore = went.filter(b => b.name === 'Agent' && b.input?.subagent_type === 'Explore').length
+  const went = calls.filter(b => ok.get(b.id)), explore = went.filter(b => b.name === 'mcp__cadre__explore' && b.input?.question).length
   const qs = went.filter(b => b.name === 'AskUserQuestion').map(b => b.input?.questions?.length ?? 0), want = process.env.CLARIFY
   const assumed = panes.some(p => /approve/.test(p.text) && /assumed:/.test(p.text))
   Object.assign(stats, { explorers: explore, questions: qs })

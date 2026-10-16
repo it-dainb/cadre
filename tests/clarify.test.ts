@@ -5,7 +5,7 @@ import { clarifyCall, clarifyCheck, deepLine, guideOf, nextStep } from '../core/
 import { goal, sendBrief } from '../core/lanes'
 import { seen, stopCheck } from '../commands/agentrun'
 import { parse, status } from '../commands/cadre'
-import { answer as taskCall } from '../native/tasks'
+import { taskCall } from './fixtures/native/world'
 import { warm } from '../core/session'
 import { defaults } from '../config/index'
 import type { Config } from '../config/index'
@@ -21,10 +21,10 @@ async function on(o: { mode?: 'auto' | 'yolo'; deep?: boolean; cfg?: (c: Config)
   const s = new MemoryStore(), sent: string[] = [], h = Object.assign(fakeHost({ files: { '/plug/guides/goal.md': G, '/plug/guides/deep.md': DEEP } }), { root: async () => '/plug', config: async () => c, taskStore: async () => s, submit: async (t: string) => { sent.push(t) } })
   await s.init({ journal: true } as any); await h.board.update(b => ({ ...b, mission: 'ship it' })); await warm(h)
   await goal(h, 'add a section to the landing page', o.mode ?? 'auto', !!o.deep); await sendBrief(h)
-  const call = async (e: any) => { const d = await clarifyCall(h, e); if (d) return d; if (e.tool === 'TaskCreate') { await seen(h, { name: 'TaskCreate' }); return taskCall(h, { tool_use_id: 'u', ...e }, async () => 'NEXT') } return 'PASS' }   // seen: main's tool, as the inner tool.call does
+  const call = async (e: any) => { const d = await clarifyCall(h, e); if (d) return d; if (e.tool === 'TaskCreate') { await seen(h, { name: 'mcp__cadre__plan' }); return taskCall(h, { tool_use_id: 'u', ...e }) } return 'PASS' }   // seen: main's tool, as the inner tool.call does
   const clarity = (v: Record<string, number>) => call({ tool: 'TaskCreate', subject: 'clarity', description: '', metadata: { kind: 'clarity', ...v } })
   const askQ = async (n: number) => { const r = await call({ tool: 'AskUserQuestion', questions: Array.from({ length: n }, (_, i) => ({ question: `q${i}` })) }); if (r === 'PASS') await seen(h, { name: 'AskUserQuestion' }); return r }
-  const explore = async () => { const r = await call({ tool: 'Agent', subagent_type: 'Explore', prompt: 'what does it touch' }); if (r === 'PASS') { await seen(h, { name: 'Agent', type: 'Explore' }); await h.ui.update(u => ({ ...u, asks: { a1: { id: 'ask-1', q: 'x', k: 0 } } })) } return r }
+  const explore = async () => { await seen(h, { name: 'mcp__cadre__explore', ask: true }); await h.ui.update(u => ({ ...u, asks: { a1: { id: 'ask-1', q: 'x', k: 0 } } })) }   // main's explore tool: the first of a goal run is its clarify explorer
   const answered = () => h.ui.update(u => ({ ...u, asks: { a1: { id: 'ask-1', q: 'x', k: 0, answer: 'Hero, Navbar, Timeline in components/' } } }))
   return { h, s, sent, call, clarity, askQ, explore, answered }
 }
@@ -41,9 +41,8 @@ describe('clarify gate (default on)', () => {
   })
   test('a vague goal: explorer first → clarity → at most 3 informed questions in ONE round → the plan', async () => {
     const w = await on()
-    expect(ctx(await w.clarity(VAGUE))).toMatch(/^spawn one explorer first: an Agent with subagent_type "Explore"/)
-    expect(await w.explore()).toBe('PASS')
-    expect(ctx(await w.explore())).toBe('one explorer per goal: use the answer you have')
+    expect(ctx(await w.clarity(VAGUE))).toMatch(/^call explore first with what in the project the goal touches/)
+    await w.explore()
     expect(await stopCheck(w.h, {})).toBeNull()   // the explorer is still answering: its answer brings the next turn
     await w.answered(); expect(await stopCheck(w.h, {})).toMatch(/^The goal is not planned yet/)   // carry-over: exploring is not the ask step
     expect(ctx(await w.askQ(1))).toMatch(/^record the clarity first/)
@@ -71,7 +70,7 @@ describe('clarify gate (default on)', () => {
     expect(ctx(await w.clarity(VAGUE))).toMatch(/unclear: scope, acceptance\. Do not ask the user/)
     expect(ctx(await w.askQ(1))).toMatch(/^do not ask the user here/)
     const plan = { tool: 'TaskCreate', subject: 'Add a Timeline section', description: 'components/Timeline', metadata: { kind: 'plan', lane: 'lite', reason: 'one section', type: 'feature', changelog: { category: 'Added', entry: 'timeline' } } }
-    expect(ctx(await w.call(plan))).toBe('list what you assumed for scope, acceptance: metadata.assumed on the plan, one line per point ("<point>: what you assumed")')
+    expect(ctx(await w.call(plan))).toBe('list what you assumed for scope, acceptance: assumed on the plan, one line per point ("<point>: what you assumed")')
     const ok = await w.call({ ...plan, metadata: { ...plan.metadata, assumed: ['scope: the Timeline section only', 'acceptance: it renders on the landing page'] } }); expect(ok.deny).toBeUndefined()
     const d = ((await w.h.board.read()).decisions ?? []).find(x => x.id.startsWith('plan:'))!
     expect(d.lines).toEqual(expect.arrayContaining(['assumed: scope: the Timeline section only', 'assumed: acceptance: it renders on the landing page']))
@@ -86,8 +85,11 @@ describe('clarify gate (default on)', () => {
     await w.call({ tool: 'TaskCreate', subject: 'Add a Timeline section', description: 'd', metadata: { kind: 'plan', lane: 'full', reason: 'a feature' } })
     expect(await stopCheck(w.h, {})).toMatch(/^Plan \S+ has no tasks yet/)
   })
-  test('the ask step: an Agent without the explorer type ends the goal run\'s check', async () => {
-    const w = await on(); await seen(w.h, { name: 'Agent' }); expect(await stopCheck(w.h, {})).toBeNull()
+  test('the ask step: a second explore (the goal\'s own question) ends the goal run\'s check; with clarify off the first one does', async () => {
+    const w = await on(); await w.explore(); await w.answered(); expect(await stopCheck(w.h, {})).toMatch(/^The goal is not planned yet/)
+    await seen(w.h, { name: 'mcp__cadre__explore', ask: true }); expect(await stopCheck(w.h, {})).toBeNull()
+    const v = await on({ cfg: c => { c.planning.clarify.enabled = false } }); await seen(v.h, { name: 'mcp__cadre__explore', ask: true }); expect(await stopCheck(v.h, {})).toBeNull()
+    const u = await on(); await seen(u.h, { name: 'mcp__cadre__explore' }); expect((await u.h.secret.read()).goalRun?.explored).toBeUndefined()   // reading an answer again ({id}) is no explorer
   })
 })
 

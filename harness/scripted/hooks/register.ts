@@ -31,24 +31,24 @@ function main(rows: Row[]): Act {
   if (g < 0) return { text: 'OK.' }
   const after = rows.slice(g + 1), calls = after.flatMap(r => (r.role === 'assistant' ? r.toolUses ?? [] : []))
   const has = (f: (c: { tool: string; input?: any }) => boolean) => calls.some(f)
-  const kind = (k: string) => has(c => c.tool === 'TaskCreate' && c.input?.metadata?.kind === k)
-  const ai = after.findIndex(r => r.role === 'assistant' && r.toolUses?.some(c => c.tool === 'Agent'))
-  const answered = ai >= 0 && after.slice(ai + 1).some(r => isText(r) || r.toolResults?.some(t => t.text && !/launched/i.test(t.text)))
+  const T = (n: string) => `mcp__cadre__${n}`, used = (n: string) => has(c => c.tool === T(n))   // main plans only through cadre's tools: plan, task, explore, ask
+  const ai = after.findIndex(r => r.role === 'assistant' && r.toolUses?.some(c => c.tool === T('explore')))
+  const answered = ai >= 0 && after.slice(ai + 1).some(r => isText(r) && /Result of ask-|its answer was already given/.test(r.text))   // the explorer's answer comes back as a message of its own
   if (after.filter(r => r.role === 'assistant').length > 8) return { text: 'Stopping: approve the plan in the dialog.' }
-  if (ai < 0) return { tool: 'Agent', input: { description: 'Explore the library', subagent_type: 'Explore', prompt: 'What in the project does adding titleCase(s) touch: where string helpers live, how they are exported, where the tests are?' } }
+  if (ai < 0) return { tool: T('explore'), input: { question: 'What in the project does adding titleCase(s) touch: where string helpers live, how they are exported, where the tests are?' } }
   if (!answered) return { text: 'Waiting for the explorer.' }
-  if (!kind('clarity')) return { tool: 'TaskCreate', input: { subject: 'clarity', description: 'Clarity of the goal after exploring.', metadata: { kind: 'clarity', outcome: 1, scope: 1, acceptance: 1, constraints: 1 } } }
+  if (!used('ask')) return { tool: T('ask'), input: { clarity: { outcome: 1, scope: 1, acceptance: 1, constraints: 1 } } }
   const mission = /There is no mission yet/.test(rows[g].text) ? { mission: 'Goal: add titleCase(s) to the library\nConstraints: none\nNon-goals: none' } : {}
   if (script === 'full') {
-    if (!kind('plan')) return { tool: 'TaskCreate', input: { subject: 'Add titleCase(s) to the library', description: 'A new public function titleCase(s) with node:test tests.', metadata: { kind: 'plan', lane: 'full', reason: 'a new public function', ...mission } } }
-    if (!has(c => c.tool === 'TaskCreate' && !c.input?.metadata?.kind)) return { tool: 'TaskCreate', input: { subject: 'titleCase(s) with node:test tests', description: 'Create src/titleCase.mjs exporting titleCase: uppercase the first letter of each whitespace-separated word, leave the rest unchanged.',
-      metadata: { type: 'feature', package: '.', paths: ['src/titleCase.mjs', 'test/titleCase.test.mjs'], scenarios: [`S1: Given 'hello big world' When titleCase is called Then it returns 'Hello Big World'`],
-        changelog: { category: 'Added', entry: 'titleCase(s) capitalises the first letter of each word' }, interface: { symbols: [{ name: 'titleCase', kind: 'function', params: ['s: string'], returns: 'string', status: 'new' }] } } } }
+    if (!used('plan')) return { tool: T('plan'), input: { title: 'Add titleCase(s) to the library', description: 'A new public function titleCase(s) with node:test tests.', lane: 'full', reason: 'a new public function', ...mission } }
+    if (!used('task')) return { tool: T('task'), input: { title: 'titleCase(s) with node:test tests', description: 'Create src/titleCase.mjs exporting titleCase: uppercase the first letter of each whitespace-separated word, leave the rest unchanged.',
+      type: 'feature', package: '.', paths: ['src/titleCase.mjs', 'test/titleCase.test.mjs'], scenarios: [`S1: Given 'hello big world' When titleCase is called Then it returns 'Hello Big World'`],
+      changelog: { category: 'Added', entry: 'titleCase(s) capitalises the first letter of each word' }, interface: { symbols: [{ name: 'titleCase', kind: 'function', params: ['s: string'], returns: 'string', status: 'new' }] } } }
     return { text: 'The plan is drafted: approve it in the dialog (key 1 opens it).' }
   }
-  if (!kind('plan')) {
-    return { tool: 'TaskCreate', input: { subject: 'Add titleCase(s) with tests', description: 'Add titleCase(s) as a named export in src/titleCase.mjs, in the style of src/slug.mjs, with node:test tests in test/titleCase.test.mjs.',
-      metadata: { kind: 'plan', lane: 'lite', reason: 'one small function and its test', type: 'feature', changelog: { category: 'Added', entry: 'titleCase(s) capitalises the first letter of each word' }, ...mission } } }
+  if (!used('plan')) {
+    return { tool: T('plan'), input: { title: 'Add titleCase(s) with tests', description: 'Add titleCase(s) as a named export in src/titleCase.mjs, in the style of src/slug.mjs, with node:test tests in test/titleCase.test.mjs.',
+      lane: 'lite', reason: 'one small function and its test', type: 'feature', changelog: { category: 'Added', entry: 'titleCase(s) capitalises the first letter of each word' }, ...mission } }
   }
   return { text: 'The plan is drafted: approve it in the dialog (key 1 opens it).' }
 }

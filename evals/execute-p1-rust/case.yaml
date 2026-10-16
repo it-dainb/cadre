@@ -10,6 +10,6 @@ execution:
   model: sonnet
   max_turns: 150
   timeout_seconds: 2400
-  allowed_tools: [Read, Glob, Grep, Skill, Agent, TaskCreate, TaskUpdate, TaskList, TaskGet, "mcp__*"]
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, "mcp__*"]
   env:
     EVAL_STACK: rust

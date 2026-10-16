@@ -11,7 +11,7 @@ import { checkInput, refuse, tried, validateReport } from '../core/validate'
 import * as G from '../core/git'
 import { charge, runOf, step } from '../core/lifecycle'
 import { PLAN_TOOLS } from '../core/plantools'
-import { prefsCall } from '../commands/prefs'
+import { prefsTool } from '../commands/prefs'
 
 export const TOOLS = ['report', 'inspect', 'run_check'] as const
 const S = { type: 'string' }, ARR = { type: 'array' }
@@ -38,11 +38,13 @@ export const MAIN_SPECS = [
   { name: 'epic', isDeferred: false, description: 'Milestone only. Add an epic to the roadmap: title, goal, size (1-7 tasks), core?, paths?, after?. Or {id, planned:true} once its tasks are drafted. Answer: {id, plan, revision}.',
     inputSchema: { type: 'object', additionalProperties: false, properties: { id: L(64), title: L(200), goal: L(2000), size: { type: 'integer', minimum: 1 }, core: B, paths: LIST(20, 200), after: IDS, planned: B } } },
   { name: 'amend', isDeferred: false, description: 'Change a task (or the draft plan) by id: any field task takes, after (more ids to wait for), or remove:true for a draft. expectedRevision: the revision your last answer gave. An approved task needs reason and evidence; each scenario or field of it changes once.',
-    inputSchema: { type: 'object', additionalProperties: false, required: ['id', 'expectedRevision'], properties: { id: L(64), expectedRevision: N, title: L(200), description: L(8000), ...TASK, size: { type: 'integer', minimum: 1 }, after: IDS, remove: B, reason: L(500), evidence: L(1000) } } },
+    inputSchema: { type: 'object', additionalProperties: false, required: ['id', 'expectedRevision'], properties: { id: L(64), expectedRevision: N, title: L(200), description: L(8000), ...TASK, size: { type: 'integer', minimum: 1 }, critique: L(1500), after: IDS, remove: B, reason: L(500), evidence: L(1000) } } },
   { name: 'explore', isDeferred: false, description: 'Ask a read-only explorer a question about the code; it starts when your turn ends and its answer comes back as a message. {id} reads a full answer again.',
     inputSchema: { type: 'object', additionalProperties: false, properties: { question: L(2000), id: L(64) } } },
-  { name: 'ask', isDeferred: false, description: 'Record an open question for the user on the draft plan; the plan cannot be approved while one is open. Ask the user, then {id, answer} records their answer.',
-    inputSchema: { type: 'object', additionalProperties: false, properties: { question: L(500), id: L(16), answer: L(2000) } } },
+  { name: 'ask', isDeferred: false, description: 'Record an open question for the user on the draft plan; the plan cannot be approved while one is open. Ask the user, then {id, answer} records their answer. Before a goal\'s plan, {clarity:{outcome,scope,acceptance,constraints}} (each 0-1) records how clear it is; the answer says what comes next.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: { question: L(500), id: L(16), answer: L(2000), clarity: { type: 'object', properties: { outcome: { type: 'number' }, scope: { type: 'number' }, acceptance: { type: 'number' }, constraints: { type: 'number' } } } } } },
+  { name: 'status', isDeferred: false, description: 'Read the plan: {} lists its tasks, {id} shows one (scenarios, contract, changelog, records). Move one on: {id, set:"completed"} completes a task, epic or plan; "pending" gives a task back; "deleted" cancels it (reason). {id, decision} answers a blocked task.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: { id: L(64), set: { type: 'string', enum: ['completed', 'pending', 'deleted'] }, decision: L(1000), reason: L(300) } } },
 ] as const
 export const PREFS_SPEC = { name: 'preferences', isDeferred: false, description: 'Hand over the user\'s setup preferences: mode "auto"|"yolo", maxTurns, maxCostUsd, maxWallMinutes, maxParallel, maxEpics (0 = no limit on the last two). Only during setup.',
   inputSchema: { type: 'object', additionalProperties: false, properties: { mode: { type: 'string', enum: ['auto', 'yolo'] }, maxTurns: N, maxCostUsd: { type: 'number' }, maxWallMinutes: N, maxParallel: N, maxEpics: N } } } as const
@@ -54,9 +56,7 @@ export async function mainTool(h: Host, e: any): Promise<unknown> {
   const i = e.input ?? Object.fromEntries(Object.entries(e).filter(([k]) => !ENVELOPE.includes(k)))
   if (e.agentId) return { result: modelText('tool-result', bad(`${name} is for the main session; finish your own step with report`)) }
   const err = checkInput(spec.inputSchema, i); if (err) return { result: modelText('tool-result', bad(err)) }
-  if (name !== 'preferences') return PLAN_TOOLS[name](h, i)
-  const r: any = await prefsCall(h, { tool: 'TaskCreate', metadata: { kind: 'preferences', ...i } })
-  return r?.deny ? { result: modelText('tool-result', bad(String(r.deny).replaceAll('metadata.', ''))) } : r
+  return name === 'preferences' ? prefsTool(h, i) : PLAN_TOOLS[name](h, i)
 }
 
 const bad = (m: string) => `error: ${m}`

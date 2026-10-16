@@ -125,7 +125,7 @@ describe('review fixes', () => {
     const w = await world({ mode: 'main' }), [id] = w.ids; await w.at('ag1', id, 'worker')
     expect(await w.rep('ag1', { role: 'worker', outcome: 'blocked', summary: 'stuck', reason: 'which format?' })).toContain('blocked recorded')
     const r = await send(w.h, { to: 'ag1', text: 'use JSON' }, async () => ({ isDelivered: true })) as any
-    expect(r.isDelivered).toBe(false); expect(r.reason).toContain(`waits for the human's decision: ask them, then TaskUpdate ${id} metadata.decision "accept: …" or "reject: …"`)
+    expect(r.isDelivered).toBe(false); expect(r.reason).toContain(`waits for the human's decision: ask them, then status {id:"${id}", decision:"accept: …"} or "reject: …"`)
   })
   test('main mode: a retired agent is not said to have handed in its work: a fresh one takes over', async () => {
     const w = await world({ mode: 'main' }), [id] = w.ids; await w.at('ag1', id, 'worker'); await step(w.h, 'ag1', { type: 'retire' })

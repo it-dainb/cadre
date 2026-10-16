@@ -94,6 +94,13 @@ test('maxParallel: 3 ready tasks, limit 2 -> two start; a second turn end at onc
   assert.ok((await w.h.board.read()).drive.turns >= 2); assert.deepEqual(w.submitted, [])
 })
 
+test('maxParallel under contention: three turn ends at once, every await a little late, still two starts (picks are claimed before the next await)', async () => {
+  const w = await world(3, { maxParallel: 2 }); await arm(w.h, 'auto')
+  const up = w.h.ui.update; w.h.ui.update = async f => { await new Promise(r => setTimeout(r, 3)); return up(f) }   // widens every gap between a frame's read and its claim
+  await Promise.all([w.turn(), w.turn(), w.turn()])
+  assert.equal(w.spawned.length, 2); assert.equal((await w.h.board.read()).tasks.filter(t => t.state === 'active').length, 2)
+})
+
 test('lint: one spawn site. $.agent.spawn only in register.ts spawner(); spawner() only in turn.complete / command.run registrations; spawnAgent only in core/spawner', async () => {
   const root = new URL('../../', import.meta.url).pathname, src = f => readFileSync(join(root, f), 'utf8')
   const files = execFileSync('git', ['-C', root, 'ls-files', '*.ts'], { encoding: 'utf8' }).split('\n').filter(f => f && !f.startsWith('tests/') && !f.startsWith('harness/'))

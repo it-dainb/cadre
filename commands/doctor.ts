@@ -9,16 +9,15 @@ import { wtRootOf } from '../core/branches'
 import { qk } from '../core/session'
 import { assess } from '../policy/containment'
 import { policyOf } from '../policy/guards'
-import { apply as mapply, plan as mplan } from '../policy/settings'
 import { call } from '../task-management/protocol'
 import { openPane } from '../ui/index'
-import { progress, scoped, type Item } from './init'
+import { GATE_REV, gated, progress, scoped, type Item } from './init'
 import { prefsItem, prefsRow } from './prefs'
 import { doctorRows } from '../config/route'
 import { runOf } from '../core/lifecycle'
 
 export type Row = ['ok' | 'warn' | 'crit', string, string?]   // level, line, fix (a command for the human)
-const PIN = '2.1.295', EXITS = '2.1.299', STAMP = 'cadre:setup', USER_CARD = 91, PATCH = { env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } }
+const PIN = '2.1.295', EXITS = '2.1.299', STAMP = 'cadre:setup', USER_CARD = 91, TODO = 'CLAUDE_CODE_ENABLE_TODO_TOOLS'
 const ver = (s: string) => s.match(/\d+(\.\d+)+/)?.[0] ?? ''
 const atLeast = (v: string, min: string) => { const a = v.split('.').map(Number), b = min.split('.').map(Number); for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0); return true }
 // The oldest Claude Code cadre runs on: 2.1.295 added Button children (every press in the band and the pane; older builds throw "needs a label" and nothing
@@ -98,38 +97,57 @@ export async function setupItems(h: Host): Promise<Item[]> {
     for (const r of m.rows) if (r[2] === `! ${x.run}`) r[2] = `couldn't write the fix script (${bad.get(x.path)}); the exact command is in the cadre log`
     h.log(`fix command: ${x.full}`)
   }
-  const p = await mplan(h, path, PATCH).catch((e: Error) => e), need = !(p instanceof Error) && p.lines.length > 0
-  m.rows.push(p instanceof Error ? ['crit', `user settings unreadable: ${p.message}`] : need ? ['crit', 'user settings lack env CLAUDE_CODE_ENABLE_TODO_TOOLS="1"', 'confirm the user settings: press 1'] : ['ok', 'user settings: env CLAUDE_CODE_ENABLE_TODO_TOOLS is set'])
+  m.rows.push(await userRow(h))
   await report(h, 'setup', m.rows, false)   // the run card holds the checklist; the pane's doctor tab has the rows
   if (!m.rows.some(r => r[0] === 'crit')) await h.store.set(STAMP, { cc: m.facts.cc, bwrap: m.facts.bwrap ?? '', jail: m.facts.jail, at: await h.now() })
-  if (need) await proposeUser(h, p.lines, fnv1a64(p.lines.join('\n') + (p.old ?? '')))
   const home = await h.home()
-  return [...m.rows.map(([l, t, f]) => ({ name: t.replaceAll(`${home}/`, '~/'), st: need && /^user settings lack/.test(t) ? 'wait' : l === 'crit' ? 'fail' : l === 'warn' ? 'warn' : 'ok', why: l === 'ok' ? undefined : f?.replace(/^! /, '').replaceAll(`${home}/`, '~/') })), await prefsItem(h)]
+  return [...m.rows.map(([l, t, f]) => ({ name: t.replaceAll(`${home}/`, '~/'), st: l === 'crit' ? 'fail' : l === 'warn' ? 'warn' : 'ok', why: l === 'ok' ? undefined : f?.replace(/^! /, '').replaceAll(`${home}/`, '~/') })), await prefsItem(h)]
 }
-// The user settings are never edited by a model (ADR 0010): cadre shows the merge on a card (init:91) and writes it after Confirm (.bak, re-read), like init's safety settings.
-async function proposeUser(h: Host, lines: string[], sig: string): Promise<void> {
-  if ((await h.ui.read())['setup.pending'] === sig && (await h.board.read()).decisions?.some(d => d.id === `init:${USER_CARD}`)) return
-  await h.ui.update(u => ({ ...u, 'setup.pending': sig }))
-  await initPropose(h, USER_CARD, `setup user settings\n${sig}`, { title: 'setup · user settings · confirm', short: 'setup user settings', sub: 'setup', lines: ['cadre writes this after you confirm (a .bak is kept):', ...lines.map(l => `  ~/.claude/settings.json: ${l}`)] })
+// The user settings are never edited by a model (ADR 0010). An older cadre put the todo flag there for every project; it now lives in each set-up project's own
+// settings (commands/init.GATE). A warn row and a card (init:91) offer to remove it: .bak, write, re-read, like init's safety settings.
+const userPlan = async (h: Host) => {
+  const path = `${await h.home()}/.claude/settings.json`, old = await h.readText(path); let cur: any = {}
+  try { cur = old ? JSON.parse(old) : {} } catch { return { path, error: 'not valid JSON' } }
+  if (cur?.env?.[TODO] === undefined) return { path, old, next: null }
+  const { [TODO]: _t, ...env } = cur.env, next = { ...cur, env }; if (!Object.keys(env).length) delete next.env
+  return { path, old, next, sig: fnv1a64((old ?? '') + TODO) }
+}
+async function userRow(h: Host): Promise<Row> {
+  const p = await userPlan(h); if ('error' in p) return ['warn', `user settings unreadable: ${p.error}`, 'fix ~/.claude/settings.json by hand']
+  if (!p.next) return ['ok', 'user settings: nothing of cadre\'s']
+  if ((await h.ui.read())['setup.pending'] !== p.sig || !(await h.board.read()).decisions?.some(d => d.id === `init:${USER_CARD}`)) {
+    await h.ui.update(u => ({ ...u, 'setup.pending': p.sig }))
+    await initPropose(h, USER_CARD, `setup user settings\n${p.sig}`, { title: 'setup · user settings · confirm', short: 'setup user settings', sub: 'setup', lines: ['cadre removes this after you confirm (a .bak is kept):', `  ~/.claude/settings.json: - env.${TODO}`, 'each set-up project carries it in its own settings now'] })
+  }
+  return ['warn', `user settings carry env ${TODO} from an older cadre; it now lives in each project's settings`, 'press 1: remove it in the dialog']
 }
 export async function confirmUser(h: Host): Promise<string> {
-  const was = (await h.ui.read())['setup.pending'], good = await initConfirm(h, USER_CARD), path = `${await h.home()}/.claude/settings.json`
-  if (!good || !was) return 'setup: nothing pending; press 1 for the current diff'
-  const p = await mplan(h, path, PATCH); if (fnv1a64(p.lines.join('\n') + (p.old ?? '')) !== was) return 'setup: the settings file changed since you saw it; nothing written'
-  await mapply({ readText: h.readText, writeText: h.write }, path, PATCH); await h.ui.update(({ 'setup.pending': _p, ...u }) => u)
-  return 'setup: user settings written'
+  const was = (await h.ui.read())['setup.pending'], good = await initConfirm(h, USER_CARD), p = await userPlan(h)
+  if (!good || !was) return 'setup: nothing pending; press 1 for the current card'
+  if ('error' in p || !p.next || p.sig !== was) return 'setup: the settings file changed since you saw it; nothing written'
+  const text = JSON.stringify(p.next, null, 2) + '\n'
+  if (p.old !== null) await h.write(`${p.path}.bak`, p.old); await h.write(p.path, text); await h.ui.update(({ 'setup.pending': _p, ...u }) => u)
+  return (await h.readText(p.path)) === text ? 'setup: user settings written' : 'setup: ~/.claude/settings.json did not read back as written; the .bak has the old file'
 }
 // session.start: no stamp, or the Claude Code build changed since: one toast
 export async function setupDue(h: Host): Promise<boolean> {   // also registers main's preferences tool in a dormant repo (hooks/register)
   const s = (await h.store.get(STAMP)) as { cc?: string } | undefined, cc = await h.version?.().catch(() => undefined)
   return !s || (!!cc && s.cc !== cc)
 }
-export async function nudge(h: Host): Promise<void> { if (await setupDue(h)) h.toast('cadre: run /cadre setup') }
+// the task-tool gate of this repo (commands/init.GATE): its stamp's rev and the live file (the gate keys only)
+export async function gateDue(h: Host): Promise<boolean> {
+  const st = (await h.store.get(await scoped(h, 'settings'))) as { rev?: number } | undefined, t = await h.readText(`${await h.cwd()}/.claude/settings.local.json`)
+  let local = {}; try { local = t ? JSON.parse(t) : {} } catch { /* unreadable: the gate is due */ }
+  return st?.rev !== GATE_REV || !gated(local)
+}
+export async function nudge(h: Host): Promise<void> { if (await setupDue(h)) h.toast('cadre: run /cadre setup'); else if (await gateDue(h)) h.toast('cadre: run /cadre init') }
 // main's tools: Claude Code refused them, or the repo turned on after this session started (the set is fixed at start)
 export async function toolsRow(h: Host): Promise<Row> {
   const s = await h.secret.read(), t = s.tools
   if (t?.refused.length) return ['crit', `Claude Code refused cadre's tools: ${t.refused.join(', ')}`, 'cadre needs its tools: drop allowedMcpServers from managed settings, or start Claude Code without --bare']
-  return s.active && t && !t.on.includes('plan') ? ['warn', 'the planning tools are not loaded in this session', 'restart Claude Code'] : ['ok', 'cadre tools loaded']
+  if (s.active && t && !t.on.includes('plan')) return ['warn', 'the planning tools are not loaded in this session', 'restart Claude Code']
+  if (s.active && t?.task?.length) return ['crit', `the built-in task tools are on in this session (${t.task.join(', ')})`, '/cadre init, then restart Claude Code']
+  return s.active && (await gateDue(h)) ? ['crit', 'settings.local lacks the task-tool gate', '/cadre init'] : ['ok', 'cadre tools loaded']
 }
 
 // ---- doctor: machine rows + project rows; no writes ----
@@ -179,5 +197,5 @@ export async function doctor(h: Host): Promise<string> {
   const m = await machine(h, cfg)   // read-only: a fix line only when its script already exists (setup writes them)
   for (const x of m.scripts) if (x.run && (await h.readText(x.path)) === null) for (const r of m.rows) if (r[2] === `! ${x.run}`) r[2] = 'run /cadre setup to prepare the fix'
   const pe = (await h.ui.read()).paneErr as { reason: string } | undefined   // ui/index.openPane: the last open that failed this session
-  return report(h, 'doctor', [...m.rows, await prefsRow(h), await toolsRow(h), ...(await doctorRows(h)), ...(pe ? [['warn', `the cadre pane could not open: ${pe.reason}`, 'run /cadre to open it; if it keeps failing, report the reason'] as Row] : []), ...(await project(h, cfg))])
+  return report(h, 'doctor', [...m.rows, await userRow(h), await prefsRow(h), await toolsRow(h), ...(await doctorRows(h)), ...(pe ? [['warn', `the cadre pane could not open: ${pe.reason}`, 'run /cadre to open it; if it keeps failing, report the reason'] as Row] : []), ...(await project(h, cfg))])
 }

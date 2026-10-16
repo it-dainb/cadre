@@ -50,7 +50,7 @@ test('dialog through the engine: pops once, `1` re-opens it, Approve approves th
   on('env.get', (_$, e) => ({ value: e.name === 'CADRE_STORE' ? 'memory' : undefined })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined }))
   on('fs.read', () => ({ value: '{}' })); on('fs.stat', () => ({ value: undefined })); on('prompt.read', () => ({ value: { text: '' } })); on('tool.check', () => ({ decision: 'allow' }))
   const meta = { type: 'feature', package: '.', scenarios: ['S1: Given a user When they log in Then a session exists'], changelog: { category: 'Added', entry: 'Login' }, interface: { symbols: [{ name: 'login', kind: 'function', params: ['email: string'], returns: 'Session', status: 'new' }] } }
-  await $.tool.call({ tool: 'TaskCreate', subject: 'Auth login', description: 'goal', metadata: { kind: 'plan' } }); await $.tool.call({ tool: 'TaskCreate', subject: 'Add login', description: 'impl', metadata: meta })
+  await $.tool.call({ tool: 'mcp__cadre__plan', title: 'Auth login', description: 'goal' }); await $.tool.call({ tool: 'mcp__cadre__task', title: 'Add login', description: 'impl', ...meta })
   expect(store.board.decisions.map((d: any) => d.kind)).toEqual(['plan']); expect(store.board.plan.state).toBe('draft')
   await clock.advance(1); await clock.advance(1)   // the event's autoAsk: the dialog once, answered "Not now"
   expect(asked.length).toBe(1); expect(asked[0].options.map((o: any) => o.label)).toEqual(['Approve', 'Reject', 'Lane → ask']); expect(store.board.plan.state).toBe('draft')

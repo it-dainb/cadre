@@ -13,7 +13,7 @@ if (process.argv.includes('--leaks')) {
   process.exit(0)
 }
 const out = join(root, 'tests/fixtures/budget.generated.ts')
-const CORE = ['hooks', 'core', 'native', 'policy', 'commands', 'task-management', 'agents', 'config', 'tools']
+const CORE = ['hooks', 'core', 'policy', 'commands', 'task-management', 'agents', 'config', 'tools']
 const SKIP = ['task-management/adapters/memory', 'adapters/fake']   // test-only code is outside the core cap
 
 const loc = f => { let n = 0, blk = false

@@ -1,4 +1,4 @@
-// Epic integration and release (DESIGN 3.9). integrateEpic is called by the TaskUpdate{epic, completed} lifecycle (core/close); /cadre release is ROUTES.release.
+// Epic integration and release (DESIGN 3.9). integrateEpic is called by the status {epic, set completed} lifecycle (core/close); /cadre release is ROUTES.release.
 // Everything that moves a ref is inside git.op (branches.ts); suites run in a throwaway worktree, outside it.
 import type { Host } from '../types'
 import { fnv1a64 } from './board'
@@ -118,7 +118,7 @@ async function subLand(h: Host, cfg: any, root: string, tmp: string, dev: string
     if (!(await exists(h.run, sr, from)) || (await ok(h.run, sr, ['merge-base', '--is-ancestor', from, dev]))) continue   // nothing of this plan in it
     const m = await mergeEpic(hs, { dev, epic: from, tmp: st, msg: `merge ${from} (${epicId})` }).catch(e => e as Error); if (m instanceof Error) return `${u.root}: merge of ${from} into ${dev} failed: ${m.message}`
     const red = await runSuites(h, { ...cfg, units: [{ ...u, root: '.', ownGit: false }] }, st, null, epicId); if (red) { await worktreeRemove(h.run, sr, st).catch(() => {}); return `${u.root}: ${red}` }
-    if (!(await landDev(hs, { dev, sha: m.sha, old: m.devTip, tmp: st, epic: from }))) return `${u.root}: ${dev} moved during integration; call TaskUpdate completed again`
+    if (!(await landDev(hs, { dev, sha: m.sha, old: m.devTip, tmp: st, epic: from }))) return `${u.root}: ${dev} moved during integration; set it completed again (status)`
     await git(h.run, tmp, ['update-index', '--cacheinfo', `160000,${m.sha},${u.root}`]); await git(h.run, tmp, ['commit', '--no-verify', '-m', `chore: ${u.root} to ${m.sha.slice(0, 7)} (${epicId})`])
   }
   return null
@@ -128,7 +128,7 @@ async function subLand(h: Host, cfg: any, root: string, tmp: string, dev: string
 export async function integrateEpic(h: Host, epicId: string): Promise<string | null> {
   const s = await h.board.read(), p = s.plan, ep = epicOf(s, epicId)   // a milestone's epic lands on the milestone branch; the milestone lands on dev (ADR 0015)
   if (!p || (!ep && (s.epic !== epicId || p.id !== epicId))) return `${epicId} is not the current epic`
-  if (p.state !== 'approved') return p.state === 'integrating' ? 'integration is already running; call TaskUpdate completed again after it' : `epic is ${p.state}; only an approved epic integrates`
+  if (p.state !== 'approved') return p.state === 'integrating' ? 'integration is already running; set it completed again (status) after it' : `epic is ${p.state}; only an approved epic integrates`
   if (ep && ep.state !== 'running') return `epic ${epicId} is ${ep.state}${ep.why ? `: ${ep.why}` : ''}`
   const left = (p.epics ?? []).filter(e => e.state !== 'landed').map(e => e.id); if (!ep && left.length) return `epics still open: ${left.join(', ')}`
   const open = s.tasks.filter(t => (!ep || t.epic === epicId) && t.state !== 'done' && t.state !== 'cancelled').map(t => t.id)
@@ -164,7 +164,7 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
     const files = (await git(h.run, tmp, ['diff', '--name-only', `${m.devTip}..${sha}`])).split('\n').filter(Boolean)
     const si = await subInit(h.run, root, tmp); if (si) return await fail(si, true, false)   // a pinned submodule commit this machine lacks: one dialog, no fix task
     const kr: { root: string; n: string }[] = [], red = await runSuites(h, cfg, tmp, files, epicId, kr); if (red) return await fail(red, true)
-    if (!(await landDev(h, { dev, sha, old: m.devTip, tmp, epic: from }))) return await fail(`${dev} moved during integration; call TaskUpdate completed again`, false)
+    if (!(await landDev(h, { dev, sha, old: m.devTip, tmp, epic: from }))) return await fail(`${dev} moved during integration; set it completed again (status)`, false)
     await offer(h, dev)   // the user has it checked out: the landing waits for them
     if (ep) return await landed(h, store, epicId, sha, files, cfg.branches.dev, tmp)
     return await onDev(h, epicId, dev, sha, kr)

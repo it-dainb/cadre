@@ -9,7 +9,7 @@ import { join, relative } from 'node:path'
 const { REG, keysOf } = await import('../../config/index.ts')
 const root = new URL('../..', import.meta.url).pathname.replace(/\/$/, '')
 const walk = d => readdirSync(d).flatMap(n => { const p = join(d, n); return statSync(p).isDirectory() ? (n === 'node_modules' || n === 'adapters' && d.endsWith('task-management') ? [] : walk(p)) : /\.ts$/.test(n) && !/\.d\.ts$/.test(n) ? [p] : [] })
-const SRC = ['hooks', 'core', 'native', 'policy', 'commands', 'task-management', 'agents', 'tools', 'ui'].flatMap(d => walk(join(root, d))).map(f => [relative(root, f), readFileSync(f, 'utf8').split('\n').map(l => l.replace(/\/\/ .*$/, ''))])
+const SRC = ['hooks', 'core', 'policy', 'commands', 'task-management', 'agents', 'tools', 'ui'].flatMap(d => walk(join(root, d))).map(f => [relative(root, f), readFileSync(f, 'utf8').split('\n').map(l => l.replace(/\/\/ .*$/, ''))])
 const keys = Object.keys(REG), nodes = new Set(keys.flatMap(k => k.split('.').slice(0, -1).map((_, i, a) => a.slice(0, i + 1).join('.'))))
 const METHOD = new Set(['length', 'includes', 'some', 'every', 'map', 'filter', 'find', 'indexOf', 'slice', 'join', 'concat'])
 

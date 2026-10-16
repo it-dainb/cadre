@@ -15,7 +15,7 @@ Every model-visible string goes through `core/say.ts`: `modelText(kind, text)` f
 - cadre's development: ADR, version numbers (`0.8.0`), "live 0.x", kit, M0, smoke ids (`S13`), catalog, d.ts, paths into cadre's source (`core/…ts`, `docs/adr`).
 - Typed commands that no longer exist: `/cadre resolve|approve|release|…`. The human answers decisions in the cadre dialog.
 - Absolute host paths (`/home/…`, `/tmp/…`).
-- Lane words (lite, full lane, lanes) in anything a **task agent** reads. Main may see them: they are its planning API (`TaskCreate` metadata `lane`).
+- Lane words (lite, full lane, lanes) in anything a **task agent** reads. Main may see them: they are its planning API (the `plan` tool's `lane`).
 
 The list is `LEAK`/`LANE` in `core/say.ts`; the tests use the same list.
 

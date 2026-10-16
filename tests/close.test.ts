@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { SPECS, TOOLS, handle, handleWith } from '../tools/index'
 import { followups, observeWith, report } from '../core/close'
-import { LIFECYCLE } from '../native/tasks'
+import { LIFECYCLE } from '../core/plantools'
 import { ROUTES } from '../core/dispatch'
 import { defaults } from '../config/index'
 import { MemoryStore } from '../task-management/adapters/memory/store'

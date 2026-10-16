@@ -13,7 +13,7 @@ import { draftsOf, registryOf } from './dispatch'
 import { retouch } from './lanes'
 import { epicOf, planEpic, stopEpic } from './milestone'
 import { notesOf, pathsOf, sliceNotes, validateFields } from './validate'
-import { fieldsOf, twinOf } from '../native/tasks'
+import { fieldsOf, twinOf } from './plantools'
 import { limited } from './drive'
 
 const syms = (t: Task) => { try { const s = (JSON.parse(t.design || '{}').symbols ?? []).filter((x: any) => x.status !== 'unchanged'); return s.length ? ` · interface ${s.map((x: any) => `${x.name}(${(x.params ?? []).join(', ')}) -> ${x.returns}`).join('; ')}` : '' } catch { return '' } }

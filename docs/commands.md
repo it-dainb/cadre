@@ -30,11 +30,11 @@ An old subcommand word (`approve`, `status`, `open`, …) answers `that's answer
 **Decisions in the dialog (0.8.0).** Every human action above is a *decision*, answered only in Claude Code's own question dialog: the question, at most 6 lines, its options (Approve/Reject, Confirm/Cancel, Accept/Reject, Keep/Restore, Release/Not now) and "Type something", which sends your text to Claude as a change request. The dialog opens by itself once, when the decision appears; after that `1` (band or pane) opens it again. The pane lists every pending decision read-only under **NEEDS YOU**. The answer is bound to the decision's content hash, so one that changed while the dialog was open is refused and asked again. `-p` cannot approve. See [ADR 0012](adr/0012-decisions-by-press-or-dialog.md).
 
 
-Native tools main uses: `TaskCreate/Update/List/Get`, `Agent`. Agents use three MCP tools: `report`, `inspect`, `run_check`.
+Main's tools: `plan`, `task`, `epic`, `amend`, `explore`, `ask`, `status` (and `preferences` during setup); the built-in task tools are off in a set-up project. Agents use three MCP tools: `report`, `inspect`, `run_check`.
 
 ## The loop in detail
-0. **Lane.** `/cadre <goal>` hands Claude the goal and a short guide. It picks **ask** (one explorer answers; no plan), **lite** (one `TaskCreate` with `{"kind":"plan","lane":"lite","reason","type","changelog"}` drafts the plan and its one task; completeness is title, description and the changelog decision; pipeline worker → green → reviewer → merge, or tester → red first for a bug with `"repro": true`) or **full** (below). cadre overrides to full when a task is breaking, labeled or scoped `security`, declares a new or changed public contract symbol, or the plan has 3+ tasks (lite also has exactly one task). Same guards for every lane: main never edits, work happens in worktrees, review is bound to a commit, merges are squashed.
-1. **Plan.** Main drafts a plan with `TaskCreate` (`metadata.kind:"plan"`, then tasks). Each task has a `type`, `package`, Given/When/Then `scenarios`, a `changelog` entry or `{none, reason}`, and an interface `contract`. Drafts live in beads and never run.
+0. **Lane.** `/cadre <goal>` hands Claude the goal and a short guide. It picks **ask** (one explorer answers; no plan), **lite** (one `plan` call with `{"lane":"lite","reason","type","changelog"}` drafts the plan and its one task; completeness is title, description and the changelog decision; pipeline worker → green → reviewer → merge, or tester → red first for a bug with `"repro": true`) or **full** (below). cadre overrides to full when a task is breaking, labeled or scoped `security`, declares a new or changed public contract symbol, or the plan has 3+ tasks (lite also has exactly one task). Same guards for every lane: main never edits, work happens in worktrees, review is bound to a commit, merges are squashed.
+1. **Plan.** Main drafts a plan with `plan`, then one `task` per task. Each task has a `type`, `package`, Given/When/Then `scenarios`, a `changelog` entry or `{none, reason}`, and an interface `contract`. Drafts live in the task store and never run.
 2. **Approve.** The plan's dialog appears (the Plan tab shows the full sheet); choose **Approve**. Only the dialog approves, bound to what it showed. The mod cuts `epic/<id>-<slug>` from `dev` and tells Claude to run the plan to the end.
 3. **Execute.** Main spawns `Agent` for a task. The mod claims it, makes a worktree, and runs the pipeline: `cadre:tester` (sees only the spec view) → red check must fail → `cadre:worker` → green check must pass → `cadre:reviewer` (verdict bound to a commit). Rework resumes the same agent; cap `review.maxRework`.
 4. **Close.** Main sets the task `completed`; the mod squashes into the epic branch. When all tasks are done, completing the epic merges `--no-ff` into `dev`.
@@ -69,7 +69,7 @@ The keys, their categories, allowed values, defaults and descriptions live in on
 - **Band + `cadre` pane** (`ui/`): Epic and Plan tabs, approval sheet, events, timeline. Read-only clients of one versioned read model.
 - **Text:** `/cadre status`, toasts, the card returned in the Agent result.
 - **Extension protocol** ([`docs/protocol.md`](docs/protocol.md)): events, snapshot, commands, and external process adapters over one protocol; adapters get the model view only and need grants.
-- **Native tools:** Task* answered by the mod; plan rules arrive just in time with the first `TaskCreate`.
+- **Plan tools:** main's own tools answered by the mod; plan rules arrive just in time with the first `plan`.
 
 ## Out of scope (v1)
 | Item | Why | Ever? |

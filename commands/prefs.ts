@@ -1,5 +1,5 @@
-// setup's Preferences phase (ADR 0014): main asks the user (AskUserQuestion) for the default mode and the drive limits and hands them over with ONE TaskCreate
-// `{kind:"preferences", …}` (the only channel main has to cadre, in a dormant repo too). cadre, never Claude, writes ~/.claude/cadre.json (it holds S keys): a diff on a
+// setup's Preferences phase (ADR 0014): main asks the user (AskUserQuestion) for the default mode and the drive limits and hands them over with the preferences
+// tool (registered while setup is due, in a dormant repo too: hooks/register). cadre, never Claude, writes ~/.claude/cadre.json (it holds S keys): a diff on a
 // confirm card (`init:93`), then .bak, write, re-read, like the user-settings card. Only the keys that differ from the defaults are kept.
 import { modelData, modelText } from '../core/say'
 import type { Host } from '../types'
@@ -21,9 +21,9 @@ const readJ = (t: string | null): Record<string, any> | null => { try { const v 
 // metadata -> the wanted values, or why not (an absent key keeps the default)
 export function wantOf(m: Record<string, unknown>): Want | string {
   const w = Object.fromEntries(Object.entries(AT).map(([k, p]) => [k, dig(defaults(), p)])) as Want
-  for (const k of Object.keys(m)) if (k !== 'kind' && !(k in AT)) return `metadata.${k}: unknown (allowed: ${Object.keys(AT).join(', ')})`
-  if (m.mode !== undefined) { if (m.mode !== 'auto' && m.mode !== 'yolo') return 'metadata.mode: expected "auto" or "yolo"'; w.mode = m.mode }
-  for (const [k, min, max] of LIM) if (m[k] !== undefined) { const v = m[k]; if (typeof v !== 'number' || v < min || v > max || (k !== 'maxCostUsd' && !Number.isInteger(v)) || (k === 'maxCostUsd' && !(v > 0))) return `metadata.${k}: expected a ${k === 'maxCostUsd' ? 'number' : 'whole number'} from ${min} to ${max}${min === 0 ? ' (0 = no limit)' : ''}`; (w as any)[k] = v }
+  for (const k of Object.keys(m)) if (!(k in AT)) return `${k}: unknown (allowed: ${Object.keys(AT).join(', ')})`
+  if (m.mode !== undefined) { if (m.mode !== 'auto' && m.mode !== 'yolo') return 'mode: expected "auto" or "yolo"'; w.mode = m.mode }
+  for (const [k, min, max] of LIM) if (m[k] !== undefined) { const v = m[k]; if (typeof v !== 'number' || v < min || v > max || (k !== 'maxCostUsd' && !Number.isInteger(v)) || (k === 'maxCostUsd' && !(v > 0))) return `${k}: expected a ${k === 'maxCostUsd' ? 'number' : 'whole number'} from ${min} to ${max}${min === 0 ? ' (0 = no limit)' : ''}`; (w as any)[k] = v }
   return w
 }
 // the user file with these choices: a default value drops its key, an emptied section goes
@@ -43,17 +43,17 @@ async function plan(h: Host, w: Want) {
   return { path, old, text: JSON.stringify(next, null, 2) + '\n', lines, sig: fnv1a64(JSON.stringify(w) + (old ?? '')) }
 }
 
-// tool.call slot 5, before the guards (hooks/register.ts): main's TaskCreate {kind:"preferences"}; anything else passes
-export async function prefsCall(h: Host, e: any): Promise<unknown | undefined> {
-  if (e.agentId || e.tool !== 'TaskCreate' || e.metadata?.kind !== 'preferences') return undefined
-  if ((await h.secret.read()).run?.kind !== 'setup') return { deny: modelText('deny', 'preferences are set during the machine setup; ask the user to run /cadre setup') }
-  const w = wantOf(e.metadata); if (typeof w === 'string') return { deny: modelText('deny', w) }
-  const p = await plan(h, w); if ('error' in p) return { deny: modelText('deny', p.error!) }
-  if (!p.lines.length) { await h.store.set(STAMP, { at: await h.now() }); return { result: modelData('tool-result', { task: { id: 'preferences', subject: 'preferences' } }), context: [modelText('context', 'Nothing to change: these are already the settings. Go on with the next phase.')] } }
+// main's preferences tool (tools/index, after the schema check)
+export async function prefsTool(h: Host, m: Record<string, unknown>): Promise<unknown> {
+  const no = (t: string) => ({ result: modelText('tool-result', `error: ${t}`) })
+  if ((await h.secret.read()).run?.kind !== 'setup') return no('preferences are set during the machine setup; ask the user to run /cadre setup')
+  const w = wantOf(m); if (typeof w === 'string') return no(w)
+  const p = await plan(h, w); if ('error' in p) return no(p.error!)
+  if (!p.lines.length) { await h.store.set(STAMP, { at: await h.now() }); return { result: modelData('tool-result', { preferences: 'unchanged' }), context: [modelText('context', 'Nothing to change: these are already the settings. Go on with the next phase.')] } }
   await h.ui.update(u => ({ ...u, 'prefs.pending': { sig: p.sig, want: w } }))
   await initPropose(h, CARD, `setup preferences\n${p.sig}`, { title: 'setup · your preferences · confirm', short: 'setup preferences', sub: 'setup prefs',
     lines: ['cadre writes this after you confirm (a .bak is kept):', ...p.lines.slice(0, w.maxParallel === 0 || w.maxEpics === 0 ? 4 : 5).map(l => `  ~/.claude/cadre.json: ${l}`), ...(w.maxParallel === 0 || w.maxEpics === 0 ? [UNCAPPED] : [])] })
-  return { result: modelData('tool-result', { task: { id: 'preferences', subject: 'preferences' } }), context: [modelText('context', 'cadre shows these choices to the user in a dialog. Tell them to confirm it there (press 1), then go on with the next phase.')] }
+  return { result: modelData('tool-result', { preferences: 'shown to the user' }), context: [modelText('context', 'cadre shows these choices to the user in a dialog. Tell them to confirm it there (press 1), then go on with the next phase.')] }
 }
 // `setup prefs confirm` (the card's Confirm, dialog only): the file is re-read and must be what the card showed
 export async function confirmPrefs(h: Host): Promise<string> {
@@ -70,7 +70,8 @@ export async function confirmPrefs(h: Host): Promise<string> {
 export async function prefsItem(h: Host): Promise<{ name: string; st: 'ok' | 'fail' | 'wait'; why?: string }> {
   if (await h.store.get(STAMP)) return { name: 'preferences', st: 'ok' }
   if ((await h.board.read()).decisions?.some(d => d.id === `init:${CARD}`)) return { name: 'preferences', st: 'wait', why: 'confirm them in the dialog' }
-  return { name: 'preferences', st: 'fail', why: 'ask the user for the default mode and the limits (phase 5), then hand them over with TaskCreate' }
+  const tl = (await h.secret.read()).tools; if (tl && !tl.on.includes('preferences')) return { name: 'preferences', st: 'fail', why: 'restart Claude Code, then run /cadre setup again to finish the preferences' }   // the tool set is fixed at session start (hooks/register)
+  return { name: 'preferences', st: 'fail', why: 'ask the user for the default mode and the limits (phase 5), then hand them over with the preferences tool' }
 }
 // doctor's row
 export async function prefsRow(h: Host): Promise<['ok', string]> {

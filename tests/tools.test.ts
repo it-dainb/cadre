@@ -3,8 +3,8 @@ import { MAIN, mainTool } from '../tools/index'
 import { handleWith } from '../tools/index'
 import { mainAgent } from '../core/plantools'
 import { checkInput } from '../core/validate'
-import { prefsCall } from '../commands/prefs'
 import { toolsRow } from '../commands/doctor'
+import { scoped } from '../commands/init'
 import { fakeHost } from './support'
 import { FULL, world } from './fixtures/native/world'
 import type { Host } from '../types'
@@ -120,24 +120,27 @@ describe('role gate and the other tools', () => {
     expect((await tool(v, 'epic', { title: 'Auth', goal: 'log in', size: 2, paths: ['src/auth/'] })).result).toMatchObject({ id: 'm-2', revision: 2 })
     expect((await v.store.get('m-2')).type).toBe('epic')
   })
-  test('preferences and TaskCreate {kind:"preferences"} raise the same card', async () => {
-    const mk = () => { const h = fakeHost() as Host; void h.secret.update(s => ({ ...s, run: { kind: 'setup' as const, at: 0, turns: 0, follow: 0, guide: 'g' } })); return h }
-    const a = mk(), b = mk()
+  test('preferences: the card comes up; the choices wait for its confirm', async () => {
+    const a = fakeHost() as Host; await a.secret.update(s => ({ ...s, run: { kind: 'setup' as const, at: 0, turns: 0, follow: 0, guide: 'g' } }))
     const r1: any = await mainTool(a, { tool: 'mcp__cadre__preferences', tool_use_id: 'u', mode: 'yolo', maxTurns: 50 })
-    const r2: any = await prefsCall(b, { tool: 'TaskCreate', subject: 'preferences', description: '', metadata: { kind: 'preferences', mode: 'yolo', maxTurns: 50 } })
-    expect(r1).toEqual(r2)
-    expect((await a.board.read()).decisions).toEqual((await b.board.read()).decisions); expect((await a.ui.read())['prefs.pending']).toEqual((await b.ui.read())['prefs.pending'])
+    expect(r1.result).toEqual({ preferences: 'shown to the user' }); expect((await a.board.read()).decisions?.map(d => d.id)).toEqual(['init:93']); expect((await a.ui.read())['prefs.pending']).toMatchObject({ want: { mode: 'yolo', maxTurns: 50 } })
     expect((await mainTool(a, { tool: 'mcp__cadre__preferences', tool_use_id: 'u', maxTurns: 0 }) as any).result).toBe('error: maxTurns: expected a whole number from 1 to 10000')
   })
   test('main\'s Agent: refused toward the tools; an agent\'s own Agent call passes', () => {
-    expect(mainAgent({ tool: 'Agent' })).toEqual({ deny: 'plan the work with plan and task; to learn about the code, call explore with your question' })
-    expect(mainAgent({ tool: 'Agent', agentId: 'a1' })).toBeUndefined(); expect(mainAgent({ tool: 'Read' })).toBeUndefined()
+    expect(mainAgent({ tool: 'Agent', prompt: 'where is login?' }, ['m-2'])).toEqual({ deny: 'plan the work with plan and task; to learn about the code or ask a critic, call explore with your question' })
+    expect(mainAgent({ tool: 'Agent', prompt: 'TASK-m-2' }, ['m-2'])).toBeUndefined()   // a planned task's start (Claude starts the agents): on to admission
+    expect(mainAgent({ tool: 'Agent', prompt: 'run-ab12' }, [], { plugin: 'cadre' })).toBeUndefined(); expect(mainAgent({ tool: 'Agent', prompt: 'x' }, [], { plugin: 'engine' })?.deny).toBeDefined()   // cadre's spawner starts its explorers through the same chain
+    expect(mainAgent({ tool: 'Agent', agentId: 'a1' }, [])).toBeUndefined(); expect(mainAgent({ tool: 'Read' }, [])).toBeUndefined()
+    for (const t of ['TaskCreate', 'TaskGet', 'TaskList', 'TaskUpdate']) expect(mainAgent({ tool: t }, []).deny).toContain('plan with the plan tools'); expect(mainAgent({ tool: 'TaskStop' }, [])).toBeUndefined()
   })
   test('Doctor: a tool Claude Code refused is a crit row; an active repo without them this session says restart', async () => {
     const h = fakeHost()
     await h.secret.update(s => ({ ...s, tools: { on: ['report', 'plan'], refused: ['ask'] } })); expect((await toolsRow(h))[0]).toBe('crit')
     await h.secret.update(s => ({ ...s, tools: { on: ['report'], refused: [] } })); expect(await toolsRow(h)).toEqual(['warn', 'the planning tools are not loaded in this session', 'restart Claude Code'])
-    await h.secret.update(s => ({ ...s, tools: { on: ['report', 'plan'], refused: [] } })); expect(await toolsRow(h)).toEqual(['ok', 'cadre tools loaded'])
+    await h.secret.update(s => ({ ...s, tools: { on: ['report', 'plan'], refused: [], task: ['TaskCreate'] } })); expect(await toolsRow(h)).toEqual(['crit', 'the built-in task tools are on in this session (TaskCreate)', '/cadre init, then restart Claude Code'])
+    await h.secret.update(s => ({ ...s, tools: { on: ['report', 'plan'], refused: [] } })); expect(await toolsRow(h)).toEqual(['crit', 'settings.local lacks the task-tool gate', '/cadre init'])
+    await h.store.set(await scoped(h, 'settings'), { rev: 1, added: [] }); (h as any).readText = async () => JSON.stringify({ env: { CLAUDE_CODE_ENABLE_TASKS: 'false', CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } })
+    expect(await toolsRow(h)).toEqual(['ok', 'cadre tools loaded'])
   })
   test('checkInput: nested items name their index', () => {
     expect(checkInput({ type: 'object', properties: { after: { type: 'array', items: { type: 'string' } } } }, { after: ['a', 2] })).toBe('after[1]: expected a string, got 2; fix it and call again')

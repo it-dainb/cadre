@@ -18,7 +18,7 @@ import { contain, heal } from '../policy/containment'
 import { check, guard, send, judge, judgeSpawn, configSet, settingsOnly, EXIT, exitCall } from '../policy/guards'
 import { backstop, exitStep } from '../core/lifecycle'
 import { autoLand } from '../core/integrate'
-import { answer, describe } from '../native/tasks'
+import { TASK_TOOLS, mainAgent } from '../core/plantools'
 import { mainTurn } from '../core/dispatch'
 import { wrap } from '../core/effect'
 import { handle, MAIN_SPECS, PREFS_SPEC, SPECS } from '../tools/index'
@@ -30,7 +30,6 @@ import { tick } from '../task-management/sync-engine/loop'
 import { autoAsk, onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapCard, resumeBanner } from '../ui/index'
 import { load } from '../config/index'
 import { wire, repoKeyOf, rootFor } from '../commands/init'
-import { prefsCall } from '../commands/prefs'
 import { clarifyCall, clarifyCheck } from '../core/clarify'
 import { FileStore } from '../task-management/adapters/file/store'
 import { StoreError } from '../task-management/store'
@@ -168,12 +167,12 @@ export const register: Register = (on, opts) => {
     if (old) { void $.ui.log(oldLine(old)); void $.ui.toast(oldLine(old)); return next(e) }   // too old: one loud line, /cadre repeats it, no tools, no tick; wake() keeps every other hook a pass-through
     const root = await top($); await update($, secret, x => ({ ...x, root })); await $.store.set('cadre:roots', { ...(((await $.store.get('cadre:roots')) ?? {}) as object), [repoKeyOf(root)]: root })   // the repo root for every hook. Never $.session.cwd(): it follows a Bash `cd` (main in a package folder read its checks and store there after a /clear, live 0.9.1) and in a subagent hook it is the agent's view/worktree
     await seed($).catch(x => $.ui.log(`dev scenario not seeded: ${x}`))   // dev only: CADRE_DEV=1 + CADRE_DEV_SCENARIO (harness/tui.sh --scenario)
-    await $.env.set('CLAUDE_CODE_ENABLE_TODO_TOOLS', '1')
     await $.env.set('ENABLE_TOOL_SEARCH', 'false')   // S13: isDeferred:false alone does not stop deferral
     await update($, ui, x => ({ ...x, headless: !e.isInteractive || undefined }))   // core/spawner.spawnMode: a one-shot -p run ends before an agent's turn end
     await wake(host($)).catch(e => $.ui.log(`session start: ${e}`)); await halt(host($)).catch(() => {}); await syncMode(host($)).catch(() => {})   // a setup cut short in an earlier session: the band says so   // active repos only: $.store 'policy' + cadre.ui.cfg + containment band (agents ship as agents/*.md files, A28)
     { const h = host($), act = await wake(h).catch(() => false), set = [...SPECS, ...(act ? MAIN_SPECS : []), ...(act || (await setupDue(h).catch(() => true)) ? [PREFS_SPEC] : [])], refused: string[] = []   // report, inspect, run_check: isDeferred:false (5.2); main's tools only where the work is due (the set is fixed for the session)
-      for (const t of set) await $.tool.register(t).catch(() => { refused.push(t.name) }); await update($, secret, x => ({ ...x, tools: { on: set.map(t => t.name), refused } })) }   // refused (managed allowedMcpServers, --bare): Doctor says so
+      for (const t of set) await $.tool.register(t).catch(() => { refused.push(t.name) }); const listed = ((await $.tool.list().catch(() => [])) as { name: string }[]).map(t => t.name)
+      await update($, secret, x => ({ ...x, tools: { on: set.map(t => t.name), refused, task: TASK_TOOLS.filter(n => listed.includes(n)) } })) }   // task: the task tools this session still shows (Doctor: the repo's settings lack the gate)   // refused (managed allowedMcpServers, --bare): Doctor says so
     { const h = host($); if (await wake(h).catch(() => false)) { await nudge(h).catch(() => {}); await autoLand(h).catch(x => $.ui.log(`land: ${x}`)) } }   // a landing that waited for the user's checkout   // active repos only: no setup stamp for this Claude Code build -> one toast
     $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void watch(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}); void watchdog(h).catch(() => {}); void h.secret.read().then(s => backstop(h, s.session ?? '')).catch(() => {}); void autoLand(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
     $.clock.every(30_000, () => { const h = host($); void wake(h).then(act => act && tickUi(h)).catch(() => {}) })   // live timeline cursor (blit, no re-render)
@@ -192,16 +191,15 @@ export const register: Register = (on, opts) => {
   on('agent.spawn', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return admit(host($), e, next) }).catch(denySpawn)
   // 4. tool.check allow
   on('tool.check', async ($, e, next) => { if (!(await wake(host($)))) return next(e); await warm(host($)); const cl = await clarifyCheck(host($), e, next.origin); if (cl) return cl; return check(host($), e, next) }).catch(denyCheck)
-  // 5. guards (L1, fence, Task* answers, MCP pre-checks): guards judge first, then main's Task* answers
-  on('tool.call', { tool: /./ }, async ($, e, next) => { const h = host($); const pr = await prefsCall(h, e); if (pr) return pr; if (!(await wake(h))) return (await h.secret.read()).run ? settingsOnly(h, e, next) : next(e); await warm(h); const cl = await clarifyCall(h, e, next.origin); if (cl) return cl; return guard(h, e, e2 => answer(host($), e2, next)) }).catch(denyCall)
+  // 5. guards (main's Agent and task tools, L1, fence, MCP pre-checks)
+  on('tool.call', { tool: /./ }, async ($, e, next) => { const h = host($); if (!(await wake(h))) return (await h.secret.read()).run ? settingsOnly(h, e, next) : next(e); await warm(h); const ag = mainAgent(e, (await h.board.read()).tasks.map(t => t.id), next.origin); if (ag) return ag; const cl = await clarifyCall(h, e, next.origin); if (cl) return cl; return guard(h, e, next) }).catch(denyCall)
   // 6. wrap (L3 per-call fingerprint, delta drain, result card, tester log); then our own MCP tools answer innermost
   on('tool.call', { tool: /^/ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return wrap(host($), e, next) }).catch(denyCall)
   on('tool.call', { tool: /^mcp__cadre__/ }, ($, e, next) => handle(host($), e, next)).catch(denyCall)
   // agent-run setup/init: main's tool results carry what is still red; its stop is refused while a check it owns is red; turn.start feeds the watchdog (commands/agentrun)
-  on('tool.call', { tool: /./ }, async ($, e, next) => { const h = host($); if (!e.agentId) await seen(h, { name: e.tool, type: e.subagent_type }).catch(() => {}); const r = await next(e); if (e.agentId) return r; await seen(h, { tool: true }).catch(() => {}); const t = r?.result !== undefined ? await redNote(h).catch(() => null) : null; return t ? { ...r, context: [...(r.context ?? []), modelText('context', t)] } : r }).catch(passOn)   // a note only: on failure the result goes through as it is
+  on('tool.call', { tool: /./ }, async ($, e, next) => { const h = host($); if (!e.agentId) await seen(h, { name: e.tool, ask: e.question !== undefined }).catch(() => {}); const r = await next(e); if (e.agentId) return r; await seen(h, { tool: true }).catch(() => {}); const t = r?.result !== undefined ? await redNote(h).catch(() => null) : null; return t ? { ...r, context: [...(r.context ?? []), modelText('context', t)] } : r }).catch(passOn)   // a note only: on failure the result goes through as it is
   on('classic.Stop', async ($, e, next) => { const r = await next(e); const t = await stopCheck(host($), e).catch(() => null); return t ? { ...r, block: modelText('nudge', t) } : r }).catch(passOn)
   on('turn.start', async ($, e, next) => { const r = await next(e); await seen(host($), { start: true }).catch(() => {}); await mainTurn(host($), true).catch(() => {}); return r })   // only main raises turn.start: its plan card waits for its turn end (core/dispatch.mainTurn)
-  on('tool.describe', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return describe(host($), e, next) })
   // 7. session.send
   on('session.send', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return send(host($), e, next) }).catch(denySend)
   // 8. prompt.submit, prompt.attachment, turn.step, session.compact, command.run, config.set

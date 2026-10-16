@@ -23,7 +23,7 @@ describe('main context line (DESIGN 4.5)', () => {
   test('no plan → empty line; all closed → complete the epic; nothing actionable → wait', () => {
     expect(contextLine(modelView(emptySnapshot('r')))).toBe('')
     const done = { ...snap(), tasks: [task('a1', { state: 'done' })] }
-    expect(nextAction(modelView(done))).toBe('complete the epic: TaskUpdate p3 completed'); expect(nextAction(modelView({ ...snap(), tasks: [task('a2', { state: 'active', step: 'worker', owner: 'x' })] }))).toBe('wait')
+    expect(nextAction(modelView(done))).toBe('complete the epic: status {id:\"p3\", set:\"completed\"}'); expect(nextAction(modelView({ ...snap(), tasks: [task('a2', { state: 'active', step: 'worker', owner: 'x' })] }))).toBe('wait')
   })
   test('conditional-blocks: ready only when the upstream failed (cancelled)', () => {
     const mk = (up: 'done' | 'cancelled') => ({ ...snap(), tasks: [task('u', { state: up }), task('f', { deps: [{ id: 'u', type: 'conditional-blocks' }] })] })
@@ -34,7 +34,7 @@ describe('main context line (DESIGN 4.5)', () => {
 describe('nextAction under yolo', () => {
   test('main decides a blocked or spec-change task; any other human-held flag waits for the user', () => {
     const y = (flags: string[]) => nextAction(modelView({ ...snap(), drive: { on: true, mode: 'yolo' }, tasks: [task('a6', { state: 'blocked', step: 'worker', flags })] } as never))
-    expect(y(['blocked'])).toBe('decide a6 yourself (TaskUpdate a6 metadata.decision)')
+    expect(y(['blocked'])).toBe('decide a6 yourself (status {id:\"a6\", decision})')
     expect(y(['needs_human'])).toBe('a6 waits for the user (go on with the rest)')
   })
 })
