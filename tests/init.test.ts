@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { clearKnownRed, confirm, initItems, repoKeyOf, rootFor, wire } from '../commands/init'
 import { load } from '../config/index'
-import { GOAL_FOLLOW, QUIET, cancel, halt, pump, recheck, redNote, seen, start, stopCheck, turnEnd, watch } from '../commands/agentrun'
+import { GOAL_FOLLOW, QUIET, cancel, halt, pump, recheck, resume, redNote, seen, start, stopCheck, turnEnd, watch } from '../commands/agentrun'
 import { band2 } from '../ui/v2/band'
 import { txt } from '../ui/model'
 import { SETTING_UP, decide, run as cadreRun, status as statusLine } from '../commands/cadre'
@@ -144,18 +144,29 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     expect((await decide(h, d.id, 'r', d.hash)).text).toBe('init: Claude is on it · progress in the cadre pane'); await tick(); expect(sent).toHaveLength(4); expect((await h.secret.read()).run?.follow).toBe(3)   // the human's retry: the brief goes, the spent follow-ups stay spent
     await turnEnd(h, {}); await tick(); expect(sent).toHaveLength(4); expect((await card(h))!.lines[0]).toBe('Claude stopped 3 times with checks still failing')
   })
-  // quick tier user2 on 6665614 (2.1.299, FAULT=interrupt): after Esc every submit resolved { drop } ("the session was stopped…"); cadre kept the run "Claude is
-  // on it" for 3 minutes, then each "Let Claude try again" queued the brief for the timer, which was refused again: 6 dialogs, no turn.
-  test('a stopped Claude: a refused step shows the dialog at once (not popped); the retry hands the step over from the answer; refused there, it waits', async () => {
+  // quick tier user2 on 6665614 / 33ff8a3 (2.1.299, FAULT=interrupt): after Esc every submit resolved { drop } ("the session was stopped…") until the human sent
+  // input; a dialog answer's work runs later, so each "Let Claude try again" was refused again: 37 dialogs, no turn. Now a drop holds the run: one dialog, no submit
+  // while held, and the human's typed line restarts it; the step goes once on the next tick.
+  test('a stopped Claude: a refused step holds the run (one dialog, no retry storm); a typed line sends the step once', async () => {
     const { h, sent, tick, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]
-    let stopped = true; h.submit = async (t: string) => (stopped ? { drop: 'the session was stopped and nobody has sent input since' } : (sent.push(t), {}))
+    let stopped = true, tries = 0; h.submit = async (t: string) => (tries++, stopped ? { drop: 'the session was stopped and nobody has sent input since' } : (sent.push(t), {}))
     await start(h, 'init'); await tick()
-    const d = (await card(h))!; expect(d.lines[0]).toBe('Claude was stopped before it got the next step'); expect(d.options.map(o => o.label)).toEqual(['Let Claude try again', 'Stop setup'])
+    const d = (await card(h))!; expect(d.title).toBe('init stopped · type anything to go on'); expect(d.lines[1]).toContain('Type anything in the prompt')
+    expect(d.options.map(o => o.label)).toEqual(['Stop setup'])   // no retry: pressing 1 cannot loop
     expect((await h.secret.read()).run).toBeUndefined(); expect((await h.ui.read()).shown).toContain('run:init')   // no dialog pops by itself: the band asks for 1
-    expect((await decide(h, d.id, 'r', d.hash)).text).toBe('init: Claude is on it · progress in the cadre pane'); expect((await h.secret.read()).run?.brief).toContain('Let Claude try again')   // refused in the answer: the brief waits
-    await tick(); const d2 = (await card(h))!; expect(d2.lines[0]).toBe('Claude was stopped before it got the next step')   // the timer is refused too: the dialog again
-    stopped = false; expect((await decide(h, d2.id, 'r', d2.hash)).text).toBe('init: Claude is on it · progress in the cadre pane')   // a press the host takes: the answer hands it over, no timer
-    expect(sent).toHaveLength(1); expect(sent[0]).toContain('The user chose "Let Claude try again"'); expect((await h.secret.read()).run?.brief).toBeUndefined()
+    expect(txt(band2({ b: await h.board.read(), ui: await h.ui.read(), sec: await h.secret.read() } as any, 120, {} as any)).join("\n")).toContain('type anything in the prompt')
+    for (let i = 0; i < 5; i++) { await pump(h); await tick() }
+    expect(tries).toBe(1); expect(((await h.board.read()).decisions ?? []).filter(x => x.id === 'run:init')).toHaveLength(1)   // held: nothing is submitted, one dialog
+    stopped = false; await resume(h); await pump(h); await pump(h)   // the human typed a line (prompt.submit), then the ticks
+    expect(sent).toHaveLength(1); expect(sent[0]).toMatch(/^The user asked you to go on: do it now\. Set up cadre in this project/); expect((await h.ui.read()).held).toBeUndefined()
+    expect((await h.secret.read()).run).toBeDefined(); expect(((await h.board.read()).decisions ?? []).find(x => x.id === 'run:init')?.title).not.toContain('stopped')
+    await resume(h); await pump(h); expect(sent).toHaveLength(1)   // a later typed line does nothing
+  })
+  test('a refused goal brief waits for the human: no submit until they type', async () => {
+    const { h, sent } = mk({ files: READY }); let stopped = true, tries = 0; h.submit = async (t: string) => (tries++, stopped ? { drop: 'the session was stopped' } : (sent.push(t), {}))
+    await h.ui.update(u => ({ ...u, goal: 'plan it' })); await pump(h); await pump(h); await pump(h)
+    expect(tries).toBe(1); expect((await h.ui.read()).goal).toBe('plan it')
+    stopped = false; await resume(h); await pump(h); expect(sent).toEqual(['plan it']); expect((await h.ui.read()).goal).toBeUndefined()
   })
   test('only the human owes something (mission card, safety card): the card says so and nothing is sent to main', async () => {
     const { h, sent, tick } = mk({ files: READY, mission: false }); await h.board.update(b => ({ ...b, plan: { id: 'm', slug: 'mission', state: 'draft', epicBranch: '' } }))
@@ -239,7 +250,7 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     const { h, sent, tick } = mk({ repo: false, branches: [], mission: false })
     await start(h, 'init', { text: 'implement MGIoU 1D', mode: 'auto' }); await tick(); await stopCheck(h, {}); await stopCheck(h, {}); await turnEnd(h, {}); sent.length = 0
     const d = (await card(h))!; expect((await decide(h, d.id, 'r', d.hash)).text).toBe('init: Claude is on it · progress in the cadre pane · then your goal'); await tick()
-    expect((await h.secret.read()).run).toMatchObject({ follow: 1, goal: { text: 'implement MGIoU 1D', mode: 'auto' } }); expect(sent[0]).toMatch(/^The user chose "Let Claude try again" in the cadre dialog: go on now\. .*then plan the user's goal/)
+    expect((await h.secret.read()).run).toMatchObject({ follow: 1, goal: { text: 'implement MGIoU 1D', mode: 'auto' } }); expect(sent[0]).toMatch(/^The user asked you to go on: do it now\. .*then plan the user's goal/)
     expect(banned(sent[0])).toEqual([])
   })
   // live 0.12.0 (an Esc on a write, then 29 retries): every "Let Claude try again" refilled the stop budget, so Claude was refused once per retry forever.

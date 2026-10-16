@@ -30,25 +30,35 @@ export async function halt(h: Host): Promise<void> { const r = await halted(h); 
 // $.prompt.submit is refused from a command or a press frame, and $.clock.after inherits that frame (live, 0.7.0). So a brief waits in the run (`brief`)
 // and goes out from main's turn end or the session's 5 s timer (pump); it starts once the session is idle.
 const send = (h: Host, brief: string) => h.secret.update(s => (s.run ? { ...s, run: { ...s.run, brief } } : s))
-// Claude Code 2.1.299: after the human stops Claude (Esc) a plugin's submit resolves { drop } until the human types or presses again; only a submit from that
-// press's own frame goes. So the human's retry hands the step over from its answer (inFrame: refused there, as before 2.1.299, it waits for the timer), and a
-// drop anywhere else shows the stopped dialog at once; it does not pop itself (an answer from a popped dialog has no press): the band asks for 1.
+// Claude Code 2.1.299: after the human stops Claude (Esc) a plugin's submit resolves { drop } until the human sends input; only a submit from a press's own frame
+// goes, and a dialog answer's work runs later (quick tier user2: every retry refused again, 37 dialogs). So a drop holds the run: ONE dialog says to type anything
+// in the prompt, nothing is submitted while held (no retry storm), and the human's typed line (resume, from prompt.submit) restarts it; the timer sends the step.
+// inFrame: the retry of a stop that was not a drop (the limits); refused there, it waits for the timer.
 export async function pump(h: Host, inFrame = false): Promise<void> {
+  if ((await h.ui.read()).held) return
   let text: string | undefined; await h.secret.update(s => { text = s.run?.brief; return text ? { ...s, run: { ...s.run!, brief: undefined } } : s })
   const r = text ? await h.submit?.(modelText('brief', text)).catch((e: Error) => ({ drop: e.message })) as { drop?: string } | undefined : undefined
   if (r?.drop) h.log(`could not hand the step to Claude: ${r.drop.slice(0, 120)}`)
   if (r?.drop && inFrame) return send(h, text!)
   const run = r?.drop && (await h.secret.read()).run
-  if (run) { await h.ui.update(u => ({ ...u, shown: [...((u.shown as string[] | undefined) ?? []), `run:${run.kind}`] })); await stuck(h, run, await items(h, run.kind), 'Claude was stopped before it got the next step') }
+  if (run) { await h.ui.update(u => ({ ...u, shown: [...((u.shown as string[] | undefined) ?? []), `run:${run.kind}`] })); await stuck(h, run, await items(h, run.kind), 'Claude was stopped before it got the next step.', true) }
   if (!inFrame) await sendBrief(h)   // a `/cadre <goal>` brief (core/lanes)
 }
+// the human typed in the prompt (prompt.submit, composer): a held run starts again, its step goes on the next tick (pump)
+export async function resume(h: Host): Promise<void> {
+  const u = await h.ui.read(); if (!u.held) return
+  await h.ui.update(({ held: _h, ...x }) => x)
+  const rt = u.retry as { kind: Kind; goal?: Halt['goal']; follow?: number } | undefined
+  if (rt && !(await h.secret.read()).run && (await h.board.read()).decisions?.some(d => d.id === `run:${rt.kind}`)) { await settle(h, `run:${rt.kind}`); await start(h, rt.kind, rt.goal, rt.follow ?? 0) }
+}
 
-async function draw(h: Host, k: Kind, its: Item[], state: 'on' | 'stopped' | 'done', note?: string): Promise<void> {
+async function draw(h: Host, k: Kind, its: Item[], state: 'on' | 'stopped' | 'held' | 'done', note?: string): Promise<void> {
   const n = its.filter(i => i.st === 'ok' || i.st === 'warn').length, human = !its.some(i => i.st === 'fail') && its.some(i => i.st === 'wait')
-  const title = state === 'done' ? `${k} · all done` : state === 'stopped' ? `${k} · Claude stopped · ${its.length - n} left` : `${k} · ${n}/${its.length} done · ${human ? 'needs you' : 'Claude is on it'}`
+  const title = state === 'done' ? `${k} · all done` : state === 'held' ? `${k} stopped · type anything to go on` : state === 'stopped' ? `${k} · Claude stopped · ${its.length - n} left` : `${k} · ${n}/${its.length} done · ${human ? 'needs you' : 'Claude is on it'}`
   const lines = [...(note ? note.split('\n') : []), ...its.map(i => `${G[i.st]} ${i.name}${i.why ? `: ${i.why}` : ''}`)]
   await ask(h, { id: `run:${k}`, kind: 'init', title, short: title, lines, hash: fnv1a64(title + lines.join('\n')), tab: 'epic', ...(state === 'done' || (state === 'on' && (!human || (await h.secret.read()).run?.goal)) ? { quiet: true as const } : {}),   // done: shown in the pane, never a "needs you"   // a goal run: the human's cards (safety, then mission + plan) pop themselves; the checklist never does
     options: state === 'stopped' ? [{ key: 'r', label: 'Let Claude try again', verb: 'change', run: `${k} retry` }, { key: 'x', label: `Stop ${k === 'init' ? 'setup' : k}`, verb: 'reject', run: `${k} cancel` }]
+      : state === 'held' ? [{ key: 'x', label: `Stop ${k === 'init' ? 'setup' : k}`, verb: 'reject', run: `${k} cancel` }]   // no retry here: an answer cannot hand the step over (pump)
       : [{ key: 'x', label: state === 'done' ? 'Close' : 'Cancel', verb: 'reject', run: `${k} cancel` }] })
 }
 // where in the guide each check is done (guides/init.md phases)
@@ -59,10 +69,10 @@ const followUp = async (h: Host, k: Kind, fails: Item[], guide: string) => [
   `Fix them now, following ${guide}. If you cannot fix one, say which one and why, then stop.`,
 ].join('\n').replaceAll(`${await h.home()}/`, '~/')
 // Claude stopped with checks still red and cannot go on (refused 3 times, or it stopped without trying again): ONE dialog for the human, never a silent "running"
-async function stuck(h: Host, r: NonNullable<Secret['run']>, its: Item[], why: string): Promise<string> {
-  await end(h); await h.ui.update(u => ({ ...u, retry: { kind: r.kind, goal: r.goal, follow: r.follow } }))   // "Let Claude try again" starts the same run, the goal still queued and its stop refusals spent (live 0.12.0: 29 retries, each refilled)
+async function stuck(h: Host, r: NonNullable<Secret['run']>, its: Item[], why: string, held = false): Promise<string> {
+  await end(h); await h.ui.update(u => ({ ...u, retry: { kind: r.kind, goal: r.goal, follow: r.follow }, ...(held ? { held: true } : {}) }))   // "Let Claude try again" starts the same run, the goal still queued and its stop refusals spent (live 0.12.0: 29 retries, each refilled)
   const said = (r.said ?? '').replace(/\s+/g, ' ').trim()
-  await draw(h, r.kind, its, 'stopped', [why, ...(said ? [`Claude: "${said.slice(0, 200)}${said.length > 200 ? '…' : ''}"`] : [])].join('\n'))
+  await draw(h, r.kind, its, held ? 'held' : 'stopped', [why, ...(held ? ['Type anything in the prompt (for example: go on) and Claude picks up the next step.'] : []), ...(said ? [`Claude: "${said.slice(0, 200)}${said.length > 200 ? '…' : ''}"`] : [])].join('\n'))
   return `${r.kind}: stopped · press 1`
 }
 
@@ -80,7 +90,7 @@ export async function start(h: Host, k: Kind, goal?: { text: string; mode: 'auto
   await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, guide, ...(gi !== undefined ? { gi: { had: gi !== null, text: gi ?? '' } } : {}) } } : s)); await resnap(h)
   await draw(h, k, its, 'on')
   const at0 = k === 'init' ? ` The project root is ${await h.cwd()}: start every Bash call with cd "${await h.cwd()}" && and give files there by their full path.` : ''   // a shell left in a package folder made a second .cadre there, live 0.10.0
-  const who = again === undefined ? '' : 'The user chose "Let Claude try again" in the cadre dialog: go on now. '
+  const who = again === undefined ? '' : 'The user asked you to go on: do it now. '
   await send(h, who + (goal ? `${WHAT[k]}, then plan the user's goal (it comes next). Follow ${guide} step by step.${at0} Skip the mission question: you draft the mission together with the plan.` : `${WHAT[k]}. Follow ${guide} step by step.${at0}`))
   return `${k}: Claude is on it · progress in the cadre pane${goal ? ' · then your goal' : ''}`
 }
@@ -171,7 +181,7 @@ async function goalStop(h: Host): Promise<string | null> {
   return null
 }
 // `/cadre setup|init cancel` (core/dispatch): the lease ends and the decision goes
-export async function cancel(h: Host, k: string): Promise<void> { if ((await h.secret.read()).run?.kind === k || (await halted(h))?.kind === k) await end(h, true); await settle(h, `run:${k}`) }
+export async function cancel(h: Host, k: string): Promise<void> { await h.ui.update(({ held: _h, ...u }) => u); if ((await h.secret.read()).run?.kind === k || (await halted(h))?.kind === k) await end(h, true); await settle(h, `run:${k}`) }
 
 // ---- settings watch (ADR 0010): Bash under the lease could still write a settings file. Their bytes are kept when the run starts and after each of cadre's
 // own confirmed writes (resnap); any other change stops the run with a CRIT decision: Restore the kept bytes (the changed file is kept as .cadre-changed) or [k] Keep.

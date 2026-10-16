@@ -140,6 +140,9 @@ const went = (() => {
     }
   }
 }
+// 8b. a stop (FAULT=interrupt) asks for a typed line once: no stopped dialog shown twice, no more than 2 typed lines (each one brings a turn)
+{ const st = drv.filter(e => e.kind === 'dialog' && /stopped/.test(e.text)).length, ty = drv.filter(e => e.kind === 'type').length
+  if (st > 1 || ty > 2) fail('stop-loop', `${st} stopped dialogs, ${ty} typed lines: ${drv.filter(e => e.kind === 'dialog' || e.kind === 'type').map(e => e.text).slice(-3).join(' / ')}`) }
 // a cell that asked for a fault and never injected it tested nothing
 { const f = drv[0]?.text.match(/fault=(\w+)/)?.[1]; if (f && f !== 'none' && !drv.some(e => e.kind === 'fault')) fail('fault-not-injected', `FAULT=${f} never fired (its trigger was not reached)`) }
 // 9. no credential in a mounted dir or the evidence (cell.sh lists the files that hold one)

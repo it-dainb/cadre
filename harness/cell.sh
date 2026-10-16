@@ -18,7 +18,7 @@ log "start fixtures=[$FIX] scenario=$SCEN model=${MODEL:-haiku} cc=${CC_VERSION:
 SCAFFOLD=$S COLS=${COLS:-120} ROWS=${ROWS:-40} tui start "$N" >"$O/start.log" 2>&1 || { log "start failed"; cat "$O/start.log"; tui stop "$N" >/dev/null; echo "$N FAIL start"; exit 1; }
 git -C "$D/work" for-each-ref --format='%(refname:short) %(objectname:short)' refs/heads >"$O/refs-before" 2>/dev/null
 
-# ---- watcher: a pane capture every 2 s (kept when it changed), answers dialogs (option 1) after DIALOG_WAIT s, presses 1 when asked to ----
+# ---- watcher: a pane capture every 2 s (kept when it changed), answers dialogs (option 1) after DIALOG_WAIT s, presses 1 when asked to, types a line when asked to ----
 # the main column's rows joined: a pane docked at the right is cut off, so a phrase the narrowed column wraps over two rows still reads as one
 flat() { sed -E 's/^([^│]*[^ │]) +│.*$/\1/' <<<"$1" | tr -s ' \n' '  '; }
 dialog() { grep -qE 'Enter to select|Ready to submit your answers' <<<"$(flat "$1")"; }   # a question dialog, or its review screen after 2+ questions
@@ -58,7 +58,9 @@ watcher() {
       # the band's "1: answer" too (5 s after it shows, then every 15 s while it stays). Only with nothing typed, no turn running, and not on hold.
       [ -z "$cur" ] && tnew=0; [ -n "$cur" ] && [ "$cur" != "$lastt" ] && [ $tnew = 0 ] && tnew=$now   # a text that scrolled away asks for nothing
       bask=$(band "$p" | grep -m1 '1: answer'); [ -z "$bask" ] && bsince=0; [ -n "$bask" ] && [ $bsince = 0 ] && bsince=$now
-      if { { [ $tnew -gt 0 ] && [ $((now - tnew)) -ge 5000 ]; } || { [ $bsince -gt 0 ] && [ $((now - bsince)) -ge 5000 ]; }; } && [ -z "$(comp "$p")" ] && ! grep -q 'esc to interrupt' <<<"$p" && [ $((now - last1)) -gt 15000 ] && [ ! -f "$O/hold" ]; then
+      if grep -q 'type anything' <<<"$(flat "$p")" && [ -z "$(comp "$p")" ] && ! grep -q 'esc to interrupt' <<<"$p" && [ $((now - last1)) -gt 15000 ] && [ ! -f "$O/hold" ]; then
+        tui send "$N" "go on" >/dev/null; last1=$now; log "type go on"   # after an Esc the band asks for a typed line (its dialog has no retry): a user types one
+      elif { { [ $tnew -gt 0 ] && [ $((now - tnew)) -ge 5000 ]; } || { [ $bsince -gt 0 ] && [ $((now - bsince)) -ge 5000 ]; }; } && [ -z "$(comp "$p")" ] && ! grep -q 'esc to interrupt' <<<"$p" && [ $((now - last1)) -gt 15000 ] && [ ! -f "$O/hold" ]; then
         key 1; last1=$now; lastt=$cur; tnew=0; log "press1 $cur"
       elif [ $last1 -gt 0 ] && [ $((now - last1)) -gt 6000 ] && [[ $(comp "$p") =~ ^1+$ ]]; then key C-u; log "typed 1 cleared"   # the 1 went into the composer: no dialog took it
       fi

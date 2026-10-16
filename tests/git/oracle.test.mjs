@@ -72,3 +72,17 @@ test('routing allows the model the cell env forces', () => {
   assert.ok(!routing({ CLAUDE_CODE_SUBAGENT_MODEL: 'haiku', CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '1' }).includes('routing'))
   assert.ok(routing().includes('routing'))   // without the forcing env a reviewer on haiku is still off the settings
 })
+
+// quick tier user2-nogit-lazy-interrupt on 33ff8a3 (2.1.299): after Esc each "Let Claude try again" was refused and the stopped dialog came back 36 times
+test('stop-loop: one stopped dialog and up to 2 typed lines pass; a second stopped dialog or a third typed line fails', () => {
+  const run = lines => {
+    const d = mkdtempSync(join(tmpdir(), 'cadre-oracle-')), t = 1_792_140_560_000
+    cpSync(join(fix, 'panes'), join(d, 'panes'), { recursive: true, filter: s => !s.endsWith('.txt') })
+    writeFileSync(join(d, 'driver.log'), [`${t} start fixtures=[nogit] fault=interrupt`, `${t + 1} fault interrupt`, ...lines.map((l, i) => `${t + 10 + i} ${l}`), `${t + 9000} end`].join('\n') + '\n')
+    try { execFileSync('node', [join(root, 'harness/oracle.mjs'), d], { stdio: 'pipe' }) } catch {}
+    return JSON.parse(readFileSync(join(d, 'verdict.json'), 'utf8')).fails.map(f => f.invariant)
+  }
+  assert.ok(!run(['dialog init stopped · type anything to go on', 'type go on', 'type go on']).includes('stop-loop'))
+  assert.ok(run(['dialog init · Claude stopped · 6 left', 'answer x', 'dialog init · Claude stopped · 6 left']).includes('stop-loop'))
+  assert.ok(run(['type go on', 'type go on', 'type go on']).includes('stop-loop'))
+})
