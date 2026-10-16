@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 
-const { FileStore } = await import('../../task-management/adapters/file/store.ts')
+const { FileStore, SCRIPTS } = await import('../../task-management/adapters/file/store.ts')
 const { contract } = await import('../store-contract.ts')
 const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { timeout: o.timeoutMs }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
 const host = (o = {}) => ({ run, now: async () => Date.now(), rand: (n = 16) => randomBytes(n).toString('hex'), write: async (p, t) => { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, t) }, ...o })
@@ -93,4 +93,12 @@ test('a warm store whose dir is removed (git clean -xdf) and regrown by another 
     if (regrow) assert.deepEqual((await new FileStore(host(), dir, 'C').list({})).map(t => t.title), ['other'])
     else assert.throws(() => readdirSync(join(dir, 'j')))
   }
+})
+
+// review r3 N16: a warm store reads only the journal tail on every op; the scan prints the entry it has seen (-ge), else each op pays a second, full scan
+test('a warm store scans incrementally on every write: no full scan after the first', async () => {
+  const dir = fresh(), full = []; await new FileStore(host(), dir, 'I').init({ types: reg, journal: true })
+  const s = new FileStore(host({ run: (argv, o) => { if (argv[2]?.endsWith(SCRIPTS.scan)) full.push(argv[6]); return run(argv, o) } }), dir, 'S'), e = await s.createEpic('E', 'g')
+  for (let i = 0; i < 10; i++) await s.setMeta(e, { [`k${i}`]: '1' }, 's')
+  assert.equal(full.filter(f => f === '1').length, 1, `scans (1 = full): ${full.join(' ')}`)
 })
