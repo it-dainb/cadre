@@ -39,7 +39,7 @@ export async function route(h: Host, c: Command): Promise<Out> {   // every disp
     }
     case 'doctor': return { text: await doctor(h) }
     case 'deep': return { text: c.origin.kind === 'composer' ? await goal(h, a ?? '', (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto', true) : `refused: origin ${c.origin.kind} cannot start a goal; type it in the prompt` }   // ADR 0020: questions before the plan, even when drive.mode is yolo (the mode applies after approval)
-    case 'goal': case 'yolo': return { text: c.origin.kind === 'composer' ? await goal(h, a ?? '', c.cmd === 'yolo' || (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto') : c.cmd === 'goal' && a === 'drop' ? await dropGoal(h) : `refused: origin ${c.origin.kind} cannot start a goal; type it in the prompt` }   // the human's own words only; `goal drop`: the held goal's dialog (core/lanes.sendBrief)
+    case 'goal': case 'yolo': return { text: c.cmd === 'goal' && a === 'drop' && !isHuman(c.origin) ? await dropGoal(h) : c.origin.kind === 'composer' ? await goal(h, a ?? '', c.cmd === 'yolo' || (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto') : `refused: origin ${c.origin.kind} cannot start or drop a goal; type it in the prompt` }   // the human's own words only; `goal drop`: the held goal's dialog (core/lanes.sendBrief), a press only
     case 'lane': { const why = isHuman(c.origin); return { text: why ? `refused: ${why}` : await changeLane(h, await storeOf(h), await registryOf(h), a ?? '') } }
     case 'config': if (!a || a === 'show') return { text: configText(await cfgOf(h), c.args[1]) }
   }

@@ -4,7 +4,7 @@ import { load } from '../config/index'
 import { GOAL_FOLLOW, QUIET, cancel, halt, pump, recheck, resume, redNote, seen, start, stopCheck, turnEnd, watch } from '../commands/agentrun'
 import { band2 } from '../ui/v2/band'
 import { txt } from '../ui/model'
-import { SETTING_UP, decide, run as cadreRun, status as statusLine } from '../commands/cadre'
+import { HINT, SETTING_UP, decide, parse, route, run as cadreRun, status as statusLine } from '../commands/cadre'
 import { guard, policyOf, setPolicy, settingsOnly, LIMIT } from '../policy/guards'
 import { wake, warm } from '../core/session'
 import { fakeHost } from './support'
@@ -250,6 +250,8 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     fail = false; await resume(h); expect(await card(h, 'goal:held')).toBeUndefined(); await pump(h)
     expect(tries).toBe(4); expect((await h.ui.read()).goal).toBeUndefined(); expect((await h.ui.read()).goalErrs).toBeUndefined()   // went through: the count starts over
     fail = true; await h.ui.update(u => ({ ...u, goal: 'plan that' })); for (let i = 0; i < 3; i++) await pump(h)
+    expect((await route(h, { schemaVersion: 1, cmd: 'goal', args: ['drop'], origin: { kind: 'sdk' } } as any)).text).toMatch(/^refused/); expect((await h.ui.read()).goal).toBe('plan that')   // only a press drops it
+    expect(parse('goal drop')).toEqual({ hint: HINT })   // typed, it is never a goal named "drop"
     const d = (await card(h, 'goal:held'))!; expect((await decide(h, d.id, 'x', d.hash)).text).toBe('goal dropped')
     expect((await h.ui.read()).goal).toBeUndefined(); expect((await h.ui.read()).held).toBeUndefined(); expect(await card(h, 'goal:held')).toBeUndefined()
   })
