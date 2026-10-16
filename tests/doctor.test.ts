@@ -140,6 +140,13 @@ describe('doctor', () => {
     expect(log).toContain('no open flags'); expect(h.writes).toEqual([])
     expect(log).not.toContain('.gitignore')
   })
+  test('landing.mode pr: a Doctor row for gh missing, signed out, or ready', async () => {
+    const rows = async (tools: Record<string, string>, auth: number) => { const c = defaults() as any; c.landing.mode = 'pr'; const h = mk({ repo: true, tools: { git: 'git version 2.43.0', bwrap: 'bubblewrap 0.11.0', socat: 'x', ...tools } }), r0 = h.run
+      Object.assign(h, { config: async () => c, run: async (a: string[], o?: any) => (a[0] === 'gh' && a[1] === 'auth' ? { exitCode: auth, stdout: '', stderr: '' } : r0(a, o)) }); await doctor(h); return ((await h.ui.read())['doctor.rows'] as any[]).find(r => /\bgh\b/.test(r[1])) }
+    expect(await rows({}, 0)).toEqual(['crit', 'landing.mode is pr but gh is not installed', 'install the GitHub CLI (gh), or set landing.mode direct'])
+    expect(await rows({ gh: 'gh version 2.60.0' }, 1)).toEqual(['crit', 'landing.mode is pr but gh is not signed in', 'gh auth login'])
+    expect(await rows({ gh: 'gh version 2.60.0' }, 0)).toEqual(['ok', 'gh ready: plans land as pull requests'])
+  })
   test('clean break: an older task store folder is a warn row; a store that fails its probe is a crit row', async () => {
     const h = mk({ repo: true }), st = h.stat
     Object.assign(h, { stat: async (p: string) => (p === '/repo/.beads' ? { kind: 'dir' } : st(p)), taskStore: async () => ({ probe: async () => ({ ok: false, journal: false, version: 'file', detail: 'hard links or sync fail in /repo/.cadre/state' }) }) })

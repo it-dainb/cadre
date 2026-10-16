@@ -58,6 +58,57 @@ export async function propose(h: Host, root: string, dev: string): Promise<void>
   await emit(h, 'release.proposed', { version }); h.toast(`${isMs((await h.board.read()).plan) ? 'Milestone' : 'Epic'} landed on ${dev} · release v${version}? · press 1`)
 }
 
+// fix: red checks get a fix task; a merge conflict with dev is the human's ("make the checks pass" does not fit it)
+async function failed(h: Host, epicId: string, why: string, flag: boolean, fix = flag, tmp = ''): Promise<string> {
+  const p = (await h.board.read()).plan!, ep = epicOf({ plan: p }, epicId), store = await storeOf(h)
+  if (tmp) await worktreeRemove(h.run, await h.cwd(), tmp).catch(() => {})
+  if (fix && !(isMs(p) && !ep) && (await redFix(h, epicId, why).catch(e => (h.log(`fix task: ${e}`), false)))) flag = false   // driving: the first red gets one fix task, no flag (ADR 0013)
+  if (ep) { await setPlan(h, 'fail'); if (flag) await stopEpic(h, epicId, why.slice(0, 200)); else await mirror(h, store, await registryOf(h)); return why }   // an epic: the milestone goes on; a 2nd red or a conflict stops this epic only
+  await setPlan(h, 'fail', { pr: undefined, ...(flag ? { flags: [...(p.flags ?? []).filter(f => f !== 'integration-failed'), 'integration-failed'] } : {}) })
+  if (flag) await emit(h, 'flag.raised', { taskId: epicId, flag: 'integration-failed' })
+  return why
+}
+// the plan is on dev (directly, or its pull request merged): landed, known red cleared, a release proposed
+async function onDev(h: Host, epicId: string, dev: string, sha: string, kr: { root: string; n: string }[]): Promise<null> {
+  const cfg = await cfgOf(h), p = (await h.board.read()).plan!
+  await setPlan(h, 'land', { landed: { dev, sha, at: await h.now() }, flags: (p.flags ?? []).filter(f => f !== 'integration-failed'), pr: undefined })
+  await emit(h, 'plan.landed', { planId: epicId, sha })
+  await clearKnownRed(h, kr, epicId).catch(e => h.log(`known red not cleared: ${e}`))
+  const dr = (await h.board.read()).drive; if (cfg.release.onEpicDone === 'propose' && !(yoloOn(dr) && dr.epicId === epicId)) await propose(h, await h.cwd(), dev)   // a running yolo run of this plan stops at landed on dev (drive's toast); a stopped one, or another epic's mode, gets the proposal
+  return null
+}
+
+// H6 landing.mode pr: the integration commit goes up as one pull request into dev; CI (+ an approval with landing.review) is the gate. The plan waits as integrating.
+async function openPr(h: Host, cfg: any, epicId: string, dev: string, devTip: string, sha: string, from: string, tmp: string): Promise<string> {
+  const root = await h.cwd(), R = cfg.landing.remote, branch = `cadre/land/${epicId}`, x = async (argv: string[]) => { const r = await h.run(argv, { cwd: root }); if (r.exitCode) throw new Error(`${argv.slice(0, 3).join(' ')}: ${tail(r)}`); return r.stdout }
+  await x(['gh', 'auth', 'status']); await x(['git', 'push', R, `${devTip}:refs/heads/${dev}`]); await x(['git', 'push', '--force', R, `${sha}:refs/heads/${branch}`])
+  const n = Number(/\/pull\/(\d+)/.exec(await x(['gh', 'pr', 'create', '--base', dev, '--head', branch, '--title', `merge ${from} (${epicId})`, '--body', `Plan ${epicId}: it lands on ${dev} when the checks pass.`]))?.[1])
+  if (!n) throw new Error('gh pr create printed no pull request URL')
+  await worktreeRemove(h.run, root, tmp).catch(() => {})
+  await h.board.update(b => ({ ...b, plan: { ...b.plan!, pr: { n, branch, devTip, from } } }))
+  return `pull request #${n} opened: the plan lands on ${dev} when its checks pass${cfg.landing.review ? ' and it is approved' : ''}`
+}
+// the 5 s tick (autoLand), at most every 30 s: green (+ approved) merges and lands; red takes the red path; a gh failure backs off (30 s doubling to 10 min)
+export async function prPoll(h: Host): Promise<void> {
+  const p = (await h.board.read()).plan, pr = p?.pr; if (!pr || p!.state !== 'integrating') return
+  const K = await scoped(h, 'prwait'), w = ((await h.store.get(K)) as { n: number; next: number } | undefined) ?? { n: 0, next: 0 }, now = await h.now(); if (now < w.next) return
+  const cfg = await cfgOf(h), root = await h.cwd(), dev = cfg.branches.dev, gh = (...a: string[]) => h.run(['gh', ...a], { cwd: root })
+  try {
+    const v = await gh('pr', 'view', String(pr.n), '--json', 'state,reviewDecision'); if (v.exitCode) throw new Error(tail(v))
+    const view = JSON.parse(v.stdout), checks: { name: string; bucket: string }[] = JSON.parse((await gh('pr', 'checks', String(pr.n), '--json', 'name,bucket')).stdout || '[]')   // no checks reported: nothing to wait for
+    await h.store.set(K, { n: 0, next: now + 30_000 })
+    const bad = checks.filter(c => c.bucket === 'fail' || c.bucket === 'cancel').map(c => c.name)
+    if (bad.length) return void (await failed(h, p!.id, `pull request #${pr.n}: checks failed: ${bad.join(', ')}`, true))
+    if (view.state !== 'MERGED' && (checks.some(c => c.bucket === 'pending') || (cfg.landing.review && view.reviewDecision !== 'APPROVED'))) return
+    if (view.state !== 'MERGED') { const m = await gh('pr', 'merge', String(pr.n), '--merge'); if (m.exitCode) throw new Error(tail(m)) }
+    const f = await h.run(['git', 'fetch', cfg.landing.remote, dev], { cwd: root }); if (f.exitCode) throw new Error(tail(f))
+    const sha = await tip(h.run, root, 'FETCH_HEAD')
+    if (!(await landDev(h, { dev, sha, old: pr.devTip, tmp: '', epic: pr.from }))) return void (await failed(h, p!.id, `${dev} moved here while pull request #${pr.n} merged; integrate again`, false, false))
+    await h.run(['git', 'push', cfg.landing.remote, '--delete', pr.branch], { cwd: root }); await h.store.del(K)
+    await onDev(h, p!.id, dev, sha, [])
+  } catch (e) { const n = w.n + 1; await h.store.set(K, { n, next: now + Math.min(30_000 * 2 ** n, 600_000) }); h.log(`pull request #${pr.n}: ${(e as Error).message.slice(0, 200)}`) }
+}
+
 // §3.9 Integration. null = landed on dev; otherwise the refusal / failure text (also left as a comment on the epic).
 export async function integrateEpic(h: Host, epicId: string): Promise<string | null> {
   const s = await h.board.read(), p = s.plan, ep = epicOf(s, epicId)   // a milestone's epic lands on the milestone branch; the milestone lands on dev (ADR 0015)
@@ -73,14 +124,7 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
   if (!got) return 'integration is already running'
   const [root, cfg, store] = [await h.cwd(), await cfgOf(h), await storeOf(h)]
   const dev = ep ? p.epicBranch : cfg.branches.dev, from = ep ? ep.branch : p.epicBranch, tmp = wtPath(await wtRootOf(h, cfg), repoKeyOf(root), `int-${epicId}`)
-  const fail = async (why: string, flag: boolean, fix = flag) => {   // fix: red checks get a fix task; a merge conflict with dev is the human's ("make the checks pass" does not fit it)
-    await worktreeRemove(h.run, root, tmp).catch(() => {})
-    if (fix && !(isMs(p) && !ep) && (await redFix(h, epicId, why).catch(e => (h.log(`fix task: ${e}`), false)))) flag = false   // driving: the first red gets one fix task, no flag (ADR 0013)
-    if (ep) { await setPlan(h, 'fail'); if (flag) await stopEpic(h, epicId, why.slice(0, 200)); else await mirror(h, store, await registryOf(h)); return why }   // an epic: the milestone goes on; a 2nd red or a conflict stops this epic only
-    await setPlan(h, 'fail', flag ? { flags: [...(p.flags ?? []).filter(f => f !== 'integration-failed'), 'integration-failed'] } : {})
-    if (flag) await emit(h, 'flag.raised', { taskId: epicId, flag: 'integration-failed' })
-    return why
-  }
+  const fail = (why: string, flag: boolean, fix = flag) => failed(h, epicId, why, flag, fix, tmp)
   try {
     const c = await trial(h, root, await tip(h.run, root, await baseOf(h, dev)), from)   // a trial merge first (ADR 0015 wave 2)
     const m = c?.length ? new Error(`conflicts in ${c.join(', ')}`) : await mergeEpic(h, { dev, epic: from, tmp, msg: `merge ${from} (${epicId})${ep ? `\n\nMilestone: ${p.id} ${p.slug}` : ''}` }).catch(e => e as Error)
@@ -99,17 +143,13 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
       }
       if (out !== text) { await h.write(path, out); sha = await commitPaths(h, tmp, [cfg.changelog.path], '', true) }
     }
+    if (!ep && cfg.landing.mode === 'pr') return await openPr(h, cfg, epicId, dev, m.devTip, sha, from, tmp)   // CI is the gate there
     const files = (await git(h.run, tmp, ['diff', '--name-only', `${m.devTip}..${sha}`])).split('\n').filter(Boolean)
     const kr: { root: string; n: string }[] = [], red = await runSuites(h, cfg, tmp, files, epicId, kr); if (red) return await fail(red, true)
     if (!(await landDev(h, { dev, sha, old: m.devTip, tmp, epic: from }))) return await fail(`${dev} moved during integration; call TaskUpdate completed again`, false)
     await offer(h, dev)   // the user has it checked out: the landing waits for them
     if (ep) return await landed(h, store, epicId, sha, files, cfg.branches.dev, tmp)
-    const at = await h.now()
-    await setPlan(h, 'land', { landed: { dev, sha, at }, flags: (p.flags ?? []).filter(f => f !== 'integration-failed') })
-    await emit(h, 'plan.landed', { planId: epicId, sha })
-    await clearKnownRed(h, kr, epicId).catch(e => h.log(`known red not cleared: ${e}`))
-    const dr = (await h.board.read()).drive; if (cfg.release.onEpicDone === 'propose' && !(yoloOn(dr) && dr.epicId === epicId)) await propose(h, root, dev)   // a running yolo run of this plan stops at landed on dev (drive's toast); a stopped one, or another epic's mode, gets the proposal
-    return null
+    return await onDev(h, epicId, dev, sha, kr)
   } catch (e) { return await fail(`integration error: ${(e as Error).message}`, false) }
 }
 
@@ -231,6 +271,7 @@ async function clean(h: Host, b: string) {
 }
 // the next landing, session start and the 5 s tick: what waits lands where it can; a dev the user moved is merged into the running plan, and its workers get it
 export async function autoLand(h: Host): Promise<void> {
+  await prPoll(h)
   const cfg = await cfgOf(h), root = await h.cwd(), s = await h.board.read()
   for (const b of [cfg.branches.dev, await mainOf(h, cfg, root)]) await landPending(h, b).catch(x => h.log(`land ${b}: ${x}`))   // a busy lock: the next tick retries
   if (s.plan?.state !== 'approved' || isMs(s.plan) || !(await exists(h.run, root, s.plan.epicBranch))) return

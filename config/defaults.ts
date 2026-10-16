@@ -33,7 +33,7 @@ export const defaults = () => ({
   limits: { reportRetries: 3, nudges: 1, silentRuns: 3, startFails: 3, rebaseRounds: 2, testerRounds: 3 },
   lanes: { fullAt: 3, milestoneAt: 8 },
   planning: { clarify: { enabled: true, maxQuestions: 3, threshold: 0.7 }, deep: { maxRounds: 8 } },   // ADR 0020: explorer + clarity before a goal's plan; /cadre deep
-  branches: { main: '', dev: 'dev', epicPrefix: 'epic/' }, release: { onEpicDone: 'propose' },
+  branches: { main: '', dev: 'dev', epicPrefix: 'epic/' }, release: { onEpicDone: 'propose' }, landing: { mode: 'direct' as 'direct' | 'pr', review: false, remote: 'origin' },
   ui: { glyphs: 'unicode', flash: true, density: 'normal', notify: 'on', escalateAfterMs: 120_000 },
   maxParallel: 3, milestone: { maxEpics: 2, epicPlanner: 'agent' as 'agent' | 'main' }, planner: { maxRounds: 3 },   // 0 = no cadre cap (drive bounds still apply)
   notes: { slice: true },   // ADR 0022
@@ -86,7 +86,8 @@ export const REG: Record<string, Meta> = {
   'planning.clarify.threshold': m(PL, 'clarity (0-1) each of outcome, scope, acceptance, constraints needs before Claude plans without asking', { min: 0, max: 1 }),
   'planning.deep.maxRounds': m(PL, '/cadre deep: question rounds before Claude plans anyway', N(1, 20)),
   'branches.main': m(G, 'the release branch (set by init)'), 'branches.dev': m(G, 'the integration branch'), 'branches.epicPrefix': m(G, 'epic branch name prefix'),
-  'release.onEpicDone': m(G, 'after an epic lands on dev: propose a release, or not', { opts: ['propose', 'off'] }), 'limits.rebaseRounds': m(G, 'reworks onto a moved plan tip before asking you', N(0, 10)),
+  'release.onEpicDone': m(G, 'after an epic lands on dev: propose a release, or not', { opts: ['propose', 'off'] }),
+  'landing.mode': m(G, 'a plan lands on dev directly, or as a pull request that merges when its checks pass', { opts: ['direct', 'pr'] }), 'landing.review': m(G, 'pr mode: the pull request also needs an approving review'), 'landing.remote': m(G, 'pr mode: the git remote the pull request goes to'), 'limits.rebaseRounds': m(G, 'reworks onto a moved plan tip before asking you', N(0, 10)),
   'changelog.path': m(G, 'the changelog cadre writes at close'), 'worktrees.root': m(G, "task worktrees ('' = ~/.cache/cadre/wt)", { cls: 'U' }),
   'roles.testerView': m(C, 'view: the tester sees only the interface; full: the whole tree', { cls: 'S', opts: ['full', 'view'], tighten: 'enum' }),
   'roles.tdd.author': m(C, 'separate: a tester agent writes the tests; same: the worker does', { opts: ['separate', 'same'] }),

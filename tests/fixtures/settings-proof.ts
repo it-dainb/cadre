@@ -13,5 +13,6 @@ export const ELSEWHERE: Record<string, [string, string]> = {
   'tdd.collectErrors': ['tests/git/tdd.test.mjs', 'settings: tdd.collectErrors'],
   packages: ['tests/admission.test.ts', "d.cfg.packages = [{ root: '.', setup:"],
   units: ['tests/admission.test.ts', "d.cfg = { ...d.cfg, units: [{ root: '.', kind: 'service'"],
+  'landing.mode': ['tests/git/landing-pr.test.mjs', "cfg.landing = { mode: 'pr'"], 'landing.review': ['tests/git/landing-pr.test.mjs', "review: !!o.review"], 'landing.remote': ['tests/git/landing-pr.test.mjs', "remote: 'origin' }"],
   adapters: ['tests/protocol/protocol.test.mjs', 'const config = { ...cfgDefaults(), adapters, sync }'], sync: ['tests/protocol/protocol.test.mjs', 'const config = { ...cfgDefaults(), adapters, sync }'],
 }
