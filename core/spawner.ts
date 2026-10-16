@@ -58,7 +58,7 @@ export async function spawnStep(h: Host, event: string): Promise<void> {
     let ok = false; try { ok = go.length > 0 && (await tally(h, cfg, usd, go.length)) } finally { if (!ok) for (const x of go) inflight.delete(`${x.id}:${x.role}`) }   // refused or thrown: the picks go back
     return ok ? go : []
   })
-  for (const x of go) await one(h, x.id, x.role)
+  for (const x of go) await one(h, x.id, x.role).catch((e: Error) => h.log(`${x.id} not started: ${e.message}`))   // one pick's throw never leaks the picks after it
   if (go.length && (await h.ui.read()).goal === IDLE) await h.ui.update(u => ({ ...u, goal: undefined }))   // the idle fallback is not needed: agents run
   if (event === 'turn.complete') await drive(h, cfg, usd, true)   // what is main's own, if anything: one turn (a command frame may not submit)
 }
@@ -87,7 +87,7 @@ export const told = (h: Host, line: string) => h.ui.update(u => ({ ...u, digest:
 
 async function one(h: Host, id: string, role: string) {
   if (life.ending) return void inflight.delete(`${id}:${role}`)   // the session is quitting: an agent started now would die with it, its claim left behind
-  const k = `${id}:${role}`, n = await intend(h, id, role, await sessionOf(h)); inflight.add(k)
+  const k = `${id}:${role}`, n = await intend(h, id, role, await sessionOf(h)).catch((e: Error) => { inflight.delete(k); throw e }); inflight.add(k)   // before the try: a throw here gives the pick back too
   try {
     const r = await h.spawnAgent!({ prompt: modelText('agent-brief', n), description: `${role === 'claim' ? 'start' : role} ${id}` })   // PLAN-<epic>: admission starts its planner
     if (r?.agentId) await h.ui.update(u => ({ ...u, own: [...((u.own as string[]) ?? []), r.agentId!].slice(-100) }))   // its task-notification never reaches main (core/reuse.submit)

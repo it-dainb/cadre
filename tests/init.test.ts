@@ -162,6 +162,33 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     expect((await h.secret.read()).run).toBeDefined(); expect(((await h.board.read()).decisions ?? []).find(x => x.id === 'run:init')?.title).not.toContain('stopped')
     await resume(h); await pump(h); expect(sent).toHaveLength(1)   // a later typed line does nothing
   })
+  test('a new start while held hands its brief over (the hold of an earlier stop does not swallow it)', async () => {
+    const { h, sent, tick, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]
+    let stopped = true; h.submit = async (t: string) => (stopped ? { drop: 'the session was stopped' } : (sent.push(t), {}))
+    await start(h, 'init'); await tick(); expect((await h.ui.read()).held).toBe(true)
+    stopped = false; await start(h, 'init'); for (let i = 0; i < 3; i++) await pump(h)
+    expect(sent).toHaveLength(1); expect((await h.ui.read()).held).toBeUndefined()
+  })
+  test('a held card still restarts on a typed line after ui was reset (/clear)', async () => {
+    const { h, sent, tick, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]
+    let stopped = true; h.submit = async (t: string) => (stopped ? { drop: 'the session was stopped' } : (sent.push(t), {}))
+    await start(h, 'init'); await tick(); await h.ui.update(() => ({}))
+    stopped = false; await resume(h); await pump(h)
+    expect(sent).toHaveLength(1); expect((await h.secret.read()).run?.kind).toBe('init')
+  })
+  test('a thrown submit is no human stop: the step is kept and goes on the next tick, no hold', async () => {
+    const { h, sent, tick, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]
+    let fail = true; h.submit = async (t: string) => { if (fail) { fail = false; throw new Error('host busy') } sent.push(t); return {} }
+    await start(h, 'init'); await tick(); expect((await h.ui.read()).held).toBeUndefined(); expect((await h.secret.read()).run).toBeDefined()
+    await pump(h); expect(sent).toHaveLength(1)
+  })
+  test('a stale stopped card does not restart on a typed line that lifts another hold (the goal brief)', async () => {
+    const { h } = mk({ files: READY, mission: false })
+    await h.ui.update(u => ({ ...u, retry: { kind: 'init', follow: 3 }, held: true, goal: 'plan it' }))
+    await h.board.update(b => ({ ...b, decisions: [...(b.decisions ?? []), { id: 'run:init', kind: 'init', title: 'init · Claude stopped · 2 left', short: 'x', lines: [], hash: 'x', options: [] } as any] }))
+    await resume(h); expect((await h.secret.read()).run).toBeUndefined(); expect((await h.board.read()).decisions?.some(d => d.id === 'run:init')).toBe(true)
+    expect((await h.ui.read()).held).toBeUndefined()
+  })
   test('a refused goal brief waits for the human: no submit until they type', async () => {
     const { h, sent } = mk({ files: READY }); let stopped = true, tries = 0; h.submit = async (t: string) => (tries++, stopped ? { drop: 'the session was stopped' } : (sent.push(t), {}))
     await h.ui.update(u => ({ ...u, goal: 'plan it' })); await pump(h); await pump(h); await pump(h)

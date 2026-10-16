@@ -37,24 +37,28 @@ const send = (h: Host, brief: string) => h.secret.update(s => (s.run ? { ...s, r
 export async function pump(h: Host, inFrame = false): Promise<void> {
   if ((await h.ui.read()).held) return
   let text: string | undefined; await h.secret.update(s => { text = s.run?.brief; return text ? { ...s, run: { ...s.run!, brief: undefined } } : s })
-  const r = text ? await h.submit?.(modelText('brief', text)).catch((e: Error) => ({ drop: e.message })) as { drop?: string } | undefined : undefined
-  if (r?.drop) h.log(`could not hand the step to Claude: ${r.drop.slice(0, 120)}`)
-  if (r?.drop && inFrame) return send(h, text!)
+  const r = text ? await h.submit?.(modelText('brief', text)).catch((e: Error) => ({ err: e.message })) as { drop?: string; err?: string } | undefined : undefined
+  if (r?.drop || r?.err) h.log(`could not hand the step to Claude: ${(r.drop ?? r.err)!.slice(0, 120)}`)
+  if ((r?.drop && inFrame) || r?.err) return send(h, text!)   // a thrown submit is no human stop: the step goes again on the next tick
   const run = r?.drop && (await h.secret.read()).run
   if (run) { await h.ui.update(u => ({ ...u, shown: [...((u.shown as string[] | undefined) ?? []), `run:${run.kind}`] })); await stuck(h, run, await items(h, run.kind), 'Claude was stopped before it got the next step.', true) }
   if (!inFrame) await sendBrief(h)   // a `/cadre <goal>` brief (core/lanes)
 }
 // the human typed in the prompt (prompt.submit, composer): a held run starts again, its step goes on the next tick (pump)
+// Only a held card's run restarts (never an older stopped card on another hold), and it does so even when ui was reset (/clear): kind from the card, goal from the halt.
+const HELD = ' stopped · type anything to go on'
 export async function resume(h: Host): Promise<void> {
-  const u = await h.ui.read(); if (!u.held) return
-  await h.ui.update(({ held: _h, ...x }) => x)
-  const rt = u.retry as { kind: Kind; goal?: Halt['goal']; follow?: number } | undefined
-  if (rt && !(await h.secret.read()).run && (await h.board.read()).decisions?.some(d => d.id === `run:${rt.kind}`)) { await settle(h, `run:${rt.kind}`); await start(h, rt.kind, rt.goal, rt.follow ?? 0) }
+  const u = await h.ui.read(); if (u.held) await h.ui.update(({ held: _h, ...x }) => x)
+  if ((await h.secret.read()).run) return
+  const d = (await h.board.read()).decisions?.find(x => x.id.startsWith('run:') && x.title.endsWith(HELD)); if (!d) return
+  const k = d.id.slice(4) as Kind, rt = u.retry as { kind: Kind; goal?: Halt['goal']; follow?: number } | undefined
+  const r = rt?.kind === k ? rt : { goal: (await halted(h))?.goal, follow: 0 }
+  await settle(h, d.id); await start(h, k, r.goal, r.follow ?? 0)
 }
 
 async function draw(h: Host, k: Kind, its: Item[], state: 'on' | 'stopped' | 'held' | 'done', note?: string): Promise<void> {
   const n = its.filter(i => i.st === 'ok' || i.st === 'warn').length, human = !its.some(i => i.st === 'fail') && its.some(i => i.st === 'wait')
-  const title = state === 'done' ? `${k} · all done` : state === 'held' ? `${k} stopped · type anything to go on` : state === 'stopped' ? `${k} · Claude stopped · ${its.length - n} left` : `${k} · ${n}/${its.length} done · ${human ? 'needs you' : 'Claude is on it'}`
+  const title = state === 'done' ? `${k} · all done` : state === 'held' ? `${k}${HELD}` : state === 'stopped' ? `${k} · Claude stopped · ${its.length - n} left` : `${k} · ${n}/${its.length} done · ${human ? 'needs you' : 'Claude is on it'}`
   const lines = [...(note ? note.split('\n') : []), ...its.map(i => `${G[i.st]} ${i.name}${i.why ? `: ${i.why}` : ''}`)]
   await ask(h, { id: `run:${k}`, kind: 'init', title, short: title, lines, hash: fnv1a64(title + lines.join('\n')), tab: 'epic', ...(state === 'done' || (state === 'on' && (!human || (await h.secret.read()).run?.goal)) ? { quiet: true as const } : {}),   // done: shown in the pane, never a "needs you"   // a goal run: the human's cards (safety, then mission + plan) pop themselves; the checklist never does
     options: state === 'stopped' ? [{ key: 'r', label: 'Let Claude try again', verb: 'change', run: `${k} retry` }, { key: 'x', label: `Stop ${k === 'init' ? 'setup' : k}`, verb: 'reject', run: `${k} cancel` }]
@@ -82,6 +86,7 @@ async function stuck(h: Host, r: NonNullable<Secret['run']>, its: Item[], why: s
 // (live 0.12.0: an Esc on a write told Claude to wait for the user; it read every retry brief as the plugin's, not the user's, and stopped again)
 export async function start(h: Host, k: Kind, goal?: { text: string; mode: 'auto' | 'yolo' }, again?: number): Promise<string> {
   if (goal) await settle(h, 'init:goal')
+  await h.ui.update(({ held: _h, ...u }) => u)   // a new start hands its brief over: a hold left by an earlier stop must not swallow it (pump re-holds once if the host still drops)
   const at = await h.now(); await h.secret.update(s => ({ ...s, run: { kind: k, at, turns: 0, follow: again ?? 0, guide: '', snap: {}, ...(goal ? { goal } : {}) } }))   // before the checks: mission waits for the plan in a goal run
   const its = await items(h, k)
   if (finished(its)) { await end(h, true); await settle(h, `run:${k}`); if (goal) { await goalBrief(h, goal.text, goal.mode); return `${k}: all done · ${goal.mode === 'yolo' ? 'yolo · ' : ''}Claude plans your goal` } return `${k}: all done` }

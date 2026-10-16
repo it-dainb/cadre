@@ -101,6 +101,13 @@ test('maxParallel under contention: three turn ends at once, every await a littl
   assert.equal(w.spawned.length, 2); assert.equal((await w.h.board.read()).tasks.filter(t => t.state === 'active').length, 2)
 })
 
+test('a pick whose intent write throws gives its key back and does not leak the picks after it', async () => {
+  const w = await world(2, { maxParallel: 2 }); await arm(w.h, 'auto')
+  const r = w.h.rand; let boom = true; w.h.rand = n => { if (n === 6 && boom) { boom = false; throw new Error('state write failed') } return r(n) }
+  await w.turn().catch(() => {}); assert.equal(w.spawned.length, 1)   // the second pick still started
+  await w.turn(); assert.equal(w.spawned.length, 2)   // the first one's key was released: it starts now
+})
+
 test('lint: one spawn site. $.agent.spawn only in register.ts spawner(); spawner() only in turn.complete / command.run registrations; spawnAgent only in core/spawner', async () => {
   const root = new URL('../../', import.meta.url).pathname, src = f => readFileSync(join(root, f), 'utf8')
   const files = execFileSync('git', ['-C', root, 'ls-files', '*.ts'], { encoding: 'utf8' }).split('\n').filter(f => f && !f.startsWith('tests/') && !f.startsWith('harness/'))
