@@ -6,7 +6,7 @@ snapshots() {
   mkdir -p "$O/store"
   ( prev=; while docker exec "cadre-tui-$N" true 2>/dev/null; do
       cur=$(docker exec "cadre-tui-$N" sh -c 'cat /cchome/.claude/plugins/store/cadre_*.json' 2>/dev/null)
-      st=$(docker exec "cadre-tui-$N" sh -c 'for f in /work/run/.cadre/state/d/_control.* /work/run/*/.cadre/state/d/_control.* /work/run/.cadre/state/j/[0-9]* /work/run/*/.cadre/state/j/[0-9]*; do [ -f "$f" ] && printf "%s\t%s\n" "${f#*/.cadre/state/}" "$(cat "$f")"; done' 2>/dev/null)
+      st=$(docker exec "cadre-tui-$N" sh -c 'for f in /work/run/.cadre/state/d/_control.* /work/run/*/.cadre/state/d/_control.* /work/run/.cadre/state/j/[0-9]* /work/run/*/.cadre/state/j/[0-9]*; do [ -f "$f" ] && printf "%s\t%s\n" "${f#*/.cadre/state/}" "$(cat "$f")"; done; true' 2>/dev/null) || cur=   # a listing cut short (the container stopping) is no snapshot
       [ -n "$cur" ] && [ "$cur$st" != "$prev" ] && { t=$(date +%s%3N); printf '%s' "$cur" >"$O/store/$t.json"; printf '%s' "$st" >"$O/store/$t.state"; prev=$cur$st; }
       cp "$D/out/stubbed.jsonl" "$O/" 2>/dev/null; sleep 2
     done ) &

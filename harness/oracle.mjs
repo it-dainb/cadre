@@ -196,12 +196,16 @@ if (process.env.CLARIFY) {
 //     store/<ms>.json: cadre's $.store snapshots (scenarios/_lib.sh); run records `…:run:<agentId>` {role, state, log}, budgets `…:budget:<taskId>`.
 if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fail('zero-quota', `${r.split('\n').length} request(s) the stub proxy refused: ${r.split('\n')[0]}`) }
 {
-  // the control doc at a snapshot: its newest after-image, from d/_control.<seq> or the highest journal entry j/<n> that wrote it (task-management/adapters/file)
-  const ctlOf = p => { let best = [-1, {}]; for (const l of (existsSync(p) ? read(p) : '').split('\n')) { const [n, ...v] = l.split('\t'), x = (() => { try { return JSON.parse(v.join('\t')) } catch { return undefined } })(); if (!x) continue
+  // the control doc's after-images, from d/_control.<seq> or a journal entry j/<n> that wrote it (task-management/adapters/file). Entries are write-once, so
+  // `seen` folds every snapshot's: a snapshot's control doc is the newest seen so far (a listing torn by the container stopping keeps the newer ones), and
+  // `hist` holds every image, so a run that starts and is pruned (its task closed) between two 2 s snapshots still shows
+  const seen = new Map(), ctl = d => Object.fromEntries(Object.entries(d?.doc ?? {}).map(([k, v]) => [`cadre:ctl:${k}`, v]))
+  const fold = p => { for (const l of (existsSync(p) ? read(p) : '').split('\n')) { const [n, ...v] = l.split('\t'), x = (() => { try { return JSON.parse(v.join('\t')) } catch { return undefined } })(); if (!x) continue
     const d = n.match(/^d\/_control\.(\d+)$/), e = n.match(/^j\/(\d+)$/), seq = +(d?.[1] ?? e?.[1] ?? -1), doc = d ? x : e && x.docs && '_control' in x.docs ? x.docs._control : undefined
-    if (doc && seq > best[0]) best = [seq, doc] }
-    return Object.fromEntries(Object.entries(best[1].doc ?? {}).map(([k, v]) => [`cadre:ctl:${k}`, v])) }
-  const snaps = (existsSync(join(dir, 'store')) ? readdirSync(join(dir, 'store')) : []).filter(f => f.endsWith('.json')).sort().map(f => { try { return { t: +basename(f, '.json'), s: { ...JSON.parse(read(join(dir, 'store', f))), ...ctlOf(join(dir, 'store', f.replace(/json$/, 'state'))) } } } catch { return null } }).filter(Boolean)
+    if (doc) seen.set(seq, doc) }
+    return seen.size ? ctl(seen.get(Math.max(...seen.keys()))) : {} }
+  const snaps = (existsSync(join(dir, 'store')) ? readdirSync(join(dir, 'store')) : []).filter(f => f.endsWith('.json')).sort().map(f => { try { const c = fold(join(dir, 'store', f.replace(/json$/, 'state'))); return { t: +basename(f, '.json'), s: { ...JSON.parse(read(join(dir, 'store', f))), ...c } } } catch { return null } }).filter(Boolean)
+  const hist = [...seen].sort((a, b) => a[0] - b[0]).map(([, d]) => ctl(d))
   const pick = (s, k) => Object.fromEntries(Object.entries(s).flatMap(([key, v]) => { const m = key.match(new RegExp(`:${k}:([^:]+)$`)); return m && v ? [[m[1], v]] : [] }))
   const runs = s => pick(s, 'run'), lost = r => r.state?.state === 'ended' && r.state.cause === 'lost'
   const subs = walk(join(dir, 'jsonl')).filter(f => f.includes('/subagents/') && f.endsWith('.jsonl')).map(f => {
@@ -216,7 +220,7 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
   const o = process.env.ORACLE
   if (o && !snaps.length && o !== 'underscore') fail(o, 'no store snapshots (scenarios/_lib.sh snapshots)')
   if (o === 'every') {   // every role in auto mode reaches a terminal run state; 0 ended{lost}; <= 1 dialog; no tool call repeated >= N in a row
-    const all = Object.assign({}, ...snaps.map(x => runs(x.s))), last = runs(snaps.at(-1)?.s ?? {}), N = +(process.env.ORACLE_REPEAT ?? 3)
+    const all = Object.assign({}, ...snaps.map(x => runs(x.s)), ...hist.map(runs)), last = runs(snaps.at(-1)?.s ?? {}), N = +(process.env.ORACLE_REPEAT ?? 3)
     const gone = snaps.flatMap(x => Object.entries(runs(x.s)).filter(([, r]) => lost(r)).map(([a]) => a)), open = Object.entries(last).filter(([, r]) => r.state?.state !== 'ended')
     const roles = new Set(Object.values(all).map(r => r.role)), want = (process.env.ORACLE_ROLES ?? 'tester,worker,reviewer').split(',')
     stats.runs = Object.fromEntries(Object.entries(all).map(([a, r]) => [a, `${r.role}:${(r.log ?? []).map(x => x.state).join('>')}`]))
@@ -237,7 +241,7 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     }
   }
   if (o === 'noreport') {   // a worker that stops without a report: one nudge, then it ends blocked; nothing it did is accepted; one dialog
-    const all = Object.assign({}, ...snaps.map(x => runs(x.s))), ws = Object.entries(all).filter(([, r]) => r.role === 'worker')
+    const all = Object.assign({}, ...snaps.map(x => runs(x.s)), ...hist.map(runs)), ws = Object.entries(all).filter(([, r]) => r.role === 'worker')
     stats.runs = Object.fromEntries(ws.map(([a, r]) => [a, (r.log ?? []).map(x => x.state).join('>')]))
     if (!ws.length) fail('noreport', 'no worker ran')
     for (const [a, r] of ws) {

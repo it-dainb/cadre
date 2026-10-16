@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { cpSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -85,4 +85,26 @@ test('stop-loop: one stopped dialog and up to 2 typed lines pass; a second stopp
   assert.ok(!run(['dialog init stopped · type anything to go on', 'type go on', 'type go on']).includes('stop-loop'))
   assert.ok(run(['dialog init · Claude stopped · 6 left', 'answer x', 'dialog init · Claude stopped · 6 left']).includes('stop-loop'))
   assert.ok(run(['type go on', 'type go on', 'type go on']).includes('stop-loop'))
+})
+
+// scripted exit-every-role on c28b902 (and f99a3f2), run alone: the reviewer started and its task closed (its run records pruned) inside one 2 s gap
+// between store snapshots, and the oracle read only each snapshot's newest control image: "roles never run: reviewer". The journal kept every image.
+// The other run's last snapshot was torn (j/1..66 of 91, the container stopping), so its newest image still showed the worker idle-bound.
+test('every reads each run from every journal image and survives a torn last snapshot', () => {
+  const every = torn => {
+    const d = mkdtempSync(join(tmpdir(), 'cadre-oracle-')), t = 1_792_158_900_000
+    cpSync(join(fix, 'panes'), join(d, 'panes'), { recursive: true })
+    writeFileSync(join(d, 'driver.log'), `${t} start x\n${t + 30000} end\n`)
+    const run = (role, ...st) => ({ role, state: { state: st.at(-1) }, log: st.map(state => ({ state })) })
+    const img = (n, runs) => `j/${n}\t${JSON.stringify({ docs: { _control: { revision: String(n), doc: Object.fromEntries(Object.entries(runs).map(([a, r]) => [`run:${a}`, r])) } } })}`
+    const J = [img(1, { t1: run('tester', 'running') }), img(2, { t1: run('tester', 'running', 'ended'), w1: run('worker', 'running') }),
+      img(3, { t1: run('tester', 'running', 'ended'), w1: run('worker', 'running', 'idle-bound'), r1: run('reviewer', 'running') }),   // never the newest at a snapshot
+      img(4, { t1: run('tester', 'running', 'ended'), w1: run('worker', 'running', 'idle-bound'), r1: run('reviewer', 'running', 'idle-bound') }), img(5, {})]   // the task closed: pruned
+    mkdirSync(join(d, 'store'))
+    for (const [i, n] of [[1, 2], [2, 5], ...(torn ? [[3, 2]] : [])]) { writeFileSync(join(d, 'store', `${t + i * 2000}.json`), '{}'); writeFileSync(join(d, 'store', `${t + i * 2000}.state`), J.slice(0, n).join('\n')) }
+    try { execFileSync('node', [join(root, 'harness/oracle.mjs'), d], { stdio: 'pipe', env: { ...process.env, ORACLE: 'every' } }) } catch {}
+    return JSON.parse(readFileSync(join(d, 'verdict.json'), 'utf8')).fails.map(f => `${f.invariant}: ${f.evidence}`)
+  }
+  assert.deepEqual(every(false).filter(f => f.startsWith('every')), [])
+  assert.deepEqual(every(true).filter(f => f.startsWith('every')), [])
 })

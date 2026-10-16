@@ -74,7 +74,9 @@ trap 'kill $W 2>/dev/null' EXIT
 # ---- scenario steps (harness/scenarios/<name>.sh is sourced: plain bash with these) ----
 busy() { local p; p=$(tui capture "$N"); grep -q 'esc to interrupt' <<<"$p" || dialog "$p"; }
 idle() { local i n=0; for i in $(seq "${1:-300}"); do if busy; then n=0; else n=$((n + 1)); [ $n -ge 3 ] && return 0; fi; sleep 1; done; log "idle timeout"; }
-send() { log "send $*"; tui send "$N" "$*"; sleep 2; }
+# an Enter Claude Code drops while it still starts up (the composer drawn, under load) leaves the line typed: press it again, up to 5 times
+send() { local i t; log "send $*"; tui send "$N" "$*"; sleep 2; t=${*//[ $'\302\240']/}
+  for i in 1 2 3 4 5; do [ -n "$t" ] && [[ "$(comp "$(tui capture "$N")")" == "${t:0:20}"* ]] || return 0; log "enter again"; key Enter; sleep 2; done; }
 goal() { send "/cadre $*"; }                                    # the user types a goal
 clear_() { send "/clear"; sleep 3; }                            # /clear (a name of its own: `clear` is the shell's)
 shell_cd() { send "Run exactly this one Bash command and nothing else: cd $1 && pwd"; idle 120; }   # main's shell moves (a Bash cd)
