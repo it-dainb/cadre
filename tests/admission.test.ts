@@ -65,6 +65,13 @@ describe('claim (3.4)', () => {
       const b = String(seen[0].prompt); if (want) expect(b.endsWith(`## Notes\n${want}`)).toBe(true); else expect(b).not.toContain('## Notes\n')
     }
   })
+  test("a unit's routing override wins over the risk cell, and the Activity line names it (H7)", async () => {
+    const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}); await w.board(h, epic, ids)
+    d.cfg = { ...d.cfg, units: [{ root: '.', kind: 'service', checks: { test: ['t'] }, routing: { worker: { model: 'opus', effort: 'low' } } }] } as any
+    const { next, seen } = ok(); await admitWith(h, d, spawn(`TASK-${ids[0]}`), next)
+    expect(seen[0]).toMatchObject({ subagentType: 'cadre:worker', model: 'opus' })
+    expect(ofEpic(await h.events.read(), epic).find(e => e.type === 'agent.bound')?.data).toMatchObject({ model: 'opus', setting: 'units .: routing.worker' })
+  })
   test('happy path: reserve -> store.claim -> worktree -> brief -> retype -> model -> cwd -> bind', async () => {
     const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}); await w.board(h, epic, ids)
     const { next, seen } = ok(); const r = await admitWith(h, d, spawn(`please do TASK-${ids[0]} carefully`), next)

@@ -47,7 +47,8 @@ export const admit: Hook = async (h, e, next) => { await warm(h); return admitWi
 
 // model x effort for a run (core/risk.route); env overrides that beat cadre (config/forcedOf) are recorded as forced (Claude Code applies them anyway)
 const rounds = async (h: Host, id: string) => { const b = await budgetOf(h, id); return b.rework + b.rebase }   // escalation (core/risk.route) counts the task's review and rebase rounds
-const routeOf = (d: Deps, role: Role, risk: Tier, n = 0) => (role === 'explorer' || role === 'planner' ? route(role, d.cfg.roles[role], '', 0) : route(role, d.cfg.roles[role].byRisk[risk], risk, n))
+const routeOf = (d: Deps, role: Role, risk: Tier, n = 0, unit?: { root: string; routing?: Record<string, any> }) => (role === 'explorer' || role === 'planner' ? route(role, d.cfg.roles[role], '', 0)
+  : ((r = route(role, { ...d.cfg.roles[role].byRisk[risk], ...unit?.routing?.[role] }, risk, n)) => (unit?.routing?.[role] && !r.escalated ? { ...r, setting: `units ${unit.root}: routing.${role}` } : r))())   // a unit's routing override (H7) wins over the risk cell
 const stepsOf = (d: Deps) => (type: string, lane?: string) => { const p = pipeOf(d.reg)(type, lane); return d.view ? p : p.filter(s => s !== 'tester' && s !== 'red') }   // no view builder: tester/red skipped
 
 export async function admitWith(h: Host, d: Deps, e: any, next: ((e: any) => any) & { origin?: { plugin: string } }): Promise<any> {
@@ -82,7 +83,7 @@ export async function admitWith(h: Host, d: Deps, e: any, next: ((e: any) => any
 // ---- shared tail: retype, model, cwd, next(), bind. A rejected or thrown spawn runs `undo` (release) and rethrows. ----
 async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTask, role: Role, prompt: string, cwd: string, step: string, wt: string, undo: () => Promise<void>, rt?: Tier, task?: Task) {
   const risk = rt ?? riskOf(d.cfg.review, { paths: pathsOf(task), labels: task?.labels ?? [], coreTask: task?.meta['cadre.core'] === 'true' })
-  const r0 = routeOf(d, step === 'tester' ? 'tester' : role, risk, task ? await rounds(h, t.id) : 0), env = await h.env()
+  const r0 = routeOf(d, step === 'tester' ? 'tester' : role, risk, task ? await rounds(h, t.id) : 0, task && pkgOf(d, task)), env = await h.env()
   const fo = forcedOf(env), forced = fo.model || fo.effort ? `${fo.model ?? ''}/${fo.effort ?? ''}` : undefined
   const run = { role, model: fo.model || r0.model, effort: fo.effort || r0.effort || 'default', risk, setting: r0.setting, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }
   let r: any

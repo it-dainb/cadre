@@ -7,13 +7,18 @@ import { StoreError } from '../task-management/store'
 import type { Deps } from './admission'
 import { renderContract } from './briefs'
 import * as G from './git'
+import { ownerOf, unitsOf } from './discover'
+import { pathsOf } from './validate'
 
-export interface Pkg { root: string; setup?: string[]; checks: Record<string, string[]>; verify?: string[]; knownRed?: string[]; viewInclude?: string[]; tdd?: { check?: string; paths: string[]; report?: string; stubs?: string[]; skeleton?: string[] } }
+export interface Pkg { root: string; setup?: string[]; checks: Record<string, string[]>; verify?: string[]; knownRed?: string[]; viewInclude?: string[]; routing?: Record<string, { model: string; effort?: string }>; tdd?: { check?: string; paths: string[]; report?: string; stubs?: string[]; skeleton?: string[] } }
 
-// Longest segment-aware root prefix of the task's package (10.2.6).
-export const pkgOf = (d: Deps, task: Pick<Task, 'meta'>): Pkg | undefined => {
-  const all = d.cfg.packages as Pkg[], at = task.meta['cadre.package'] || (all.length === 1 ? all[0].root : '.')   // no package named: the only one there is (a monorepo with one package in kit/ blocked every unnamed task as "no package", live 0.9.1)
-  return all.filter(p => p.root === '.' || at === p.root || at.startsWith(`${p.root}/`)).sort((a, b) => b.root.length - a.root.length)[0]
+// the units a task touches, by its declared paths (H7); more than one = a cross-unit task (core/close runs every one's verify checks on its squash)
+export const unitsOfTask = (d: Pick<Deps, 'cfg'>, task: Pick<Task, 'meta'>): Pkg[] => [...new Set(pathsOf(task).map(f => ownerOf(unitsOf(d.cfg) as Pkg[], f)).filter((u): u is Pkg => !!u))]
+// the task's unit: its named package, else the (first) unit its paths lie in, else the only unit (a monorepo with one package in kit/ blocked every unnamed task as
+// "no package", live 0.9.1); the longest segment-aware root prefix of that (10.2.6)
+export const pkgOf = (d: Pick<Deps, 'cfg'>, task: Pick<Task, 'meta'>): Pkg | undefined => {
+  const all = unitsOf(d.cfg) as Pkg[], by = unitsOfTask(d, task), at = task.meta['cadre.package'] || (by.length ? by[0].root : all.length === 1 ? all[0].root : '.')   // a cross-unit task: its first unit gates it green; its squash checks them all
+  return ownerOf(all, at)
 }
 export const rootOf = (p?: Pkg) => (!p || p.root === '.' ? '' : p.root)
 // jail: off = run unsandboxed; auto = the sandbox when this machine has one; on = the sandbox or nothing (the check fails with the reason)

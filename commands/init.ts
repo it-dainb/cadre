@@ -63,14 +63,16 @@ async function mission(c: Ctx): Promise<Item> {
   if ((await c.h.secret.read()).run?.goal) return { name: 'mission', st: 'ok', why: 'you approve it with the plan' }   // a goal run (ADR 0014): main drafts it into the plan, one dialog for both
   return b.plan?.slug === 'mission' ? { name: 'mission', st: 'wait', why: 'approve it on its card' } : { name: 'mission', st: 'fail', why: 'no mission yet' }
 }
-const packages = (c: Ctx): string | null => {
-  if (!c.cfg.packages.length) return 'no packages in .cadre/config.json'
-  const r = D.parse(c.cfg.packages); return typeof r === 'string' ? r : null
+async function packages(c: Ctx): Promise<string | null> {
+  const k = c.cfg.units.length ? 'units' : 'packages'; if (!c.cfg[k].length) return 'no packages in .cadre/config.json'
+  const r = D.parse(c.cfg[k], k); if (typeof r === 'string') return r
+  const subs = (await git(c, 'submodule', 'status')).stdout.split('\n').map(l => l.trim().split(/\s+/)[1]).filter(Boolean), i = r.findIndex(u => subs.includes(u.root) && !u.ownGit)
+  return i < 0 ? null : `${k}[${i}].ownGit: ${r[i].root} is a git submodule (its own repository); set "ownGit": true`
 }
 // the mod-run validation: every package's setup and checks in a clean offline copy at HEAD, once per package list (cached in $.store)
 type Red = { root: string; n: string }
 async function audit(c: Ctx): Promise<{ why: string | null; caches: string[]; red: Red[] }> {
-  const pkgs = c.cfg.packages as unknown as (D.Pkg & { knownRed?: string[] })[], sig = fnv1a64(canon(pkgs)), key = `init.audit:${c.rk}`
+  const pkgs = D.unitsOf(c.cfg) as (D.Pkg & { knownRed?: string[] })[], sig = fnv1a64(canon(pkgs)), key = `init.audit:${c.rk}`
   let a = (await c.h.store.get(key)) as { sig: string; runs: D.Run[] } | undefined
   if (a?.sig !== sig) { a = { sig, runs: [] }; for (const p of pkgs) a.runs.push(await D.exec(c.h, c.root, c.home, { ...p, setup: p.setup ?? [] }, { audit: true, knownRed: p.knownRed })); await c.h.store.set(key, a) }
   const goal = !!(await c.h.secret.read()).run?.goal, red: Red[] = []   // a goal run (ADR 0014): a check red before the goal is often the goal's own bug; it becomes known red on the safety card, never skipped or weakened
@@ -164,7 +166,7 @@ const it = (name: string, why: string | null, blocked = false): Item => (blocked
 // The checklist (also doctor's project rows). Later phases that need an earlier one wait as `todo`; containment is proposed on its card once the rest passes.
 // quick: what a tool result shows mid-run; no clean-checkout run, no safety card, no containment read
 export async function initItems(h: Host, o: { quick?: boolean } = {}): Promise<Item[]> {
-  const c = await ctxOf(h), r = await repo(c), s = r ? 'needs the repository first' : await store(c), m = await mission(c), p = packages(c)
+  const c = await ctxOf(h), r = await repo(c), s = r ? 'needs the repository first' : await store(c), m = await mission(c), p = await packages(c)
   const a = !r && !s && !p && !o.quick ? await audit(c) : undefined, w = workflow(c), l = await changelog(c)
   const audited: Item = a && !a.why && a.red.length ? { name: 'commands pass on a clean checkout', st: 'ok', why: redLine(a.red) } : it('commands pass on a clean checkout', a?.why ?? null, !a)
   const sd = r ? [] : (await repoFileDiag(h)).map(d => d.replace(/\bjail\w*/g, 'a safety key'))   // red only: then the follow-up, the stop refusal and the tool-result line name it
@@ -180,5 +182,5 @@ export async function initItems(h: Host, o: { quick?: boolean } = {}): Promise<I
 // doctor: which phases are complete (read-only: no containment card is proposed from here)
 export async function progress(h: Host): Promise<{ name: string; done: boolean }[]> {
   const c = await ctxOf(h), r = await repo(c), s = r ?? await store(c), m = await mission(c)
-  return [{ name: 'repository', done: !r }, { name: 'task store', done: !s }, { name: 'mission', done: m.st === 'ok' }, { name: 'build and test commands', done: !packages(c) }, { name: 'workflow', done: !workflow(c) }, { name: 'changelog', done: !(await changelog(c)) }, { name: 'safety settings', done: await contained(c) }]
+  return [{ name: 'repository', done: !r }, { name: 'task store', done: !s }, { name: 'mission', done: m.st === 'ok' }, { name: 'build and test commands', done: !(await packages(c)) }, { name: 'workflow', done: !workflow(c) }, { name: 'changelog', done: !(await changelog(c)) }, { name: 'safety settings', done: await contained(c) }]
 }

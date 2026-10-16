@@ -12,5 +12,6 @@ export const ELSEWHERE: Record<string, [string, string]> = {
   'tdd.testerCommand.use': ['tests/git/tdd.test.mjs', 'settings: tdd.testerCommand.use off'], 'tdd.testerCommand.adopt': ['tests/git/tdd.test.mjs', 'settings: tdd.testerCommand.adopt off'],
   'tdd.collectErrors': ['tests/git/tdd.test.mjs', 'settings: tdd.collectErrors'],
   packages: ['tests/admission.test.ts', "d.cfg.packages = [{ root: '.', setup:"],
+  units: ['tests/admission.test.ts', "d.cfg = { ...d.cfg, units: [{ root: '.', kind: 'service'"],
   adapters: ['tests/protocol/protocol.test.mjs', 'const config = { ...cfgDefaults(), adapters, sync }'], sync: ['tests/protocol/protocol.test.mjs', 'const config = { ...cfgDefaults(), adapters, sync }'],
 }

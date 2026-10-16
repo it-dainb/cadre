@@ -8,6 +8,7 @@ import { ask, settleIf, yoloOn } from './decide'
 import { BLOCKING, epicNext } from './machine'
 import { cut, insert } from './changelog'
 import { modeOf } from './specview'
+import { ownerOf, unitsOf } from './discover'
 import { casRef, checkRun, exists, git, ok, op, tip, worktreeRemove, writableJail } from './git'
 import { baseOf, baseRef, checkedOut, inferVersion, landDev, lastTag, mergeEpic, move, pendingRef, release, wtPath, wtRootOf } from './branches'
 import { clearKnownRed, repoKeyOf, scoped } from '../commands/init'
@@ -25,10 +26,9 @@ const commitPaths = async (h: Host, wt: string, paths: string[], msg: string, am
   await git(h.run, wt, ['add', '--', ...paths]); await git(h.run, wt, ['commit', '--no-verify', ...(amend ? ['--amend', '--no-edit'] : ['-m', msg])]); return tip(h.run, wt, 'HEAD')
 }
 
-// setup + suites.integration per touched package (files = null: every package). Returns the failure text, or null when green.
+// setup + suites.integration per touched unit (files = null: every unit), each unit once. Returns the failure text, or null when green.
 async function runSuites(h: Host, cfg: any, wt: string, files: string[] | null, epicId: string, kr: { root: string; n: string }[] = []): Promise<string | null> {
-  const pkgs: any[] = cfg.packages ?? [], owner = (f: string) => pkgs.reduce<any>((best, p) => (p.root === '.' || f === p.root || f.startsWith(`${p.root}/`)) && (!best || p.root.length > best.root.length) ? p : best, null)
-  const hit = new Set(files?.map(owner)), touched = pkgs.filter(p => !files || hit.has(p))
+  const pkgs: any[] = unitsOf(cfg), hit = new Set(files?.map(f => ownerOf(pkgs, f))), touched = pkgs.filter(p => !files || hit.has(p))
   const mode = await modeOf(h, { cfg }).catch((e: Error) => e); if (mode instanceof Error) return mode.message
   const base = JSON.parse((await Promise.resolve().then(async () => (await storeOf(h)).get(epicId)).catch(() => null))?.meta['cadre.baseline'] || '{}')
   const scratch = `${wt}-scratch`; await h.run(['mkdir', '-p', scratch])

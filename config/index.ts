@@ -42,7 +42,7 @@ export function merge(base: Record<string, any>, layer: Record<string, any>, tru
     if (!isOpen(p) && b != null && !REG[p]?.ok && (plain(b) !== plain(v) || Array.isArray(b) !== Array.isArray(v) || typeof b !== typeof v)) { diag.push(`${p}: expected ${Array.isArray(b) ? 'a list' : plain(b) ? 'an object' : typeof b}`); continue }
     if (plain(v) && plain(b) && !isOpen(p)) { out[k] = merge(b, v, trust, diag, p); continue }   // classes apply at the leaves
     if (trust === 'repo' && classOf(p) === 'U') { diag.push(`${p}: user-level only, ignored in the repo file`); continue }
-    if (trust === 'repo' && p === 'packages' && Array.isArray(v)) { out[k] = relockKnownRed(base[k], v); continue }
+    if (trust === 'repo' && (p === 'packages' || p === 'units') && Array.isArray(v)) { out[k] = relockKnownRed(base[k]?.length ? base[k] : base.packages, v); continue }   // units take the user layer's packages grants
     const bad = check(p, v); if (bad) { diag.push(`${p}: ${bad}`); continue }
     if (trust === 'repo' && REG[p]?.tighten) { const t = tighten(p, base[k], v); if (JSON.stringify(t) !== JSON.stringify(v)) diag.push(`${p}: the repo file may only tighten this key`); out[k] = t; continue }
     out[k] = v

@@ -72,7 +72,7 @@ export function missingOf(t: Task, reg: TypeRegistry): string[] {
   if (!t.acceptance?.trim()) out.push('scenarios')
   if (!t.meta['cadre.changelog']) out.push('changelog')
   if (spec.contract === 'required' && !t.design) out.push('interface')
-  if (!t.meta['cadre.package']) out.push('package')
+  if (!t.meta['cadre.package'] && !pathsOf(t).length) out.push('package')   // its declared paths name its unit (H7)
   return out
 }
 // every draft's gaps as "id: a, b"; a plan with no tasks lacks "tasks". Empty = approvable. With two or more code tasks each declares its paths, and two tasks

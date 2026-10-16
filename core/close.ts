@@ -16,7 +16,7 @@ import { checkpoint, resolveGit, sweep } from './effect'
 import { policyOf } from '../policy/guards'
 import { integrateEpic } from './integrate'
 import { green as tddGreen, lockedViolations, verifyOf, redOf, resolveSpec, specChange, testerDone } from './tdd'
-import { modeOf, pkgOf } from './specview'
+import { modeOf, pkgOf, unitsOfTask } from './specview'
 import * as G from './git'
 import { decided, hardStop, limited, stop } from './drive'
 import { queueBrief } from './lanes'
@@ -292,9 +292,11 @@ export async function closeTask(h: Host, d: Deps, id: string, actor: 'main' | 'm
       const epicTip = await G.tip(h.run, d.root, br)
       let s: string
       try { s = task.meta['cadre.resolve'] ? await keep(h, wt, epicTip, C, msg) : await G.squash(h.run, wt, epicTip, C, msg) } catch (x) { return { fail: `conflict: ${(x as Error).message}`, flag: 'conflict', tip: epicTip } }
-      if (epicTip !== base) {   // the package's own verify checks (as the green gate runs them); a missing check is a failure, not a pass
-        const pkg = pkgOf(d, task)
-        for (const n of pkg ? verifyOf(pkg) : ['verify']) { const c = await runCheck(h, d, task, wt, n); if (!c.found || !c.ok) return { fail: `verify (${n}) failed on the squash commit:\n${c.text.slice(0, 1200)}`, flag: 'merge-red', tip: epicTip } }
+      const us = unitsOfTask(d, task), cross = us.length > 1   // a cross-unit task: one integration check, every unit it touches (H7)
+      if (epicTip !== base || cross) {   // the unit's own verify checks (as the green gate runs them); a missing check is a failure, not a pass
+        for (const u of cross ? us : [pkgOf(d, task)]) for (const n of u ? verifyOf(u) : ['verify']) {
+          const c = await runCheck(h, d, cross ? { ...task, meta: { ...task.meta, 'cadre.package': u!.root } } : task, wt, n); if (!c.found || !c.ok) return { fail: `verify (${cross ? `${u!.root}:` : ''}${n}) failed on the squash commit:\n${c.text.slice(0, 1200)}`, flag: 'merge-red', tip: epicTip }
+        }
       }
       return (await G.casRef(h.run, d.root, `refs/heads/${br}`, s, epicTip)) ? { s } : { retry: true }
     }) as { s?: string; fail?: string; flag?: string; tip?: string; retry?: boolean }

@@ -139,8 +139,8 @@ export async function adopt(h: Host, d: Deps, pkg: Pkg, run: TestRun, files: str
   const patch = (p: Pkg & { testBy?: string }) => ({ ...p, checks: { ...p.checks, test }, ...(p.verify?.length && !p.verify.includes('test') ? { verify: [...p.verify, 'test'] } : {}), ...(uses && !p.tdd?.report ? { tdd: { ...p.tdd!, report: rp } } : {}), testBy: 'tester' })
   const file = `${d.root}/.cadre/config.json`; let j: any = {}
   try { j = JSON.parse((await h.readText(file)) ?? '{}') } catch { j = {} }
-  const list: Pkg[] = Array.isArray(j.packages) ? j.packages : (d.cfg.packages as Pkg[]).map(({ knownRed: _k, ...p }) => p)
-  j.packages = list.some(p => p.root === pkg.root) ? list.map(p => (p.root === pkg.root ? patch(p) : p)) : [...list, patch(pkg)]
+  const k = Array.isArray(j.units) ? 'units' : 'packages', list: Pkg[] = Array.isArray(j[k]) ? j[k] : (d.cfg.packages as Pkg[]).map(({ knownRed: _k, ...p }) => p)
+  j[k] = list.some(p => p.root === pkg.root) ? list.map(p => (p.root === pkg.root ? patch(p) : p)) : [...list, patch(pkg)]
   await h.write(file, `${JSON.stringify(j, null, 2)}\n`)
   Object.assign(pkg, patch(pkg))   // this run sees it too (the next load reads the file)
   const text = `test check set from the tester: ${test.join(' ')}`

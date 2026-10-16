@@ -5,21 +5,31 @@ import * as G from './git'
 export interface Pkg {
   root: string; setup: string[]; checks: Record<string, string[]>; fetches?: string[]
   tdd?: { paths: string[]; report?: string; stubs?: string[]; skeleton?: string[] }; viewInclude?: string[]
+  kind?: Kind; ownGit?: boolean; routing?: Record<string, { model: string; effort?: string }>   // a workspace unit (H7); packages[] are units of kind package; its adopted test command is checks.test (core/tdd.adopt)
 }
+export const KINDS = ['package', 'service', 'submodule', 'app'] as const
+type Kind = typeof KINDS[number]
+// the workspace units: `units` when set, else `packages` (units of kind package: no kind = package). The config's own objects: core/tdd.adopt updates one in place
+export const unitsOf = (cfg: { units?: unknown[]; packages?: unknown[] }): Pkg[] => ((cfg.units?.length ? cfg.units : cfg.packages ?? []) as Pkg[])
+// the unit that owns a repo path: the longest root it lies under
+export const ownerOf = <T extends { root: string }>(us: T[], f: string): T | undefined => us.filter(u => u.root === '.' || f === u.root || f.startsWith(`${u.root}/`)).sort((a, b) => b.root.length - a.root.length)[0]
 export type Verdict = 'pass' | 'red' | 'net' | 'knownRed'
 export interface Run { setupOk: boolean; caches: string[]; results: Record<string, Verdict>; junit?: boolean }
 
 const isArgv = (v: unknown): v is string[] => Array.isArray(v) && v.length > 0 && v.every(x => typeof x === 'string' && x !== '')
-// the `packages` list of .cadre/config.json (written by Claude during init): shape check, with an example in every refusal
-export function parse(ps: any): Pkg[] | string {
-  if (!Array.isArray(ps) || !ps.length) return 'packages: expected [{root, setup, checks, tdd}], e.g. {"root":".","setup":["npm","ci"],"checks":{"test":["npm","test"]},"tdd":{"paths":["test/**"]}}'
+// the `packages` (or `units`) list of .cadre/config.json (written by Claude during init): shape check, with an example in every refusal
+export function parse(ps: any, key = 'packages'): Pkg[] | string {
+  if (!Array.isArray(ps) || !ps.length) return `${key}: expected [{root, setup, checks, tdd}], e.g. {"root":".","setup":["npm","ci"],"checks":{"test":["npm","test"]},"tdd":{"paths":["test/**"]}}`
   for (const [i, p] of ps.entries()) {
-    const at = `packages[${i}]`
+    const at = `${key}[${i}]`
     if (typeof p?.root !== 'string' || p.root.startsWith('/') || p.root.split('/').includes('..')) return `${at}.root: expected a repo-relative path like "." or "packages/api"`
     if (p.setup !== undefined && !(Array.isArray(p.setup) && !p.setup.length) && !isArgv(p.setup)) return `${at}.setup: expected an argv array like ["npm","ci"], or [] when the repo has no setup step`
     const cs = Object.entries(p.checks ?? {}); if (!cs.length || cs.some(([, a]) => !isArgv(a))) return `${at}.checks: expected {"test":["npm","test"]}`
     if (p.tdd?.report && !String(p.tdd.report).startsWith('/tmp/cadre/')) return `${at}.tdd.report: must be under /tmp/cadre/`
     if (p.fetches && p.fetches.some((f: string) => !(f in p.checks))) return `${at}.fetches: must name checks`
+    if (p.kind !== undefined && !KINDS.includes(p.kind)) return `${at}.kind: one of ${KINDS.join(', ')}`
+    if (p.ownGit !== undefined && typeof p.ownGit !== 'boolean') return `${at}.ownGit: true when the unit is its own git repository (a submodule), else false`
+    if (p.routing !== undefined && (typeof p.routing !== 'object' || Object.values(p.routing).some((c: any) => typeof c?.model !== 'string'))) return `${at}.routing: expected {"worker":{"model":"opus","effort":"high"}}`
   }
   return ps.map(p => ({ ...p, setup: p.setup ?? [] }))
 }
