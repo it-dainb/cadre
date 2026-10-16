@@ -139,3 +139,17 @@ test('main in an active repo: an Agent with no task in it and the built-in task 
   expect((await $.tool.call({ tool: 'Agent', prompt: 'where is login handled?', description: 'x' }) as any).deny).toContain('call explore with your question')
   expect((await $.tool.call({ tool: 'TaskCreate', subject: 's', description: 'd' }) as any).deny).toContain('plan with the plan tools')
 })
+
+// review 0.15 #7: cadre's own tools answer innermost, so a hook after them never saw main's explore: a clarify goal could never record its clarity
+test('a goal run: main\'s explore through the real chain counts as its clarify explore, so ask {clarity} goes on', ENGINE, async ($, on) => {
+  const env: Record<string, string> = { CADRE_DEV: '1', CADRE_DEV_SCENARIO: '/s.json' }
+  const dump = { b: { schemaVersion: 1, seq: 1, repo: 'r', mission: null, epic: null, plan: null, tasks: [], approval: { planId: null, missing: [] }, drive: { on: false, level: 'epic', epicId: null, turns: 0, costUsd: 0, startedAt: null }, sync: [], cost: { tokens: 0 }, containment: { state: 'unknown', unsandboxed: 0 }, resumesQueued: 0, init: [] }, ring: [], sec: { goalRun: { text: 'fix login', mode: 'auto', follow: 0, on: true, deep: true } } }
+  on('session.start', () => ({ cwd: '/work' })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined }))
+  on('command.register', () => ({ value: undefined })); on('env.set', () => ({ value: undefined })); on('env.get', ($, e) => ({ value: env[e.name] })); on('tool.register', () => ({ value: undefined }))
+  on('fs.read', ($, e) => { if (e.path === '/s.json') return { value: JSON.stringify(dump) }; throw new Error('ENOENT') }); on('fs.stat', () => ({ value: undefined }))
+  on('ui.log', () => ({ value: undefined })); on('ui.toast', () => ({ value: undefined })); on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined }))
+  mock.clock(on); await $.session.start(START)
+  expect(String((await $.tool.call({ tool: 'mcp__cadre__ask', clarity: { outcome: 1, scope: 1, acceptance: 1, constraints: 1 } }) as any).result)).toContain('call explore first')
+  expect(String((await $.tool.call({ tool: 'mcp__cadre__explore', question: 'where is login handled?' }) as any).result)).toContain('An explorer starts when this turn ends')
+  expect(String((await $.tool.call({ tool: 'mcp__cadre__ask', clarity: { outcome: 1, scope: 1, acceptance: 1, constraints: 1 } }) as any).result)).not.toContain('call explore first')
+})
