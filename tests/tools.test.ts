@@ -79,7 +79,7 @@ describe('approval: an edit revokes it, an open question blocks it', () => {
     const w = await world(); const { plan, a } = await planned(w)
     expect((await w.text({ cmd: 'approve', args: [plan] })).text).toContain('approved')
     expect(JSON.parse((await w.store.get(plan)).meta['cadre.receipt'])).toEqual({ plan, revision: 2, at: expect.any(Number), by: 'human' })
-    const r = await tool(w, 'amend', { id: a, expectedRevision: 2, description: 'impl, with remember-me' })
+    const r = await tool(w, 'amend', { id: a, expectedRevision: 2, description: 'impl, with remember-me', reason: 'users asked', evidence: 'issue 12' })
     expect(r.result.revision).toBe(3)
     expect((await w.store.get(a)).category).toBe('draft'); expect((await w.store.get(plan)).meta['cadre.receipt']).toBe('')
     expect(err(await tool(w, 'amend', { id: plan, expectedRevision: 3, title: 'x' }))).toBe('error: id: the approved plan itself is fixed; amend its tasks')

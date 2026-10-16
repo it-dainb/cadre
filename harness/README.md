@@ -78,6 +78,7 @@ Evidence per cell: `harness/out/matrix/<tier>-<stamp>/<cell>/` (gitignored): `dr
 | `zero-quota` | (`S=1`) the stub proxy refused no request: every model request was answered by the scripted model or a named stub | `effort.jsonl` |
 | `every` | (`ORACLE=every`, exit-every-role) every run record seen ends (a record pruned at its task's close was ended by the close); none `ended{lost}`; the roles in `ORACLE_ROLES` (tester,worker,reviewer) ran; <= 1 dialog besides the plan's; no tool call repeated `ORACLE_REPEAT` (3) times in a row | `store/` snapshots + transcripts |
 | `forced` | (forced-exit) cadre answered a request itself; the worker asked the model nothing after it and its `turn.complete` came once, `reason=answer` | debug |
+| `noreport` | (report-less-end) every worker that stopped without a report was nudged once, then ended `blocked`; none was accepted (`idle-bound`); <= 1 dialog besides the plan's | `store/` snapshots |
 | `underscore` | (underscore-id) a worker ran for a task id with `_`; no explorer but main's one | transcripts |
 | `limit` | (usage-limit) the injected limit hit; the band showed the reset time; the task budget did not change; one worker spawn after it | `stubbed.jsonl`, panes, `store/`, transcripts |
 | `devmoved` | (dev-moved) the user's commit on dev mid-run is on dev after the landing, `USER.md` byte-identical, the user's checkout clean (cadre's `.cadre/` aside), <= 1 dialog | `devmoved.json` |

@@ -25,8 +25,8 @@ import { capAsk, coreLanded, refresh, rework, trial } from './rebase'
 import { branchOf, epicOf, goOn } from './milestone'
 import { planStopped } from './planner'
 import { REPEAT, charge, prune, retry, runOf, settled, step } from './lifecycle'
-// the worker's report kept for the reviewer and the merge: cut the FIELDS, never the JSON (a cut string breaks the parse at merge)
-export const reportMeta = (r: any) => JSON.stringify({ summary: String(r.summary ?? '').slice(0, 800), risks: (r.risks ?? []).slice(0, 5).map((x: any) => String(x).slice(0, 120)), questions: (r.questions ?? []).slice(0, 5).map((x: any) => String(x).slice(0, 120)) })
+// the worker's report kept for the reviewer and the merge: the report contract caps its fields (validate.REPORTS), so it is kept whole
+export const reportMeta = (r: any) => JSON.stringify({ summary: String(r.summary ?? ''), risks: r.risks ?? [], questions: r.questions ?? [] })
 export const reportOf = (m?: string): { summary?: string } => { try { return m ? JSON.parse(m) : {} } catch { return { summary: m?.slice(0, 800) } } }   // reports stored by older versions may be cut mid-string
 
 
@@ -88,12 +88,12 @@ async function semantic(h: Host, task: Task, wt: string, r: any, enforce: boolea
   return null
 }
 
-// ---- worker done (also the auto-report): protected/locked paths, mod commit, green gate, -> review ----
+// ---- worker done: protected/locked paths, mod commit, green gate, -> review ----
 async function numstat(h: Host, wt: string, range: string) {
   const rows = (await G.git(h.run, wt, ['diff', '--numstat', range])).split('\n').filter(Boolean).map(l => l.split('\t'))
   return { files: rows.length, add: rows.reduce((n, r) => n + num(r[0]), 0), del: rows.reduce((n, r) => n + num(r[1]), 0) }
 }
-async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any, auto = false): Promise<string> {
+async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any): Promise<string> {
   const task = await d.store.get(t.id), wt = b.worktree, base = task.meta['cadre.base'], pol = await policyOf(h)
   const dirty = (await G.git(h.run, wt, ['status', '--porcelain'])).split('\n').filter(Boolean).flatMap(l => l.slice(3).split(' -> ')), changed = new Set([...dirty, ...(await G.git(h.run, wt, ['diff', '--name-only', `${task.meta['cadre.specCommit'] ?? base}..HEAD`])).split('\n').filter(Boolean)])   // since the red commit: the spec files it added are the worker's baseline, not its edits
   const theirs = await ours(h, wt, task.meta['cadre.resolve']), locked = pol.locks?.[t.id] ?? [], bad = [...changed].filter(p => (G.isProt(p, d.cfg.changelog.path) && !theirs(p)) || locked.includes(`${wt}/${p}`))
@@ -112,8 +112,7 @@ async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any, aut
   for (let i = p.indexOf('worker'); p[i] !== 'reviewer'; i++) { const m = await apply(h, { kind: 'advance', id: t.id, at, actor: 'mod' }, pipe(d)); if (!m.ok) throw new Error(m.error) }
   await d.store.setMeta(t.id, { 'cadre.sourceCommit': C, 'cadre.step': 'reviewer', 'cadre.report': reportMeta(r), 'cadre.checks': green ? 'verify' : '' }, d.actor)
   await d.store.move(t.id, 'review', d.actor)
-  await record(h, d, t.id, 'report', 'worker', { commit: C, ...st, green: green ? `${green.ok ? 'pass' : 'fail'} (${green.secs}s)` : 'n/a', auto }, { outcome: 'done', summary: r.summary, risks: r.risks })
-  if (auto) await raise(h, t.id, 'auto-reported')
+  await record(h, d, t.id, 'report', 'worker', { commit: C, ...st, green: green ? `${green.ok ? 'pass' : 'fail'} (${green.secs}s)` : 'n/a' }, { outcome: 'done', summary: r.summary, risks: r.risks })
   await followups(d, t.id, r.followups)
   const bind = await h.bind.read(), rv = ownerOf(bind, t.id, 'reviewer'), last = rv && bind[rv].lastReviewedCommit
   if (!rv) await patch(h, t.id, x => ({ ...x, owner: undefined }))   // no reviewer yet: the next step is "spawn the reviewer", not "running" (live: main waited on a reviewer that never existed); a bound one is resumed below
@@ -161,10 +160,11 @@ async function verdict(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
     }
     await stop(h, `${t.id} failed review ${n} times and ${need.join(', ')} need${need.length === 1 ? 's' : ''} it`, { taskId: t.id, flag: 'rework:' })
   }
-  await d.store.resume(t.id, d.actor); await d.store.setMeta(t.id, { 'cadre.step': 'worker', 'cadre.review': '' }, d.actor)
+  const asked = findings.map(f => `- [${f.severity}] ${f.file}${f.line ? `:${f.line}` : ''} ${f.issue}${f.fix ? ` (fix: ${f.fix})` : ''}`).join('\n')
+  await d.store.resume(t.id, d.actor); await d.store.setMeta(t.id, { 'cadre.step': 'worker', 'cadre.review': '', 'cadre.rejected': `review of ${sha7(C)}: ${r.summary}\n${asked}` }, d.actor)   // the handoff's Rejected (briefs.handoffOf)
   await clear(h, t.id, 'rework:'); if (n > max) await raise(h, t.id, `rework:${n}/${max}`)
   const bind = await h.bind.read(), w = ownerOf(bind, t.id, 'worker')
-  const text = `Review of ${sha7(C)} asks for changes (${n}/${max}):\n${r.summary}\n${findings.map(f => `- [${f.severity}] ${f.file}${f.line ? `:${f.line}` : ''} ${f.issue}${f.fix ? ` (fix: ${f.fix})` : ''}`).join('\n')}\nFix them, then report done again.`.slice(0, 3000)
+  const text = `Review of ${sha7(C)} asks for changes (${n}/${max}):\n${r.summary}\n${asked}\nFix them, then report done again.`.slice(0, 3000)
   if (w) await step(h, w, { type: 'resume', text })
   await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'reviewer', to: 'worker', commit: C, flags: x.flags, next: w ? 'worker resumed' : startNew(t.id, 'worker', 'reviewer') }) }))
   return `verdict accepted: changes (${n}/${max}). Stop.`
@@ -202,6 +202,7 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
   if (r.role === 'explorer') return explorerDone(h, d, t, agentId!, r)
   if (r.role === 'reviewer') { const err = o.lax ? null : await semantic(h, await d.store.get(t.id), b.worktree, r, d.cfg.review.coverage.enforce); if (err) throw new Error(err); return verdict(h, d, t, b, agentId!, r) }
   if (r.outcome === 'done') return workerDone(h, d, t, b, r)
+  if (r.outcome === 'needs') { await blockTask(h, d, t, `needs: ${r.needs}`, 'needs', { summary: r.summary, needs: r.needs }); return 'need recorded; the user is asked. Stop and wait.' }   // recorded with one dialog; waiting on it in place comes later
   const spec = r.outcome === 'spec_change', why = String(r.reason ?? r.summary ?? '').slice(0, 400)
   if (spec) { await specChange(h, d, t.id, why); await record(h, d, t.id, 'blocked', t.step, { why }, { summary: r.summary, reason: r.reason }); await raise(h, t.id, 'spec_change') }
   else { await d.store.setMeta(t.id, { 'cadre.question': why }, d.actor); await blockTask(h, d, t, why, 'blocked', { summary: r.summary, reason: r.reason, questions: r.questions }) }   // yolo: main answers it from this (core/drive)
@@ -214,7 +215,7 @@ async function redAsk(h: Host, d: Deps, id: string, why: string) {
     options: [{ key: 'r', label: 'Retry', verb: 'restore', run: `resolve ${id} retry` }, { key: 'x', label: 'Cancel task', verb: 'cancel', run: `resolve ${id} cancel` }] })
 }
 
-// ---- #2 turn.complete: L3 sweep every turn; an agent that stopped without reporting is nudged x2, auto-reported, or released ----
+// ---- #2 turn.complete: L3 sweep every turn; an agent that stopped without reporting is nudged (limits.nudges), then ends: its work is not accepted as a result, one dialog ----
 async function release(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: string, why: string) {
   const n = await charge(h, t.id, 'silentRuns')
   if (b.worktree) await checkpoint(h, d.store, d.actor, t.id, b.worktree).catch(() => {})
@@ -235,13 +236,9 @@ export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
       return
     }
     if (b.role === 'reviewer') { await patch(h, t.id, x => ({ ...x, owner: undefined })); return end(h, e.agentId, 'stopped', 'released') }   // a verdict is never invented; main spawns a fresh reviewer
-    const text = String(e.answer ?? '').slice(0, b.role === 'explorer' ? 2000 : 300)
-    try {
-      if (b.role === 'worker') { await workerDone(h, d, t, b, { summary: `(auto-report: stopped without report) ${text}` }, true); await step(h, e.agentId, { type: 'report.ok' }) }
-      else if (b.role === 'explorer') { await explorerDone(h, d, t, e.agentId, { answer: text || '(no answer)', citations: [] }); await raise(h, t.id, 'auto-reported') }
-      else await release(h, d, t, b, e.agentId, 'no report')
-    } catch (x) { await release(h, d, t, b, e.agentId, `auto-report failed: ${(x as Error).message}`.slice(0, 200)) }
-    return
+    if (b.worktree) await checkpoint(h, d.store, d.actor, t.id, b.worktree).catch(() => {})   // its edits are kept for whoever goes on, never accepted as its result
+    await end(h, e.agentId, 'stopped', 'blocked')   // it ends (exit rule 1): the stop itself is never refused
+    return blockTask(h, d, t, `its ${b.role} ended without a report; nothing it did was accepted as a result`, 'no-report', {})
   }
   if (await limited(h, e)) { await end(h, e.agentId, 'stopped', 'released'); if (b.role === 'reviewer') return patch(h, t.id, x => ({ ...x, owner: undefined })); await apply(h, { kind: 'release', id: t.id, at: await h.now(), actor: 'mod' }, pipe(d)); return void (await d.store.release(t.id, d.actor, 'usage limit')) }   // not an attempt: the drive waits for the reset
   if (b.role === 'reviewer') { await patch(h, t.id, x => ({ ...x, owner: undefined })); return end(h, e.agentId, 'stopped', 'released') }

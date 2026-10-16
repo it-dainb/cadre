@@ -28,12 +28,12 @@ async function mk() {
 }
 
 describe('one output contract: a marker-less explorer (ask)', () => {
-  test('tracked at admission; a stop without report is nudged twice through the queued resume (with the example), then auto-reported', async () => {
+  test('tracked at admission; a stop without report is nudged (limits.nudges) through the queued resume (with the example), then auto-reported: a question of main, not the result of a task', async () => {
     const { h, sent, stop } = await mk()
     expect(await askOf(h, 'agent-x1y2z3')).toMatchObject({ id: 'ask-x1y2z3', q: 'where is the parser?', k: 0 })
-    await stop(); await stop()
-    expect(sent).toEqual([['agent-x1y2z3', NUDGE], ['agent-x1y2z3', NUDGE]]); expect(NUDGE).toContain('"role":"explorer","answer"')
-    await stop(); expect(sent).toHaveLength(2)
+    await stop()
+    expect(sent).toEqual([['agent-x1y2z3', NUDGE]]); expect(NUDGE).toContain('"role":"explorer","answer"')
+    await stop(); expect(sent).toHaveLength(1)
     const a = (await askOf(h, 'agent-x1y2z3'))!; expect(a.auto).toBe(true); expect(a.answer!.length).toBeLessThanOrEqual(2000); expect(a.answer).toStartWith('I looked around')
   })
   test('the foreground Agent result is the card, never the prose; the answer comes once when the agent finally reports; a later notification says it was given', async () => {

@@ -30,7 +30,7 @@ export const defaults = () => ({
   // ADR 0023: the tester proposes the command that runs its tests, cadre runs it for red (and green); with no test check it becomes the package's
   tdd: { testerCommand: { use: true, adopt: true }, collectErrors: ['ERROR collecting', 'errors? during collection', 'ImportError', 'ModuleNotFoundError', 'Cannot find module', 'ERR_MODULE_NOT_FOUND', 'SyntaxError', 'Test suite failed to run', '\\[build failed\\]', '\\[setup failed\\]', 'no tests ran', 'No tests found'] },
   review: { coverage: { enforce: true }, deepLabels: ['security', 'breaking'], maxRework: 3, coreTask: 'core', coreDiff: 'thorough', tiers: { light: { files: 5, lines: 100, paths: 2 }, thorough: { files: 20, lines: 500 }, risky: ['**/auth/**', '**/security/**', '**/crypto/**', '**/permission*/**', '**/migrations/**', '.github/**', '.gitlab-ci.yml', 'Dockerfile', '**/package.json', '**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/go.mod', '**/Cargo.toml', '**/pyproject.toml', '**/requirements*.txt'] } },
-  limits: { reportRetries: 3, nudges: 2, silentRuns: 3, startFails: 3, rebaseRounds: 2, testerRounds: 3 },
+  limits: { reportRetries: 3, nudges: 1, silentRuns: 3, startFails: 3, rebaseRounds: 2, testerRounds: 3 },
   lanes: { fullAt: 3, milestoneAt: 8 },
   planning: { clarify: { enabled: true, maxQuestions: 3, threshold: 0.7 }, deep: { maxRounds: 8 } },   // ADR 0020: explorer + clarity before a goal's plan; /cadre deep
   branches: { main: '', dev: 'dev', epicPrefix: 'epic/' }, release: { onEpicDone: 'propose' },

@@ -121,7 +121,7 @@ describe('continue after exit', () => {
     // main respawns: the rebind commits the dirty tree as wip and hands the new worker the checkpoint, the diff and the failing check
     const w = spawned(); await admit(h2, { prompt: `TASK-${m.a}`, description: 'd', subagentType: 'general-purpose', background: true, fork: false }, w.next)
     expect(w.seen).toHaveLength(1); const p = w.seen[0].prompt
-    expect(p).toContain('## Handoff'); expect(p).toContain('checkpoint abc1234: the work so far is committed'); expect(p).toContain('src/login.ts | 3 ++-'); expect(p).toContain('+half of the login check')
+    expect(p).toContain('## Handoff'); expect(p).toContain('the work so far is committed in your tree (checkpoint abc1234)'); expect(p).toContain('src/login.ts | 3 ++-'); expect(p).toContain('+half of the login check')
     expect(p).toContain('last check: test failed'); expect(p).toContain('FAIL login rejects a bad password')
     expect(m.runs.some(r => r.includes(`commit --no-verify -m wip(${m.a}): checkpoint`))).toBe(true)
     expect((await m.store.get(m.a)).meta['cadre.checkpoint']).toBe('abc1234')

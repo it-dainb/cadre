@@ -141,17 +141,25 @@ export function runShape(run: any): string | null {
   if (run.junit !== undefined && typeof run.junit !== 'string') return 'run.junit: expected "$CADRE_JUNIT" (the path your runner writes its JUnit XML report to)'
   return null
 }
-const ROLE_KEYS: Record<string, string[]> = { worker: ['outcome', 'summary'], tester: ['outcome', 'summary', 'tests'], reviewer: ['verdict', 'summary', 'findings', 'coverage', 'contractStatus'], explorer: [], planner: ['tasks'] }
+// Per-role/outcome report contracts (strict, checkInput): an unknown field, a wrong type or an over-cap value is refused before anything is stored; caps reject, never truncate
+const RS = (n: number) => ({ type: 'string', maxLength: n }), RA = (n: number, items: Sch = { type: 'object' }) => ({ type: 'array', maxItems: n, items })
+const V1 = { schemaVersion: {}, role: {} }
+export const REPORTS: Record<string, Sch> = {
+  worker: { type: 'object', required: ['outcome', 'summary'], properties: { ...V1, outcome: { type: 'string', enum: ['done', 'blocked', 'spec_change', 'needs'] }, summary: RS(800), reason: RS(400), needs: RS(400), risks: RA(5, RS(120)), questions: RA(5, RS(120)), followups: RA(5) } },
+  tester: { type: 'object', required: ['outcome', 'summary', 'tests'], properties: { ...V1, outcome: { type: 'string', enum: ['done'] }, summary: RS(800), tests: RA(50), run: { type: 'object' } } },
+  reviewer: { type: 'object', required: ['verdict', 'summary', 'findings', 'coverage', 'contractStatus'], properties: { ...V1, verdict: { type: 'string', enum: ['pass', 'changes'] }, summary: RS(1500), findings: RA(50), coverage: RA(50), contractStatus: RA(100) } },
+  explorer: { type: 'object', required: ['answer'], properties: { ...V1, answer: RS(2000), citations: RA(30) } },
+  planner: { type: 'object', required: ['tasks'], properties: { ...V1, summary: RS(1500), tasks: RA(20) } },
+}
+const WHY: Record<string, string> = { blocked: 'reason', spec_change: 'reason', needs: 'needs' }   // the field an outcome cannot go without
 export function validateReport(r: any): string | null {
   if (!r || typeof r !== 'object') return bad('report', '{"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"}', r)
   if (r.schemaVersion !== 1) return bad('schemaVersion', '1', r.schemaVersion)
-  if (!(r.role in ROLE_KEYS)) return bad('role', 'worker|tester|reviewer|explorer|planner', r.role)
-  const miss = ROLE_KEYS[r.role].find(k => r[k] === undefined); if (miss) return `${miss}: required for role ${r.role}`
+  if (!(r.role in REPORTS)) return bad('role', 'worker|tester|reviewer|explorer|planner', r.role)
+  const e = checkInput(REPORTS[r.role], r); if (e) return e.replace('call again', 'report again')
+  const k = WHY[r.outcome]; if (k && !str(r[k])) return `${k}: required with outcome ${r.outcome}; say what is in the way, then report again`
   if (r.role === 'explorer' && !str(r.answer)) return 'answer: required for role explorer'
-  if (r.role === 'worker' && !['done', 'blocked', 'spec_change'].includes(r.outcome)) return bad('outcome', 'done|blocked|spec_change', r.outcome)
-  if (r.role === 'reviewer' && !['pass', 'changes'].includes(r.verdict)) return bad('verdict', 'pass|changes', r.verdict)
-  if (r.role === 'tester' && r.run !== undefined) { const e = runShape(r.run); if (e) return e }
-  if (typeof r.summary === 'string' && r.summary.length > 1500) return `summary: at most 1500 chars, got ${r.summary.length}`
+  if (r.role === 'tester' && r.run !== undefined) { const x = runShape(r.run); if (x) return x }
   return null
 }
 

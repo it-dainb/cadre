@@ -130,12 +130,14 @@ test('a locked spec file committed by the red step is not a worker edit; editing
   void d
 })
 
-test('stop without report: nudge x2 (queued), then auto-report from computed facts; non-answer stop releases, blocked at 3 attempts', async () => {
+test('stop without report: nudged (limits.nudges), then it ends: nothing accepted, the edits checkpointed, the task blocked with no-report; non-answer stop releases, blocked at 3 attempts', async () => {
   const w = await world(), id = w.ids[0], { h, store } = w; await w.spawn(id); const wt = (await store.get(id)).meta['cadre.worktree']; edit(wt)
   const stop = (reason = 'answer') => C.observeWith(h, w.dep, { agentId: 'ag1', reason, answer: 'done I think' }, e => e)
+  w.dep.cfg.limits.nudges = 2
   await stop(); assert.deepEqual((await L.runOf(h, 'ag1')).state, { state: 'silent', n: 1 }); assert.match((await h.board.read()).tasks[0].card, /next: wait: the worker is finishing its report/); await stop(); assert.deepEqual((await L.runOf(h, 'ag1')).state, { state: 'silent', n: 2 }); assert.equal((await L.budgetOf(h, id)).nudges, 2)
   assert.equal((await h.board.read()).tasks[0].state, 'active'); await stop()
-  const t = (await h.board.read()).tasks[0]; assert.deepEqual([t.state, t.step], ['review', 'reviewer']); assert.ok(t.flags.includes('auto-reported')); assert.match((await store.get(id)).meta['cadre.rec.report'], /auto: true/)
+  const t = (await h.board.read()).tasks[0], m = (await store.get(id)).meta; assert.deepEqual([t.state, t.flags], ['blocked', ['no-report']]); assert.deepEqual((await L.runOf(h, 'ag1')).state, { state: 'ended', cause: 'blocked' })
+  assert.equal(m['cadre.sourceCommit'], undefined); assert.equal(m['cadre.rec.report'], undefined); assert.ok(m['cadre.checkpoint'])   // kept for whoever goes on, never its result
   const w2 = await world(), id2 = w2.ids[0]
   for (let i = 1; i <= 3; i++) {
     await w2.spawn(id2); await C.observeWith(w2.h, w2.dep, { agentId: `ag${i}`, reason: 'error' }, e => e)
@@ -235,10 +237,10 @@ test('a resolve task: claimed in the worktree that holds the merge; the worker r
 })
 
 // ADR 0019: the limits are settings; changing each one changes the behaviour above
-test('settings: limits.nudges 0 auto-reports at the first stop; limits.silentRuns 1 blocks at the first failed run', async () => {
+test('settings: limits.nudges 0 ends a report-less run at the first stop; limits.silentRuns 1 blocks at the first failed run', async () => {
   const w = await world(), id = w.ids[0]; w.dep.cfg.limits.nudges = 0; await w.spawn(id); edit((await w.store.get(id)).meta['cadre.worktree'])
   await C.observeWith(w.h, w.dep, { agentId: 'ag1', reason: 'answer', answer: 'done' }, e => e)
-  const t = (await w.h.board.read()).tasks[0]; assert.deepEqual([t.state, t.flags.includes('auto-reported')], ['review', true])
+  const t = (await w.h.board.read()).tasks[0]; assert.deepEqual([t.state, t.flags], ['blocked', ['no-report']]); assert.equal((await L.budgetOf(w.h, id)).nudges, 0)
   const w2 = await world(), id2 = w2.ids[0]; w2.dep.cfg.limits.silentRuns = 1; await w2.spawn(id2); await C.observeWith(w2.h, w2.dep, { agentId: 'ag1', reason: 'error' }, e => e)
   assert.equal((await w2.h.board.read()).tasks[0].state, 'blocked')
 })

@@ -219,6 +219,18 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
       if (tc.length !== 1 || !/reason=answer/.test(tc[0] ?? '')) fail('forced', `worker turn.complete after the forced step: ${tc.length}x ${tc.map(l => l.match(/reason=\S+/)?.[0]).join(',')} (want 1x reason=answer)`)
     }
   }
+  if (o === 'noreport') {   // a worker that stops without a report: one nudge, then it ends blocked; nothing it did is accepted; one dialog
+    const all = Object.assign({}, ...snaps.map(x => runs(x.s))), ws = Object.entries(all).filter(([, r]) => r.role === 'worker')
+    stats.runs = Object.fromEntries(ws.map(([a, r]) => [a, (r.log ?? []).map(x => x.state).join('>')]))
+    if (!ws.length) fail('noreport', 'no worker ran')
+    for (const [a, r] of ws) {
+      const st = (r.log ?? []).map(x => x.state), n = (r.log ?? []).filter(x => x.event === 'turn.end').length   // a nudge is a turn.end; other events logged while silent are not
+      if (st.includes('idle-bound')) fail('noreport', `${a} was accepted without a report (idle-bound)`)
+      if (n !== 1) fail('noreport', `${a} nudged ${n}x (want 1)`)
+      if (r.state?.state !== 'ended' || r.state.cause !== 'blocked') fail('noreport', `${a} ends ${JSON.stringify(r.state)} (want ended blocked)`)
+    }
+    if (others > 1) fail('noreport', `${others} dialogs besides the plan's`)
+  }
   if (o === 'underscore') {   // a repo folder with `_` (bd once named task ids after it; the file store's ids are c-<seq>-<n>): the cadre spawn resolves, 0 explorer spawns (main's clarify explorer aside)
     const ex = subs.filter(x => /Explorer brief/.test(x.brief)).length, wk = subs.filter(x => /Worker brief/.test(x.brief) && /TASK-[\w-]+/.test(x.brief)).length
     Object.assign(stats, { explorers: ex, workers: wk })

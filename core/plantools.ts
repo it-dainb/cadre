@@ -4,11 +4,14 @@
 // approval (dispatch.planMissing). The writes go through the Task* answers (native/tasks), which run beside these tools until the switch-over moves them here.
 import { modelData, modelText } from './say'
 import type { Host, Snapshot } from '../types'
-import type { TaskStore } from '../task-management/store'
+import type { Task, TaskStore } from '../task-management/store'
+import { pipeOf } from '../task-management/registry'
+import { apply } from './machine'
+import { settleIf, yoloOn } from './decide'
 import { answer } from '../native/tasks'
 import { clarifyCall } from './clarify'
 import { missingLine, questionsOf } from './validate'
-import { registryOf, storeOf } from './dispatch'
+import { DRIVE, mirror, registryOf, storeOf } from './dispatch'
 import { retouch } from './lanes'
 import { askById, askTask } from './asks'
 import { isMs } from './milestone'
@@ -71,16 +74,40 @@ async function epic(h: Host, i: In): Promise<Out> {
   const { title: _t, goal: _g, after: _a, id: _i, ...m } = i
   return add(h, i, m)
 }
+// The amendment ledger: a change to an approved task names its reason and evidence; each criterion (a scenario by id, any other field by name) keeps its original
+// verbatim and changes once (a second change is the user's). auto: the task goes back to the user's dialog; yolo: main's decision is recorded and stands.
+type Entry = { criterion: string; original: string; reason: string; evidence: string; at: number }
+const ledgerOf = (t: Task): Entry[] => { try { return JSON.parse(t.meta['cadre.amendments'] || '[]') } catch { return [] } }
+const sid = (l: string) => /^S\d+/.exec(l)?.[0] ?? l
+const NOT = ['id', 'expectedRevision', 'scenarios', 'after', 'remove', 'reason', 'evidence']
+function criteria(t: Task, i: In): { criterion: string; original: string }[] {
+  const was = new Map((t.acceptance ?? '').split('\n').filter(Boolean).map(l => [sid(l), l])), now = new Map(((i.scenarios ?? []) as string[]).map(l => [sid(l), l]))
+  const sc = i.scenarios ? [...new Set([...was.keys(), ...now.keys()])].filter(k => was.get(k) !== now.get(k)).map(k => ({ criterion: `scenario ${k}`, original: was.get(k) ?? '(none)' })) : []
+  const orig = (k: string) => (k === 'title' ? t.title : k === 'description' ? t.description : k === 'interface' ? t.design : k === 'type' ? t.type : t.meta[`cadre.${k}`]) || '(none)'
+  return [...sc, ...Object.keys(i).filter(k => !NOT.includes(k)).map(k => ({ criterion: k, original: orig(k) }))]
+}
 async function amend(h: Host, i: In): Promise<Out> {
-  const { id, expectedRevision, title, description, after = [], remove, ...m } = i, s = await planOf(h); if (!s) return no(NOPLAN)
+  const { id, expectedRevision, title, description, after = [], remove, reason, evidence, ...m } = i, s = await planOf(h); if (!s) return no(NOPLAN)
   const store = await storeOf(h), cur = await revOf(store, s.plan!.id)
   if (expectedRevision !== cur) return no(`expectedRevision: the plan is at revision ${cur}, not ${expectedRevision}; check your change against it and call again with expectedRevision ${cur}`)
   if (id === s.plan!.id && s.plan!.state !== 'draft') return no('id: the approved plan itself is fixed; amend its tasks')
   if (remove) { const r = await via(h, { tool: 'TaskUpdate', taskId: id, status: 'deleted' }), bad = said(r); return bad ? no(bad) : wrote(h, store, s.plan!.id, id, r) }
   if (title === undefined && description === undefined && !after.length && !Object.keys(m).length) return no('nothing to change: give at least one field to change')
   const g = await graph(store, s, after, id); if (g) return no(g)
+  const t = await store.get(id).catch(() => null), approved = !!t && id !== s.plan!.id && (t.category !== 'draft' || !!t.meta['cadre.amended']), cs = approved ? criteria(t!, i) : [], at = await h.now()
+  if (approved && (!reason || !evidence)) return no(`${reason ? 'evidence' : 'reason'}: required to change an approved task; give why (reason) and what shows it (evidence: a test output, a file and line), then call again`)
+  const twice = cs.find(c => ledgerOf(t!).some(x => x.criterion === c.criterion)); if (twice) return no(`${twice.criterion}: changed once already; a second change to it is the user's: ask them`)
   const r = await via(h, { tool: 'TaskUpdate', taskId: id, ...(title !== undefined ? { subject: title } : {}), ...(description !== undefined ? { description } : {}), metadata: { ...m, ...(id === s.plan!.id ? {} : { amend: true }) }, ...(after.length ? { addBlockedBy: after } : {}) })
-  const bad = said(r); return bad ? no(bad) : wrote(h, store, s.plan!.id, id, r)
+  const bad = said(r); if (bad) return no(bad)
+  if (approved) {
+    await store.setMeta(id, { 'cadre.amendments': JSON.stringify([...ledgerOf(t!), ...cs.map(c => ({ ...c, reason, evidence, at }))]) }, 'main')
+    if (yoloOn((await h.board.read()).drive)) {   // yolo: no dialog; main's change stands, recorded
+      const reg = await registryOf(h); await store.approve([id]); await store.setMeta(id, { 'cadre.amended': '' }, 'main'); await mirror(h, store, reg)
+      await apply(h, { kind: 'approve', id, at, actor: 'main' }, pipeOf(reg)); await h.board.update(b => ({ ...b, approval: { planId: null, missing: [] }, sheet: [] }) as typeof b); await settleIf(h, 'plan:')
+      await DRIVE.decided?.(h, 'plan', `${id} amended by Claude (${cs.map(c => c.criterion).join(', ')}): ${reason}`)
+    }
+  }
+  return wrote(h, store, s.plan!.id, id, r)
 }
 // a question for the code base: queued here, started by the spawner when this turn ends (core/spawner.explores); the answer comes back as a message
 async function explore(h: Host, i: In): Promise<Out> {

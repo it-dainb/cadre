@@ -14,7 +14,7 @@ import { held, ownerOf, savePointer, stampAlive } from './session'
 import { BLOCKING, apply, epicNext } from './machine'
 import { emit } from './events'
 import { flagName } from './render'
-import { brief, idsIn, type BriefIn } from './briefs'
+import { brief, handoffOf, idsIn, type BriefIn } from './briefs'
 import { asked } from './asks'
 import { taskBranch, wtPath, wtRootOf } from './branches'
 import * as G from './git'
@@ -211,7 +211,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
       const cp = (await checkpoint(h, d.store, d.actor, t.id, wt)) ?? (await G.tip(h.run, wt, 'HEAD')),   // locked-dirty refuses the commit (8.4)
          hb = (pipeOf(d.reg)(t.type, t.lane).includes('red') && task.meta['cadre.specCommit']) || task.meta['cadre.base'] || cp
       await d.store.setMeta(t.id, { 'cadre.checkpoint': cp }, d.actor)
-      handoff = [`checkpoint ${cp}: the work so far is committed in your tree; continue from it, do not redo it`, await G.diffStat(h.run, wt, `${hb}..${cp}`), await G.diffPatch(h.run, wt, `${hb}..${cp}`), task.meta['cadre.lastCheck'] ? `last check: ${task.meta['cadre.lastCheck']}` : '', task.meta['cadre.report'] ?? ''].filter(Boolean).join('\n')
+      handoff = handoffOf(task.meta, cp, await G.diffStat(h.run, wt, `${hb}..${cp}`), await G.diffPatch(h.run, wt, `${hb}..${cp}`))
     }
     const cwd = spike ? d.root : viewed(d, role) ? await d.view!(h, d, task, wt) : wt
     return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, { ...(await plan(d, s, t, task)), handoff, decisions: task.meta['cadre.decision'] ? [task.meta['cadre.decision']] : undefined })), cwd, t.step, spike ? '' : cwd, undo, undefined, task)

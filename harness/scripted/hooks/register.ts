@@ -5,7 +5,8 @@
 // Every line it logs starts with SCRIPTED (debug log). `/s0 <end|hb|wedge>` is the forced-exit / TaskStop probe (RESULTS.md (c), (d)).
 // The script is chosen per cell by the repo's `.git/scripted.json` ({"script": …}, written by a harness/fixtures/scripted overlay), default `lite`:
 //   lite: main plans one lite task; full: a full-lane task (tester, worker, reviewer); loop: lite, the worker calls the same tool forever (the repeat-call breaker, then forced exit);
-//   limit: lite, the first worker's first step goes to the proxy, which answers a usage limit (stub-proxy.mjs); slow: lite, the worker waits 45 s first.
+//   limit: lite, the first worker's first step goes to the proxy, which answers a usage limit (stub-proxy.mjs); slow: lite, the worker waits 45 s first;
+//   silent: lite, the worker writes its files and stops without a report, every time (the report-less end).
 import type { Register } from 'claude-code'
 
 type Row = { role: 'user' | 'assistant'; text: string; toolUses?: { tool: string; input?: any }[]; toolResults?: { text?: string; isError?: boolean }[] }
@@ -65,7 +66,7 @@ ${TEST}EOF`
 const taskOf = (brief: string) => brief.match(/TASK-([\w-]+\.\d+)/)?.[1] ?? brief.match(/\b([a-z][\w]*-[a-z0-9]+\.\d+)\b/)?.[1]
 const WAIT = { tool: 'Bash', input: { command: 'node -e "setTimeout(() => {}, 45000)"', description: 'Wait' } }
 const ROLES: Record<string, (k: number, brief: string, cwd: string) => Act> = {
-  worker: (k, b) => script === 'loop' ? { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } } : (script === 'slow' ? [WAIT] : []).concat([{ tool: 'Bash', input: { command: FILES, description: 'Write titleCase and its test' } }, { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
+  worker: (k, b) => script === 'silent' ? [{ tool: 'Bash', input: { command: FILES, description: 'Write titleCase and its test' } }][k] ?? { text: END } : script === 'loop' ? { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } } : (script === 'slow' ? [WAIT] : []).concat([{ tool: 'Bash', input: { command: FILES, description: 'Write titleCase and its test' } }, { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: 'Added titleCase(s) in src/titleCase.mjs with a node:test test; npm test passes.', risks: [] } }])[k] ?? { text: END },
   tester: (k, _b, cwd) => [{ tool: 'Write', input: { file_path: `${cwd}/test/titleCase.test.mjs`, content: TEST } },
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'tester', outcome: 'done', summary: 'One test per scenario in test/titleCase.test.mjs.', tests: [{ path: 'test/titleCase.test.mjs', name: 'S1: titleCase capitalises each word', scenario: 'S1' }], run: { command: ['node', '--test', 'test/titleCase.test.mjs'] } } }][k] ?? { text: END },

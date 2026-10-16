@@ -63,11 +63,12 @@ describe('step(): the run record', () => {
     expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'waiting', on: 'decision' })
     await w.stop('ag1'); expect(w.sent).toEqual([]); expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'waiting', on: 'decision' })
   })
-  test('a stop without a report is nudged (silent n); past the nudges a worker is auto-reported, a tester ends released', async () => {
-    for (const [role, type, end] of [['worker', 'docs', { state: 'idle-bound' }], ['tester', 'feature', { state: 'ended', cause: 'released' }]] as const) {
+  test('a stop without a report is nudged (silent n); past the nudges it ends, nothing accepted, the task blocked with one dialog', async () => {
+    for (const [role, type] of [['worker', 'docs'], ['tester', 'feature']] as const) {
       const w = await world({ type }), [id] = w.ids; await w.at('ag1', id, role)
       for (let i = 0; i < w.cfg.limits.nudges; i++) { await w.stop('ag1'); expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'silent', n: i + 1 }) }
-      await w.stop('ag1'); expect((await runOf(w.h, 'ag1'))?.state).toEqual(end)
+      await w.stop('ag1'); expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'ended', cause: 'blocked' })
+      expect((await w.h.board.read()).tasks.find(t => t.id === id)).toMatchObject({ state: 'blocked', flags: ['no-report'] })
     }
   })
   test('a binding with no run record ends lost and is unbound at its next event', async () => {

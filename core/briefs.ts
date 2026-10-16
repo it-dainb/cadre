@@ -100,3 +100,12 @@ export const context: Hook = async (h, e, next) => {
 }
 // prompt.attachment: native todo/task reminders are noise next to the board line (BT-23, PC-11)
 export const attachment: Hook = (h, e, next) => (e.type === 'todo_reminder' || e.type === 'task_reminder' ? { text: null } : next(e))
+
+// The handoff a fresh agent of a task starts from: five fixed fields, built by code from the task's records (never a model summary)
+const listOf = (x: unknown) => (Array.isArray(x) && x.length ? x.map(l => `- ${l}`).join('\n') : 'none')
+export function handoffOf(meta: Record<string, string>, checkpoint: string, files: string, patch: string): string {
+  let r: { summary?: string; risks?: string[] } = {}; try { r = JSON.parse(meta['cadre.report'] || '{}') } catch { /* an older cut report: no fields */ }
+  return [['Decided', listOf([...(meta['cadre.decision'] ? [meta['cadre.decision']] : []), ...(r.summary ? [`the last report: ${r.summary}`] : [])])], ['Rejected', meta['cadre.rejected'] || 'none'], ['Risks', listOf(r.risks)],
+    ['Files', [files, patch].filter(Boolean).join('\n') || 'none'], ['Remaining', [`the work so far is committed in your tree (checkpoint ${checkpoint}): continue from it, do not redo it`, ...(meta['cadre.lastCheck'] ? [`last check: ${meta['cadre.lastCheck']}`] : [])].join('\n')]]
+    .map(([k, v]) => `${k}:\n${v}`).join('\n\n')
+}
