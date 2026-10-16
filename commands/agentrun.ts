@@ -30,10 +30,17 @@ export async function halt(h: Host): Promise<void> { const r = await halted(h); 
 // $.prompt.submit is refused from a command or a press frame, and $.clock.after inherits that frame (live, 0.7.0). So a brief waits in the run (`brief`)
 // and goes out from main's turn end or the session's 5 s timer (pump); it starts once the session is idle.
 const send = (h: Host, brief: string) => h.secret.update(s => (s.run ? { ...s, run: { ...s.run, brief } } : s))
-export async function pump(h: Host): Promise<void> {
+// Claude Code 2.1.299: after the human stops Claude (Esc) a plugin's submit resolves { drop } until the human types or presses again; only a submit from that
+// press's own frame goes. So the human's retry hands the step over from its answer (inFrame: refused there, as before 2.1.299, it waits for the timer), and a
+// drop anywhere else shows the stopped dialog at once; it does not pop itself (an answer from a popped dialog has no press): the band asks for 1.
+export async function pump(h: Host, inFrame = false): Promise<void> {
   let text: string | undefined; await h.secret.update(s => { text = s.run?.brief; return text ? { ...s, run: { ...s.run!, brief: undefined } } : s })
-  if (text) await h.submit?.(modelText('brief', text)).catch((e: Error) => h.log(`could not hand the step to Claude: ${e.message.slice(0, 120)}`))
-  await sendBrief(h)   // a `/cadre <goal>` brief (core/lanes)
+  const r = text ? await h.submit?.(modelText('brief', text)).catch((e: Error) => ({ drop: e.message })) as { drop?: string } | undefined : undefined
+  if (r?.drop) h.log(`could not hand the step to Claude: ${r.drop.slice(0, 120)}`)
+  if (r?.drop && inFrame) return send(h, text!)
+  const run = r?.drop && (await h.secret.read()).run
+  if (run) { await h.ui.update(u => ({ ...u, shown: [...((u.shown as string[] | undefined) ?? []), `run:${run.kind}`] })); await stuck(h, run, await items(h, run.kind), 'Claude was stopped before it got the next step') }
+  if (!inFrame) await sendBrief(h)   // a `/cadre <goal>` brief (core/lanes)
 }
 
 async function draw(h: Host, k: Kind, its: Item[], state: 'on' | 'stopped' | 'done', note?: string): Promise<void> {

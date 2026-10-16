@@ -144,6 +144,19 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     expect((await decide(h, d.id, 'r', d.hash)).text).toBe('init: Claude is on it · progress in the cadre pane'); await tick(); expect(sent).toHaveLength(4); expect((await h.secret.read()).run?.follow).toBe(3)   // the human's retry: the brief goes, the spent follow-ups stay spent
     await turnEnd(h, {}); await tick(); expect(sent).toHaveLength(4); expect((await card(h))!.lines[0]).toBe('Claude stopped 3 times with checks still failing')
   })
+  // quick tier user2 on 6665614 (2.1.299, FAULT=interrupt): after Esc every submit resolved { drop } ("the session was stopped…"); cadre kept the run "Claude is
+  // on it" for 3 minutes, then each "Let Claude try again" queued the brief for the timer, which was refused again: 6 dialogs, no turn.
+  test('a stopped Claude: a refused step shows the dialog at once (not popped); the retry hands the step over from the answer; refused there, it waits', async () => {
+    const { h, sent, tick, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]
+    let stopped = true; h.submit = async (t: string) => (stopped ? { drop: 'the session was stopped and nobody has sent input since' } : (sent.push(t), {}))
+    await start(h, 'init'); await tick()
+    const d = (await card(h))!; expect(d.lines[0]).toBe('Claude was stopped before it got the next step'); expect(d.options.map(o => o.label)).toEqual(['Let Claude try again', 'Stop setup'])
+    expect((await h.secret.read()).run).toBeUndefined(); expect((await h.ui.read()).shown).toContain('run:init')   // no dialog pops by itself: the band asks for 1
+    expect((await decide(h, d.id, 'r', d.hash)).text).toBe('init: Claude is on it · progress in the cadre pane'); expect((await h.secret.read()).run?.brief).toContain('Let Claude try again')   // refused in the answer: the brief waits
+    await tick(); const d2 = (await card(h))!; expect(d2.lines[0]).toBe('Claude was stopped before it got the next step')   // the timer is refused too: the dialog again
+    stopped = false; expect((await decide(h, d2.id, 'r', d2.hash)).text).toBe('init: Claude is on it · progress in the cadre pane')   // a press the host takes: the answer hands it over, no timer
+    expect(sent).toHaveLength(1); expect(sent[0]).toContain('The user chose "Let Claude try again"'); expect((await h.secret.read()).run?.brief).toBeUndefined()
+  })
   test('only the human owes something (mission card, safety card): the card says so and nothing is sent to main', async () => {
     const { h, sent, tick } = mk({ files: READY, mission: false }); await h.board.update(b => ({ ...b, plan: { id: 'm', slug: 'mission', state: 'draft', epicBranch: '' } }))
     await start(h, 'init'); await tick(); sent.length = 0; await turnEnd(h, {}); await tick()

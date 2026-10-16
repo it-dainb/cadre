@@ -12,7 +12,7 @@ import { needsOf, stepName } from '../ui/v2/facts'
 import { read } from '../ui/model'
 import { confirm as initConfirm } from './init'
 import { confirmUser, doctor } from './doctor'
-import { halted, haltText, queue, recheck, resnap, settingsAnswer, start } from './agentrun'
+import { halted, haltText, pump, queue, recheck, resnap, settingsAnswer, start } from './agentrun'
 import { confirmPrefs } from './prefs'
 import { defaults } from '../config/index'
 import { deepLine } from '../core/clarify'
@@ -30,7 +30,7 @@ export async function route(h: Host, c: Command): Promise<Out> {   // every disp
       const conf = a === 'prefs' && c.args[1] === 'confirm' ? confirmPrefs : a === 'confirm' ? (c.cmd === 'init' ? initConfirm : confirmUser) : undefined
       const rt = a === 'retry' ? (await h.ui.read()).retry as { goal?: { text: string; mode: 'auto' | 'yolo' }; follow?: number } | undefined : undefined
       const text = a === 'restore' || a === 'keep' ? await settingsAnswer(h, a)
-        : a === 'retry' ? await start(h, c.cmd, rt?.goal, rt?.follow ?? 0)   // "Let Claude try again": the same run, the goal still queued, its stop refusals spent
+        : a === 'retry' ? await start(h, c.cmd, rt?.goal, rt?.follow ?? 0).then(async t => (await pump(h, true), t))   // "Let Claude try again": the same run, the goal still queued, its stop refusals spent; the step goes from the human's answer (agentrun.pump)
         : conf ? [await conf(h), await resnap(h).then(() => recheck(h))].filter(Boolean).join(' · ')   // cadre's own confirmed write is not a change from outside
         : await start(h, c.cmd, c.cmd === 'init' && a === 'goal' ? ((await h.ui.read()).onboard as { text: string; mode: 'auto' | 'yolo' } | undefined) : undefined)   // `init goal`: the "Set up" answer of the onboarding dialog
       await autoAsk(h).catch(() => {})   // a new decision pops once

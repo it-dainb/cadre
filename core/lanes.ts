@@ -100,7 +100,8 @@ export const queueBrief = (h: Host, text: string) => h.ui.update(u => ({ ...u, g
 export async function sendBrief(h: Host): Promise<void> {
   let text: string | undefined; await h.ui.update(u => { text = u.goal as string | undefined; if (!text) return u; const { goal: _g, ...r } = u; return r })
   if (!text) return
-  await h.submit?.(modelText('brief', text)).catch((e: Error) => h.log(`could not hand the goal to Claude: ${e.message.slice(0, 120)}`))
+  const r = await h.submit?.(modelText('brief', text)).catch((e: Error) => h.log(`could not hand the goal to Claude: ${e.message.slice(0, 120)}`)) as { drop?: string } | undefined
+  if (r?.drop) { h.log(`could not hand the goal to Claude: ${r.drop.slice(0, 120)}`); return h.ui.update(u => ({ ...u, goal: text })) }   // stopped by the human (commands/agentrun.pump): it goes once they type or press
   const now = await h.now(); await h.secret.update(s => (s.goalRun && !s.goalRun.on ? { ...s, goalRun: { ...s.goalRun, on: true, seen: now } } : s))   // the goal run starts when main has the brief (commands/agentrun.goalStop)
 }
 // `/cadre <goal>` · `/cadre yolo <goal>` (commands/cadre, human origin, active repo): the guide inlined after the goal
