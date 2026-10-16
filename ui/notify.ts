@@ -46,7 +46,8 @@ const CLOSE: Partial<Record<CadreEvent['type'], (e: CadreEvent) => string[]>> = 
 // an approval or a blocked task settles on the board (core/decide.settle, a release, a cancel), with no event of its own: its key closes once the
 // board no longer owes it, checked before every use of `open` (an event, the merged flush, the escalation); an event's CLOSE keys go with it
 const owed = (b: Snapshot, k: string) => { const [kind, id] = k.split(':'); return kind === 'approve' ? (b.decisions ?? []).some(d => d.id === `plan:${id}`) : kind === 'q' ? b.tasks.some(t => t.id === id && t.state === 'blocked') : true }
-async function prune(h: Host, drop: string[] = []): Promise<Record<string, number>> { const b = await h.board.read(); let o: Record<string, number> = {}; await h.ui.update(u => ({ ...u, open: o = Object.fromEntries(Object.entries((u.open as Record<string, number> | undefined) ?? {}).filter(([k]) => !drop.includes(k) && owed(b, k))) })); return o }
+const snap = async (h: Host): Promise<[string[], Snapshot]> => [Object.keys(((await h.ui.read()).open as object | undefined) ?? {}), await h.board.read()]   // open keys first: one opened after the board read (an approval landing before the write) is kept
+async function prune(h: Host, drop: string[] = [], pre?: [string[], Snapshot]): Promise<Record<string, number>> { const [seen, b] = pre ?? await snap(h); let o: Record<string, number> = {}; await h.ui.update(u => { const all = (u.open as Record<string, number> | undefined) ?? {}; o = Object.fromEntries(Object.entries(all).filter(([k]) => !drop.includes(k) && (!seen.includes(k) || owed(b, k)))); return Object.keys(o).length === Object.keys(all).length ? u : { ...u, open: o } }); return o }   // nothing dropped: no write
 export const ack = (h: Host) => h.now().then(n => h.ui.update(u => ({ ...u, ack: n })))   // composer submit, any /cadre, a cadre press, pane focus
 
 // a merged toast fires up to 8 s after its items: one settled meanwhile (closed in `open`) is dropped, never offered ("flagged loop · press 1" after Keep)
@@ -78,8 +79,8 @@ export async function syncStatus(h: Host): Promise<void> { const v = await read(
 
 // subscribed to core/events: one call per emitted event
 export async function onEvent(h: Host, e: CadreEvent): Promise<void> {
-  const k = CLOSE[e.type]?.(e), lv = levelOf(e, yoloOn((await h.board.read()).drive)), t = textOf(e)
-  await prune(h, k)
+  const k = CLOSE[e.type]?.(e), pre = await snap(h), lv = levelOf(e, yoloOn(pre[1].drive)), t = textOf(e)
+  await prune(h, k, pre)
   if (lv >= 2 && t) {
     let fresh = false
     await h.ui.update(u => { const o = (u.open as Record<string, number> | undefined) ?? {}; fresh = !(t.key in o); return fresh ? { ...u, open: { ...o, [t.key]: e.at } } : u })

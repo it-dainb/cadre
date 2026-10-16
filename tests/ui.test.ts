@@ -127,6 +127,22 @@ describe('notification policy (UI-DESIGN 4)', () => {
     await h.board.update(b => ({ ...b, decisions: [], tasks: b.tasks.map(t => ({ ...t, state: 'pending' as any })) }))   // approved; the blocked task answered (no event of its own)
     await run(); expect(of('toast')).toEqual(['pm offline · retrying']); expect(of('notify')).toEqual([])
   })
+  // review r3 N14: a key opened between a prune's board read and its write was dropped (no toast, no escalation, a repeat event toasted again)
+  test('a prune keeps a key opened after its board read: an approval landing mid-flush is offered and escalates', async () => {
+    const { h, of, run } = mk(), plan = { id: 'plan:p3', kind: 'plan', title: 'approve plan p3', options: [] } as any
+    await onEvent(h, ev('sync.state_changed', { target: 'pm', state: 'offline', at: 0 }, { at: 0 })); await onEvent(h, ev('flag.raised', { taskId: 'a1', flag: 'g' }, { taskId: 'a1', at: 1000 }))
+    const read = h.board.read; let race = true
+    h.board.read = async () => { const b = await read(); if (race) { race = false; await h.board.update(x => ({ ...x, decisions: [plan] })); await onEvent(h, ev('approval.pending', { planId: 'p3', missing: [] }, { at: 1500 })) } return b }
+    await run(); expect(of('toast')[1]).toBe('2 updates: a1 flagged g · press 1 · Plan p3 ready for approval · press 1'); expect(of('notify')).toContain('Plan p3 ready for approval · press 1')
+  })
+  // review r3 N15: an event reads the board once, and a prune that drops nothing writes nothing
+  test('an event with nothing to close: one board read for its level and the prune, no ui write', async () => {
+    const { h } = mk(); await onEvent(h, ev('flag.raised', { taskId: 'a1', flag: 'g' }, { taskId: 'a1', at: 1000 }))
+    let reads = 0, writes = 0; const read = h.board.read, up = h.ui.update
+    h.board.read = () => (reads++, read()); h.ui.update = fn => up(u => { const v = fn(u); if (v !== u) writes++; return v })
+    await onEvent(h, ev('task.transitioned', { taskId: 'a1', from: 'review', to: 'done' }, { taskId: 'a1', at: 2000 }))
+    expect(writes).toBe(0); expect(reads).toBe(2)   // the event's own read, then the status line
+  })
   test('escalation: unacked after 120 s goes to OS notify once; an ack cancels it; drive paused notifies immediately', async () => {
     const a = mk(), f = (id: string, at: number) => ev('flag.raised', { taskId: id, flag: 'g' }, { taskId: id, at })
     await onEvent(a.h, f('a1', 1000)); expect(a.of('notify')).toHaveLength(0); expect(a.timers.map(t => t.ms)).toEqual([120_000]); await a.run(); expect(a.of('notify')).toEqual(['a1 flagged g · press 1'])
