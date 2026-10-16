@@ -112,6 +112,13 @@ describe('notification policy (UI-DESIGN 4)', () => {
     await run(); expect(of('toast')[1]).toBe('2 updates: a1 flagged f1 · press 1 · a2 flagged f2 · press 1')
     await onEvent(h, ev('flag.raised', { taskId: 'a3', flag: 'f3' }, { taskId: 'a3', at: 30_000 })); expect(of('toast')).toHaveLength(3)
   })
+  test('a merged toast never offers a settled item: flagged, answered (Keep clears "loop,drift") inside the 8 s window', async () => {
+    const { h, of, run } = mk()
+    await onEvent(h, ev('sync.state_changed', { target: 'pm', state: 'offline', at: 0 }, { at: 0 }))
+    await onEvent(h, ev('flag.raised', { taskId: 'c6', flag: 'loop' }, { taskId: 'c6', at: 1000 })); await onEvent(h, ev('drive.status', { state: 'paused', reason: 'blocked c6' }, { at: 1500 }))
+    await onEvent(h, ev('flag.resolved', { taskId: 'c6', flag: 'loop,drift' }, { taskId: 'c6', at: 3000 }))
+    await run(); expect(of('toast')[1]).toBe('Drive paused: blocked c6'); expect(of('toast').join()).not.toContain('press 1')
+  })
   test('escalation: unacked after 120 s goes to OS notify once; an ack cancels it; drive paused notifies immediately', async () => {
     const a = mk(), f = (id: string, at: number) => ev('flag.raised', { taskId: id, flag: 'g' }, { taskId: id, at })
     await onEvent(a.h, f('a1', 1000)); expect(a.of('notify')).toHaveLength(0); expect(a.timers.map(t => t.ms)).toEqual([120_000]); await a.run(); expect(a.of('notify')).toEqual(['a1 flagged g · press 1'])

@@ -41,21 +41,22 @@ export function textOf(e: CadreEvent): { text: string; key: string } | undefined
     default: return undefined
   }
 }
-const CLOSE: Partial<Record<CadreEvent['type'], (e: CadreEvent) => string>> = { 'flag.resolved': e => `flag:${e.taskId}:${e.data.flag}`, 'sync.state_changed': e => (e.data.state === 'ok' ? `off:${e.data.target}` : '') }
+const CLOSE: Partial<Record<CadreEvent['type'], (e: CadreEvent) => string[]>> = { 'flag.resolved': e => String(e.data.flag).split(',').map(f => `flag:${e.taskId}:${f}`), 'sync.state_changed': e => (e.data.state === 'ok' ? [`off:${e.data.target}`] : []) }   // a keep resolves every flag at once: "a,b"
 
 export const ack = (h: Host) => h.now().then(n => h.ui.update(u => ({ ...u, ack: n })))   // composer submit, any /cadre, a cadre press, pane focus
 
-async function toast(h: Host, text: string, now: number): Promise<void> {
+// a merged toast fires up to 8 s after its items: one settled meanwhile (closed in `open`) is dropped, never offered ("flagged loop · press 1" after Keep)
+async function toast(h: Host, text: string, key: string, now: number): Promise<void> {
   let direct = false, first = false, wait = 0
   await h.ui.update(u => {
-    const q = (u.q as string[] | undefined) ?? [], dt = now - ((u.lt as number | undefined) ?? -1e9)
+    const q = (u.q as [string, string][] | undefined) ?? [], dt = now - ((u.lt as number | undefined) ?? -1e9)
     direct = dt >= 8000 && !q.length; first = !direct && !q.length; wait = Math.max(0, 8000 - dt)
-    return direct ? { ...u, lt: now } : { ...u, q: [...q, text] }
+    return direct ? { ...u, lt: now } : { ...u, q: [...q, [text, key]] }
   })
   if (direct) h.ops?.toast(text, { timeoutMs: 6000 })
   else if (first) h.ops?.after(wait, async () => {   // coalesce what arrived inside the window
     let q: string[] = []
-    await h.ui.update(u => { q = (u.q as string[]) ?? []; return { ...u, q: [], lt: now + wait } })
+    await h.ui.update(u => { const o = (u.open as Record<string, number> | undefined) ?? {}; q = ((u.q as [string, string][]) ?? []).filter(([, k]) => k in o).map(([t]) => t); return { ...u, q: [], lt: now + wait } })
     if (q.length) h.ops?.toast(q.length === 1 ? q[0] : `${q.length} updates: ${q.join(' · ')}`, { timeoutMs: 6000 })
   })
 }
@@ -77,12 +78,12 @@ export async function syncStatus(h: Host): Promise<void> { const v = await read(
 // subscribed to core/events: one call per emitted event
 export async function onEvent(h: Host, e: CadreEvent): Promise<void> {
   const k = CLOSE[e.type]?.(e), lv = levelOf(e, yoloOn((await h.board.read()).drive)), t = textOf(e)
-  if (k) await h.ui.update(u => { const { [k]: _x, ...rest } = (u.open as Record<string, number> | undefined) ?? {}; return { ...u, open: rest } })
+  if (k?.length) await h.ui.update(u => ({ ...u, open: Object.fromEntries(Object.entries((u.open as Record<string, number> | undefined) ?? {}).filter(([x]) => !k.includes(x))) }))
   if (lv >= 2 && t) {
     let fresh = false
     await h.ui.update(u => { const o = (u.open as Record<string, number> | undefined) ?? {}; fresh = !(t.key in o); return fresh ? { ...u, open: { ...o, [t.key]: e.at } } : u })
     if (fresh) {
-      await toast(h, t.text, e.at)
+      await toast(h, t.text, t.key, e.at)
       if (lv === 3) {
         if (e.type === 'drive.status') await notify(h, t.key, t.text, e.at)   // drive paused/finished: immediately
         else h.ops?.after(((await h.ui.read()).cfg as { escalateAfterMs?: number } | undefined)?.escalateAfterMs ?? CFG.escalateAfterMs, async () => {
