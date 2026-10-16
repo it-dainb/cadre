@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { clearKnownRed, confirm, initItems, repoKeyOf, rootFor, wire } from '../commands/init'
 import { load } from '../config/index'
-import { GOAL_FOLLOW, QUIET, cancel, halt, pump, recheck, redNote, seen, start, stopCheck, turnEnd, watch } from '../commands/agentrun'
+import { GOAL_FOLLOW, QUIET, cancel, halt, pump, recheck, resume, redNote, seen, start, stopCheck, turnEnd, watch } from '../commands/agentrun'
 import { band2 } from '../ui/v2/band'
 import { txt } from '../ui/model'
 import { SETTING_UP, decide, run as cadreRun, status as statusLine } from '../commands/cadre'
@@ -153,6 +153,80 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     expect((await decide(h, d.id, 'r', d.hash)).text).toBe('init: Claude is on it · progress in the cadre pane'); await tick(); expect(sent).toHaveLength(4); expect((await h.secret.read()).run?.follow).toBe(3)   // the human's retry: the brief goes, the spent follow-ups stay spent
     await turnEnd(h, {}); await tick(); expect(sent).toHaveLength(4); expect((await card(h))!.lines[0]).toBe('Claude stopped 3 times with checks still failing')
   })
+  // quick tier user2 on 6665614 / 33ff8a3 (2.1.299, FAULT=interrupt): after Esc every submit resolved { drop } ("the session was stopped…") until the human sent
+  // input; a dialog answer's work runs later, so each "Let Claude try again" was refused again: 37 dialogs, no turn. Now a drop holds the run: one dialog, no submit
+  // while held, and the human's typed line restarts it; the step goes once on the next tick.
+  test('a stopped Claude: a refused step holds the run (one dialog, no retry storm); a typed line sends the step once', async () => {
+    const { h, sent, tick, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]
+    let stopped = true, tries = 0; h.submit = async (t: string) => (tries++, stopped ? { drop: 'the session was stopped and nobody has sent input since' } : (sent.push(t), {}))
+    await start(h, 'init'); await tick()
+    const d = (await card(h))!; expect(d.title).toBe('init stopped · type anything to go on'); expect(d.lines[1]).toContain('Type anything in the prompt')
+    expect(d.options.map(o => o.label)).toEqual(['Stop setup'])   // no retry: pressing 1 cannot loop
+    expect((await h.secret.read()).run).toBeUndefined(); expect((await h.ui.read()).shown).toContain('run:init')   // no dialog pops by itself: the band asks for 1
+    expect(txt(band2({ b: await h.board.read(), ui: await h.ui.read(), sec: await h.secret.read() } as any, 120, {} as any)).join("\n")).toContain('type anything in the prompt')
+    for (let i = 0; i < 5; i++) { await pump(h); await tick() }
+    expect(tries).toBe(1); expect(((await h.board.read()).decisions ?? []).filter(x => x.id === 'run:init')).toHaveLength(1)   // held: nothing is submitted, one dialog
+    stopped = false; await resume(h); await pump(h); await pump(h)   // the human typed a line (prompt.submit), then the ticks
+    expect(sent).toHaveLength(1); expect(sent[0]).toMatch(/^The user asked you to go on: do it now\. Set up cadre in this project/); expect((await h.ui.read()).held).toBeUndefined()
+    expect((await h.secret.read()).run).toBeDefined(); expect(((await h.board.read()).decisions ?? []).find(x => x.id === 'run:init')?.title).not.toContain('stopped')
+    await resume(h); await pump(h); expect(sent).toHaveLength(1)   // a later typed line does nothing
+  })
+  test('a new start while held hands its brief over (the hold of an earlier stop does not swallow it)', async () => {
+    const { h, sent, tick, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]
+    let stopped = true; h.submit = async (t: string) => (stopped ? { drop: 'the session was stopped' } : (sent.push(t), {}))
+    await start(h, 'init'); await tick(); expect((await h.ui.read()).held).toBe(true)
+    stopped = false; await start(h, 'init'); for (let i = 0; i < 3; i++) await pump(h)
+    expect(sent).toHaveLength(1); expect((await h.ui.read()).held).toBeUndefined()
+  })
+  test('a held card still restarts on a typed line after ui was reset (/clear)', async () => {
+    const { h, sent, tick, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]
+    let stopped = true; h.submit = async (t: string) => (stopped ? { drop: 'the session was stopped' } : (sent.push(t), {}))
+    await start(h, 'init'); await tick(); await h.ui.update(() => ({}))
+    stopped = false; await resume(h); await pump(h)
+    expect(sent).toHaveLength(1); expect((await h.secret.read()).run?.kind).toBe('init')
+  })
+  test('a thrown submit is no human stop: the step is kept and goes on the next tick, no hold', async () => {
+    const { h, sent, tick, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]
+    let fail = true; h.submit = async (t: string) => { if (fail) { fail = false; throw new Error('host busy') } sent.push(t); return {} }
+    await start(h, 'init'); await tick(); expect((await h.ui.read()).held).toBeUndefined(); expect((await h.secret.read()).run).toBeDefined()
+    await pump(h); expect(sent).toHaveLength(1)
+  })
+  test('a submit that keeps throwing holds the run after 3 tries (one dialog), never a silent loop', async () => {
+    const { h, tick, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]
+    let tries = 0; h.submit = async () => { tries++; throw new Error('host busy') }
+    await start(h, 'init'); for (let i = 0; i < 20; i++) { await tick(); await watch(h) }
+    expect(tries).toBe(3); expect((await h.secret.read()).run).toBeUndefined(); expect((await card(h))!.title).toBe('init stopped · type anything to go on')
+  })
+  test('the time limit still stops a run whose brief is queued and never goes out', async () => {
+    const { h, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]
+    await start(h, 'init'); await h.secret.update(s => ({ ...s, run: { ...s.run!, at: -LIMIT.ms } })); expect((await h.secret.read()).run?.brief).toBeDefined()
+    await watch(h); expect((await h.secret.read()).run).toBeUndefined(); expect((await card(h))!.title).toContain('Claude stopped')
+  })
+  test('a held goal brief plus a new init: the run step goes alone, the goal waits until the run ends', async () => {
+    const { h, sent, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]
+    await h.ui.update(u => ({ ...u, goal: 'plan it', held: true }))
+    await start(h, 'init'); await pump(h); expect(sent).toHaveLength(1); expect(sent[0]).toMatch(/^Set up cadre in this project/); expect((await h.ui.read()).goal).toBe('plan it')
+  })
+  test('a held run resumed after ui was reset (/clear) keeps its spent stop budget', async () => {
+    const { h, tick, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]
+    let stopped = false; h.submit = async () => (stopped ? { drop: 'the session was stopped' } : {})
+    await start(h, 'init'); await tick(); await h.secret.update(s => ({ ...s, run: { ...s.run!, follow: 2, brief: 'go on' } })); stopped = true; await tick()
+    expect((await h.ui.read()).held).toBe(true); await h.ui.update(() => ({}))
+    stopped = false; await resume(h); expect((await h.secret.read()).run?.follow).toBe(2)
+  })
+  test('a stale stopped card does not restart on a typed line that lifts another hold (the goal brief)', async () => {
+    const { h } = mk({ files: READY, mission: false })
+    await h.ui.update(u => ({ ...u, retry: { kind: 'init', follow: 3 }, held: true, goal: 'plan it' }))
+    await h.board.update(b => ({ ...b, decisions: [...(b.decisions ?? []), { id: 'run:init', kind: 'init', title: 'init · Claude stopped · 2 left', short: 'x', lines: [], hash: 'x', options: [] } as any] }))
+    await resume(h); expect((await h.secret.read()).run).toBeUndefined(); expect((await h.board.read()).decisions?.some(d => d.id === 'run:init')).toBe(true)
+    expect((await h.ui.read()).held).toBeUndefined()
+  })
+  test('a refused goal brief waits for the human: no submit until they type', async () => {
+    const { h, sent } = mk({ files: READY }); let stopped = true, tries = 0; h.submit = async (t: string) => (tries++, stopped ? { drop: 'the session was stopped' } : (sent.push(t), {}))
+    await h.ui.update(u => ({ ...u, goal: 'plan it' })); await pump(h); await pump(h); await pump(h)
+    expect(tries).toBe(1); expect((await h.ui.read()).goal).toBe('plan it')
+    stopped = false; await resume(h); await pump(h); expect(sent).toEqual(['plan it']); expect((await h.ui.read()).goal).toBeUndefined()
+  })
   test('only the human owes something (mission card, safety card): the card says so and nothing is sent to main', async () => {
     const { h, sent, tick } = mk({ files: READY, mission: false }); await h.board.update(b => ({ ...b, plan: { id: 'm', slug: 'mission', state: 'draft', epicBranch: '' } }))
     await start(h, 'init'); await tick(); sent.length = 0; await turnEnd(h, {}); await tick()
@@ -235,7 +309,7 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     const { h, sent, tick } = mk({ repo: false, branches: [], mission: false })
     await start(h, 'init', { text: 'implement MGIoU 1D', mode: 'auto' }); await tick(); await stopCheck(h, {}); await stopCheck(h, {}); await turnEnd(h, {}); sent.length = 0
     const d = (await card(h))!; expect((await decide(h, d.id, 'r', d.hash)).text).toBe('init: Claude is on it · progress in the cadre pane · then your goal'); await tick()
-    expect((await h.secret.read()).run).toMatchObject({ follow: 1, goal: { text: 'implement MGIoU 1D', mode: 'auto' } }); expect(sent[0]).toMatch(/^The user chose "Let Claude try again" in the cadre dialog: go on now\. .*then plan the user's goal/)
+    expect((await h.secret.read()).run).toMatchObject({ follow: 1, goal: { text: 'implement MGIoU 1D', mode: 'auto' } }); expect(sent[0]).toMatch(/^The user asked you to go on: do it now\. .*then plan the user's goal/)
     expect(banned(sent[0])).toEqual([])
   })
   // live 0.12.0 (an Esc on a write, then 29 retries): every "Let Claude try again" refilled the stop budget, so Claude was refused once per retry forever.

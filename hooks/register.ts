@@ -25,7 +25,7 @@ import { handle, MAIN_SPECS, PREFS_SPEC, SPECS } from '../tools/index'
 import { context, attachment } from '../core/briefs'
 import { decide, run } from '../commands/cadre'
 import { nudge, oldLine, setupDue, tooOld } from '../commands/doctor'
-import { pump, turnEnd, seen, stopCheck, redNote, watch, halt } from '../commands/agentrun'
+import { pump, resume, turnEnd, seen, stopCheck, redNote, watch, halt } from '../commands/agentrun'
 import { tick } from '../task-management/sync-engine/loop'
 import { autoAsk, onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapCard, resumeBanner } from '../ui/index'
 import { load } from '../config/index'
@@ -203,7 +203,7 @@ export const register: Register = (on, opts) => {
   // 7. session.send
   on('session.send', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return send(host($), e, next) }).catch(denySend)
   // 8. prompt.submit, prompt.attachment, turn.step, session.compact, command.run, config.set
-  on('prompt.submit', async ($, e, next) => { if (!(await wake(host($)))) return next(e); const h = host($); if (!e.agentId && e.origin?.kind === 'composer') await ack(h).catch(() => {}); return submit(h, e, e2 => context(h, e2, next)) }).catch(passOn)
+  on('prompt.submit', async ($, e, next) => { if (!e.agentId && e.origin?.kind === 'composer') await resume(host($)).catch(() => {}); if (!(await wake(host($)))) return next(e); const h = host($); if (!e.agentId && e.origin?.kind === 'composer') await ack(h).catch(() => {}); return submit(h, e, e2 => context(h, e2, next)) }).catch(passOn)
   on('prompt.attachment', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return attachment(host($), e, next) })
   on('turn.step', async function* ($, e, next) { const h = host($); if (!(await wake(h))) return yield* next(e); return yield* meter(h, e, e2 => exitStep(h, e2, next)) })   // the cost meter sees cadre's own zero-token answers too
   on('session.compact', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return compact(host($), e, next) }).catch(passOn)

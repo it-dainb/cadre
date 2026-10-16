@@ -7,6 +7,7 @@ import { stopped } from '../core/close'
 import { decide } from '../commands/cadre'
 import { ROUTES } from '../core/dispatch'
 import { budgetOf } from '../core/lifecycle'
+import { check } from '../config/index'
 
 const RED_PKG = { root: '.', checks: { compile: ['tsc'] }, tdd: { paths: ['test/**'] } }   // no check that runs the tests: red blocks with one dialog
 const TESTS = [{ path: 'test/a.test.js', name: 'S1: answers', scenario: 'S1' }]
@@ -54,8 +55,11 @@ describe('a usage limit: a stop with its reset time, no budget charged', () => {
     w.clock.now = at + 1000; await watchdog(w.h); expect(calls).toEqual([]); expect((await w.h.board.read()).drive.stopped).toBeUndefined()
     await w.turn(); expect(calls).toHaveLength(1); expect(w.spawned).toHaveLength(2)
   })
-  test('settings: limits.limitWaitMinutes 0 waits only until the reported reset', async () => {
-    const w = await world(); w.cfg.limits.limitWaitMinutes = 0; await arm(w.h, 'auto'); await w.turn(); const now = await w.h.now()
+  test('settings: limits.limitWaitMinutes is at least 1 (0 would lift a limit with no reported reset at once)', () => {
+    expect(check('limits.limitWaitMinutes', 0)).toBe('expected a number from 1 to 300'); expect(check('limits.limitWaitMinutes', 1)).toBeNull()
+  })
+  test('settings: limits.limitWaitMinutes 1 waits until a later reported reset', async () => {
+    const w = await world(); w.cfg.limits.limitWaitMinutes = 1; await arm(w.h, 'auto'); await w.turn(); const now = await w.h.now()
     Object.assign(w.h, { usage: async () => ({ cost: { usd: 0 }, rateLimits: [{ kind: 'five_hour', percentUsed: 100, resetsAt: new Date(now + 90_000).toISOString() }] }) })
     await stopped(w.h, w.dep, { agentId: 'ag1', reason: 'error', answer: 'API Error' })
     expect((await w.h.board.read()).drive.cause!.resetAt).toBe(now + 90_000)

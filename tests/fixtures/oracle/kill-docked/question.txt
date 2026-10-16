@@ -1,0 +1,40 @@
+  arrow function        │                                                                                             ✕
+  (export const slug =  │1: Board  2: Graph  3: Timeline  4: Activity  8: Doctor  9: Settings
+  s => ...). Confirmed. │no plan yet                                                                                live
+  (2) Tests: only       │
+  test/slug.test.mjs.   │no tasks yet · /cadre <goal> to start
+  It uses `import { … · │
+  next: full answer:    │k: keys
+  TaskGet ask-0c3ae4    │
+────────────────────────│
+←  ☒   ☒ W… ☐ … ✔      →│
+  R…           Submit   │
+                        │
+│ Should the plan also  │
+│ add a CHANGELOG entry?│
+│ The CHANGELOG has an  │
+│ empty [Unreleased]    │
+│ section, and the      │
+│ README documents no   │
+│ functions.            │
+                        │
+❯ 1. Yes, under Added   │
+     (Recommended)      │
+     Adds one line under│
+     [Unreleased] →     │
+     Added: a new       │
+     exported function  │
+     is user-visible.   │
+  2. No changelog entry │
+     Skip the entry; the│
+     function is        │
+     internal-only for  │
+     now.               │
+  3. Type something.    │
+────────────────────────│
+  4. Chat about this    │
+                        │
+Enter to select ·       │
+Tab/Arrow keys to       │
+navigate · Esc to cancel│
+                        │

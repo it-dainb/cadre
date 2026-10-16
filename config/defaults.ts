@@ -66,7 +66,7 @@ export const REG: Record<string, Meta> = {
   'drive.maxWallMinutes': m(D, 'a drive stops after this many minutes', { cls: 'U', ...N(1, 10_080) }), 'drive.noProgressTurns': m(D, 'an epic stops after this many turns without progress', { cls: 'U', ...N(1, 100) }),
   'limits.nudges': m(D, 'times an agent that stopped without a report is nudged', N(0, 10)), 'limits.silentRuns': m(D, 'agent runs without a report before the task blocks', N(1, 10)),
   'limits.startFails': m(D, 'failed agent starts of one task before the run stops', N(1, 10)),
-  'limits.limitWaitMinutes': m(D, 'after a usage limit, the drive waits at least this long before it goes on (minutes)', N(0, 300)),
+  'limits.limitWaitMinutes': m(D, 'after a usage limit, the drive waits at least this long before it goes on (minutes)', N(1, 300)),   // 0: a limit with no reported reset would lift at once and retry while still limited
   disable: m(D, 'turn cadre off for you, from the next session (env CADRE_DISABLE)', { cls: 'U' }),
   maxParallel: m(P, 'tasks running at once (0 = no cadre cap)', N(0, 100)), 'milestone.maxEpics': m(P, 'epics of a milestone running at once (0 = no cap)', N(0, 100)),
   ...roleRows('worker'), ...roleRows('tester'), ...roleRows('reviewer'),

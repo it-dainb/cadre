@@ -55,6 +55,36 @@ Meta `cadre.attempts`, `cadre.nudge`, `cadre.testerRounds`, `cadre.rework`, `cad
 - A session that quits mid-start leaves nothing stuck; ids with `_` work.
 - Settings: `limits.attempts` is now `limits.silentRuns`; new `limits.startFails`.
 
+- After you press Esc, Claude Code (2.1.299) ignores what a plugin submits until you type; cadre now shows one "stopped · type anything to go on" card and goes on from your line, instead of retrying.
+- Agents cadre resumes (a nudged explorer, a reworked worker) are no longer refused on Claude Code 2.1.299.
+- A spec-change card for a task type without a tester step offers Reject or Cancel only (it used to loop on Accept).
+- New `limits.limitWaitMinutes` (default 15): the least time a usage-limit stop waits.
+- Known LOW: if a run is held and the goal brief's submit throws in the same tick, the goal brief is dropped (fixed in the next release).
+
 ## Evidence
 
-Offline: kit 1054 pass, real-git + protocol 125 pass (the review round's 12 regression tests each failed before its fix), the replay net (tests/replay.test.ts, field failures 1–11 and regressions 12–20, every row green, each checked against its fix reverted), budget core 5890 / 7000 (plan ~6120). Live: S0 verdicts above (scripted, zero quota). Owed before release: the scripted cells (`exit-every-role`, `forced-exit`, `underscore-id`, `usage-limit`, `dev-moved`), `clear-bg-agents`, and the quick tier, after the user's OK.
+Offline (release commit 3edb9db, Claude Code 2.1.299 on the host): kit 1072 pass, real-git + protocol 137 pass; six review rounds (r1–r6), every regression test checked to fail with its fix reverted; the replay net (field failures 1–11, regressions 12–20) green; budget core 5934 / 7000 (plan ~6120), ui 900 / 900.
+
+Live, all on haiku (behaviour cells, not model quality). Scripted tier (zero quota, stub proxy logs empty), on 3edb9db:
+
+| cell | verdict | s to plan | dialogs | turns | US$ | min |
+|---|---|---|---|---|---|---|
+| dev-moved | PASS | 40 | 1 | 2 | 0 | 3 |
+| exit-every-role | PASS | 40 | 1 | 2 | 0 | 2 |
+| forced-exit | PASS | 40 | 1 | 2 | 0 | 2 |
+| underscore-id | PASS | 40 | 1 | 2 | 0 | 2 |
+| usage-limit | PASS | 40 | 1 | 2 | 0 | 4 |
+
+Quick tier (real model): all 7 PASS on 59509a6 (US$2.31); the cells the later fixes touch re-ran on 3edb9db:
+
+| cell | verdict | s to plan | dialogs | turns | US$ | min |
+|---|---|---|---|---|---|---|
+| continue-after-quit | PASS | 64 | 1 | 2 | 0.14 | 4 |
+| kill-mid-setup | PASS (3edb9db) | 189 | 4 | 4 | 0.44 | 3 |
+| leftover-pointer | PASS | 62 | 1 | 2 | 0.30 | 1 |
+| single-295 | PASS | 134 | 4 | 3 | 0.44 | 2 |
+| single-via-ccr | PASS | 140 | 4 | 3 | 0.02 | 2 |
+| user1-mono-clear-cd-retype | PASS | 127 | 3 | 4 | 0.48 | 2 |
+| user2-nogit-lazy-interrupt | PASS (3edb9db) | 133 | 3 | 5 | 0.30 | 2 |
+
+0.14 cells (real model): `clear-bg-agents` PASS on 59509a6 (background agents are kept after /clear, so a run record with no binding ends lost only when the agent is really gone); `exit-every-role-live` PASS on 3edb9db.

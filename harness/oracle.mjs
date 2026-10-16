@@ -93,12 +93,29 @@ for (const e of drv.filter(e => e.kind === 'press1' && offered(e.t) && e.t + 500
   const hit = dlines.find(l => bad.test(l)) ?? panes.map(p => p.text.split('\n').find(l => bad.test(l))).find(Boolean)
   if (hit) fail('errors', hit.replace(/^\S+ \[\w+\] /, ''))
 }
+// main's own tool calls that went through, from its transcript (not the agents')
+const went = (() => {
+  const ok = new Map(), calls = []
+  for (const f of walk(join(dir, 'jsonl')).filter(f => f.endsWith('.jsonl') && !f.includes('/subagents/'))) for (const l of read(f).split('\n').filter(Boolean)) {
+    let d; try { d = JSON.parse(l) } catch { continue }
+    const c = d.message?.content; if (!Array.isArray(c)) continue
+    if (d.type === 'assistant') for (const b of c) if (b.type === 'tool_use') calls.push(b)
+    if (d.type === 'user') for (const b of c) if (b.type === 'tool_result') ok.set(b.tool_use_id, !b.is_error)
+  }
+  return calls.filter(b => ok.get(b.id))
+})()
 // 6. the goal reaches the plan dialog within the turn and dialog budget
+//    main's question call is one dialog however many tabs the watcher logged (one per question), and its one clarify round (ADR 0020: at most
+//    maxQuestions in ONE call) earns its dialog on top of set up, safety settings and the plan: on haiku a clear goal may still score unclear
+//    (main's judgement; the clarify tier's CLARIFY=none judges that, not this budget)
 {
   const plan = drv.find(e => e.kind === 'plan'), until = plan?.t ?? tEnd
   // a fault the cell injected (FAULT=interrupt|kill) earns the setup's one recovery dialog ("… stopped …")
-  const faulted = drv.some(e => e.kind === 'fault'), budget = DIALOGS + (faulted && drv.some(e => e.kind === 'dialog' && /stopped/.test(e.text)) ? 1 : 0)
-  const dialogs = drv.filter(e => e.kind === 'dialog' && e.t < until).length + (plan ? 1 : 0)
+  const faulted = drv.some(e => e.kind === 'fault'); let budget = DIALOGS + (faulted && drv.some(e => e.kind === 'dialog' && /stopped/.test(e.text)) ? 1 : 0)
+  const norm = x => x.replace(/\s+/g, ' ').trim().slice(0, 40), asks = went.filter(b => b.name === 'AskUserQuestion').map(b => (b.input?.questions ?? []).map(q => norm(q.question ?? '')).filter(Boolean))
+  const seen = drv.filter(e => e.kind === 'dialog' && e.t < until).map(e => asks.findIndex(qs => qs.includes(norm(e.text)))), calls = new Set(seen.filter(i => i >= 0))
+  const dialogs = seen.filter(i => i < 0).length + calls.size + (plan ? 1 : 0)
+  budget += Math.min(1, calls.size)
   const nTurns = turns.filter(([a]) => a < until).length
   Object.assign(stats, { plan: !!plan, dialogs, turns: nTurns, secsToPlan: plan ? Math.round((plan.t - drv[0].t) / 1000) : null })
   if (!plan) fail('no-plan', `no plan dialog in ${Math.round((tEnd - drv[0].t) / 1000)} s; last screen: ${band(panes.at(-1)?.text ?? '').split('\n').filter(l => l.trim() && !/^─/.test(l)).slice(-3).join(' | ')}`)
@@ -123,6 +140,9 @@ for (const e of drv.filter(e => e.kind === 'press1' && offered(e.t) && e.t + 500
     }
   }
 }
+// 8b. a stop (FAULT=interrupt) asks for a typed line once: no stopped dialog shown twice, no more than 2 typed lines (each one brings a turn)
+{ const st = drv.filter(e => e.kind === 'dialog' && /stopped/.test(e.text)).length, ty = drv.filter(e => e.kind === 'type').length
+  if (st > 1 || ty > 2) fail('stop-loop', `${st} stopped dialogs, ${ty} typed lines: ${drv.filter(e => e.kind === 'dialog' || e.kind === 'type').map(e => e.text).slice(-3).join(' / ')}`) }
 // a cell that asked for a fault and never injected it tested nothing
 { const f = drv[0]?.text.match(/fault=(\w+)/)?.[1]; if (f && f !== 'none' && !drv.some(e => e.kind === 'fault')) fail('fault-not-injected', `FAULT=${f} never fired (its trigger was not reached)`) }
 // 9. no credential in a mounted dir or the evidence (cell.sh lists the files that hold one)
@@ -140,7 +160,7 @@ if (wantLanded && !drv.some(e => e.kind === 'landed')) fail('not-landed', `dev: 
     .filter(r => !src.length || src.some(([t, s]) => Math.abs(t - r.at) < 300 && s === `agent:custom:cadre:${r.role}`))
     .filter(r => r.role !== 'main')
   if (req.length) {
-    const repo = dirname(dirname(new URL(import.meta.url).pathname)), exp = JSON.parse(execFileSync(process.execPath, ['--experimental-transform-types', '--no-warnings', '--import', `${repo}/tests/dev/register.mjs`, `${repo}/harness/expect-routing.mjs`, repo, join(dir, 'cadre-config.json')], { encoding: 'utf8' }))
+    const repo = dirname(dirname(new URL(import.meta.url).pathname)), exp = JSON.parse(execFileSync(process.execPath, ['--experimental-transform-types', '--no-warnings', '--import', `${repo}/tests/dev/register.mjs`, `${repo}/harness/expect-routing.mjs`, repo, join(dir, 'cadre-config.json'), join(dir, 'env.json')], { encoding: 'utf8' }))
     const bad = req.filter(r => { const e = exp[r.role]; return e && (!e.models.some(m => r.model?.includes(m)) || (e.efforts.length && !e.efforts.includes(r.output_config?.effort))) })
     stats.routing = Object.fromEntries(Object.keys(exp).map(k => [k, [...new Set(req.filter(r => r.role === k).map(r => `${r.model}/${r.output_config?.effort ?? '-'}`))]]))
     if (bad.length) fail('routing', `${bad.length} request(s) off the settings, e.g. ${bad[0].role} on ${bad[0].model}/${bad[0].output_config?.effort ?? '-'} (allowed ${JSON.stringify(exp[bad[0].role])})`)
@@ -159,14 +179,7 @@ if (wantLanded && !drv.some(e => e.kind === 'landed')) fail('not-landed', `dev: 
 // 12. clarify (CLARIFY=ask|none|assumed|deep): main's own calls before the plan, from its transcript (not the agents'): one explorer (its explore tool with a question);
 //     ask: one AskUserQuestion that went through, 1-3 questions; none: no question; assumed: no question and the plan dialog lists "assumed:"; deep: 1-8 questions, one per call
 if (process.env.CLARIFY) {
-  const ok = new Map(), calls = []
-  for (const f of walk(join(dir, 'jsonl')).filter(f => f.endsWith('.jsonl') && !f.includes('/subagents/'))) for (const l of read(f).split('\n').filter(Boolean)) {
-    let d; try { d = JSON.parse(l) } catch { continue }
-    const c = d.message?.content; if (!Array.isArray(c)) continue
-    if (d.type === 'assistant') for (const b of c) if (b.type === 'tool_use') calls.push(b)
-    if (d.type === 'user') for (const b of c) if (b.type === 'tool_result') ok.set(b.tool_use_id, !b.is_error)
-  }
-  const went = calls.filter(b => ok.get(b.id)), explore = went.filter(b => b.name === 'mcp__cadre__explore' && b.input?.question).length
+  const explore = went.filter(b => b.name === 'mcp__cadre__explore' && b.input?.question).length
   const qs = went.filter(b => b.name === 'AskUserQuestion').map(b => b.input?.questions?.length ?? 0), want = process.env.CLARIFY
   const assumed = panes.some(p => /approve/.test(p.text) && /assumed:/.test(p.text))
   Object.assign(stats, { explorers: explore, questions: qs })
@@ -195,7 +208,9 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     return { f, brief, t: Date.parse(u?.timestamp ?? '') || 0, uses: ls.filter(d => d.type === 'assistant').flatMap(d => (Array.isArray(d.message?.content) ? d.message.content : []).filter(b => b.type === 'tool_use')) }
   })
   const sorted = v => (v && typeof v === 'object' ? (Array.isArray(v) ? v.map(sorted) : Object.fromEntries(Object.keys(v).sort().map(k => [k, sorted(v[k])]))) : v)
-  const others = drv.filter(e => e.kind === 'dialog' && !/^release /.test(e.text)).length   // dialogs besides the plan's and the release proposal every landing ends with
+  // dialogs besides the plan's and the release proposal every landing ends with; main's one clarify call (its tabs, ADR 0020) is not one of cadre's
+  const qs = new Set(went.filter(b => b.name === 'AskUserQuestion').flatMap(b => (b.input?.questions ?? []).map(q => String(q.question ?? '').replace(/\s+/g, ' ').trim().slice(0, 40))))
+  const others = drv.filter(e => e.kind === 'dialog' && !/^release /.test(e.text) && !qs.has(e.text.replace(/\s+/g, ' ').trim().slice(0, 40))).length
   const o = process.env.ORACLE
   if (o && !snaps.length && o !== 'underscore') fail(o, 'no store snapshots (scenarios/_lib.sh snapshots)')
   if (o === 'every') {   // every role in auto mode reaches a terminal run state; 0 ended{lost}; <= 1 dialog; no tool call repeated >= N in a row
