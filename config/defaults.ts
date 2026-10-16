@@ -51,6 +51,7 @@ export interface Meta { cat: Cat; cls: Cls; desc: string; opts?: readonly string
 const m = (cat: Cat, desc: string, x: Partial<Meta> = {}): Meta => ({ cat, desc, cls: 'O', ...x })
 const D = 'Drive and autonomy', P = 'Parallelism', M = 'Models and effort', R = 'Review', PL = 'Planning', G = 'Git and branches', C = 'Checks and TDD', SF = 'Safety and containment', CA = 'Cache and context', ST = 'Task store and sync'
 const MODEL = ['haiku', 'sonnet', 'opus', 'fable'], EFFORT = ['default', 'low', 'medium', 'high', 'xhigh', 'max'], RISK = ['light', 'standard', 'thorough', 'core'], N = (min: number, max = 1e9) => ({ min, max })
+const ref = (empty = false) => (v: unknown) => (typeof v === 'string' && (empty && !v || /^[\w.][\w./-]*$/.test(v)) && !v.includes('..') ? null : 'a git name: letters, digits, . _ / -, not starting with - or .. inside')   // it reaches git push/fetch: an option-like value is refused
 const strs = (v: unknown) => (Array.isArray(v) && v.every(x => typeof x === 'string') ? null : 'expected a list of text')
 // a role's 4 risk cells x (model, effort, escalate.after/model/effort). The reviewer may not run on haiku (ADR 0016's floor, as allowed values).
 const roleRows = (r: string): Record<string, Meta> => Object.fromEntries(RISK.flatMap(k => {
@@ -86,9 +87,9 @@ export const REG: Record<string, Meta> = {
   'planning.clarify.maxQuestions': m(PL, 'questions in the one clarify round', N(1, 4)),
   'planning.clarify.threshold': m(PL, 'clarity (0-1) each of outcome, scope, acceptance, constraints needs before Claude plans without asking', { min: 0, max: 1 }),
   'planning.deep.maxRounds': m(PL, '/cadre deep: question rounds before Claude plans anyway', N(1, 20)),
-  'branches.main': m(G, 'the release branch (set by init)'), 'branches.dev': m(G, 'the integration branch'), 'branches.epicPrefix': m(G, 'epic branch name prefix'),
+  'branches.main': m(G, 'the release branch (set by init)', { ok: ref(true) }), 'branches.dev': m(G, 'the integration branch', { ok: ref() }), 'branches.epicPrefix': m(G, 'epic branch name prefix'),
   'release.onEpicDone': m(G, 'after an epic lands on dev: propose a release, or not', { opts: ['propose', 'off'] }),
-  'landing.mode': m(G, 'a plan lands on dev directly, or as a pull request that merges when its checks pass', { opts: ['direct', 'pr'] }), 'landing.review': m(G, 'pr mode: the pull request also needs an approving review'), 'landing.remote': m(G, 'pr mode: the git remote the pull request goes to'), 'limits.rebaseRounds': m(G, 'reworks onto a moved plan tip before asking you', N(0, 10)),
+  'landing.mode': m(G, 'a plan lands on dev directly, or as a pull request that merges when its checks pass', { opts: ['direct', 'pr'] }), 'landing.review': m(G, 'pr mode: the pull request also needs an approving review'), 'landing.remote': m(G, 'pr mode: the git remote the pull request goes to', { ok: ref() }), 'limits.rebaseRounds': m(G, 'reworks onto a moved plan tip before asking you', N(0, 10)),
   'changelog.path': m(G, 'the changelog cadre writes at close'), 'worktrees.root': m(G, "task worktrees ('' = ~/.cache/cadre/wt)", { cls: 'U' }),
   'roles.testerView': m(C, 'view: the tester sees only the interface; full: the whole tree', { cls: 'S', opts: ['full', 'view'], tighten: 'enum' }),
   'roles.tdd.author': m(C, 'separate: a tester agent writes the tests; same: the worker does', { opts: ['separate', 'same'] }),

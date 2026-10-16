@@ -21,10 +21,11 @@ echo "$1 $2" >> $S/calls; [ -f $S/broken ] && [ "$1" = pr ] && { echo "HTTP 502"
 case "$1 $2" in
   "--version "*) echo "gh version 2.60.0" ;;
   "auth status") exit 0 ;;
-  "pr create") while [ $# -gt 0 ]; do [ "$1" = --head ] && echo "$2" > $S/head; shift; done; echo x >> $S/creates; echo "https://github.invalid/o/r/pull/7" ;;
+  "pr create") [ -f $S/open ] && { echo "a pull request for branch already exists" >&2; exit 1; }; while [ $# -gt 0 ]; do [ "$1" = --head ] && echo "$2" > $S/head; shift; done; echo x >> $S/creates; touch $S/open; echo "https://github.invalid/o/r/pull/7" ;;
+  "pr list") [ -f $S/open ] && echo '[{"number":7}]' || echo '[]' ;;
   "pr view") printf '{"state":"%s","reviewDecision":"%s"}' "$(cat $S/state 2>/dev/null || echo OPEN)" "$(cat $S/review 2>/dev/null)" ;;
-  "pr checks") cat $S/checks 2>/dev/null || echo '[]' ;;
-  "pr merge") t=$(mktemp -d) && git clone -q "$REMOTE" $t && cd $t && git -c user.name=gh -c user.email=gh@x checkout -q dev && git -c user.name=gh -c user.email=gh@x merge -q --no-ff -m "Merge pull request #7" origin/$(cat $S/head) && git push -q origin dev && echo MERGED > $S/state ;;
+  "pr checks") [ -f $S/checkserr ] && { echo "GraphQL: Could not resolve" >&2; exit 1; }; [ -f $S/checks ] || { echo "no checks reported on the 'x' branch" >&2; exit 1; }; cat $S/checks; grep -q pending $S/checks && exit 8; grep -q fail $S/checks && exit 1; exit 0 ;;
+  "pr merge") t=$(mktemp -d) && git clone -q "$REMOTE" $t && cd $t && git -c user.name=gh -c user.email=gh@x checkout -q dev && git -c user.name=gh -c user.email=gh@x merge -q --no-ff -m "Merge pull request #7" origin/$(cat $S/head) && git push -q origin dev && echo MERGED > $S/state && rm -f $S/open ;;
   *) echo "stub gh: $*" >&2; exit 2 ;;
 esac
 `
@@ -45,7 +46,7 @@ async function world(o = {}) {
   await h.board.update(b => ({ ...b, epic: 'p3', plan: { id: 'p3', slug: 'auth', state: 'approved', epicBranch: 'epic/p3-auth' }, tasks: [task] }))
   const set = (k, v) => writeFileSync(join(S, k), v), poll = async () => { clock.t += 31_000; await prPoll(h) }
   const creates = () => { try { return readFileSync(join(S, 'creates'), 'utf8').split('\n').filter(Boolean).length } catch { return 0 } }
-  return { d, R, S, h, set, poll, creates, plan: async () => (await h.board.read()).plan }
+  return { d, R, S, h, set, poll, creates, wait: async ms => { clock.t += ms; await prPoll(h) }, plan: async () => (await h.board.read()).plan }
 }
 const remoteHas = (R, ref) => { try { execFileSync('git', ['--git-dir', R, 'rev-parse', '--verify', '-q', ref]); return true } catch { return false } }
 
@@ -83,4 +84,44 @@ test('pr: polls at most every 30 s; a gh failure backs off', async () => {
 test('no gh: nothing is pushed, the plan stays approved with the reason', async () => {
   const w = await world({ gh: false })
   assert.match(await integrateEpic(w.h, 'p3'), /integration error: gh auth status: /); assert.equal(remoteHas(w.R, 'cadre/land/p3'), false); assert.equal((await w.plan()).state, 'approved')
+})
+
+// review r1 #13: a red pull request stays open; the retry reuses it (the push updates it) instead of failing on "already exists" forever; so does a crash before the record
+test('pr: after red checks, integrating again reuses the open pull request and lands when it goes green', async () => {
+  const w = await world(); await integrateEpic(w.h, 'p3'); w.set('checks', '[{"name":"ci","bucket":"fail"}]'); await w.poll()
+  assert.equal((await w.plan()).state, 'approved')
+  await w.h.board.update(b => ({ ...b, plan: { ...b.plan, flags: [] } }))
+  assert.match(await integrateEpic(w.h, 'p3'), /^pull request #7 opened/); assert.equal(w.creates(), 1); assert.equal((await w.plan()).pr.n, 7)
+  w.set('checks', '[{"name":"ci","bucket":"pass"}]'); await w.poll(); assert.equal((await w.plan()).state, 'done-on-dev')
+})
+// #14: a failing gh pr checks (or none registered yet) is never green
+test('pr: a gh pr checks error is not green: it backs off, and the third same error takes the red path', async () => {
+  const w = await world(), old = sh(w.d, 'rev-parse', 'dev'); await integrateEpic(w.h, 'p3'); w.set('checkserr', '')
+  for (const ms of [31_000, 61_000]) { await w.wait(ms); assert.equal((await w.plan()).state, 'integrating') }   // backing off: 60 s, then 120 s
+  assert.equal(sh(w.d, 'rev-parse', 'dev'), old); assert.equal(remoteHas(w.R, 'cadre/land/p3'), true)
+  const calls = () => readFileSync(join(w.S, 'calls'), 'utf8').split('\n').filter(l => l === 'pr merge').length; assert.equal(calls(), 0)
+  await w.wait(121_000)
+  const p = await w.plan(); assert.equal(p.state, 'approved'); assert.deepEqual(p.flags, ['integration-failed']); assert.equal(calls(), 0)
+})
+test('pr: no checks reported yet waits for CI (up to 10 min), then merges', async () => {
+  const w = await world(); await integrateEpic(w.h, 'p3')
+  await w.poll(); assert.equal((await w.plan()).state, 'integrating')   // gh: no checks reported
+  w.set('checks', '[]'); await w.poll(); assert.equal((await w.plan()).state, 'integrating')
+  await w.wait(600_000); assert.equal((await w.plan()).state, 'done-on-dev')
+})
+// #15: a pull request a human closed takes the red path at once
+test('pr: a closed pull request takes the red path; integrating again opens a new one', async () => {
+  const w = await world(); await integrateEpic(w.h, 'p3'); w.set('state', 'CLOSED'); execFileSync('rm', ['-f', join(w.S, 'open')]); await w.poll()
+  const p = await w.plan(); assert.equal(p.state, 'approved'); assert.deepEqual(p.flags, ['integration-failed'])
+  w.set('state', 'OPEN'); await w.h.board.update(b => ({ ...b, plan: { ...b.plan, flags: [] } })); await integrateEpic(w.h, 'p3'); assert.equal(w.creates(), 2)
+})
+// #16: the merge is on the remote's dev but the local dev moved: it waits as a landing onto the local commits, which lands through the gates; nothing is lost
+test('pr: the local dev moved while the pull request merged: the plan lands, the merge waits and lands onto the local commit', async () => {
+  const w = await world(); await integrateEpic(w.h, 'p3'); w.set('checks', '[{"name":"ci","bucket":"pass"}]')
+  sh(w.d, 'checkout', '-q', 'dev'); commit(w.d, 'local.txt', 'l\n', 'chore: local'); sh(w.d, 'checkout', '-q', 'main'); const local = sh(w.d, 'rev-parse', 'dev')
+  await w.poll(); const p = await w.plan(); assert.equal(p.state, 'done-on-dev')
+  const { autoLand } = await import('../../core/integrate.ts'); await autoLand(w.h)
+  const dev = sh(w.d, 'rev-parse', 'dev'), remote = execFileSync('git', ['--git-dir', w.R, 'rev-parse', 'dev'], { encoding: 'utf8' }).trim()
+  for (const c of [local, remote]) assert.equal(execFileSync('git', ['-C', w.d, 'merge-base', '--is-ancestor', c, dev]).length, 0)
+  assert.equal(sh(w.d, 'show', 'dev:c.txt'), 'c'); assert.equal(sh(w.d, 'show', 'dev:local.txt'), 'l')
 })

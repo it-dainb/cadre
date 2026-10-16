@@ -28,7 +28,8 @@ const commitPaths = async (h: Host, wt: string, paths: string[], msg: string, am
 
 // setup + suites.integration per touched unit (files = null: every unit), each unit once. Returns the failure text, or null when green.
 async function runSuites(h: Host, cfg: any, wt: string, files: string[] | null, epicId: string, kr: { root: string; n: string }[] = []): Promise<string | null> {
-  const pkgs: any[] = unitsOf(cfg), hit = new Set(files?.map(f => ownerOf(pkgs, f))), touched = pkgs.filter(p => !p.ownGit && (!files || hit.has(p)))   // a submodule's checks ran in its own repository (subLand)
+  const pkgs: any[] = unitsOf(cfg), own = pkgs.filter(p => !p.ownGit), hit = new Set(files?.map(f => { const u = ownerOf(pkgs, f); return u?.ownGit ? ownerOf(own, f) : u }))
+  const touched = own.filter(p => !files || hit.has(p))   // a submodule's checks ran in its own repository (subMerge); its pointer bump gates the unit that holds it
   const mode = await modeOf(h, { cfg }).catch((e: Error) => e); if (mode instanceof Error) return mode.message
   const sub = await subInit(h.run, await h.cwd(), wt); if (sub) return sub   // the parent's checks build against its submodules at the commits it records
   const base = JSON.parse((await Promise.resolve().then(async () => (await storeOf(h)).get(epicId)).catch(() => null))?.meta['cadre.baseline'] || '{}')
@@ -83,45 +84,81 @@ async function onDev(h: Host, epicId: string, dev: string, sha: string, kr: { ro
 async function openPr(h: Host, cfg: any, epicId: string, dev: string, devTip: string, sha: string, from: string, tmp: string): Promise<string> {
   const root = await h.cwd(), R = cfg.landing.remote, branch = `cadre/land/${epicId}`, x = async (argv: string[]) => { const r = await h.run(argv, { cwd: root }); if (r.exitCode) throw new Error(`${argv.slice(0, 3).join(' ')}: ${tail(r)}`); return r.stdout }
   await x(['gh', 'auth', 'status']); await x(['git', 'push', R, `${devTip}:refs/heads/${dev}`]); await x(['git', 'push', '--force', R, `${sha}:refs/heads/${branch}`])
-  const n = Number(/\/pull\/(\d+)/.exec(await x(['gh', 'pr', 'create', '--base', dev, '--head', branch, '--title', `merge ${from} (${epicId})`, '--body', `Plan ${epicId}: it lands on ${dev} when the checks pass.`]))?.[1])
+  const open = JSON.parse((await x(['gh', 'pr', 'list', '--head', branch, '--base', dev, '--state', 'open', '--json', 'number'])) || '[]')[0]?.number   // a retry after red checks, or a crash before the record: the open one (the push above updated it)
+  const n = open ?? Number(/\/pull\/(\d+)/.exec(await x(['gh', 'pr', 'create', '--base', dev, '--head', branch, '--title', `merge ${from} (${epicId})`, '--body', `Plan ${epicId}: it lands on ${dev} when the checks pass.`]))?.[1])
   if (!n) throw new Error('gh pr create printed no pull request URL')
   await worktreeRemove(h.run, root, tmp).catch(() => {})
-  await h.board.update(b => ({ ...b, plan: { ...b.plan!, pr: { n, branch, devTip, from } } }))
+  const at = await h.now(); await h.store.del(await scoped(h, 'prwait')); await h.board.update(b => ({ ...b, plan: { ...b.plan!, pr: { n, branch, devTip, from, at } } }))   // a new wait starts fresh
   return `pull request #${n} opened: the plan lands on ${dev} when its checks pass${cfg.landing.review ? ' and it is approved' : ''}`
 }
-// the 5 s tick (autoLand), at most every 30 s: green (+ approved) merges and lands; red takes the red path; a gh failure backs off (30 s doubling to 10 min)
+// the 5 s tick (autoLand), at most every 30 s: green (+ approved) merges and lands; red or closed takes the red path. A gh failure is never green: it backs off
+// (30 s doubling to 10 min) and the same failure a third time takes the red path, naming it. No checks yet: it waits up to 10 min for CI to register any.
+// ponytail: a fixed 10 min grace for CI to report; a setting if a repository's CI is slower to start
 export async function prPoll(h: Host): Promise<void> {
   const p = (await h.board.read()).plan, pr = p?.pr; if (!pr || p!.state !== 'integrating') return
-  const K = await scoped(h, 'prwait'), w = ((await h.store.get(K)) as { n: number; next: number } | undefined) ?? { n: 0, next: 0 }, now = await h.now(); if (now < w.next) return
+  const K = await scoped(h, 'prwait'), w = ((await h.store.get(K)) as { n: number; next: number; err?: string } | undefined) ?? { n: 0, next: 0 }, now = await h.now(); if (now < w.next) return
   const cfg = await cfgOf(h), root = await h.cwd(), dev = cfg.branches.dev, gh = (...a: string[]) => h.run(['gh', ...a], { cwd: root })
+  const red = async (why: string, fix: boolean) => { await h.store.del(K); await failed(h, p!.id, why, true, fix) }
   try {
-    const v = await gh('pr', 'view', String(pr.n), '--json', 'state,reviewDecision'); if (v.exitCode) throw new Error(tail(v))
-    const view = JSON.parse(v.stdout), checks: { name: string; bucket: string }[] = JSON.parse((await gh('pr', 'checks', String(pr.n), '--json', 'name,bucket')).stdout || '[]')   // no checks reported: nothing to wait for
+    const v = await gh('pr', 'view', String(pr.n), '--json', 'state,reviewDecision'); if (v.exitCode) throw new Error(`gh pr view: ${tail(v)}`)
+    const view = JSON.parse(v.stdout); if (view.state === 'CLOSED') return void (await red(`pull request #${pr.n} was closed without merging`, false))
+    const c = await gh('pr', 'checks', String(pr.n), '--json', 'name,bucket')   // it exits non-zero on pending or failing checks too: the JSON decides; no JSON is an error, unless none are reported
+    let checks: { name: string; bucket: string }[] | null = null; try { checks = JSON.parse(c.stdout) } catch { if (/no checks reported/i.test(c.stderr)) checks = [] }
+    if (!Array.isArray(checks)) throw new Error(`gh pr checks: ${tail(c)}`)
     await h.store.set(K, { n: 0, next: now + 30_000 })
     const bad = checks.filter(c => c.bucket === 'fail' || c.bucket === 'cancel').map(c => c.name)
-    if (bad.length) return void (await failed(h, p!.id, `pull request #${pr.n}: checks failed: ${bad.join(', ')}`, true))
-    if (view.state !== 'MERGED' && (checks.some(c => c.bucket === 'pending') || (cfg.landing.review && view.reviewDecision !== 'APPROVED'))) return
-    if (view.state !== 'MERGED') { const m = await gh('pr', 'merge', String(pr.n), '--merge'); if (m.exitCode) throw new Error(tail(m)) }
+    if (bad.length) return void (await red(`pull request #${pr.n}: checks failed: ${bad.join(', ')}`, true))
+    if (view.state !== 'MERGED' && ((!checks.length && now < (pr.at ?? 0) + 600_000) || checks.some(c => c.bucket === 'pending') || (cfg.landing.review && view.reviewDecision !== 'APPROVED'))) return
+    if (view.state !== 'MERGED') { const m = await gh('pr', 'merge', String(pr.n), '--merge'); if (m.exitCode) throw new Error(`gh pr merge: ${tail(m)}`) }
     const f = await h.run(['git', 'fetch', cfg.landing.remote, dev], { cwd: root }); if (f.exitCode) throw new Error(tail(f))
     const sha = await tip(h.run, root, 'FETCH_HEAD')
-    if (!(await landDev(h, { dev, sha, old: pr.devTip, tmp: '', epic: pr.from }))) return void (await failed(h, p!.id, `${dev} moved here while pull request #${pr.n} merged; integrate again`, false, false))
+    if (!(await landDev(h, { dev, sha, old: pr.devTip, tmp: '', epic: pr.from }))) {   // the merge is on the remote's dev, the local dev moved meanwhile: it waits as a landing onto the local commits (landPending re-integrates them through the gates)
+      const held = await op(h, async () => !(await exists(h.run, root, pendingRef(dev))) && (await casRef(h.run, root, pendingRef(dev), sha, '0'.repeat(40))) && (await git(h.run, root, ['update-ref', baseRef(dev), pr.devTip]), await git(h.run, root, ['branch', '-D', pr.from]).catch(() => ''), true))
+      if (!held) return void (await failed(h, p!.id, `${dev} moved here while pull request #${pr.n} merged; integrate again`, false, false))
+    }
     await h.run(['git', 'push', cfg.landing.remote, '--delete', pr.branch], { cwd: root }); await h.store.del(K)
     await onDev(h, p!.id, dev, sha, [])
-  } catch (e) { const n = w.n + 1; await h.store.set(K, { n, next: now + Math.min(30_000 * 2 ** n, 600_000) }); h.log(`pull request #${pr.n}: ${(e as Error).message.slice(0, 200)}`) }
+  } catch (e) {
+    const err = (e as Error).message.slice(0, 200), n = w.err === err ? w.n + 1 : 1; h.log(`pull request #${pr.n}: ${err}`)
+    if (n >= 3) return void (await red(`pull request #${pr.n}: the same error three times: ${err}`, false))
+    await h.store.set(K, { n, err, next: now + Math.min(30_000 * 2 ** n, 600_000) })
+  }
 }
 
-// 5b: each submodule unit the plan changed lands in its own repository first (its epic branch -> its dev, through its own checks), then the parent's pointer
-// moves to it in the integration commit, so the parent's gates see the bump. Returns the failure text, or null.
-async function subLand(h: Host, cfg: any, root: string, tmp: string, dev: string, from: string, epicId: string): Promise<string | null> {
+// 5b: each submodule unit the plan changed merges in its own repository (its epic branch into its own dev, through its own checks) and the parent's pointer moves
+// to that merge in the integration commit, so the parent's gates see the bump. Nothing lands here: subLand moves the submodules' dev only once the parent is
+// green, and their epic branches go only once the parent's dev carries the bump. A submodule that landed while the parent's dev moved keeps its epic branch, so
+// the retry finds it on the submodule's dev but not in the recorded pointer and bumps again: the bump is never lost. A milestone has no branch in a submodule:
+// its epics land on the submodule's own dev. A submodule without that dev gets it at the commit the parent records.
+// ponytail: pr mode refuses submodule changes (one pull request per repository is not built).
+type Sub = { root: string; sr: string; st: string; sha: string; devTip: string }
+async function subMerge(h: Host, cfg: any, root: string, tmp: string, from: string, epicId: string, pr: boolean): Promise<{ why: string; fix: boolean } | Sub[]> {
+  const dev = cfg.branches.dev, out: Sub[] = []
+  const fail = async (why: string, fix = false) => { for (const x of out) await worktreeRemove(h.run, x.sr, x.st).catch(() => {}); return { why, fix } }   // red checks get a fix task; a conflict or a refusal does not
   for (const u of unitsOf(cfg).filter(u => u.ownGit)) {
     const sr = `${root}/${u.root}`, hs: Host = { ...h, cwd: async () => sr }, st = `${tmp}-${u.root.replace(/\W/g, '-')}`
-    if (!(await exists(h.run, sr, from)) || (await ok(h.run, sr, ['merge-base', '--is-ancestor', from, dev]))) continue   // nothing of this plan in it
-    const m = await mergeEpic(hs, { dev, epic: from, tmp: st, msg: `merge ${from} (${epicId})` }).catch(e => e as Error); if (m instanceof Error) return `${u.root}: merge of ${from} into ${dev} failed: ${m.message}`
-    const red = await runSuites(h, { ...cfg, units: [{ ...u, root: '.', ownGit: false }] }, st, null, epicId); if (red) { await worktreeRemove(h.run, sr, st).catch(() => {}); return `${u.root}: ${red}` }
-    if (!(await landDev(hs, { dev, sha: m.sha, old: m.devTip, tmp: st, epic: from }))) return `${u.root}: ${dev} moved during integration; set it completed again (status)`
-    await git(h.run, tmp, ['update-index', '--cacheinfo', `160000,${m.sha},${u.root}`]); await git(h.run, tmp, ['commit', '--no-verify', '-m', `chore: ${u.root} to ${m.sha.slice(0, 7)} (${epicId})`])
+    if (!(await exists(h.run, sr, from))) continue   // nothing of this plan in it
+    const pin = (await git(h.run, tmp, ['ls-tree', 'HEAD', u.root])).split(/\s+/)[2] ?? ''
+    if (!(await exists(h.run, sr, dev))) await op(h, () => git(h.run, sr, ['branch', dev, pin || 'HEAD']))
+    const done = await ok(h.run, sr, ['merge-base', '--is-ancestor', from, dev])
+    if (done && pin && (await ok(h.run, sr, ['merge-base', '--is-ancestor', from, pin]))) continue   // landed and recorded
+    if (pr) return fail(`${u.root} is its own repository: a pull request landing does not carry its changes; set landing.mode to "direct", then set ${epicId} completed again (status)`)
+    let sha = await tip(h.run, sr, dev)
+    if (!done) {
+      const m = await mergeEpic(hs, { dev, epic: from, tmp: st, msg: `merge ${from} (${epicId})` }).catch(e => e as Error); if (m instanceof Error) return fail(`${u.root}: merge of ${from} into ${dev} failed: ${m.message}`)
+      out.push({ root: u.root, sr, st, sha: m.sha, devTip: m.devTip }); sha = m.sha
+      const red = await runSuites(h, { ...cfg, units: [{ ...u, root: '.', ownGit: false }] }, st, null, epicId); if (red) return fail(`${u.root}: ${red}`, true)
+    }
+    await git(h.run, tmp, ['update-index', '--cacheinfo', `160000,${sha},${u.root}`]); await git(h.run, tmp, ['commit', '--no-verify', '-m', `chore: ${u.root} to ${sha.slice(0, 7)} (${epicId})`])
   }
-  return null
+  return out
+}
+// the parent is green: each submodule's dev moves to its merge (by CAS). Returns the failure text, or null.
+async function subLand(h: Host, dev: string, subs: Sub[]): Promise<string | null> {
+  try {
+    for (const x of subs) if (!(await op(h, () => move({ ...h, cwd: async () => x.sr }, dev, x.sha, x.devTip)))) return `${x.root}: ${dev} moved during integration; set it completed again (status)`
+    return null
+  } finally { for (const x of subs) await worktreeRemove(h.run, x.sr, x.st).catch(() => {}) }
 }
 
 // §3.9 Integration. null = landed on dev; otherwise the refusal / failure text (also left as a comment on the epic).
@@ -139,7 +176,8 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
   if (!got) return 'integration is already running'
   const [root, cfg, store] = [await h.cwd(), await cfgOf(h), await storeOf(h)]
   const dev = ep ? p.epicBranch : cfg.branches.dev, from = ep ? ep.branch : p.epicBranch, tmp = wtPath(await wtRootOf(h, cfg), repoKeyOf(root), `int-${epicId}`)
-  const fail = (why: string, flag: boolean, fix = flag) => failed(h, epicId, why, flag, fix, tmp)
+  let subs: Sub[] = []
+  const fail = async (why: string, flag: boolean, fix = flag) => { for (const x of subs) await worktreeRemove(h.run, x.sr, x.st).catch(() => {}); return failed(h, epicId, why, flag, fix, tmp) }
   try {
     const c = await trial(h, root, await tip(h.run, root, await baseOf(h, dev)), from)   // a trial merge first (ADR 0015 wave 2)
     const m = c?.length ? new Error(`conflicts in ${c.join(', ')}`) : await mergeEpic(h, { dev, epic: from, tmp, msg: `merge ${from} (${epicId})${ep ? `\n\nMilestone: ${p.id} ${p.slug}` : ''}` }).catch(e => e as Error)
@@ -158,13 +196,16 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
       }
       if (out !== text) { await h.write(path, out); sha = await commitPaths(h, tmp, [cfg.changelog.path], '', true) }
     }
-    const sub = await subLand(h, cfg, root, tmp, dev, from, epicId); if (sub) return await fail(sub, true)
+    const sm = await subMerge(h, cfg, root, tmp, from, epicId, !ep && cfg.landing.mode === 'pr'); if (!Array.isArray(sm)) return await fail(sm.why, true, sm.fix)
+    subs = sm
     sha = await tip(h.run, tmp, 'HEAD')
     if (!ep && cfg.landing.mode === 'pr') return await openPr(h, cfg, epicId, dev, m.devTip, sha, from, tmp)   // CI is the gate there
     const files = (await git(h.run, tmp, ['diff', '--name-only', `${m.devTip}..${sha}`])).split('\n').filter(Boolean)
     const si = await subInit(h.run, root, tmp); if (si) return await fail(si, true, false)   // a pinned submodule commit this machine lacks: one dialog, no fix task
     const kr: { root: string; n: string }[] = [], red = await runSuites(h, cfg, tmp, files, epicId, kr); if (red) return await fail(red, true)
+    const sl = await subLand(h, cfg.branches.dev, subs); subs = []; if (sl) return await fail(sl, false)
     if (!(await landDev(h, { dev, sha, old: m.devTip, tmp, epic: from }))) return await fail(`${dev} moved during integration; set it completed again (status)`, false)
+    for (const u of unitsOf(cfg).filter(u => u.ownGit)) { const sr = `${root}/${u.root}`; if ((await exists(h.run, sr, from)) && (await ok(h.run, sr, ['merge-base', '--is-ancestor', from, cfg.branches.dev]))) await op(h, () => git(h.run, sr, ['branch', '-D', from])).catch(x => h.log(`${u.root}: ${x}`)) }   // the parent records it: its epic branch goes
     await offer(h, dev)   // the user has it checked out: the landing waits for them
     if (ep) return await landed(h, store, epicId, sha, files, cfg.branches.dev, tmp)
     return await onDev(h, epicId, dev, sha, kr)

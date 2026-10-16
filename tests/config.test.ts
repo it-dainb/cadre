@@ -38,6 +38,12 @@ describe('layers', () => {
     const r = resolve([user({ maxParallel: 2, ui: { glyphs: 'ascii' } }, 'userConfig'), user({ maxParallel: 4 }), user({ maxParallel: 5 }, 'home[repo]'), repo({ maxParallel: 6 }), user({ maxParallel: 7 }, 'env')])
     expect(r.config.maxParallel).toBe(7); expect(r.config.ui.glyphs).toBe('ascii'); expect(r.diagnostics).toEqual([])
   })
+  test('branch and remote names that reach git push/fetch: an option-like value is refused', async () => {
+    const r = resolve([repo({ branches: { dev: '--upload-pack=x', main: '' }, landing: { remote: '-o' } })])
+    expect([r.config.branches.dev, r.config.branches.main, r.config.landing.remote]).toEqual(['dev', '', 'origin'])
+    expect(r.diagnostics.map(d => d.split(': a git name')[0]).sort()).toEqual(['repo: branches.dev', 'repo: landing.remote'])
+    expect(resolve([repo({ branches: { dev: 'release/next' }, landing: { remote: 'up-stream' } })]).diagnostics).toEqual([])
+  })
   test('repo may not relax S keys: ignored with a diagnostic; may tighten', async () => {
     const r = resolve([user({ strictness: 'advisory', mcpAllow: ['a', 'b'] }), repo({ strictness: 'strict', mcpAllow: ['b', 'c'] })])
     expect(r.config.strictness).toBe('strict')

@@ -23,7 +23,7 @@ export interface Plan {
   id: string; slug: string; state: PlanState; epicBranch: string; approvedAt?: number
   landed?: { dev: string; sha: string; at: number }; released?: { version: string; at: number }
   flags?: string[]   // plan-level flags (integration-failed)
-  pr?: { n: number; branch: string; devTip: string; from: string }   // landing.mode pr: the pull request the plan waits on as integrating (core/integrate.prPoll)
+  pr?: { n: number; branch: string; devTip: string; from: string; at?: number }   // landing.mode pr: the pull request the plan waits on as integrating (core/integrate.prPoll)
   mode?: 'auto' | 'yolo'   // ADR 0013: how drive runs it after approval (core/lanes.relane)
   lane?: 'ask' | 'lite' | 'full' | 'milestone'; laneReason?: string; laneOverride?: string   // ADR 0011: the effective lane, main's (or the human's) reason, why the override moved it (core/lanes)
   epics?: MEpic[]   // milestone lane (ADR 0015): the roadmap; epicBranch is then the milestone branch

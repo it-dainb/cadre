@@ -20,6 +20,12 @@ export const pkgOf = (d: Pick<Deps, 'cfg'>, task: Pick<Task, 'meta'>): Pkg | und
   const all = unitsOf(d.cfg) as Pkg[], by = unitsOfTask(d, task), at = task.meta['cadre.package'] || (by.length ? by[0].root : all.length === 1 ? all[0].root : '.')   // a cross-unit task: its first unit gates it green; its squash checks them all
   return ownerOf(all, at)
 }
+// a task's paths lie in one repository: a submodule unit's edits are committed in its own repository, the rest in the parent's, so a task across both is split
+export const repoSplit = (cfg: any, paths: unknown): string | null => {
+  if (!Array.isArray(paths)) return null
+  const us = unitsOf(cfg) as Pkg[], rs = [...new Set(paths.map(p => { const u = ownerOf(us, String(p)); return u?.ownGit ? u.root : '' }))]
+  return rs.length > 1 ? `metadata.paths: ${rs.map(r => r || 'the main repository').join(' and ')} are separate repositories; split this into one task per repository` : null
+}
 export const rootOf = (p?: Pkg) => (!p || p.root === '.' || p.ownGit ? '' : p.root)   // an own-repository unit's worktree is the unit itself
 // a unit with its own repository (a git submodule, H7): a task's branches, worktree, squash and baseline live in that repository; top = the parent repo
 export const inRepo = <D extends Pick<Deps, 'root'> & { top?: string }>(d: D, u?: Pick<Pkg, 'root' | 'ownGit'>): D => (u?.ownGit && !d.top ? { ...d, root: `${d.root}/${u.root}`, top: d.root } : d)
