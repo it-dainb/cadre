@@ -1,8 +1,11 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 const START = { surface: 'terminal', isInteractive: true, cwd: '/work' } as const
+// Each test here loads the whole hooks module into a fresh engine: about 0.7 s on an idle machine (a test that returns at once costs the same), several
+// seconds when the full suite runs every file at once. The work under test is a fraction of that; the kit's 5 s default measured the machine's load.
+const ENGINE = { timeoutMs: 30_000 }
 
-test('session.start: no $.agent.register (agents are plugin files, A28), /cadre (immediate), env flags, policy written, one 5 s tick', async ($, on) => {
+test('session.start: no $.agent.register (agents are plugin files, A28), /cadre (immediate), env flags, policy written, one 5 s tick', ENGINE, async ($, on) => {
   const agents: any[] = [], commands: any[] = [], env: string[] = []
   on('session.start', () => ({ cwd: '/work' })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined }))
   on('agent.register', ($, e) => { agents.push(e); return { value: undefined } })
@@ -17,7 +20,7 @@ test('session.start: no $.agent.register (agents are plugin files, A28), /cadre 
   await clock.advance(5000); await clock.advance(5000)   // the tick is a placeholder: it must not throw
 })
 
-test('Claude Code older than cadre needs: one loud line, /cadre answers only it, nothing else starts and every call passes untouched (live 0.12.0 on 2.1.287)', async ($, on) => {
+test('Claude Code older than cadre needs: one loud line, /cadre answers only it, nothing else starts and every call passes untouched (live 0.12.0 on 2.1.287)', ENGINE, async ($, on) => {
   const commands: any[] = [], env: string[] = [], tools: any[] = [], said: string[] = [], LINE = 'cadre needs Claude Code ≥ 2.1.295; you have 2.1.287 · update with: claude update'
   on('session.start', () => ({ cwd: '/work' })); on('session.version', () => ({ value: { version: '2.1.287' } })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined })); on('env.get', () => ({ value: undefined }))
   on('command.register', ($, e) => { commands.push(e); return { value: undefined } }); on('env.set', ($, e) => { env.push(e.name); return { value: undefined } }); on('tool.register', ($, e) => { tools.push(e); return { value: undefined } })
@@ -29,7 +32,7 @@ test('Claude Code older than cadre needs: one loud line, /cadre answers only it,
   expect(await $.tool.call({ tool: 'Bash', command: 'ls' })).toEqual({ result: 'ran' })   // an initialised repo, yet no guard: cadre is off, not half on
 })
 
-test('every slot is a pass-through until its owner fills it: tool.call, tool.check, prompt.submit, command.run reach the engine', async ($, on) => {
+test('every slot is a pass-through until its owner fills it: tool.call, tool.check, prompt.submit, command.run reach the engine', ENGINE, async ($, on) => {
   const seen: string[] = []
   on('store.get', () => ({ value: undefined })); on('env.get', () => ({ value: undefined })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' }))   // policy/guards reads its paths from $.store (keyed by the repo), strictness from env
   on('tool.call', ($, e) => { seen.push(`call:${e.tool}`); return { result: 'ok' } })
@@ -43,7 +46,7 @@ test('every slot is a pass-through until its owner fills it: tool.call, tool.che
   expect(seen).toEqual(['call:Read', 'prompt'])
 })
 
-test('dormant until init: main keeps Bash and Edit, status says so; once .cadre/config.json exists the same calls are denied, with no restart', async ($, on) => {
+test('dormant until init: main keeps Bash and Edit, status says so; once .cadre/config.json exists the same calls are denied, with no restart', ENGINE, async ($, on) => {
   let inited = false
   on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined })); on('env.get', () => ({ value: undefined })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' }))
   on('fs.read', () => { if (!inited) throw new Error('ENOENT'); return { value: '{}' } }); on('fs.stat', () => ({ value: undefined }))
@@ -57,7 +60,7 @@ test('dormant until init: main keeps Bash and Edit, status says so; once .cadre/
   expect(await $.tool.call({ tool: 'Edit', file_path: '/work/a.ts' })).not.toEqual({ result: 'ran' })
 })
 
-test('dev scenario seeding: inert without CADRE_DEV; with it, session.start seeds board/events/secret/ui from the dump', async ($, on) => {
+test('dev scenario seeding: inert without CADRE_DEV; with it, session.start seeds board/events/secret/ui from the dump', ENGINE, async ($, on) => {
   const env: Record<string, string> = {}, reads: string[] = [], state: Record<string, unknown> = {}
   const dump = { b: { schemaVersion: 1, seq: 7, repo: 'r', mission: null, epic: 'p3', plan: { id: 'p3', slug: 'p3', state: 'approved', epicBranch: 'epic/p3' }, tasks: [], approval: { planId: null, missing: [] }, drive: { on: false, level: 'epic', epicId: null, turns: 0, costUsd: 0, startedAt: null }, sync: [], cost: { tokens: 0 }, containment: { state: 'unknown', unsandboxed: 0 }, resumesQueued: 0, init: [] }, ring: [{ seq: 1 }, { seq: 2 }], sec: { nonce: 'x' }, ui: { tab: 'epic' } }
   on('session.start', () => ({ cwd: '/work' })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined }))
@@ -72,7 +75,7 @@ test('dev scenario seeding: inert without CADRE_DEV; with it, session.start seed
 })
 
 // live 0.9.1: after a /clear (no session.start, no remembered root) main had `cd kit/`: the checks, the store and the opt-in read kit/ instead of the repo
-test('the repo root never follows a Bash cd: after /clear with the shell in a package folder, cadre still reads the repo root', async ($, on) => {
+test('the repo root never follows a Bash cd: after /clear with the shell in a package folder, cadre still reads the repo root', ENGINE, async ($, on) => {
   const reads: string[] = [], sets: Record<string, unknown> = {}
   on('session.cwd', () => ({ value: '/work/kit' })); on('session.root', () => ({ value: '/work' }))
   on('store.get', () => ({ value: undefined })); on('store.set', ($, e) => { sets[e.key] = e.value; return { value: undefined } }); on('env.get', () => ({ value: undefined }))
@@ -85,7 +88,7 @@ test('the repo root never follows a Bash cd: after /clear with the shell in a pa
 })
 
 // live 0.9.1: Claude Code started in a package folder still works on the repo: the root is the git top level above the session's project root
-test('the repo root is the git top level above the project root, spelled from the session path', async ($, on) => {
+test('the repo root is the git top level above the project root, spelled from the session path', ENGINE, async ($, on) => {
   const reads: string[] = []
   on('session.cwd', () => ({ value: '/work/kit' })); on('session.root', () => ({ value: '/work/kit' }))
   on('process.run', ($, e) => ({ value: { exitCode: 0, stdout: e.argv.join(' ') === 'git rev-parse --show-cdup' ? '../\n' : '', stderr: '' } }))
@@ -95,7 +98,7 @@ test('the repo root is the git top level above the project root, spelled from th
   expect(reads).toContain('/work/.cadre/config.json')
 })
 // live 0.9.1 (2.1.296): Claude stopped with setup checks red and the run sat in "running": the stop is refused with the list
-test('during a setup run main\'s stop is refused while a check is red; with no run it passes', async ($, on) => {
+test('during a setup run main\'s stop is refused while a check is red; with no run it passes', ENGINE, async ($, on) => {
   const env: Record<string, string> = {}, run = { kind: 'init', at: 0, turns: 0, follow: 0, guide: '/p/guides/init.md' }
   const dump = { b: { schemaVersion: 1, seq: 1, repo: 'r', mission: null, epic: null, plan: null, tasks: [], approval: { planId: null, missing: [] }, drive: { on: false, level: 'epic', epicId: null, turns: 0, costUsd: 0, startedAt: null }, sync: [], cost: { tokens: 0 }, containment: { state: 'unknown', unsandboxed: 0 }, resumesQueued: 0, init: [] }, ring: [], sec: { run } }
   on('session.start', () => ({ cwd: '/work' })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined }))
@@ -120,17 +123,17 @@ const startWith = async ($: any, on: any, o: { active: boolean; stamp?: string; 
   on('tool.register', ($: any, e: any) => { if (e.name === o.refuse) throw new Error('refused'); tools.push(e.name); return { value: undefined } }); mock.clock(on)
   await $.session.start(START); return tools
 }
-test('tools at start: dormant on a set-up machine: the agent tools only', async ($, on) => {
+test('tools at start: dormant on a set-up machine: the agent tools only', ENGINE, async ($, on) => {
   expect(await startWith($, on, { active: false, stamp: '2.1.299' })).toEqual(['report', 'inspect', 'run_check'])
 })
-test('tools at start: dormant, setup due (no stamp, or another Claude Code build): preferences too', async ($, on) => {
+test('tools at start: dormant, setup due (no stamp, or another Claude Code build): preferences too', ENGINE, async ($, on) => {
   expect(await startWith($, on, { active: false, stamp: '2.1.290' })).toEqual(['report', 'inspect', 'run_check', 'preferences'])
 })
-test('tools at start: an active repo gets every main tool; one Claude Code refuses is left out', async ($, on) => {
+test('tools at start: an active repo gets every main tool; one Claude Code refuses is left out', ENGINE, async ($, on) => {
   expect(await startWith($, on, { active: true, stamp: '2.1.299', refuse: 'ask' })).toEqual(['report', 'inspect', 'run_check', ...MAIN_NAMES.filter(t => t !== 'ask'), 'preferences'])
 })
 
-test('main in an active repo: an Agent with no task in it and the built-in task tools are refused toward cadre\'s tools; an agent\'s Agent passes', async ($, on) => {
+test('main in an active repo: an Agent with no task in it and the built-in task tools are refused toward cadre\'s tools; an agent\'s Agent passes', ENGINE, async ($, on) => {
   on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined })); on('env.get', () => ({ value: undefined })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' }))
   on('fs.read', () => ({ value: '{}' })); on('fs.stat', () => ({ value: undefined })); on('tool.call', () => ({ result: 'ran' })); on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined }))
   expect((await $.tool.call({ tool: 'Agent', prompt: 'where is login handled?', description: 'x' }) as any).deny).toContain('call explore with your question')

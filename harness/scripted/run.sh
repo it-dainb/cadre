@@ -18,12 +18,12 @@ leak() {   # the zero-quota check: the proxy ran, and logged nothing
 case $c in
 plan)
   PROXY_JS=harness/scripted/stub-proxy.mjs CLAUDE_ARGS="--plugin-dir /work/spike/harness/scripted" OUT_DIR=$O/cell LANDED=1 BUDGET=${BUDGET:-600} "$H/cell.sh" "$n" "single ready" goal | tee "$O/cell.txt"
-  # (b): cadre's ledger saw the scripted usage (it sits above the scripted mod); the store is in the work dir, read with bd in a shell container
-  SHELL_MODE=1 WORK=$TUI_DIR/$n/work OUT=$O "$H/run.sh" -c 'cd /work/run && BEADS_DIR=.cadre/store bd list --all --json 2>/dev/null | node -e "for (const t of JSON.parse(require(\"fs\").readFileSync(0,\"utf8\"))) console.log(t.id, t.status, (t.metadata||{})[\"cadre.cost\"] ?? \"-\")"; git log --oneline dev | head -5' >"$O/store.txt" 2>&1
+  # (b): cadre's ledger saw the scripted usage (it sits above the scripted mod): the cost meta in the task store (.cadre/state, plain files), read in a shell container
+  SHELL_MODE=1 WORK=$TUI_DIR/$n/work OUT=$O "$H/run.sh" -c 'cd /work/run && grep -rhoa "\"cadre.cost\":\"[^\"]*\"" .cadre/state | sort -u | tail -5; git log --oneline dev | head -5' >"$O/store.txt" 2>&1
   cp "$TUI_DIR/$n/out/stubbed.jsonl" "$O/cell/" 2>/dev/null; cat "$O/store.txt"; grep -h 'SCRIPTED\|turn.step' "$O"/cell/debug-*.log | grep -c SCRIPTED | sed 's/^/scripted lines: /'
   leak "$O/cell/effort.jsonl" "$(grep -c 'ANTHROPIC_BASE_URL=http://127.0.0.1:8899' "$TUI_DIR/$n/cmd") cmd line(s) via 127.0.0.1:8899";;
 probe)
-  mkdir -p "$TMP/p/harness/bench" && cp -a "$S/.claude-plugin" "$S/hooks" "$TMP/p/" && cp "$S/stub-proxy.mjs" "$TMP/p/harness/bench/effort-proxy.mjs" && git -C "$TMP/p" init -q && snap "$TMP/p" || exit 1
+  mkdir -p "$TMP/p/harness" && cp -a "$S/.claude-plugin" "$S/hooks" "$TMP/p/" && cp "$S/stub-proxy.mjs" "$TMP/p/harness/effort-proxy.mjs" && git -C "$TMP/p" init -q && snap "$TMP/p" || exit 1
   [ -n "$SETTINGS" ] && { printf 'mkdir -p .claude && cat > .claude/settings.local.json <<"EOF"\n%s\nEOF\n' "$SETTINGS" >"$TMP/settings.sh"; export SCAFFOLD=$TMP/settings.sh; }
   SPIKE=$TMP/p "$H/tui.sh" start "$n" >"$O/start.txt" 2>&1 || grep -q "auto mode on" "$O/start.txt" || { cat "$O/start.txt"; exit 1; }   # tui.sh waits for the bypass footer; auto shows its own
   up=$(docker exec "cadre-tui-$n" sh -c 'cat /proc/[0-9]*/cmdline 2>/dev/null | tr "\0" " " | grep -c effort-proxy')

@@ -6,7 +6,7 @@
 - **Tests first.** A separate tester writes a failing test, then a worker makes it pass.
 - **Isolated and reviewed.** Every task gets its own git worktree and an independent review before it merges.
 - **A live board in your terminal.** See every task, step and agent without leaving Claude Code.
-- **Works offline.** Tasks live in [beads](https://github.com/gastownhall/beads) (`bd`) on your machine. The store is in `.cadre/store` (not committed); to look at it by hand: `BEADS_DIR=.cadre/store bd list`. Older projects keep `.beads`; `/cadre doctor` offers to move it.
+- **Works offline.** Tasks live in plain files on your machine, in `.cadre/state` (not committed). No database, no extra tool to install.
 
 ```text
 [RUN] cadre · p3 auth-login · strict · contained ✓ · ctx 34% · cache 87%
@@ -29,7 +29,7 @@ claude plugin install cadre@cadre
 Then, inside Claude Code:
 
 1. `/cadre setup`: once per machine. Claude checks your tools and fixes what it can, in the open, and asks your default mode and limits; you confirm the settings in a dialog.
-2. **Start work:** `/cadre <goal in plain words>`, e.g. `/cadre fix the off-by-one in src/page.ts`. In a repo cadre hasn't seen, one dialog asks to set it up first: Claude prepares the task store, your build and test commands and a changelog in the open, you confirm the safety settings, and then the plan comes up with its mission for one approval. Claude picks a lane and says why:
+2. **Start work:** `/cadre <goal in plain words>`, e.g. `/cadre fix the off-by-one in src/page.ts`. In a repo cadre hasn't seen, one dialog asks to set it up first: Claude prepares the task store, your build and test commands and a changelog in the open, you confirm the safety settings (they also turn off Claude Code's built-in task tools for this project: Claude plans with cadre's own tools), and then the plan comes up with its mission for one approval. Claude picks a lane and says why:
    - **ask**: a question or investigation. An explorer answers it; nothing changes.
    - **lite**: one small, clear change. One task, drafted for you; choose **Approve** once and Claude runs it to the end: worker → review → merge (a bug a test can reproduce gets the failing test first).
    - **full**: a feature, several tasks, or a public API change. The full plan with scenarios and contracts.
@@ -55,9 +55,9 @@ plan → your approval → tester (test goes red) → worker (goes green)
 | Who | Does |
 |---|---|
 | **You** | Approve plans, resolve flags, cut releases. Every one is a dialog answer. |
-| **Main Claude** | Plans and manages. It never edits code and has no shell. |
+| **Main Claude** | Plans and manages with cadre's tools (`plan`, `task`, `epic`, `amend`, `explore`, `ask`, `status`). It never edits code, has no shell and starts no agent of its own to explore: it asks cadre's explorer. |
 | **Worker agents** | Tester writes the test, worker writes the code, reviewer checks it. Each works in its own worktree. |
-| **cadre itself** | Owns git (workers cannot commit or push), runs the checks, enforces every step, never pushes. |
+| **cadre itself** | Owns git (workers cannot commit or push), runs the checks, enforces every step; pushes only when you set `landing.mode` to `pr`. |
 
 More: [the loop in detail](docs/commands.md#the-loop-in-detail).
 
@@ -67,7 +67,7 @@ More: [the loop in detail](docs/commands.md#the-loop-in-detail).
 |---|---|
 | `/cadre setup` | One-time machine setup. [Details](docs/setup-details.md) |
 | `/cadre` | One line: where things stand and what to type next; opens the pane. |
-| `/cadre init` | Re-run the repo setup on purpose (a first `/cadre <goal>` does it for you). |
+| `/cadre init` | Re-run the repo setup on purpose (a first `/cadre <goal>` does it for you). A project set up by an older cadre asks for it once (a toast and a Doctor line); restart Claude Code after its confirm. |
 | `/cadre doctor` | Read-only health check. Safe any time. |
 | `/cadre <goal>` · `/cadre yolo <goal>` | Start work; after approval it runs to dev, asking at the critical points (auto) or not at all (yolo). |
 | `/cadre deep <goal>` | Talk the goal through first (one question per round, scores shown), then the plan comes up as usual. |
@@ -76,6 +76,13 @@ More: [the loop in detail](docs/commands.md#the-loop-in-detail).
 | Settings | Press `9` in the pane: every setting, where its value comes from, and buttons to change it. |
 
 Every decision is a dialog (`1` opens it). The typed fallbacks, config keys and the extension protocol are in [docs/commands.md](docs/commands.md).
+
+## Your project: units and landing
+
+Set in `.cadre/config.json` (the setup writes it; edit it by hand to change it):
+
+- **`packages`** (or **`units`**): the parts of the repo that build and test on their own, each with its `root` and its `checks` (`test`, …). A `units` entry also has a `kind` (`package`, `service`, `submodule`, `app`); a git submodule is a unit with `ownGit: true`, and its work lands in its own repository before the parent's pointer moves. A task belongs to the units its files fall in; a task that spans several runs every one's checks before it merges. `routing.<role>` picks a model and effort for that unit's agents.
+- **`landing.mode`**: `direct` (default) lands a finished plan on `dev` locally. `pr` pushes it to `landing.remote` and opens one pull request into `dev` (needs `gh`, signed in); cadre merges it when the checks pass (and, with `landing.review: true`, once it is approved), and takes the usual red path when they fail. cadre never pushes in `direct` mode.
 
 ## Stopping and continuing
 
@@ -92,7 +99,7 @@ Every decision is a dialog (`1` opens it). The typed fallbacks, config keys and 
 
 - Claude Code **2.1.295** (tested; newer usually works and only warns)
 - `git`
-- `bd` ≥ 1.3.0. `/cadre setup` installs it.
+- A filesystem with hard links for the project (any normal Linux or macOS disk; not exFAT or some network mounts), where `.cadre/state` lives.
 - Linux: `bwrap` (bubblewrap) and `socat` for sandboxed checks. macOS: setup tells you what is needed.
 
 ## Troubleshooting
@@ -107,7 +114,7 @@ Every decision is a dialog (`1` opens it). The typed fallbacks, config keys and 
 - **Enforced by code.** Hooks deny what the rules forbid. A prompt can be ignored; a denial cannot.
 - **Main plans, never edits.** The agent that talks to you cannot touch your source.
 - **Computed beats claimed.** Tests pass because cadre ran them, not because an agent said so.
-- **Local first.** Your tasks and git history stay on your machine. cadre never pushes.
+- **Local first.** Your tasks and git history stay on your machine. cadre pushes only when you choose pull-request landing (`landing.mode: pr`).
 - **Calm UI, zero token cost.** The board is drawn by the plugin. It adds nothing to Claude's context.
 
 Read more: [DESIGN](docs/design/DESIGN.md) · [UI design](docs/design/UI-DESIGN.md) · [decisions (ADRs)](docs/adr) · [UI dev loop](docs/dev/ui-dev.md) · [test harness](harness/README.md) · [module contracts](docs/CONTRACTS.md)

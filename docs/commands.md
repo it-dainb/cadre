@@ -48,13 +48,13 @@ The first goal in a repo cadre hasn't seen asks once to set it up; then Claude f
 | Item | Done when |
 |---|---|
 | repository | git repo with a first commit, the main and `dev` branches, `.git/info/exclude` lines, `branches` in `.cadre/config.json` (this file turns cadre on in the repo) |
-| task store | `bd init` with cadre's statuses and types, journal on |
+| task store | `.cadre/state` (plain files, excluded from git) answers its probe: hard links work there |
 | mission | goal, constraints, non-goals: Claude asks you, drafts it, **you approve it in the dialog** |
 | build and test commands | `packages` in `.cadre/config.json`, found by Claude from CI config, manifests and the README |
 | commands pass on a clean checkout | cadre runs each package's setup and checks in a jail, offline; a failing one goes back to Claude |
 | workflow | the type registry and roles resolve (defaults unless you change them) |
 | changelog | `CHANGELOG.md` in Keep a Changelog 1.1.0 |
-| safety settings | sandbox settings plus the cache folders learned above: cadre shows the diff in a dialog and **writes it only after you confirm** |
+| safety settings | sandbox settings, the cache folders learned above and the task-tool gate (built-in task tools off, the todo list on; applies after a restart): cadre shows the diff in a dialog and **writes it only after you confirm** |
 
 Sync with an external tracker is separate and optional: `/cadre sync add <adapter>`.
 
@@ -89,7 +89,7 @@ From the M0 spike ([ADR 0001](docs/adr/0001-m0-results.md)):
 - **PENDING-HUMAN smokes** (need an interactive TUI): S22 (background workers across `/clear`), S37 (`!` raises no `tool.call`), S48 interactive `/goal`, S49 trigger (`$.session.compact()` is unavailable headless, so the 60 % context hint is a toast, not an automatic compact). S41's MCP grant is rechecked at M3.
 - **A restored `/goal` is undetectable** (S48, A27). After `/resume` with drive on, a one-time band hint appears. Do not combine a restored `/goal` with a running drive: two loops would run (stop one with `2`). `/goal` typed in the session is observed as prompt text and pauses drive.
 - **No bwrap overlay** (needs ≥ 0.11; hosts have 0.8/0.9). Checks run in a **copy-jail**: a throwaway copy of the worktree, writable, network off. The cache audit uses an empty scratch `HOME` listing.
-- **bd 1.3.1 has no `--if-revision`.** Drive and sync leases live as metadata on the `cadre-control` issue, with read-check-write-reread (guarded by `--if-assignee/--if-status`). Drive continues after `/clear` (DESIGN §9).
+- **The drive record and the sync leases and cursors** live in the task store's one control doc, changed by compare-and-set on its revision ([ADR 0027](adr/0027-own-the-workflow.md)). Drive continues after `/clear` (DESIGN §9).
 - **Tester has Read/Write/Edit only** (this build exposes no Grep/Glob, S45); briefs name the paths. Plan B (ADR 0004) is not needed.
 - **Headless (`-p`) runs end with main's turn** (a background agent is killed): spawn agents in the foreground. `plugin eval --allow-tools` refuses `mcp__*`: name `mcp__cadre__report mcp__cadre__inspect mcp__cadre__run_check`. Live results: [ADR 0005](docs/adr/0005-live-results.md).
 - **`!` shell commands** in a human session may bypass the hooks (A20 unverified); the effect check treats such changes as human.

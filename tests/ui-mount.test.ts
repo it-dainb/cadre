@@ -1,4 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
+const ENGINE = { timeoutMs: 30_000 }   // a fresh engine loads the whole hooks module per test: under the full suite's load that alone can pass 5 s (tests/register.test.ts)
 import { BASE, MIN, approval, view } from './fixtures/ui/epic'
 
 const BAND = { hasSurvey: false, isWorking: false, maxRows: 8, bodyColumns: 115, scroll: { offset: 0, bodyRows: 8 }, view: {} }
@@ -13,7 +14,7 @@ const stubs = (on) => {
 }
 
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`band + pane validate and draw on ${surface}; keys press; Raster only on terminal`, async ($, on) => {
+  test(`band + pane validate and draw on ${surface}; keys press; Raster only on terminal`, ENGINE, async ($, on) => {
     const opened: any[] = [], clock = mock.clock(on), asked: any[] = []
     stubs(on); on('tool.call', (_$, e) => { asked.push(e); return { result: { answers: { [e.questions[0].question]: 'Not now' } } } })
     on('ui.render', () => ({ type: 'Text', props: {}, children: ['engine'] }))
@@ -40,7 +41,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 }
 
 // the dialog through the REAL register (Host.ask + Host.answer wiring, hooks, state): a plan asked by TaskCreate pops its dialog once; `1` in the pane re-opens it; Approve approves
-test('dialog through the engine: pops once, `1` re-opens it, Approve approves the plan (register wires Host.answer)', async ($, on) => {
+test('dialog through the engine: pops once, `1` re-opens it, Approve approves the plan (register wires Host.answer)', ENGINE, async ($, on) => {
   const clock = mock.clock(on), asked: any[] = []; let say = 'Not now'
   stubs(on); on('tool.call', (_$, e, next) => { if (e.tool !== 'AskUserQuestion') return next(e); asked.push(e.questions[0]); return { result: { answers: { [e.questions[0].question]: say } } } })
   for (const k of Object.keys(store)) delete store[k]

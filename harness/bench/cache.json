@@ -1,2 +1,0 @@
-{ "tiers": ["core"], "n": 1,
-  "cells": [{ "worker": { "tier": "haiku", "effort": "high" }, "tester": { "tier": "sonnet", "effort": "medium" }, "reviewer": { "tier": "sonnet", "effort": "high" } }] }

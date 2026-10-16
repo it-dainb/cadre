@@ -1,2 +1,0 @@
-{ "tiers": ["light"], "only": ["l1-slug-max"], "n": 1,
-  "workers": [{ "tier": "haiku", "effort": "high" }], "testers": [{ "tier": "sonnet", "effort": "medium" }], "reviewers": [{ "tier": "sonnet", "effort": "high" }] }

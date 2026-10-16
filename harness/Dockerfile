@@ -1,11 +1,10 @@
-# cadre live-smoke harness: Claude Code pinned (CLAUDE_VERSION) + bd + git + bwrap + tmux, non-root.
+# cadre live-smoke harness: Claude Code pinned (CLAUDE_VERSION) + git + bwrap + tmux, non-root.
 # Build: docker build -t cadre-harness harness            (installs Claude Code from the official installer)
 # Fast path: put a local binary named claude-<CLAUDE_VERSION> in harness/ and it is used instead (must match the image arch).
 FROM node:22-bookworm-slim
 ARG CLAUDE_VERSION=2.1.295
 RUN apt-get update && apt-get install -y --no-install-recommends git bubblewrap socat curl ca-certificates python3 procps iproute2 golang-go cargo tmux \
     && rm -rf /var/lib/apt/lists/*
-RUN npm i -g @beads/bd && bd version
 # VIA=ccr runs (ccr-up.sh): the router version real users run in front of Claude Code
 RUN npm i -g @musistudio/claude-code-router@3.0.22 && ccr --help >/dev/null
 # Dockerfile always matches the glob, so the COPY succeeds with or without a local binary

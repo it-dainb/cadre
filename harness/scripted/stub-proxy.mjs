@@ -1,4 +1,4 @@
-// The effort proxy for scripted runs (run.sh puts it in place of harness/bench/effort-proxy.mjs in the plugged copy, same port and log).
+// The effort proxy for scripted runs (run.sh puts it in place of harness/effort-proxy.mjs in the plugged copy, same port and log).
 // Named request kinds that bypass turn.step are answered here and logged to stubbed.jsonl beside the log. Any other /v1/messages request is a leak:
 // it is logged to the log (effort.jsonl, which a zero-quota run must leave empty) by its shape and refused with a 500, never forwarded, so even a
 // leak costs no quota. Never logs headers (the OAuth token) or message content.

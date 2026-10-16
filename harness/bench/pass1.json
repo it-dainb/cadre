@@ -1,4 +1,0 @@
-{ "tiers": ["light", "standard"], "n": 3,
-  "workers": [{ "tier": "haiku", "effort": "high" }, { "tier": "sonnet", "effort": "medium" }, { "tier": "sonnet", "effort": "high" }],
-  "testers": [{ "tier": "haiku", "effort": "high" }, { "tier": "sonnet", "effort": "medium" }],
-  "reviewers": [{ "tier": "sonnet", "effort": "high" }] }

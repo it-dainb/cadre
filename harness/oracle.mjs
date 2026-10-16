@@ -105,9 +105,9 @@ for (const e of drv.filter(e => e.kind === 'press1' && offered(e.t) && e.t + 500
   else { if (dialogs > budget) fail('dialog-budget', `${dialogs} dialogs before the plan (budget ${budget}): ${drv.filter(e => e.kind === 'dialog' && e.t < until).map(e => e.text).join(' / ')}`)
          if (nTurns > TURNS) fail('turn-budget', `${nTurns} turns before the plan (budget ${TURNS})`) }
 }
-// 7. cadre's state lives at the repo top level only (a .cadre/ or .beads/ below it = the root followed main's shell)
+// 7. cadre's state lives at the repo top level only (a .cadre/ below it = the root followed main's shell)
 // REPO=<folder>: the fixture's repo lives in that folder of the work dir (underscore-id), so its state is at ./<folder>/.cadre
-{ const s = read(join(dir, 'stray-state')).split('\n').filter(l => l && !(process.env.REPO && new RegExp(`^\\./${process.env.REPO}/\\.(cadre|beads)$`).test(l))).join('\n'); if (s) fail('wrong-root', `state written below the repo root: ${s.split('\n').join(', ')}`) }
+{ const s = read(join(dir, 'stray-state')).split('\n').filter(l => l && !(process.env.REPO && new RegExp(`^\\./${process.env.REPO}/\\.cadre$`).test(l))).join('\n'); if (s) fail('wrong-root', `state written below the repo root: ${s.split('\n').join(', ')}`) }
 // 8. after Claude Code restarts (a quit, a crash) the session that is gone may neither block nor vanish:
 //    gone-session: no "running in another session" (a cell has one session); restart-named: the first bare /cadre names the unfinished setup or plan and the next step
 {
@@ -231,7 +231,7 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     }
     if (others > 1) fail('noreport', `${others} dialogs besides the plan's`)
   }
-  if (o === 'underscore') {   // a repo folder with `_` (bd once named task ids after it; the file store's ids are c-<seq>-<n>): the cadre spawn resolves, 0 explorer spawns (main's clarify explorer aside)
+  if (o === 'underscore') {   // a repo folder with `_` (the file store's ids are c-<seq>-<n>): the cadre spawn resolves, 0 explorer spawns (main's clarify explorer aside)
     const ex = subs.filter(x => /Explorer brief/.test(x.brief)).length, wk = subs.filter(x => /Worker brief/.test(x.brief) && /TASK-[\w-]+/.test(x.brief)).length
     Object.assign(stats, { explorers: ex, workers: wk })
     if (ex > 1) fail('underscore', `${ex} explorers (main's one allowed)`)

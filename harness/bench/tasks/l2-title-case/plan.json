@@ -1,5 +1,0 @@
-{ "repo": "strkit", "tier": "light", "epic": "Title case", "goal": "Capitalise each word of a string.",
-  "tasks": [{ "key": "a", "title": "Add titleCase", "type": "feature", "description": "Upper-case the first letter of each word and lower-case the rest; words are split on whitespace and joined with one space.",
-    "scenarios": ["Given \"hello world\" When titleCase is called Then it returns \"Hello World\"", "Given \"  hELLO   wORLD \" When titleCase is called Then it returns \"Hello World\"", "Given \"\" When titleCase is called Then it returns \"\""],
-    "symbols": [{ "name": "titleCase", "kind": "function", "params": ["s: string"], "returns": "string", "status": "new" }],
-    "paths": ["src/words.mjs", "test/words.test.mjs"], "changelog": ["Added", "titleCase capitalises each word"] }] }
