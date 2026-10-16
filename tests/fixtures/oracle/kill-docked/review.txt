@@ -1,0 +1,40 @@
+                        │                                                                                             ✕
+────────────────────────│1: Board  2: Graph  3: Timeline  4: Activity  8: Doctor  9: Settings
+←  ☒   ☒ W… ☒   ✔       │no plan yet                                                                                live
+  R…       C…  Submit  →│
+                        │no tasks yet · /cadre <goal> to start
+Review your answers     │
+                        │k: keys
+ │ ● The rest of each   │
+ │   word: should       │
+ │   titleCase lowercase│
+ │   it, or leave it as │
+ │   is? (e.g. 'hELLO   │
+ │   wORLD')            │
+   → Leave as is        │
+   (Recommended)        │
+ │ ● What counts as a   │
+ │   word boundary? The │
+ │   explorer found only│
+ │   src/slug.mjs, so   │
+ │   this is new        │
+ │   behaviour.         │
+   → Whitespace only    │
+   (Recommended)        │
+ │ ● Should the plan    │
+ │   also add a         │
+ │   CHANGELOG entry?   │
+ │   The CHANGELOG has  │
+ │   an empty           │
+ │   [Unreleased]       │
+ │   section, and the   │
+ │   README documents no│
+ │   functions.         │
+   → Yes, under Added   │
+   (Recommended)        │
+                        │
+Ready to submit your    │
+answers?                │
+                        │
+❯ 1. Submit answers     │
+  2. Cancel             │
