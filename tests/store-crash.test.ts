@@ -79,7 +79,9 @@ describe('file store crash safety', () => {
     }
   })
 
-  test('two writers over every schedule of their Host calls: each write lands once, a CAS has one winner, one entry per seq', async () => {
+  // 256 schedules, each a fresh seeded store (about 1.5 ms apiece): 0.3-0.7 s alone, 1.3 s in the full suite, and past the kit's 5 s default once when
+  // several suites shared the machine. The work is fixed; the default measured the load.
+  test('two writers over every schedule of their Host calls: each write lands once, a CAS has one winner, one entry per seq', { timeoutMs: 30_000 }, async () => {
     for (let mask = 0; mask < 256; mask++) {
       const { fs, id } = await seeded(), r0 = (await new FileStore(hostOf(fs), D, 'R').get(id)).revision!
       const waiting = new Map<string, () => void>(); let live = 2, i = 0
