@@ -32,7 +32,10 @@ start)
   rm -rf "$D"; mkdir -p "$D"/{plug,work,projects,out}; chmod 777 "$D"/{work,projects,out}
   git -C "${SPIKE:-$R}" archive HEAD | tar -x -C "$D/plug"
   [ -n "$LAZY" ] && cp "$H/lazy.txt" "$D/out/lazy.txt" && CLAUDE_ARGS="$CLAUDE_ARGS --append-system-prompt-file /out/lazy.txt"
-  VOL=; [ -n "$CC_VERSION" ] && VOL="-v $HOME/.local/share/claude/versions/$CC_VERSION:/opt/claude/claude:ro"   # the host's build of that version over the image's
+  VOL=; if [ -n "$CC_VERSION" ]; then   # the host's build of that version over the image's, else the harness's own copy (Claude Code prunes old host builds)
+    CCB=$HOME/.local/share/claude/versions/$CC_VERSION; [ -f "$CCB" ] || CCB=$H/claude-$CC_VERSION
+    [ -f "$CCB" ] || { echo "no Claude Code $CC_VERSION on the host or in harness/claude-$CC_VERSION" >&2; exit 1; }
+    VOL="-v $CCB:/opt/claude/claude:ro"; fi
   [ "$1" = --scenario ] && { node --experimental-transform-types --no-warnings "$R/scripts/ui-dev.mjs" --dump "$2" >"$D/work/.cadre-dev-scenario.json" || exit 1; EXTRA_ENV="$EXTRA_ENV -e CADRE_DEV=1 -e CADRE_DEV_SCENARIO=/work/run/.cadre-dev-scenario.json"; }   # dev: seed the pane atoms from scenarios/<name>.ts (docs/dev/ui-dev.md)
   [ -n "$SCAFFOLD" ] && (cd "$D/work" && bash "$SCAFFOLD" >"$D/out/scaffold.log" 2>&1 || { cat "$D/out/scaffold.log"; exit 1; })
   git -C "$D/work" config user.email q@x 2>/dev/null
