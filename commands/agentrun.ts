@@ -22,7 +22,7 @@ const WHAT = { setup: 'Set up cadre on this machine', init: 'Set up cadre in thi
 
 const end = async (h: Host, done = false) => { if (done) { await h.store.del(await scoped(h, 'run')); await h.ui.update(({ halt: _x, ...u }) => u) } await h.secret.update(({ run: _r, ...s }) => s) }   // done: finished or cancelled; a stopped run stays open (halted)
 // a run started here and never finished (Claude Code quit or was killed mid-run, or it stopped): kept in $.store, as session memory goes with the session. None while a run is on.
-type Halt = { kind: Kind; goal?: { text: string; mode: 'auto' | 'yolo' } }
+type Halt = { kind: Kind; goal?: { text: string; mode: 'auto' | 'yolo' }; follow?: number }   // follow: the stop refusals spent (a resume after /clear keeps them)
 const mark = async (h: Host, r: Halt) => h.store.set(await scoped(h, 'run'), r)
 export const halted = async (h: Host) => ((await h.secret.read()).run ? undefined : ((await h.store.get(await scoped(h, 'run'))) as Halt | undefined))
 export const haltText = (r: Halt) => `Setup was interrupted · /cadre ${r.goal ? r.goal.text.slice(0, 80) : r.kind === 'setup' ? 'setup' : '<goal>'} to pick it up`
@@ -39,10 +39,12 @@ export async function pump(h: Host, inFrame = false): Promise<void> {
   let text: string | undefined; await h.secret.update(s => { text = s.run?.brief; return text ? { ...s, run: { ...s.run!, brief: undefined } } : s })
   const r = text ? await h.submit?.(modelText('brief', text)).catch((e: Error) => ({ err: e.message })) as { drop?: string; err?: string } | undefined : undefined
   if (r?.drop || r?.err) h.log(`could not hand the step to Claude: ${(r.drop ?? r.err)!.slice(0, 120)}`)
-  if ((r?.drop && inFrame) || r?.err) return send(h, text!)   // a thrown submit is no human stop: the step goes again on the next tick
-  const run = r?.drop && (await h.secret.read()).run
+  const errs = r?.err ? ((await h.secret.read()).run?.errs ?? 0) + 1 : 0   // a thrown submit is no human stop: the step goes again on the next tick, held after 3 (a host error that repeats must not loop silently)
+  if (errs && errs < 3) { await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, errs } } : s)); return send(h, text!) }
+  if (r?.drop && inFrame) return send(h, text!)
+  const run = (r?.drop || r?.err) && (await h.secret.read()).run
   if (run) { await h.ui.update(u => ({ ...u, shown: [...((u.shown as string[] | undefined) ?? []), `run:${run.kind}`] })); await stuck(h, run, await items(h, run.kind), 'Claude was stopped before it got the next step.', true) }
-  if (!inFrame) await sendBrief(h)   // a `/cadre <goal>` brief (core/lanes)
+  if (!inFrame && !(await h.secret.read()).run) await sendBrief(h)   // a `/cadre <goal>` brief (core/lanes); a run's own step goes first, the goal after it ends
 }
 // the human typed in the prompt (prompt.submit, composer): a held run starts again, its step goes on the next tick (pump)
 // Only a held card's run restarts (never an older stopped card on another hold), and it does so even when ui was reset (/clear): kind from the card, goal from the halt.
@@ -52,7 +54,7 @@ export async function resume(h: Host): Promise<void> {
   if ((await h.secret.read()).run) return
   const d = (await h.board.read()).decisions?.find(x => x.id.startsWith('run:') && x.title.endsWith(HELD)); if (!d) return
   const k = d.id.slice(4) as Kind, rt = u.retry as { kind: Kind; goal?: Halt['goal']; follow?: number } | undefined
-  const r = rt?.kind === k ? rt : { goal: (await halted(h))?.goal, follow: 0 }
+  const r = rt?.kind === k ? rt : (await halted(h)) ?? {}
   await settle(h, d.id); await start(h, k, r.goal, r.follow ?? 0)
 }
 
@@ -74,7 +76,7 @@ const followUp = async (h: Host, k: Kind, fails: Item[], guide: string) => [
 ].join('\n').replaceAll(`${await h.home()}/`, '~/')
 // Claude stopped with checks still red and cannot go on (refused 3 times, or it stopped without trying again): ONE dialog for the human, never a silent "running"
 async function stuck(h: Host, r: NonNullable<Secret['run']>, its: Item[], why: string, held = false): Promise<string> {
-  await end(h); await h.ui.update(u => ({ ...u, retry: { kind: r.kind, goal: r.goal, follow: r.follow }, ...(held ? { held: true } : {}) }))   // "Let Claude try again" starts the same run, the goal still queued and its stop refusals spent (live 0.12.0: 29 retries, each refilled)
+  await end(h); await mark(h, { kind: r.kind, ...(r.goal ? { goal: r.goal } : {}), follow: r.follow }); await h.ui.update(u => ({ ...u, retry: { kind: r.kind, goal: r.goal, follow: r.follow }, ...(held ? { held: true } : {}) }))   // "Let Claude try again" starts the same run, the goal still queued and its stop refusals spent (live 0.12.0: 29 retries, each refilled)
   const said = (r.said ?? '').replace(/\s+/g, ' ').trim()
   await draw(h, r.kind, its, held ? 'held' : 'stopped', [why, ...(held ? ['Type anything in the prompt (for example: go on) and Claude picks up the next step.'] : []), ...(said ? [`Claude: "${said.slice(0, 200)}${said.length > 200 ? '…' : ''}"`] : [])].join('\n'))
   return `${r.kind}: stopped · press 1`
@@ -153,7 +155,9 @@ export async function redNote(h: Host): Promise<string | null> {
 // with nothing working) still ends in a follow-up or the dialog. Quiet = no turn on for 60 s, or a turn on with no step or tool call for 10 minutes. ----
 export const QUIET = { idle: 60_000, busy: 600_000 }
 export async function watch(h: Host): Promise<void> {
-  const sc = await h.secret.read(), r = sc.run ?? sc.goalRun; if (!r || (sc.run ? sc.run.brief : !sc.goalRun?.on || (await h.ui.read()).goal)) return   // a brief waiting goes out first (pump)
+  const sc = await h.secret.read(), r = sc.run ?? sc.goalRun
+  if (sc.run?.brief && (await h.now()) - sc.run.at >= LIMIT.ms) return void (await recheck(h))   // a brief that never goes out: the time limit still stops the run
+  if (!r || (sc.run ? sc.run.brief : !sc.goalRun?.on || (await h.ui.read()).goal)) return   // a brief waiting goes out first (pump)
   const since = (await h.now()) - (r.seen ?? (sc.run?.at ?? 0))
   if (since < (r.busy ? QUIET.busy : QUIET.idle)) return
   if (((await h.board.read()).decisions ?? []).some(d => !d.quiet)) return   // the human has something to answer: that is not a stall

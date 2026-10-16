@@ -87,7 +87,7 @@ export const told = (h: Host, line: string) => h.ui.update(u => ({ ...u, digest:
 
 async function one(h: Host, id: string, role: string) {
   if (life.ending) return void inflight.delete(`${id}:${role}`)   // the session is quitting: an agent started now would die with it, its claim left behind
-  const k = `${id}:${role}`, n = await intend(h, id, role, await sessionOf(h)).catch((e: Error) => { inflight.delete(k); throw e }); inflight.add(k)   // before the try: a throw here gives the pick back too
+  const k = `${id}:${role}`, n = await Promise.resolve().then(async () => intend(h, id, role, await sessionOf(h))).catch((e: Error) => { inflight.delete(k); throw e }); inflight.add(k)   // before the try: a throw here (sessionOf too) gives the pick back
   try {
     const r = await h.spawnAgent!({ prompt: modelText('agent-brief', n), description: `${role === 'claim' ? 'start' : role} ${id}` })   // PLAN-<epic>: admission starts its planner
     if (r?.agentId) await h.ui.update(u => ({ ...u, own: [...((u.own as string[]) ?? []), r.agentId!].slice(-100) }))   // its task-notification never reaches main (core/reuse.submit)
