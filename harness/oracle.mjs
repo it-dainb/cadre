@@ -100,7 +100,7 @@ const mine = (() => {
     let d; try { d = JSON.parse(l) } catch { continue }
     const c = d.message?.content; if (!Array.isArray(c)) continue
     if (d.type === 'assistant') for (const b of c) if (b.type === 'tool_use') calls.push(b)
-    if (d.type === 'user') for (const b of c) if (b.type === 'tool_result') ok.set(b.tool_use_id, { ok: !b.is_error, text: typeof b.content === 'string' ? b.content : JSON.stringify(b.content ?? '') })
+    if (d.type === 'user') for (const b of c) if (b.type === 'tool_result') { const text = typeof b.content === 'string' ? b.content : JSON.stringify(b.content ?? ''); ok.set(b.tool_use_id, { ok: !b.is_error && !/^"?error:/.test(text), text }) }   // a refusal: an error result, or one whose text starts error:
   }
   return calls.map(b => ({ ...b, ok: ok.get(b.id)?.ok, text: ok.get(b.id)?.text ?? '' }))
 })(), went = mine.filter(b => b.ok)
