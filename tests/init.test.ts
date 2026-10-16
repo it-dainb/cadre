@@ -15,7 +15,7 @@ import type { Host } from '../types'
 import { banned } from './fixtures/wording'
 import { taskCall } from './fixtures/native/world'
 import { scoped } from '../commands/init'
-import { goal as goalBrief } from '../core/lanes'
+import { goal as goalBrief, sendBrief } from '../core/lanes'
 
 type R = { exitCode: number; stdout?: string; stderr?: string }
 const ROOT = '/repo', HOME = '/hm/u', RK = repoKeyOf(ROOT), PLUG = '/plug', CFG = `${ROOT}/.cadre/config.json`
@@ -220,6 +220,13 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     await h.board.update(b => ({ ...b, decisions: [...(b.decisions ?? []), { id: 'run:init', kind: 'init', title: 'init · Claude stopped · 2 left', short: 'x', lines: [], hash: 'x', options: [] } as any] }))
     await resume(h); expect((await h.secret.read()).run).toBeUndefined(); expect((await h.board.read()).decisions?.some(d => d.id === 'run:init')).toBe(true)
     expect((await h.ui.read()).held).toBeUndefined()
+  })
+  test('a run held after a stop keeps the queued goal: the same tick sends nothing more, and a thrown goal submit re-queues it', async () => {
+    const { h, tick, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]
+    let tries = 0; h.submit = async (t: string) => { tries++; if (t === 'plan it') throw new Error('host busy'); return { drop: 'the session was stopped' } }
+    await h.ui.update(u => ({ ...u, goal: 'plan it' })); await start(h, 'init'); await tick()
+    expect((await h.ui.read()).held).toBe(true); expect(tries).toBe(1); expect((await h.ui.read()).goal).toBe('plan it')   // held: the goal is not handed over in the hold's own tick
+    await h.ui.update(({ held: _h, ...u }) => u); await sendBrief(h); expect(tries).toBe(2); expect((await h.ui.read()).goal).toBe('plan it')   // the throw keeps it for the next tick
   })
   test('a refused goal brief waits for the human: no submit until they type', async () => {
     const { h, sent } = mk({ files: READY }); let stopped = true, tries = 0; h.submit = async (t: string) => (tries++, stopped ? { drop: 'the session was stopped' } : (sent.push(t), {}))

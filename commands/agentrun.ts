@@ -44,7 +44,7 @@ export async function pump(h: Host, inFrame = false): Promise<void> {
   if (r?.drop && inFrame) return send(h, text!)
   const run = (r?.drop || r?.err) && (await h.secret.read()).run
   if (run) { await h.ui.update(u => ({ ...u, shown: [...((u.shown as string[] | undefined) ?? []), `run:${run.kind}`] })); await stuck(h, run, await items(h, run.kind), 'Claude was stopped before it got the next step.', true) }
-  if (!inFrame && !(await h.secret.read()).run) await sendBrief(h)   // a `/cadre <goal>` brief (core/lanes); a run's own step goes first, the goal after it ends
+  if (!inFrame && !(await h.secret.read()).run && !(await h.ui.read()).held) await sendBrief(h)   // a `/cadre <goal>` brief (core/lanes); a run's own step goes first, the goal after it ends; a hold just set keeps it queued
 }
 // the human typed in the prompt (prompt.submit, composer): a held run starts again, its step goes on the next tick (pump)
 // Only a held card's run restarts (never an older stopped card on another hold), and it does so even when ui was reset (/clear): kind from the card, goal from the halt.
