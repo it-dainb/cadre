@@ -8,7 +8,7 @@ import { contextLine } from './render'
 
 const cap = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 
-// Known-id matcher (4.6): maximal runs of [A-Za-z0-9_.-] (bd names ids after the folder: my_project-403.1), trailing '.'/'-' stripped, optional TASK- removed, exact lookup. `bd-a1.10` never matches `bd-a1.1`.
+// Known-id matcher (4.6): maximal runs of [A-Za-z0-9_.-] (store ids: c-12-1, older ones my_project-403.1), trailing '.'/'-' stripped, optional TASK- removed, exact lookup. `c-a1.10` never matches `c-a1.1`.
 export function idsIn(text: string, known: Iterable<string>): string[] {
   const set = new Set(known), out: string[] = []
   for (const m of text.matchAll(/[\w.-]+/g)) {

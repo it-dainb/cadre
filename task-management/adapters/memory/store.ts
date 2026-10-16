@@ -12,7 +12,6 @@ export class MemoryStore implements TaskStore {
   journal = false
   ctl: { revision: string; doc: Record<string, unknown> } = { revision: '0', doc: {} }
   log: { seq: string; op: string; id: TaskId; actor: string; status?: string; assignee?: string; category?: Category; at?: number }[] = []
-  readonly comments: Record<TaskId, string[]> = {}
   constructor(private now: () => number = () => Date.now(), public mint: () => TaskId = () => `m-${++this.n}`) {}
 
   private db() { if (!this.tasks) throw new StoreError('NotInitialized'); return this.tasks }
@@ -72,9 +71,9 @@ export class MemoryStore implements TaskStore {
     if (t.category !== 'review' && t.category !== 'blocked' && t.category !== 'active') throw new StoreError('Invalid', `${id} is ${t.category}`)
     t.category = 'active'; return this.touch(t, 'resume', actor)
   }
-  async release(id: TaskId, actor: string, why: string) {
+  async release(id: TaskId, actor: string, _why: string) {
     const t = this.t(id); this.mine(t, actor)
-    t.category = 'todo'; delete t.assignee; delete t.leaseUntil; (this.comments[id] ??= []).push(`released: ${why}`); this.touch(t, 'release', actor)
+    t.category = 'todo'; delete t.assignee; delete t.leaseUntil; this.touch(t, 'release', actor)
   }
   async move(id: TaskId, to: 'review' | 'blocked', actor: string) {
     const t = this.t(id); this.mine(t, actor)
@@ -83,7 +82,6 @@ export class MemoryStore implements TaskStore {
   }
   async heartbeat(id: TaskId) { const t = this.t(id); if (!t.assignee) throw new StoreError('Invalid', `${id} is not claimed`); t.leaseUntil = new Date(this.now() + LEASE_MS).toISOString(); this.touch(t, 'heartbeat', t.assignee) }
   async update(id: TaskId, patch: Parameters<TaskStore['update']>[1], actor: string) { const t = this.t(id); Object.assign(t, patch); return this.touch(t, 'update', actor) }
-  async comment(id: TaskId, text: string, actor: string) { const t = this.t(id); (this.comments[id] ??= []).push(text); this.touch(t, 'comment', actor) }
   async setMeta(id: TaskId, kv: Record<string, string>, actor: string, ifRevision?: string) {
     const t = this.t(id)
     if (ifRevision !== undefined && t.revision !== ifRevision) throw new StoreError('GuardMismatch', `${id} is at revision ${t.revision}`)

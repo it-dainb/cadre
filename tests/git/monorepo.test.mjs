@@ -1,4 +1,4 @@
-// Dev-only, REAL git + bd (live 0.9.1, a monorepo whose package is in kit/): the checks and the task store read the repo root, never main's shell folder;
+// Dev-only, REAL git + the file store (live 0.9.1, a monorepo whose package is in kit/): the checks and the task store read the repo root, never main's shell folder;
 // a board pointer to an epic the store does not have is dropped, one the store has is resumed. node --experimental-transform-types --test tests/git/*.test.mjs
 import '../dev/register.mjs'
 import { test } from 'node:test'
@@ -11,8 +11,7 @@ import { join } from 'node:path'
 const I = await import('../../commands/init.ts')
 const { rehydrate } = await import('../../core/session.ts')
 const { load } = await import('../../config/index.ts')
-const { BdStore } = await import('../../task-management/adapters/beads/store.ts')
-const { dirOf } = await import('../../task-management/adapters/beads/layout.ts')
+const { FileStore } = await import('../../task-management/adapters/file/store.ts')
 const { fakeHost } = await import('../support.ts')
 
 const run = (argv, o = {}) => new Promise(res => { const p = execFile(argv[0], argv.slice(1), { cwd: o.cwd, env: { ...process.env, ...o.env }, timeout: 60000 }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })); p.stdin.on('error', () => {}); p.stdin.end(o.stdin ?? '') })   // a child that exits before reading its stdin: EPIPE is not a failure
@@ -24,12 +23,12 @@ function monorepo() {
   const d = mkdtempSync(join(tmpdir(), 'cadre-mono-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
   put(d, 'kit/package.json', '{"name":"kit","scripts":{"test":"node -e 0"}}\n'); put(d, 'kit/src/a.js', 'export const a = 1\n'); put(d, 'README.md', '# frek\n')
   sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'chore: initial commit'); sh(d, 'branch', 'dev', 'main')
-  put(d, '.git/info/exclude', '.cadre/store/\n.cadre/store.gate.lock\n.claude/settings.local.json\n')
+  put(d, '.git/info/exclude', '.cadre/state/\n.claude/settings.local.json\n')
   put(d, '.cadre/config.json', JSON.stringify({ branches: { main: 'main', dev: 'dev' }, packages: [{ root: 'kit', checks: { test: ['npm', 'test'] } }] }) + '\n'); put(d, 'CHANGELOG.md', CHANGELOG)
   return d
 }
-const storeAt = async (h, root) => new BdStore({ run, cwd: root, actor: 'cadre/test', dir: await dirOf(h, root) })
-// a host whose root is `at` (what h.cwd() resolves to), with real files, git and bd
+const storeAt = async (h, root) => new FileStore({ run, now: async () => Date.now(), rand: (n = 16) => Math.random().toString(16).slice(2).padEnd(n * 2, '0'), write: async (p, t) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) } }, `${root}/.cadre/state`, 's')
+// a host whose root is `at` (what h.cwd() resolves to), with real files, git and the store
 function hostAt(at) {
   const h = fakeHost()
   Object.assign(h, { cwd: async () => at, home: async () => mkdtempSync(join(tmpdir(), 'cadre-home-')), run, readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } }, stat: async (p, o) => (existsSync(p) ? { kind: 'dir', realPath: o?.resolve ? p : undefined } : undefined), write: async (p, t) => writeFileSync(p, t) })

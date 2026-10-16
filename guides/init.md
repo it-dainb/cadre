@@ -9,21 +9,12 @@ Rules: change only the files this guide names (`.cadre/`, `.git/info/exclude`, `
 3. `git rev-parse --verify HEAD`. No commit yet: `git add -A` then `git commit -m "chore: initial commit"`.
 4. The main branch: `git symbolic-ref --short refs/remotes/origin/HEAD` (drop the `origin/`), else `git branch --show-current`.
 5. `git rev-parse --verify dev`. Missing: `git branch dev <main branch>`.
-6. `.git/info/exclude` must hold the lines `.cadre/store/`, `.cadre/store.gate.lock` and `.claude/settings.local.json`. A project that already has a `.beads/` folder (and no `.cadre/store/`) needs `.beads/` instead of the first two. Add only the missing ones (`printf '%s\n' ... >> .git/info/exclude`).
+6. `.git/info/exclude` must hold the lines `.cadre/state/` and `.claude/settings.local.json`. Add only the missing ones (`printf '%s\n' ... >> .git/info/exclude`).
 7. `.cadre/config.json` must hold `{"branches": {"main": "<main branch>", "dev": "dev"}}`. Create it with Write, or merge the key into the existing file with Edit.
 Done when all seven hold.
 
 ## Phase 2: task store
-The task store lives in `.cadre/store`. Put `BEADS_DIR="$PWD/.cadre/store"` in front of every `bd` command (a variable set in one Bash call is gone in the next). A project that already has a `.beads/` folder and no `.cadre/store/` keeps it: run the same commands without `BEADS_DIR`.
-Run, in the project folder:
-```
-mkdir -p .cadre
-BEADS_DIR="$PWD/.cadre/store" bd init --non-interactive --init-if-missing --skip-agents --skip-hooks
-BEADS_DIR="$PWD/.cadre/store" bd config set status.custom draft:frozen,in_review:wip
-BEADS_DIR="$PWD/.cadre/store" bd config set types.custom refactor,docs,test,spike,decision,milestone,gate
-BEADS_DIR="$PWD/.cadre/store" bd config set events-journal true
-```
-Done when `BEADS_DIR="$PWD/.cadre/store" bd config get events-journal` prints `true`.
+Nothing to run: cadre creates its task store in `.cadre/state` by itself.
 
 ## Phase 3: mission (only when no goal comes next)
 If your brief says the user's goal comes next, do nothing in this phase: no question and no TaskCreate. The mission goes into that goal's plan later.

@@ -1,5 +1,5 @@
-// Sync tick (DESIGN 11.4), level-triggered and state-based. Called from the one $.clock.every(5000): only bd + adapter processes + $.state, never a submit.
-// Per target: lease + cursor on the control issue (metadata CAS fallback, A30), pull -> merge -> push by hash, heal every 15 min, backoff 30 s -> 5 min.
+// Sync tick (DESIGN 11.4), level-triggered and state-based. Called from the one $.clock.every(5000): only the store + adapter processes + $.state, never a submit.
+// Per target: lease + cursor (a journal seq) in the store's control doc, CAS by revision; pull -> merge -> push by hash, heal every 15 min, backoff 30 s -> 5 min.
 // Event-only adapters (`deliver`) ride the same tick; commands they return are refused (ADR 0012).
 import type { Host } from '../../types'
 import { canon, fnv1a64, modelView } from '../../core/board'
@@ -14,27 +14,17 @@ import type { TaskStore } from '../store'
 import { reconcile, flag } from './reconcile'
 import type { Ctx } from './reconcile'
 
-const HEAL = 15 * 60_000, LEASE = 90_000, EVERY = 30_000, MAX_BACKOFF = 300_000, CONTROL = 'cadre-control'
+const HEAL = 15 * 60_000, LEASE = 90_000, EVERY = 30_000, MAX_BACKOFF = 300_000
 type RT = { next: number; backoff: number }
 type State = { cursor?: string; since?: string; lastHeal?: number; lease?: { session: string; until: number } }
 
 subscribe((h, ev) => { if (ev.type === 'task.transitioned') return h.ui.update(u => ({ ...u, syncWake: 1 })) })   // sync wake (11.4 step 5)
 
-// ---- control issue (lazy) + lease ----
-export async function controlOf(h: Host, store: TaskStore): Promise<string> {   // also holds the drive state + lease (core/reuse, DESIGN 9)
-  const ck = `sync.control:${(await h.board.read()).repo}`, id = (await h.store.get(ck)) as string | undefined
-  if (id) try { await store.get(id); return id } catch { /* recreate below */ }
-  const found = (await store.list({})).find(t => t.title === CONTROL), made = found?.id ?? await store.createEpic(CONTROL, 'cadre sync control issue: cursors and leases per target. Do not edit.')
-  await h.store.set(ck, made); return made
-}
-const stateOf = (v: string | undefined): State => { try { return JSON.parse(v ?? '') } catch { return {} } }
-// read-check-write-reread: a live lease of another session loses; the revision CAS and the re-read catch the race (bd 1.3.1 has no --if-revision)
-async function lease(h: Host, store: TaskStore, ctl: string, target: string, session: string, actor: string, now: number): Promise<{ s: State; rev?: string } | null> {
-  const k = `cadre.sync.${target}`, c = await store.get(ctl), s = stateOf(c.meta[k])
+// ---- lease: the control doc's `sync.<target>` field; a live lease of another session loses, a revision race loses ----
+async function lease(store: TaskStore, target: string, session: string, now: number): Promise<State | null> {
+  const k = `sync.${target}`, c = await store.control(), s = (c.doc[k] ?? {}) as State
   if (s.lease && s.lease.until > now && s.lease.session !== session) return null
-  try { await store.setMeta(ctl, { [k]: JSON.stringify({ ...s, lease: { session, until: now + LEASE } }) }, `${actor}+sync`, c.revision) } catch (e) { if (e instanceof StoreError && e.code === 'GuardMismatch') return null; throw e }
-  const c2 = await store.get(ctl), s2 = stateOf(c2.meta[k])
-  return s2.lease?.session === session ? { s: s2, rev: c2.revision } : null
+  try { return (await store.setControl({ [k]: { ...s, lease: { session, until: now + LEASE } } }, c.revision)).doc[k] as State } catch (e) { if (e instanceof StoreError && e.code === 'GuardMismatch') return null; throw e }
 }
 
 // ---- backoff ----
@@ -55,13 +45,14 @@ export async function setState(h: Host, target: string, state: 'ok' | 'offline' 
 
 async function cycle(h: Host, cfg: any, target: string, store: TaskStore, force: boolean): Promise<boolean> {
   const t = cfg.sync[target], a = cfg.adapters[t.adapter] as AdapterCfg, now = await h.now(), actor = String((await h.store.get(`cadre:${repoKeyOf(await h.cwd())}:actor`)) ?? 'cadre/sync')
-  const ctl = await controlOf(h, store), got = await lease(h, store, ctl, target, await sessionOf(h), actor, now); if (!got) return false
-  const s = got.s, prevOk = (await h.board.read()).sync.find(x => x.target === target)?.state ?? 'ok'
+  const s = await lease(store, target, await sessionOf(h), now); if (!s) return false
+  const prevOk = (await h.board.read()).sync.find(x => x.target === target)?.state ?? 'ok'
   let heal = force || !s.cursor || now - (s.lastHeal ?? 0) >= HEAL || prevOk !== 'ok', head = s.cursor, ids = new Set<string>()
-  const ev = await store.events(s.cursor, 500)
+  const ev = await store.events(s.cursor, 500).catch(e => { if (e instanceof StoreError && e.code === 'TooOld') return undefined; throw e })   // folded past the cursor: heal from the head
+  if (ev === undefined) { heal = true; head = (await store.events(undefined, 0))?.head }
   if (!ev) heal = true; else {
-    head = ev.head
-    // bd journal records: op create|update|close|... with the issue snapshot; a status/assignee change shows only as a difference from the previous record of that issue
+    head = ev.events.length >= 500 ? ev.events[ev.events.length - 1].seq : ev.head
+    // journal entries: op + the task's status/assignee after it; a status/assignee change shows only as a difference from the previous entry of that task
     const seenK = `sync.seen:${target}`, seen = ((await h.store.get(seenK)) as Record<string, string> | undefined) ?? {}
     for (const e of ev.events) {
       const now2 = `${e.status ?? ''}|${e.assignee ?? ''}`, moved = e.id in seen && seen[e.id] !== now2; seen[e.id] = now2
@@ -71,12 +62,12 @@ async function cycle(h: Host, cfg: any, target: string, store: TaskStore, force:
     }
     await h.store.set(seenK, seen)
   }
-  const live = async () => (await store.list({})).filter(x => x.id !== ctl && x.title !== CONTROL)
+  const live = () => store.list({})
   const c: Ctx = { h, store, name: t.adapter, a, target, t, actor, first: Object.keys(cfg.sync)[0] === target }
-  const r = await reconcile(c, live, s.since, t.direction ?? 'both', async () => heal ? live() : (await Promise.all([...ids].filter(i => i !== ctl).map(i => store.get(i).catch(() => null)))).filter((x): x is NonNullable<typeof x> => !!x))
-  const k = `cadre.sync.${target}`   // crash between the push and this write only replays idempotent pushes (the cursor moves last)
-  await store.setMeta(ctl, { [k]: JSON.stringify({ cursor: head, since: r.next ?? new Date(now - 120_000).toISOString(), lastHeal: r.deferred ? 0 : heal ? now : s.lastHeal,   // a deferred decision (its task not on the tracker yet) forces a heal next tick
- lease: { session: s.lease!.session, until: now + LEASE } }) }, `${actor}+sync`)
+  const r = await reconcile(c, live, s.since, t.direction ?? 'both', async () => heal ? live() : (await Promise.all([...ids].map(i => store.get(i).catch(() => null)))).filter((x): x is NonNullable<typeof x> => !!x))
+  // crash between the push and this write only replays idempotent pushes (the cursor moves last)
+  await store.setControl({ [`sync.${target}`]: { cursor: head, since: r.next ?? new Date(now - 120_000).toISOString(), lastHeal: r.deferred ? 0 : heal ? now : s.lastHeal,   // a deferred decision (its task not on the tracker yet) forces a heal next tick
+    lease: { session: s.lease!.session, until: now + LEASE } } })
   return true
 }
 
@@ -157,16 +148,16 @@ async function stepOf(h: Host, n: number, name: string, a: AdapterCfg, d: Record
     const v = await call(h, name, a, 'validateAccess', { url: d.url, project: d.project, mapping: d.mapping }), bad = [...(v?.auth ? [] : ['auth']), ...['view', 'add', 'edit'].filter(p => !v?.perms?.[p]).map(p => `no ${p} permission`), ...(v?.missing ?? []).map((x: string) => `missing ${x}`)]
     return bad.length ? { msg: `sync add ${name} 4/5 validate: blocked: ${bad.join('; ')} (no writes were made)` } : { lines: [], apply: async () => {} }
   }
-  const mode = o.direction ?? d.mode; if (!['push', 'import', 'empty'].includes(mode)) return { msg: `sync add ${name} 5/5 initial direction: /cadre sync add ${name} direction=push|import|empty\n  push: send beads tasks · import: remote tasks become backlog drafts · empty: start empty (existing tasks stay local)` }
-  return { lines: [`+ .cadre/config.json: sync.${name}.direction = "both"`, `+ control issue ${CONTROL}: cursor init (${mode})`], apply: async () => {
-    const store = await storeOf(h), ctl = await controlOf(h, store), actor = `cadre/${name}+sync`
+  const mode = o.direction ?? d.mode; if (!['push', 'import', 'empty'].includes(mode)) return { msg: `sync add ${name} 5/5 initial direction: /cadre sync add ${name} direction=push|import|empty\n  push: send local tasks · import: remote tasks become backlog drafts · empty: start empty (existing tasks stay local)` }
+  return { lines: [`+ .cadre/config.json: sync.${name}.direction = "both"`, `+ sync cursor init (${mode})`], apply: async () => {
+    const store = await storeOf(h), actor = `cadre/${name}+sync`
     let cursor: string | undefined
-    if (mode === 'empty') { for (const t of await store.list({})) if (t.id !== ctl && t.category !== 'draft') await store.setMeta(t.id, { [`cadre.sync.${name}`]: JSON.stringify({ l: {}, r: {}, skip: 1 }) }, actor); cursor = (await store.events('0', 1))?.head }
+    if (mode === 'empty') { for (const t of await store.list({})) if (t.category !== 'draft') await store.setMeta(t.id, { [`cadre.sync.${name}`]: JSON.stringify({ l: {}, r: {}, skip: 1 }) }, actor); cursor = (await store.events(undefined, 0))?.head }
     if (mode === 'import') {
       const b = await h.board.read(), parent = b.mission ?? b.epic ?? await store.createEpic('backlog', 'imported from ' + name), res = await call(h, name, a, 'pull', { project: d.project })
       for (const r of res.tasks ?? []) { const t = await store.createDraft({ title: String(r.fields?.title ?? r.rid), description: String(r.fields?.description ?? ''), type: Object.keys(cfg.types as object)[0], parent }); await store.setMeta(t.id, { [`cadre.sync.${name}`]: JSON.stringify({ rid: r.rid, etag: r.etag, l: {}, r: {} }) }, actor) }
     }
-    await store.setMeta(ctl, { [`cadre.sync.${name}`]: JSON.stringify({ cursor, lastHeal: 0 }) }, actor); await set(x => { x.direction = 'both' })
+    await store.setControl({ [`sync.${name}`]: { cursor, lastHeal: 0 } }); await set(x => { x.direction = 'both' })
   } }
 }
 export async function syncAdd(h: Host, name: string, args: string[] = []): Promise<string> {

@@ -3,7 +3,7 @@
 export const PROMPTS = {
   worker: `You are a worker. You own exactly one task, given in your brief.
 Rules:
-- Work only inside your current working directory. Touch nothing outside it, and never .git, .cadre, .beads or .claude.
+- Work only inside your current working directory. Touch nothing outside it, and never .git, .cadre or .claude.
 - Read the scenarios and the interface contract first. They are the acceptance. Conform to the contract: names, params, returns and errors exactly as written.
 - Locked spec tests are fixed. Make them pass; never edit, delete, skip or weaken them.
 - Prefer the smallest change that satisfies the scenarios. Do not refactor unrelated code or add features that were not asked for.

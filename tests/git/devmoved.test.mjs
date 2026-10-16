@@ -31,7 +31,7 @@ async function world() {
   const d = mkdtempSync(join(tmpdir(), 'cadre-dm-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
   writeFileSync(join(d, 'u.txt'), 'u\n'); commit(d, 'CHANGELOG.md', skeleton(), 'chore: init'); sh(d, 'branch', 'dev')
   const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.packages = [{ root: '.', setup: ['true'], checks: { test: ['true'] } }]; cfg.jail = 'off'
-  const store = new MemoryStore(); await store.init({ types: types(), journal: false }); store.comment = async () => {}
+  const store = new MemoryStore(); await store.init({ types: types(), journal: false })
   const h = fakeHost(); Object.assign(h, { cwd: async () => d, home: async () => d, run, config: async () => cfg, taskStore: async () => store, stat: async p => (existsSync(p) ? { kind: 'dir', realPath: p } : undefined),
     readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } }, write: async (p, t) => writeFileSync(p, t) })
   await h.secret.update(x => ({ ...x, session: 's1' }))

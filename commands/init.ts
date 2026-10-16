@@ -17,9 +17,8 @@ import { spec } from '../agents'
 import * as D from '../core/discover'
 import { realRoot, setPolicy } from '../policy/guards'
 import { wtRootOf } from '../core/branches'
-import { EXCLUDE_NEW, excludeFile, legacy } from '../task-management/adapters/beads/layout'
 
-// The beads TaskStore factory (register.ts wires it). The default refuses loudly.
+// The TaskStore factory (register.ts wires it). The default refuses loudly.
 export const wire: { store(h: Host, cfg: Config, root: string): Promise<TaskStore> } = {
   store: async () => { throw new StoreError('Unavailable', 'task store not wired') },
 }
@@ -36,7 +35,12 @@ export const scoped = async (h: Host, name: string) => `cadre:${repoKeyOf(await 
 const git = (c: Ctx, ...a: string[]) => c.h.run(['git', ...a], { cwd: c.root })
 const readJ = async (h: Host, p: string): Promise<J> => { const t = await h.readText(p); try { return t ? JSON.parse(t) : {} } catch { return {} } }
 const union = (a: unknown, b: string[]) => [...new Set([...(Array.isArray(a) ? a : []), ...b])]
-const EXCLUDE = ['.claude/settings.local.json']   // plus the store lines: layout.EXCLUDE_NEW, or .beads/ in a repo that still has it
+const EXCLUDE = ['.cadre/state/', '.claude/settings.local.json']   // the task store, Claude Code's local settings
+// .git/info/exclude path and its lines
+async function excludeFile(h: Host, root: string): Promise<{ path: string; have: string[] }> {
+  const p = (await h.run(['git', 'rev-parse', '--git-path', 'info/exclude'], { cwd: root })).stdout.trim(), path = p.startsWith('/') ? p : `${root}/${p}`
+  return { path, have: ((await h.readText(path)) ?? '').split('\n') }
+}
 
 // ---- the phases, in guide order; each answers null (done) or why not ----
 async function repo(c: Ctx): Promise<string | null> {
@@ -45,8 +49,7 @@ async function repo(c: Ctx): Promise<string | null> {
   const { main, dev } = c.cfg.branches
   if (!main) return 'branches.main is not set in .cadre/config.json'
   for (const b of [main, dev]) if ((await git(c, 'rev-parse', '--verify', b)).exitCode) return `branch ${b} is missing`
-  const ex = (await git(c, 'rev-parse', '--git-path', 'info/exclude')).stdout.trim(), have = ((await c.h.readText(ex.startsWith('/') ? ex : `${c.root}/${ex}`)) ?? '').split('\n')
-  const miss = [...(await legacy(c.h, c.root) ? ['.beads/'] : EXCLUDE_NEW), ...EXCLUDE].filter(w => !have.includes(w)); return miss.length ? `.git/info/exclude lacks ${miss.join(' and ')}` : null
+  const { have } = await excludeFile(c.h, c.root), miss = EXCLUDE.filter(w => !have.includes(w)); return miss.length ? `.git/info/exclude lacks ${miss.join(' and ')}` : null
 }
 async function store(c: Ctx): Promise<string | null> {
   try { const p = await (await wire.store(c.h, c.cfg, c.root)).probe(); return !p.ok ? `task store not ready: ${p.detail.slice(0, 120)}` : p.journal ? null : 'task store journal is off' }
@@ -120,7 +123,7 @@ export async function confirm(h: Host): Promise<string> {
   await setPolicy(h, { repo: p.real, wtRoot: p.wt, home: c.home })   // the band follows on the tick (policy/containment.heal): the session reads the new file a moment later
   await h.ui.update(({ 'init.pending': _p, ...u }) => u); await settle(h, 'init:5')
   await h.board.update(b => ({ ...b, init: [...b.init.filter(i => i.stage !== 5), { stage: 5, state: 'done' }] }))
-  await restoreIgnore(h); const sha = await commitSetup(c).catch(() => null)
+  const sha = await commitSetup(c).catch(() => null)
   return `init: safety settings written${sha ? ' · setup committed' : ''}`
 }
 
@@ -140,16 +143,6 @@ export async function commitSetup(c: Pick<Ctx, 'h' | 'root' | 'cfg'>): Promise<s
     if (!(await g('merge-base', '--is-ancestor', old, head)).exitCode) await g('update-ref', `refs/heads/${other}`, head, old)
     return head
   })
-}
-// bd init adds its own block to the root .gitignore (creating it if absent; no option turns that off while the store is inside the repo, and .git/info/exclude
-// already hides the store). commands/agentrun snapshots the file when an init run starts with no task store yet; this puts it back byte-exact (gone if it was absent).
-export const BD_BLOCK = '# Beads / Dolt files (added by bd init)\n.dolt/\n*.db\n.beads-credential-key\n.beads/proxieddb/\n*.gate.lock*\n'   // bd 1.3.1, verbatim
-export async function restoreIgnore(h: Host): Promise<void> {
-  const gi = (await h.secret.read()).run?.gi; if (!gi) return
-  const path = `${await h.cwd()}/.gitignore`, now = await h.readText(path), was = gi.had ? gi.text : ''
-  const onlyBd = now !== null && now.startsWith(was) && now.slice(was.length).replace(/^\n+/, '') === BD_BLOCK   // exactly what bd appends; anything else is the user's edit: never lost
-  if (now !== null && now !== was) { if (!onlyBd) await h.store.set(await scoped(h, 'gitignore.review'), true); else if (gi.had) await h.write(path, gi.text); else await h.run(['rm', '-f', path]) }
-  await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, gi: undefined } } : s))
 }
 // integration green (core/integrate): a known-red check that passes now loses its mark (the user-layer grant), recorded
 export async function clearKnownRed(h: Host, green: Red[], planId: string): Promise<void> {

@@ -1,4 +1,4 @@
-// TaskStore (DESIGN 11.1), verbatim. Core imports only this, registry.ts and protocol.ts; nothing else knows bd.
+// TaskStore (DESIGN 11.1). Core imports only this, registry.ts and protocol.ts; nothing else knows the backend (adapters/file, adapters/memory).
 import type { TypeRegistry } from './registry'
 
 export type Category = 'draft' | 'todo' | 'active' | 'review' | 'blocked' | 'done' | 'cancelled'
@@ -32,12 +32,11 @@ export interface TaskStore {
   release(id: TaskId, actor: string, why: string): Promise<void>; move(id: TaskId, to: 'review' | 'blocked', actor: string): Promise<Task>
   heartbeat(id: TaskId): Promise<void>
   update(id: TaskId, patch: Partial<Pick<Task, 'title' | 'description' | 'acceptance' | 'design' | 'priority' | 'labels'>>, actor: string): Promise<Task>
-  comment(id: TaskId, text: string, actor: string): Promise<void>
   setMeta(id: TaskId, kv: Record<string, string>, actor: string, ifRevision?: string): Promise<Task>   // ifRevision -> GuardMismatch: the lease CAS
   setExternalRef(id: TaskId, ref: string, actor: string): Promise<void>; resolveGate(gateId: TaskId, reason: string): Promise<void>
   record(kind: 'mission' | 'decision', title: string, body: string, link?: TaskId): Promise<TaskId>
   close(id: TaskId, o: { outcome: 'done' | 'cancelled'; note?: string; session?: string; ifRevision?: string }): Promise<Task>
-  control?(): Promise<{ revision: string; doc: Record<string, unknown> }>   // the one repo-wide doc (drive record, sync leases + cursors); file + memory stores
-  setControl?(patch: Record<string, unknown>, ifRevision?: string): Promise<{ revision: string; doc: Record<string, unknown> }>   // shallow merge; ifRevision -> GuardMismatch
+  control(): Promise<{ revision: string; doc: Record<string, unknown> }>   // the one repo-wide doc (drive record, sync leases + cursors); file + memory stores
+  setControl(patch: Record<string, unknown>, ifRevision?: string): Promise<{ revision: string; doc: Record<string, unknown> }>   // shallow merge; ifRevision -> GuardMismatch
   events(since?: string, limit?: number): Promise<{ head: string; events: { seq: string; op: string; id: TaskId; actor: string; status?: string; assignee?: string; category?: Category; at?: number }[] } | null>   // category/at: for the ring rebuild (core/reuse)
 }

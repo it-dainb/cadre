@@ -43,9 +43,9 @@ export const clear = async (h: Host, id: string, pre: string) => {
   for (const f of had) await emit(h, 'flag.resolved', { taskId: id, flag: f }, { taskId: id })
 }
 const end = (h: Host, agentId: string, reason: string, cause: 'done' | 'released' | 'blocked' | 'cancelled') => step(h, agentId, { type: 'end', cause, reason })
-async function record(h: Host, d: Deps, id: string, kind: string, actor: string, computed: Record<string, unknown>, claimed: Record<string, unknown> = {}) {   // 6.5: meta + comment, same text
+async function record(h: Host, d: Deps, id: string, kind: string, actor: string, computed: Record<string, unknown>, claimed: Record<string, unknown> = {}) {   // 6.5: the record rides the task's meta
   const text = comment({ schemaVersion: 1, kind, taskId: id, at: await h.now(), actor, computed, claimed } as Rec)
-  await d.store.setMeta(id, { [`cadre.rec.${kind}`]: text.slice(0, 1800) }, d.actor); await d.store.comment(id, text, d.actor)
+  await d.store.setMeta(id, { [`cadre.rec.${kind}`]: text.slice(0, 1800) }, d.actor)
 }
 const pipe = (d: Deps) => pipeOf(d.reg)
 // a resolve task (core/rebase.resolveTask) takes the other side's protected files (its changelog) as they are: those are not its edits

@@ -8,6 +8,7 @@ test('session.start: no $.agent.register (agents are plugin files, A28), /cadre 
   on('agent.register', ($, e) => { agents.push(e); return { value: undefined } })
   on('command.register', ($, e) => { commands.push(e); return { value: undefined } })
   on('env.set', ($, e) => { env.push(`${e.name}=${e.value}`); return { value: undefined } })
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined }))   // the task store's sh calls succeed with nothing stored
   const clock = mock.clock(on)
   await $.session.start(START)
   expect(agents).toEqual([])
@@ -35,6 +36,7 @@ test('every slot is a pass-through until its owner fills it: tool.call, tool.che
   on('tool.check', () => ({ decision: 'allow' }))
   on('prompt.submit', ($, e) => { seen.push('prompt'); return { text: e.text } })
   on('command.run', () => ({ text: 'engine' })); on('fs.read', () => ({ value: '{}' }))   // an initialised repo: .cadre/config.json exists
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined }))   // the task store's sh calls succeed with nothing stored
   expect(await $.tool.call({ tool: 'Read', file_path: '/w/a.ts' })).toEqual({ result: 'ok' })
   expect((await $.prompt.submit({ text: 'hello' })).text).toBe('hello')
   expect((await $.command.run({ command: 'cadre', args: 'status' })).text).toBe("that's answered in the dialog now: press 1 on the band or run /cadre")   // commands/cadre.run is filled: it answers itself (ADR 0011: old subcommands are buttons)
@@ -45,6 +47,7 @@ test('dormant until init: main keeps Bash and Edit, status says so; once .cadre/
   let inited = false
   on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined })); on('env.get', () => ({ value: undefined })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' }))
   on('fs.read', () => { if (!inited) throw new Error('ENOENT'); return { value: '{}' } }); on('fs.stat', () => ({ value: undefined }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined }))   // the task store's sh calls succeed with nothing stored
   on('tool.call', () => ({ result: 'ran' })); on('tool.check', () => ({ decision: 'allow' })); on('command.run', () => ({ text: 'engine' }))
   expect(await $.tool.call({ tool: 'Bash', command: 'ls' })).toEqual({ result: 'ran' })
   expect(await $.tool.call({ tool: 'Edit', file_path: '/work/a.ts' })).toEqual({ result: 'ran' })

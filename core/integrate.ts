@@ -79,7 +79,6 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
     if (ep) { await setPlan(h, 'fail'); if (flag) await stopEpic(h, epicId, why.slice(0, 200)); else await mirror(h, store, await registryOf(h)); return why }   // an epic: the milestone goes on; a 2nd red or a conflict stops this epic only
     await setPlan(h, 'fail', flag ? { flags: [...(p.flags ?? []).filter(f => f !== 'integration-failed'), 'integration-failed'] } : {})
     if (flag) await emit(h, 'flag.raised', { taskId: epicId, flag: 'integration-failed' })
-    await store.comment(epicId, `integration ${flag ? 'failed' : 'refused'}: ${why}`, 'cadre').catch(() => {})
     return why
   }
   try {

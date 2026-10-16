@@ -1,4 +1,4 @@
-// Model-visible text only (DESIGN 6.5): beads comment, commit message (CCm), result card (6.4), TaskGet text, main context line (4.5).
+// Model-visible text only (DESIGN 6.5): the task record, commit message (CCm), result card (6.4), TaskGet text, main context line (4.5).
 // Renderers read only records, the model view and Tasks; the band, toasts and pane are ui/'s.
 import type { Snapshot, SnapTask } from '../types'
 import type { Task } from '../task-management/store'
@@ -7,7 +7,7 @@ export interface Rec { schemaVersion: 1; kind: string; taskId: string; at: numbe
 const val = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v))
 const kv = (o: Record<string, unknown>) => Object.entries(o).map(([k, v]) => `${k}: ${val(v)}`)
 
-// canonical record -> beads comment: `[cadre:<kind> v1]` header, then computed facts, then what the agent claimed
+// canonical record -> the task's cadre.rec.<kind> meta: `[cadre:<kind> v1]` header, then computed facts, then what the agent claimed
 export const comment = (r: Rec): string =>
   [`[cadre:${r.kind} v${r.schemaVersion}] ${r.taskId} @${r.at} by ${r.actor}`, ...kv(r.computed), ...(Object.keys(r.claimed).length ? ['claimed:', ...kv(r.claimed).map(l => `  ${l}`)] : [])].join('\n')
 
@@ -19,7 +19,7 @@ export const commitMessage = (c: Commit): string => {
   return [head, ...(c.summary ? [c.summary] : []), foot.join('\n')].join('\n\n')
 }
 
-// result card, fixed ≤600 chars: TASK bd-a1 "Add login" · worker → review · green ✓ (test 41s) · files 4 (+120 −30) · commit 1a2b3c4 · $0.41 (cache 91%) · flags: none · next: …
+// result card, fixed ≤600 chars: TASK c-a1 "Add login" · worker → review · green ✓ (test 41s) · files 4 (+120 −30) · commit 1a2b3c4 · $0.41 (cache 91%) · flags: none · next: …
 export interface Card { id: string; title: string; role: string; to: string; green?: { ok: boolean; check: string; secs: number }; files?: number; add?: number; del?: number; commit?: string; usd?: number; cachePct?: number; flags?: string[]; next: string }
 // an agent that stopped without calling report: the mod resumes it right after its stop (core/reuse drain, live: ~2 s), so main must not spawn it again and must not end the turn (a headless run would end with it)
 export const noReportCard = (t: { id: string; title: string; flags?: string[] }, role: string, step: string): string =>
@@ -62,7 +62,7 @@ export function taskText(t: Task, st?: SnapTask): string {
 // main's context line (DESIGN 4.5), ≤1 KB: `plan p3 approved · epic/p3-auth · ready: a1 a4 · running: a2(w) a3(r) · a5 review✓ · a6 blocked · sync: pm offline (4)` + `next:`
 const LETTER: Record<string, string> = { tester: 't', worker: 'w', reviewer: 'r', explorer: 'e' }
 const closed = (t?: SnapTask) => t?.state === 'done' || t?.state === 'cancelled'
-// ready, derived from the snapshot alone (bd ready is the truth; this is only for the hint): todo + every blocking dep satisfied
+// ready, derived from the snapshot alone (the store's ready() is the truth; this is only for the hint): todo + every blocking dep satisfied
 const isReady = (t: SnapTask, all: SnapTask[]) => t.state === 'todo' && t.deps.every(d => (d.type === 'conditional-blocks' ? all.find(x => x.id === d.id)?.state === 'cancelled' : closed(all.find(x => x.id === d.id))))
 // idle: active tasks at an agent step with no agent bound for it (session.idleOf), e.g. right after the tester reported. Not running; next names the step.
 export function contextLine(s: Omit<Snapshot, 'seq' | 'cost'>, idle: string[] = []): string {

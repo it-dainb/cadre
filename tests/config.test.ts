@@ -10,7 +10,7 @@ describe('defaults (DESIGN 12)', () => {
   test('golden values', async () => {
     const d = defaults()
     expect([d.strictness, d.mcpAllow, d.jail, d.effectCheck, d.roles.testerView, d.roles.tdd.author]).toEqual(['strict', [], 'auto', 'auto', 'view', 'separate'])
-    expect([d.store.bin, d.store.timeoutMs, d.drive, d.cost.clearHintPct, d.cost.compactPct]).toEqual(['bd', 45000, { mode: 'auto', spawn: 'mod', maxTurns: 100, maxCostUsd: 20, maxWallMinutes: 240, noProgressTurns: 3 }, 40, 60])
+    expect([d.store.kind, d.drive, d.cost.clearHintPct, d.cost.compactPct]).toEqual(['file', { mode: 'auto', spawn: 'mod', maxTurns: 100, maxCostUsd: 20, maxWallMinutes: 240, noProgressTurns: 3 }, 40, 60])
     expect([d.maxParallel, d.review.maxRework, d.reuse, d.review, d.limits.reportRetries, d.roles.reviewer.byRisk.thorough, d.ui.glyphs, d.branches.dev, d.branches.epicPrefix, d.release.onEpicDone, d.changelog.path])
       .toEqual([3, 3, { maxContextPct: 60, cacheTtlMs: 3_600_000 }, { ...d.review }, 3, { model: 'opus', effort: 'high', escalate: { after: 0, model: 'opus', effort: 'high' } }, 'unicode', 'dev', 'epic/', 'propose', 'CHANGELOG.md'])
     expect(Object.keys((d.types as object))).toEqual(['feature', 'bug', 'refactor', 'docs', 'test', 'spike'])
@@ -22,8 +22,8 @@ describe('defaults (DESIGN 12)', () => {
 describe('classes', () => {
   test('S / U / O by longest prefix', async () => {
     for (const k of ['strictness', 'mcpAllow', 'jail', 'jailWritable', 'effectCheck', 'roles.testerView']) expect(classOf(k)).toBe('S')
-    for (const k of ['adapters.pm.command', 'store.bin', 'store.kind', 'worktrees.root', 'drive.maxTurns', 'cost.prices', 'disable']) expect(classOf(k)).toBe('U')
-    for (const k of ['store.timeoutMs', 'changelog.path', 'cost.clearHintPct', 'types', 'packages', 'sync.pm', 'review.maxRework', 'maxParallel', 'ui.glyphs', 'roles.worker.tier', 'roles.tdd.author', 'models.fast']) expect(classOf(k)).toBe('O')
+    for (const k of ['adapters.pm.command', 'store.kind', 'worktrees.root', 'drive.maxTurns', 'cost.prices', 'disable']) expect(classOf(k)).toBe('U')
+    for (const k of ['changelog.path', 'cost.clearHintPct', 'types', 'packages', 'sync.pm', 'review.maxRework', 'maxParallel', 'ui.glyphs', 'roles.worker.tier', 'roles.tdd.author', 'models.fast']) expect(classOf(k)).toBe('O')
   })
   test('tighten: bool takes only the strict value, enum the stricter, list the intersection', async () => {
     expect(tighten('jail', 'auto', 'on')).toBe('on')
@@ -59,11 +59,11 @@ describe('layers', () => {
     const r = resolve([user({ strictness: 'advisory', roles: { testerView: 'full' } })])
     expect([r.config.strictness, r.config.roles.testerView]).toEqual(['advisory', 'full'])
   })
-  test('repo cannot set U keys but can set O siblings (store.timeoutMs vs store.bin)', async () => {
-    const r = resolve([repo({ store: { bin: '/evil/bd', timeoutMs: 1000 }, drive: { maxCostUsd: 9999 }, adapters: { x: { command: ['y'] } }, worktrees: { root: '/tmp' }, maxParallel: 9 })])
-    expect(r.config.store).toMatchObject({ bin: 'bd', timeoutMs: 1000 }); expect(r.config.drive.maxCostUsd).toBe(20)
+  test('repo cannot set U keys but can set O siblings (drive.maxCostUsd vs maxParallel)', async () => {
+    const r = resolve([repo({ store: { kind: 'memory' }, drive: { maxCostUsd: 9999 }, adapters: { x: { command: ['y'] } }, worktrees: { root: '/tmp' }, maxParallel: 9 })])
+    expect(r.config.store).toMatchObject({ kind: 'file' }); expect(r.config.drive.maxCostUsd).toBe(20)
     expect(r.config.adapters).toEqual({}); expect(r.config.worktrees.root).toBe(''); expect(r.config.maxParallel).toBe(9)
-    expect(r.diagnostics.sort()).toEqual(['repo: adapters: user-level only, ignored in the repo file', 'repo: drive.maxCostUsd: user-level only, ignored in the repo file', 'repo: store.bin: user-level only, ignored in the repo file', 'repo: worktrees.root: user-level only, ignored in the repo file'])
+    expect(r.diagnostics.sort()).toEqual(['repo: adapters: user-level only, ignored in the repo file', 'repo: drive.maxCostUsd: user-level only, ignored in the repo file', 'repo: store.kind: user-level only, ignored in the repo file', 'repo: worktrees.root: user-level only, ignored in the repo file'])
   })
   test('packages[].knownRed: a repo package keeps only what the user layer granted', async () => {
     const r = resolve([user({ packages: [{ root: 'a', knownRed: ['lint', 'e2e'] }] }), repo({ packages: [{ root: 'a', knownRed: ['lint', 'sneaky'], checks: { t: ['x'] } }, { root: 'b', knownRed: ['x'] }, { root: 'c' }] })])

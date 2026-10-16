@@ -17,7 +17,7 @@ export interface SnapTask {
   lane?: string                                     // 'lite' | 'lite+tdd' (ADR 0011): the pipeline variant (registry.pipeOf)
   epic?: string                                     // milestone lane (ADR 0015): the epic this task belongs to
 }
-// one epic of a milestone's roadmap (ADR 0015, core/milestone.roadmap): derived from beads at every mirror
+// one epic of a milestone's roadmap (ADR 0015, core/milestone.roadmap): derived from the store at every mirror
 export interface MEpic { id: string; title: string; branch: string; state: 'draft' | 'waiting' | 'ready' | 'planning' | 'running' | 'landed' | 'stopped'; deps: string[]; size?: number; core?: boolean; why?: string }
 export interface Plan {
   id: string; slug: string; state: PlanState; epicBranch: string; approvedAt?: number
@@ -67,9 +67,10 @@ export interface EventRing { seq: number; epics: Record<string, CadreEvent[]> } 
 export interface Secret {
   adoptTried?: boolean; active?: boolean; root?: string   // root: the main session's cwd, set at session.start
   old?: string                                          // the Claude Code version when it is older than cadre needs (commands/doctor.MIN_CC): cadre stays off
+  storeOff?: string                                     // the task store's probe failed (no hard links in .cadre/state): cadre stays off this session, Doctor says why
   tools?: { on: string[]; refused: string[] }           // the tools registered at session start, and those Claude Code refused (hooks/register; Doctor)
   session?: string                                      // this session's id (core/admission.sessionOf; resume queue key)
-  run?: { kind: 'setup' | 'init'; at: number; turns: number; follow: number; guide: string; brief?: string; snap?: Record<string, string | null>; goal?: { text: string; mode: 'auto' | 'yolo' }; gi?: { had: boolean; text: string }; tools?: number; seen?: number; busy?: boolean; stopSeen?: boolean; said?: string }   // tools: main's tool calls since the last stop refusal · seen: main's last activity · busy: a main turn is on · stopSeen: the stop check runs here · said: Claude's last words (commands/agentrun) · an agent-run setup/init (ADR 0010): started at, main turns since, follow-ups sent, the guide main follows (its folder is readable under the lease), a brief waiting to be sent (commands/agentrun.pump)
+  run?: { kind: 'setup' | 'init'; at: number; turns: number; follow: number; guide: string; brief?: string; snap?: Record<string, string | null>; goal?: { text: string; mode: 'auto' | 'yolo' }; tools?: number; seen?: number; busy?: boolean; stopSeen?: boolean; said?: string }   // tools: main's tool calls since the last stop refusal · seen: main's last activity · busy: a main turn is on · stopSeen: the stop check runs here · said: Claude's last words (commands/agentrun) · an agent-run setup/init (ADR 0010): started at, main turns since, follow-ups sent, the guide main follows (its folder is readable under the lease), a brief waiting to be sent (commands/agentrun.pump)
   goalRun?: { text: string; mode: 'auto' | 'yolo'; follow: number; on?: boolean; seen?: number; busy?: boolean; last?: string; spawned?: boolean; deep?: boolean; explored?: boolean; clarity?: Record<string, number>; rounds?: number; asked?: number; assume?: string[]; missed?: string; askTu?: string }   // clarify (ADR 0020): the explorer ran · the last clarity scores · clarity records · question rounds · yolo: the unclear dimensions the plan must list as assumed   // a `/cadre <goal>` run until its lane's step is done: on once the brief went out · follow: stop refusals · last: main's last tool · spawned: main spawned an Agent (commands/agentrun.goalStop)
   hold?: { kind: 'setup' | 'init'; files: Record<string, string | null> }   // settings changed outside cadre during a run: the bytes from before, for [r] Restore (commands/agentrun)
   ctx?: { key: string; card?: string }                  // main context: last-sent diff key; a queued one-time resume card (core/briefs)

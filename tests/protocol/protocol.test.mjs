@@ -3,14 +3,14 @@
 import '../dev/register.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { execFile, spawn } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 const { call, AdapterError } = await import('../../task-management/protocol.ts')
 const L = await import('../../task-management/sync-engine/loop.ts')
-const { MemoryStore } = await import('../../task-management/adapters/memory/store.ts')
+const { FileStore } = await import('../../task-management/adapters/file/store.ts')
 const { defaults } = await import('../../task-management/registry.ts')
 const { fakeHost } = await import('../support.ts')
 const { emit } = await import('../../core/events.ts')
@@ -30,7 +30,10 @@ const edit = (file, fn) => { const s = remote(file); fn(s); writeFileSync(file, 
 
 async function world({ adapters = { fake: adapterCfg() }, sync = { trk: { adapter: 'fake', project: 'p1', direction: 'both' } }, journal = true } = {}) {
   const file = join(mkdtempSync(join(tmpdir(), 'cadre-sync-')), 'remote.json')
-  let t = 1_700_000_000_000; const store = new MemoryStore(() => t); await store.init({ types: defaults(), journal })
+  let t = 1_700_000_000_000, r = 0
+  const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { timeout: o.timeoutMs }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
+  const fh = { run, now: async () => t, rand: (k = 16) => (++r).toString(16).padStart(k * 2, '0'), write: async (p, x) => { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, x) } }
+  const store = new FileStore(fh, join(dirname(file), 'state'), 's1'); await store.init({ types: defaults(), journal })   // the file store on real sh/ln/mv
   const config = { ...cfgDefaults(), adapters, sync }
   const files = {}, h = Object.assign(fakeHost({ t0: t, files }), { taskStore: async () => store, config: async () => config, spawn: spawner(file), run: async () => ({ exitCode: 0, stdout: 'x', stderr: '' }), cwd: async () => '/repo' })
   let n = 0; h.rand = (k = 16) => (++n).toString(16).padStart(k * 2, '0')
@@ -84,11 +87,11 @@ test('push: changed fields only by hash, idempotent across ticks, first target s
   advance(40_000); await L.tick(h); assert.deepEqual(pushes(), [1, 1], 'no change, no push')
   await store.update(ids[0], { title: 'one!' }, 'cadre/x'); advance(40_000); await L.tick(h)
   assert.deepEqual(pushes(), [2, 1]); assert.equal(Object.values(remote(file).tasks)[0].fields.title, 'one!')
-  const ctl = (await store.list({})).find(t => t.title === 'cadre-control'); assert.ok(JSON.parse(ctl.meta['cadre.sync.trk']).cursor)   // lease + cursor on the control issue
+  assert.ok((await store.control()).doc['sync.trk'].cursor)   // lease + cursor in the control doc
   assert.equal((await h.board.read()).sync[0].state, 'ok')
 })
 
-test('pull + 3-way merge: remote edit pulled (+sync, flag edited); both changed -> beads wins + remote comment + conflict; status change -> drift', async () => {
+test('pull + 3-way merge: remote edit pulled (+sync, flag edited); both changed -> local wins + remote comment + conflict; status change -> drift', async () => {
   const { h, store, file, ids, advance } = await world()
   await L.tick(h); const rid = i => Object.keys(remote(file).tasks)[i]
   edit(file, s => { s.tasks[rid(0)].fields.title = 'remote title'; s.tasks[rid(0)].etag = '9'; s.tasks[rid(0)].seq = ++s.seq })
@@ -98,21 +101,29 @@ test('pull + 3-way merge: remote edit pulled (+sync, flag edited); both changed 
   await store.update(ids[1], { title: 'local two' }, 'cadre/x')
   edit(file, s => { s.tasks[rid(1)].fields.title = 'remote two'; s.tasks[rid(1)].etag = '8'; s.tasks[rid(1)].seq = ++s.seq })
   advance(40_000); await L.tick(h)
-  const t2 = remote(file).tasks[rid(1)]; assert.equal((await store.get(ids[1])).title, 'local two'); assert.equal(t2.fields.title, 'local two'); assert.match(t2.comments[0], /beads value was kept/)
+  const t2 = remote(file).tasks[rid(1)]; assert.equal((await store.get(ids[1])).title, 'local two'); assert.equal(t2.fields.title, 'local two'); assert.match(t2.comments[0], /local value was kept/)
   assert.ok((await h.board.read()).tasks[1].flags.includes('conflict'))
   assert.equal((await store.get(ids[1])).meta['cadre.remote.title'], 'remote two', 'the pulled value is kept for /cadre resolve accept')
   edit(file, s => { s.tasks[rid(0)].fields.status = 'Closed'; s.tasks[rid(0)].etag = '10'; s.tasks[rid(0)].seq = ++s.seq })
   advance(40_000); await L.tick(h)
-  assert.ok((await store.get(ids[0])).meta['cadre.remote.status']); assert.ok((await h.board.read()).tasks[0].flags.includes('drift')); assert.equal(remote(file).tasks[rid(0)].fields.status, 'todo', 'beads wins: status pushed back')
+  assert.ok((await store.get(ids[0])).meta['cadre.remote.status']); assert.ok((await h.board.read()).tasks[0].flags.includes('drift')); assert.equal(remote(file).tasks[rid(0)].fields.status, 'todo', 'local wins: status pushed back')
 })
 
 test('lease: a live lease of another session skips the target; expired takes over', async () => {
   const { h, store, file, advance } = await world()
-  await L.tick(h); const ctl = (await store.list({})).find(t => t.title === 'cadre-control')
-  await store.setMeta(ctl.id, { 'cadre.sync.trk': JSON.stringify({ cursor: '0', lease: { session: 'other', until: (await h.now()) + 60_000 } }) }, 'x')
+  await L.tick(h); await store.setControl({ 'sync.trk': { cursor: '0', lease: { session: 'other', until: (await h.now()) + 60_000 } } })
   await store.update((await store.list({})).find(t => t.title === 'one').id, { title: 'changed' }, 'cadre/x'); advance(40_000); await L.tick(h)
   assert.equal(Object.values(remote(file).tasks)[0].fields.title, 'one', 'not pushed while another session leads')
   advance(80_000); await L.tick(h); assert.equal(Object.values(remote(file).tasks)[0].fields.title, 'changed')
+})
+
+test('the cursor survives compaction: folded past it, the next tick heals from the head and pushes what changed', async () => {
+  const { h, store, file, ids, advance } = await world()
+  await L.tick(h); const c0 = (await store.control()).doc['sync.trk'].cursor
+  for (const x of ['a', 'b', 'c']) await store.update(ids[0], { title: x }, 'cadre/x')
+  await store.compact(0); advance(40_000); await L.tick(h)
+  assert.equal(Object.values(remote(file).tasks)[0].fields.title, 'c'); assert.equal((await h.board.read()).sync[0].state, 'ok')
+  assert.ok(Number((await store.control()).doc['sync.trk'].cursor) > Number(c0))
 })
 
 test('backoff 30s -> 5 min, sync.state_changed, recovery heals', async () => {
@@ -168,9 +179,9 @@ test('guided setup: 5 confirmed diffs; project must exist (never created); mappi
   await A('project=p1'); await A('confirm')
   const m3 = await A(); assert.match(m3, /3\/5|mapping/); assert.match(m3, /"active":"In Progress"/); await A('confirm')
   const m4 = await A(); assert.match(m4, /5\/5 initial direction/); assert.equal(remote(file).writes ?? 0, 0, 'steps 1-4 never write remotely')
-  assert.match(await A('direction=push'), /control issue cadre-control: cursor init/); assert.match(await A('confirm'), /done/)
+  assert.match(await A('direction=push'), /sync cursor init \(push\)/); assert.match(await A('confirm'), /done/)
   const cfg = JSON.parse(files['/repo/.cadre/config.json']).sync.fake; assert.equal(cfg.project, 'p1'); assert.equal(cfg.direction, 'both'); assert.equal(cfg.mapping.status.done, 'Closed')
-  assert.ok((await store.list({})).some(t => t.title === 'cadre-control'))
+  assert.deepEqual((await store.control()).doc['sync.fake'], { cursor: undefined, lastHeal: 0 })
 })
 
 test('guided setup blocks: no permission / required custom field without default / unknown adapter', async () => {

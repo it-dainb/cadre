@@ -59,7 +59,7 @@ export async function emit(h: Host, type: EventType, data: Record<string, unknow
 export const emptyRing = (): EventRing => ({ seq: 0, epics: {} })
 export const ofEpic = (r: EventRing, epic: string): CadreEvent[] => r.epics[epic] ?? []
 
-// Rehydrate after /clear (DESIGN 2.5): rebuild one epic's ring from beads records (+ journal). Sorted by `at`, fresh seqs, last 500.
+// Rehydrate after /clear (DESIGN 2.5): rebuild one epic's ring from the store's records (+ journal). Sorted by `at`, fresh seqs, last 500.
 // Returns the first new seq; adapters then get `reset:true` + a snapshot (level-triggered).
 export async function rebuild(h: Host, epic: string, evs: { at: number; type: EventType; data: Record<string, unknown>; taskId?: string; agentId?: string }[]): Promise<number> {
   let first = 0

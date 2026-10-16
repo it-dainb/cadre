@@ -35,7 +35,7 @@ export async function cardOf(h: Host, s: Snapshot, store?: TaskStore): Promise<{
   return { text, decisions: dec?.length ?? 0 }
 }
 
-// ---- lazy rehydrate (13.4) after /clear, /resume, a new session: board pointer + bindings from $.store, tasks from beads, then the card ----
+// ---- lazy rehydrate (13.4) after /clear, /resume, a new session: board pointer + bindings from $.store, tasks from the store, then the card ----
 const pk = async (h: Host) => `cadre:${repoKeyOf(await h.cwd())}:board`
 export async function savePointer(h: Host) {
   const s = await h.board.read()
@@ -73,7 +73,7 @@ export async function quit(h: Host): Promise<void> {
   await h.store.set(k, Object.fromEntries(Object.entries(a).filter(([, v]) => v.p !== procOf(h))))
 }
 // the session that spawned a task's current agent (admission.launch) or last renewed its claim (admission.beat); a bare number is a record from before owners were kept
-// a task an agent may still be working on. Not the claim lease: bd drops it when a task moves to review (a reviewer at work has none), live
+// a task an agent may still be working on. Not the claim lease: the store drops it when a task moves to review (a reviewer at work has none), live
 export const inFlight = (t: { category?: string }) => ['active', 'review', 'blocked'].includes(t.category ?? '')
 export async function ownerOf(h: Host, taskId: string): Promise<string | undefined> { const v = (await h.store.get(await scoped(h, `hb:${taskId}`))) as { s?: string } | number | undefined; return typeof v === 'object' ? v?.s : undefined }
 
@@ -232,7 +232,7 @@ export async function prune(h: Host): Promise<void> {
 
 // Per-repo opt-in: cadre acts only where `<repo>/.cadre/config.json` exists (init stage 1 writes it). Active is cached in the session secret; dormant re-checks (one read), so `/cadre init` takes effect without a restart.
 export async function wake(h: Host): Promise<boolean> {
-  const sec = await h.secret.read(); if (sec.old) return false   // Claude Code older than cadre needs (hooks/register.ts session.start): off, never half on
+  const sec = await h.secret.read(); if (sec.old || sec.storeOff) return false   // Claude Code older than cadre needs (hooks/register.ts session.start): off, never half on
   if (sec.active) return true
   if (!(await h.readText(`${await h.cwd()}/.cadre/config.json`)) || (await cfgOf(h)).disable) return false   // `disable`: dormant from the next session (active is cached)
   await h.secret.update(s => ({ ...s, active: true }))

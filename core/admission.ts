@@ -245,7 +245,7 @@ async function planner(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snaps
   try { return await launch(h, d, e, next, { id } as SnapTask, 'planner', await plannerBrief(h, d, s, ep), d.root, 'planner', d.root, undo, undefined) } catch (err) { await undo(); throw err }
 }
 
-// ---- lease heartbeat (8.4): the tick calls this; bd only, no hooks needed. Beats each of THIS session's bound tasks every `every` ms. ----
+// ---- lease heartbeat (8.4): the tick calls this; the store only, no hooks needed. Beats each of THIS session's bound tasks every `every` ms. ----
 export async function beat(h: Host, d: Deps, every = 120_000): Promise<void> {
   const [bind, now] = [await h.bind.read(), await h.now()]
   for (const [a, b] of Object.entries(bind)) {

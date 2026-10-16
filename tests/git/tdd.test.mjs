@@ -80,7 +80,7 @@ test('spec view golden: no source bodies, no symlinks, tdd.paths + viewInclude +
   writeFileSync(join(view, 'test/new.json'), '{}'); writeFileSync(join(view, 'notes.txt'), 'x'); writeFileSync(join(view, 'SCENARIOS.md'), 'tampered')
   const a = await V.auditView(w.h, w.d, { ...(await mkTask(w)), meta: { ...w.meta } }, view, 'ag1')
   assert.deepEqual(a.changed, ['SCENARIOS.md', 'notes.txt', 'test/new.json']); assert.deepEqual(a.outside, ['SCENARIOS.md', 'notes.txt'])
-  assert.equal(a.calls, 2); assert.equal(a.denied, 1); assert.match(w.comments.at(-1), /^\[cadre:tester-log v1\]/)
+  assert.equal(a.calls, 2); assert.equal(a.denied, 1); assert.match(a.text, /^tester audit: 3 file\(s\) changed, 2 outside tdd.paths/)
 })
 
 const tc = (name, status, text = '') => JSON.stringify({ name, status, text })
@@ -106,7 +106,7 @@ test('copy-in by path only, red passes on <failure>, specCommit + lock + advance
   assert.equal(sh(wt, 'log', '-1', '--format=%s'), 'wip(m-1): spec tests'); assert.equal(w.meta['cadre.specCommit'], sh(wt, 'rev-parse', 'HEAD'))
   assert.deepEqual(JSON.parse(w.meta['cadre.locked']), ['test/s.json']); assert.deepEqual((await policyOf(w.h)).locks['m-1'], [`${wt}/test/s.json`])
   assert.equal((await w.h.board.read()).tasks[0].step, 'worker')   // tester -> red -> worker
-  assert.equal(w.meta['cadre.step'], 'worker')   // persisted in beads too: the board is rebuilt from it after /clear
+  assert.equal(w.meta['cadre.step'], 'worker')   // persisted in the store too: the board is rebuilt from it after /clear
   // close: M/D/R of a locked file since specCommit is refused, an add is not
   const spec = w.meta['cadre.specCommit']; writeFileSync(join(wt, 'src/extra.ts'), 'x'); writeFileSync(join(wt, 'test/s.json'), tc('login ok', 'passed')); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'w')
   assert.deepEqual(await T.lockedViolations(run, wt, spec, ['test/s.json']), ['test/s.json']); assert.deepEqual(await T.lockedViolations(run, wt, spec, ['src/extra.ts']), [])

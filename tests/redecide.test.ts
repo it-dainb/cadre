@@ -6,7 +6,7 @@ import { fakeHost } from './support'
 import { plan, world } from './fixtures/native/world'
 import type { Host } from '../types'
 
-// a /clear: fresh $.state, same $.store and beads
+// a /clear: fresh $.state, same $.store and task store
 async function cleared(w: Awaited<ReturnType<typeof world>>) {
   await savePointer(w.h)
   const f = fakeHost() as Host & { logs: string[] }, k = `cadre:${repoKeyOf(await w.h.cwd())}:board`

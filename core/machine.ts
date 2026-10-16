@@ -5,7 +5,7 @@ import { emit } from './events'
 import { storeOf } from './dispatch'
 import { strictOf } from '../config/index'
 
-// A pipeline step lives in one beads task; its step decides the category. reviewer/merge = `review` (merge = review pass, awaiting close).
+// A pipeline step lives in one store task; its step decides the category. reviewer/merge = `review` (merge = review pass, awaiting close).
 export const STEP_CAT: Record<string, Category> = { tester: 'active', red: 'active', worker: 'active', green: 'active', explorer: 'active', report: 'active', reviewer: 'review', merge: 'review' }
 // flags that stop a claim, an integration and a release until the human resolves them
 export { BLOCKING } from './decide'

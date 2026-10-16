@@ -8,13 +8,10 @@ Run these and note what is missing or old:
 ```
 git --version
 git var GIT_AUTHOR_IDENT
-bd version
-command -v bd
-npm prefix -g
 bwrap --version
 socat -V
 ```
-Done when you know which of phases 2, 3 and 6 apply. Skip the ones that do not.
+Done when you know which of phases 2 and 5 apply. Skip the ones that do not.
 
 ## Phase 2: git identity
 Only if `git var GIT_AUTHOR_IDENT` failed. Ask the user with AskUserQuestion for the name and the email to commit with (offer what `git config --get user.name` or `$GIT_AUTHOR_NAME` shows, if anything). Then:
@@ -24,18 +21,11 @@ git config --global user.email "<email>"
 ```
 Done when `git var GIT_AUTHOR_IDENT` succeeds.
 
-## Phase 3: bd 1.3.0 or newer
-Only if `bd version` failed or shows an older version.
-- With npm: `npm install -g @beads/bd@latest`. If it fails with a permission error, use a prefix you own: `npm config set prefix ~/.npm-global`, add `export PATH="$HOME/.npm-global/bin:$PATH"` to your shell profile, export it in this shell too, and install again.
-- Without npm: `curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash`
-- An old `bd` in a folder under your home that comes first on PATH: `mv <that path> <that path>.cadre-old`.
-Done when `bd version` shows 1.3.0 or newer and `command -v bd` names the new one.
-
-## Phase 4: user settings
+## Phase 3: user settings
 If the message names the user settings, do not edit the file. cadre shows the change in a dialog. Tell the user: "Please confirm the user settings in the cadre dialog (press 1)."
 Done when you told the user.
 
-## Phase 5: preferences
+## Phase 4: preferences
 Ask the user with AskUserQuestion, in one round:
 - the default mode: "auto" (Claude asks you to approve each plan and the decisions it cannot make) or "yolo" (after you approve a plan, nothing is asked until it lands on dev);
 - the limits for one plan run: turns (default 100), cost in dollars (default 20), minutes (default 240). Offer "Keep the defaults";
@@ -45,10 +35,10 @@ Unlimited is the value 0.
 Then hand the answers to cadre with one TaskCreate: subject `preferences`, description `the user's choices`, metadata `{"kind": "preferences", "mode": "auto", "maxTurns": 100, "maxCostUsd": 20, "maxWallMinutes": 240, "maxParallel": 3, "maxEpics": 2}` with their values. cadre shows the change in a dialog and writes it after they confirm; do not edit any settings file. Tell the user to confirm it in the cadre dialog (press 1).
 Done when the TaskCreate was accepted.
 
-## Phase 6: what needs the password
+## Phase 5: what needs the password
 Some fixes need root (installing bubblewrap or socat, allowing bwrap to create user namespaces). cadre has written each as a script; the message you got names the line, for example `sudo sh ~/.cache/cadre/fix/socat.sh`.
 Do not run it. Give the user that one line to run in their own terminal (not with `!` here: it cannot ask for the password). Then ask with AskUserQuestion: "Did you run it?" with the options "Done" and "Skip for now".
 Done when the user answered.
 
-## Phase 7: stop
+## Phase 6: stop
 Say in two or three lines what you changed. Then stop. cadre checks everything again on its own; if something is still open you get a message naming it.

@@ -2,7 +2,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { charge, step } from '../core/lifecycle'
 import { decide, parse, route, run } from '../commands/cadre'
-import { arm, kick } from '../core/drive'
+import { arm, casDrive, kick } from '../core/drive'
 import { report } from '../core/close'
 import { drain } from '../core/reuse'
 import { resolveDeps } from '../core/admission'
@@ -12,6 +12,7 @@ import { emit } from '../core/events'
 import { BUDGET } from './fixtures/budget.generated'
 import { world } from './fixtures/native/world'
 import { fakeHost, task } from './support'
+import { MemoryStore } from '../task-management/adapters/memory/store'
 import { nextAction } from '../core/render'
 import { modelView } from '../core/board'
 import { defaults } from '../config/index'
@@ -267,4 +268,23 @@ describe('hard stops (both modes), bounds, stop/resume', () => {
     expect((await w.board()).drive.on).toBe(false); expect(w.submitted).toEqual([]); expect(w.h.toasts.join()).toContain('drive finished · 1 decision taken for you (Doctor lists them) · the release is yours')   // what was decided without the human, counted from the records
     expect((await w.board()).decisions ?? []).toEqual([])
   })
+})
+
+// the drive record lives in the store's control doc (field `drive`), CAS by revision
+const rec = (session: string) => ({ on: true, level: 'epic' as const, epicId: 'e', turns: 0, cost: 0, last: 0, sess: session, startedAt: 0, lastSeq: 0, idle: 0, lease: { session, until: 9e15 } })
+const take = (me: string) => (r: any) => (r && r.lease.session !== me && r.lease.until > 0 ? undefined : rec(me))   // arm unless another session holds a live lease
+
+test('two sessions CAS the drive record: the one that loses the revision race re-reads, sees the lease, writes nothing', async () => {
+  const store = new MemoryStore(), h = fakeHost(); await store.init({ types: {} as any, journal: false })
+  const real = store.setControl.bind(store); let raced = false
+  store.setControl = async (patch, rev) => { if (!raced) { raced = true; await real({ drive: rec('A') }) } return real(patch, rev) }   // A commits between B's read and B's write
+  expect(await casDrive(h, store, take('B'))).toMatchObject({ lease: { session: 'A' } })   // B's write lost (GuardMismatch), its retry saw A's lease
+  expect((await store.control()).doc.drive).toMatchObject({ sess: 'A', lease: { session: 'A' } })
+  expect(await casDrive(h, store, take('A'))).toMatchObject({ lease: { session: 'A' } })   // the holder renews
+})
+
+test('the record survives a new session: read back from the control doc, not from $.store', async () => {
+  const store = new MemoryStore(); await store.init({ types: {} as any, journal: false })
+  await casDrive(fakeHost(), store, take('A'))
+  expect(await casDrive(fakeHost(), store, () => undefined)).toMatchObject({ on: true, lease: { session: 'A', until: 9e15 } })
 })

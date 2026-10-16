@@ -5,10 +5,10 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from '
 import { join, relative } from 'node:path'
 
 const root = new URL('..', import.meta.url).pathname.replace(/\/$/, '')
-// `--leaks`: host paths and session ids must not be tracked anywhere (harness/out is scratch; the bd fixture is recorded output, allowed until 0.15)
+// `--leaks`: host paths and session ids must not be tracked anywhere (harness/out is scratch)
 if (process.argv.includes('--leaks')) {
   let hits = ''
-  try { hits = execFileSync('git', ['grep', '-nIE', '/home/[a-z_]|/Users[/]|[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}', '--', '.', ':!harness/out', ':!tests/fixtures/bd/contract.ts'], { cwd: root, encoding: 'utf8' }).trim() } catch {}   // git grep exits 1 on no match
+  try { hits = execFileSync('git', ['grep', '-nIE', '/home/[a-z_]|/Users[/]|[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}', '--', '.', ':!harness/out'], { cwd: root, encoding: 'utf8' }).trim() } catch {}   // git grep exits 1 on no match
   if (hits) { console.error(hits); process.exit(1) }
   process.exit(0)
 }

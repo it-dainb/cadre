@@ -20,7 +20,7 @@ export const defaults = () => ({
     planner: { model: 'sonnet', effort: 'high' },   // drafts each epic's task plan in a milestone (ADR 0021)
   },
   adapters: {} as Record<string, unknown>,
-  store: { kind: 'beads', bin: 'bd', timeoutMs: 45000 },
+  store: { kind: 'file' },                                    // .cadre/state (task-management/adapters/file)
   worktrees: { root: '' },                                    // '' = ${XDG_CACHE_HOME:-$HOME/.cache}/cadre/wt
   drive: { mode: 'auto', spawn: 'mod' as 'main' | 'mod', maxTurns: 100, maxCostUsd: 20, maxWallMinutes: 240, noProgressTurns: 3 },
   cost: { prices: null as unknown, clearHintPct: 40, compactPct: 60 },
@@ -101,8 +101,8 @@ export const REG: Record<string, Meta> = {
   'reuse.maxContextPct': m(CA, 'an agent past this context fill is not reused', N(1, 100)), 'reuse.cacheTtlMs': m(CA, 'an idle agent older than this is not reused (prompt cache gone)', N(0)),
   'cost.clearHintPct': m(CA, 'context fill that suggests /clear after an epic lands', N(1, 100)), 'cost.compactPct': m(CA, 'context fill that suggests /compact', N(1, 100)),
   'cost.prices': m(CA, '$ per Mtok per model alias, for cost in the pane', { cls: 'U', open: true }),
-  'store.kind': m(ST, 'task store (env CADRE_STORE)', { cls: 'U', opts: ['beads', 'memory'] }), 'store.bin': m(ST, 'the bd binary', { cls: 'U' }),
-  'store.timeoutMs': m(ST, 'bd call timeout (ms)', N(1000, 600_000)), adapters: m(ST, 'sync adapters: {command, credentialEnv, grants}', { cls: 'U', open: true }), sync: m(ST, 'sync targets of this repo', { open: true }),
+  'store.kind': m(ST, 'task store (env CADRE_STORE)', { cls: 'U', opts: ['file', 'memory'] }),
+  adapters: m(ST, 'sync adapters: {command, credentialEnv, grants}', { cls: 'U', open: true }), sync: m(ST, 'sync targets of this repo', { open: true }),
   'ui.glyphs': m('UI', 'unicode or ascii marks', { opts: ['unicode', 'ascii'] }), 'ui.flash': m('UI', 'flash a row when it changes'), 'ui.density': m('UI', 'row spacing', { opts: ['compact', 'normal', 'relaxed'] }),
   'ui.notify': m('UI', 'desktop notifications for what needs you', { opts: ['on', 'off'] }), 'ui.escalateAfterMs': m('UI', 'an unanswered item becomes a desktop notification after this (ms)', N(5_000, 3_600_000)),
   'roles.planner.model': m(M, 'planner (drafts the tasks of each epic of a milestone): model', { opts: MODEL }), 'roles.planner.effort': m(M, 'planner: effort', { opts: EFFORT }),

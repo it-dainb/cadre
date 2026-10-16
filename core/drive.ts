@@ -1,10 +1,9 @@
-// Drive (DESIGN 9, ADR 0013): armed at approval in both modes (auto | yolo), never before; it never answers a dialog. State on the board + beads (control issue
-// cadre-control, meta cadre.drive with lease {session, until}: A30 read-check-write), the /goal observer. Gate policy: auto pauses on the critical list and resumes
+// Drive (DESIGN 9, ADR 0013): armed at approval in both modes (auto | yolo), never before; it never answers a dialog. State on the board + the store's control doc
+// (field `drive` with lease {session, until}, CAS by revision), the /goal observer. Gate policy: auto pauses on the critical list and resumes
 // after the answer; yolo lets main decide spec changes and blocked questions (recorded) and stops where auto would ask. Hard stops in both: an agent moved a protected
 // branch, containment broke, a settings file changed, a bound. `paused` = waiting on a gate (lifts by itself); `stopped` = needs `drive resume`.
 import type { Hook, Host, Snapshot, StopCause } from '../types'
 import { StoreError, type TaskStore } from '../task-management/store'
-import { controlOf } from '../task-management/sync-engine/loop'
 import { pipeOf } from '../task-management/registry'
 import { DRIVE, ROUTES, cfgOf, mirror, registryOf, storeOf } from './dispatch'
 import { fnv1a64, idleOf, modelView, safe, sessionOf } from './board'
@@ -20,13 +19,12 @@ import { isMs, stopEpic } from './milestone'
 export const LEASE = 600_000
 export type Mode = 'auto' | 'yolo'
 interface DriveRec { on: boolean; level: 'epic'; epicId: string; mode?: Mode; stopped?: string; cause?: StopCause; ei?: Record<string, [number, number]>; turns: number; cost: number; last: number; sess: string; startedAt: number; lastSeq: number; idle: number; set?: string; cont?: string; lease: { session: string; until: number } }
-// CAS on the control issue: fn sees the current record and returns the next one (undefined = no write); a revision race retries (sync writes the same issue)
-export async function casDrive(h: Host, store: TaskStore, fn: (r: DriveRec | undefined) => DriveRec | undefined): Promise<DriveRec | undefined> {
-  const ctl = await controlOf(h, store)
+// CAS on the control doc: fn sees the current record and returns the next one (undefined = no write); a revision race retries (sync writes the same doc)
+export async function casDrive(_h: Host, store: TaskStore, fn: (r: DriveRec | undefined) => DriveRec | undefined): Promise<DriveRec | undefined> {
   for (let i = 0; i < 3; i++) {
-    const t = await store.get(ctl), r = t.meta['cadre.drive'] ? (JSON.parse(t.meta['cadre.drive']) as DriveRec) : undefined, n = fn(r)
+    const c = await store.control(), r = c.doc.drive as DriveRec | undefined, n = fn(r)
     if (!n) return r
-    try { await store.setMeta(ctl, { 'cadre.drive': JSON.stringify(n) }, 'cadre', t.revision); return n } catch (e) { if (!(e instanceof StoreError && e.code === 'GuardMismatch')) throw e }
+    try { await store.setControl({ drive: n }, c.revision); return n } catch (e) { if (!(e instanceof StoreError && e.code === 'GuardMismatch')) throw e }
   }
   throw new StoreError('Busy', 'drive state kept moving')
 }
@@ -64,7 +62,7 @@ const scaled = (dc: any, s: Snapshot) => { const k = s.plan?.epics?.length || 1;
 export const boundOf = (r: DriveRec, dc: any, cost: number, idle: number, now: number): string | null =>
   r.turns >= dc.maxTurns ? `max turns ${dc.maxTurns}` : cost >= dc.maxCostUsd ? `cost $${cost} ≥ $${dc.maxCostUsd}` : now - r.startedAt > dc.maxWallMinutes * 60_000 ? `max ${dc.maxWallMinutes} min` : idle >= dc.noProgressTurns ? `no progress in ${idle} turns` : null
 
-// a decision drive (or main under yolo) took without the human: a beads decision record linked to the plan + `drive.decided` for Activity and Doctor
+// a decision drive (or main under yolo) took without the human: a decision record linked to the plan + `drive.decided` for Activity and Doctor
 export async function decided(h: Host, kind: 'spec' | 'question' | 'rework' | 'integration' | 'flag' | 'rebase' | 'resolve' | 'plan', text: string, taskId?: string): Promise<void> {
   const s = await h.board.read(), store = await storeOf(h)
   await store.record('decision', `${s.drive.mode ?? 'auto'}: ${text.slice(0, 80)}`, text, s.plan?.id).catch(e => h.log(`decision record failed: ${e}`))
@@ -130,7 +128,7 @@ export async function ready(h: Host): Promise<DriveRec | null> {
   if (!d.on || d.stopped || !s.epic || !s.plan) return null
   const mode: Mode = d.mode ?? 'auto'
   if (s.plan.landed || s.plan.state === 'done-on-dev' || s.plan.state === 'released') {   // computed done: integration landed it on dev with its changelog (3.9, plan.landed)
-    const store = await storeOf(h), n = (await store.list({}).catch(() => [])).filter(t => t.type === 'decision' && t.meta.link === s.plan!.id && /^(auto|yolo): /.test(t.title)).length   // the beads records outlive the event ring
+    const store = await storeOf(h), n = (await store.list({}).catch(() => [])).filter(t => t.type === 'decision' && t.meta.link === s.plan!.id && /^(auto|yolo): /.test(t.title)).length   // the store's records outlive the event ring
     const took = n ? ` · ${n} decision${n === 1 ? '' : 's'} taken for you (Doctor lists them)` : ''
     await h.board.update(x => ({ ...x, drive: { ...x.drive, on: false, paused: undefined } })); await driveEvent(h, 'finished', `landed on dev${took}${mode === 'yolo' ? '; the release is yours' : ''}`)
     await casDrive(h, store, r => r && { ...r, on: false, lease: { session: '', until: 0 } })

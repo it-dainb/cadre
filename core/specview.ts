@@ -92,6 +92,5 @@ export async function auditView(h: Host, d: Deps, task: Task, view: string, agen
   const log = agentId ? ((await h.store.get(lk(agentId))) as Call[] | undefined) ?? [] : [], denied = log.filter(c => c.outcome !== 'ok').length
   const text = `tester audit: ${changed.length} file(s) changed, ${outside.length} outside tdd.paths${outside.length ? ` (${outside.slice(0, 5).join(', ')})` : ''}; ${log.length} call(s), ${denied} refused`
   if (agentId) await h.store.del(lk(agentId))
-  await d.store.comment(task.id, `[cadre:tester-log v1] ${text}`, d.actor)
   return { changed, outside, calls: log.length, denied, text }
 }

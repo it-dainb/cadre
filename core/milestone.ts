@@ -18,7 +18,7 @@ export const isMs = (p?: Plan | null): boolean => p?.lane === 'milestone'
 export const branchOf = (s: Pick<Snapshot, 'plan'>, t?: { epic?: string }): string => (t?.epic && s.plan?.epics?.find(e => e.id === t.epic)?.branch) || s.plan?.epicBranch || ''
 export const epicOf = (s: Pick<Snapshot, 'plan'>, id?: string): MEpic | undefined => s.plan?.epics?.find(e => e.id === id)
 
-// the roadmap from beads (dispatch.mirror): the milestone's epic children, their tasks, and each epic's state. A stopped epic stops the epics that wait on it;
+// the roadmap from the store (dispatch.mirror): the milestone's epic children, their tasks, and each epic's state. A stopped epic stops the epics that wait on it;
 // a waiting epic whose dependencies all landed takes a free slot (max running + planning epics; 0 = no cap)
 export async function roadmap(store: TaskStore, ms: string, max: number, prefix: string): Promise<{ epics: MEpic[]; tasks: Task[] }> {
   const kids = (await store.list({ parent: ms })).filter(t => t.type === 'epic' && t.category !== 'cancelled').sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }))

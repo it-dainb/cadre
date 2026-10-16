@@ -12,15 +12,13 @@ import { policyOf } from '../policy/guards'
 import { apply as mapply, plan as mplan } from '../policy/settings'
 import { call } from '../task-management/protocol'
 import { openPane } from '../ui/index'
-import { BD_BLOCK, progress, scoped, type Item } from './init'
+import { progress, scoped, type Item } from './init'
 import { prefsItem, prefsRow } from './prefs'
 import { doctorRows } from '../config/route'
 import { runOf } from '../core/lifecycle'
-import { BdStore } from '../task-management/adapters/beads/store'
-import { dirOf, moveStore } from '../task-management/adapters/beads/layout'
 
 export type Row = ['ok' | 'warn' | 'crit', string, string?]   // level, line, fix (a command for the human)
-const PIN = '2.1.295', EXITS = '2.1.299', STAMP = 'cadre:setup', USER_CARD = 91, STORE_CARD = 92, PATCH = { env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } }
+const PIN = '2.1.295', EXITS = '2.1.299', STAMP = 'cadre:setup', USER_CARD = 91, PATCH = { env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } }
 const ver = (s: string) => s.match(/\d+(\.\d+)+/)?.[0] ?? ''
 const atLeast = (v: string, min: string) => { const a = v.split('.').map(Number), b = min.split('.').map(Number); for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0); return true }
 // The oldest Claude Code cadre runs on: 2.1.295 added Button children (every press in the band and the pane; older builds throw "needs a label" and nothing
@@ -30,7 +28,6 @@ export const tooOld = (v: string) => !!ver(v) && !atLeast(ver(v), MIN_CC)
 export const oldLine = (v: string) => `cadre needs Claude Code ≥ ${MIN_CC}; you have ${ver(v)} · update with: claude update`
 
 // ---- machine checks (shared by setup and doctor); every probe goes through h.run so tests inject fixtures. A row's fix is the command Claude (or, for sudo, the human) runs ----
-const BD_SH = 'curl -fsSL https://raw.githubusercontent.com/gastownhall/beads/main/scripts/install.sh | bash'
 // a human-run fix is a script under <cache>/cadre/fix (0700, harmless until run); the card and the follow-up only ever show the ONE short line that runs it (ADR 0007, 0.5.1)
 export type Script = { path: string; text: string; run?: string; full?: string; exec?: true }   // run = the short line that runs it; full = the same fix as one copy-safe command
 export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; facts: Record<string, string>; scripts: Script[] }> {
@@ -53,19 +50,6 @@ export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; fact
   const id = g && !g.exitCode ? await identity(h.run, await h.env()) : undefined   // commits land on the user's branches: their own name and email, asked, never made up (ADR 0009)
   if (id?.ok) add(['ok', 'git identity set'])
   else if (id) add(['crit', 'git identity missing: commits need your name and email', 'ask for them, then git config --global user.name and user.email'])
-  const b = await r([cfg.store.bin, 'version']), bv = ver(text(b)); facts.bd = bv
-  const rev = b?.exitCode === 0 && /--if-revision/.test(text(await r([cfg.store.bin, 'update', '--help'])))
-  if (b && !b.exitCode && bv && atLeast(bv, '1.3.0')) add(['ok', `bd ${bv} (${rev ? 'if-revision supported' : 'no if-revision: read-check-write fallback'})`])
-  else {
-    const head = b && !b.exitCode && bv ? `bd ${bv} is older than 1.3.0` : `${cfg.store.bin} not found`, where = await out(['sh', '-c', 'command -v "$0"', cfg.store.bin])
-    const npm = (await r(['npm', '--version']))?.exitCode === 0, pre = npm ? await out(['npm', 'prefix', '-g']) : '', alt = pre && `${pre}/bin/${cfg.store.bin}`, av = alt && alt !== where ? ver(text(await r([alt, 'version']))) : ''
-    const mine = !!where && where.startsWith(`${await h.home()}/`)   // a stale bd in a folder the user owns: reversible move, never rm; in a system folder only the human can
-    if (where && av && atLeast(av, '1.3.0') && !bv) add(['crit', `bd at ${where} (not beads) shadows bd ${av} at ${alt}`, `restart Claude Code from a shell whose PATH has ${pre}/bin before ${where.slice(0, where.lastIndexOf('/'))}`])   // another product's bd (Bitdefender's, live 0.12.0): never removed
-    else if (where && av && atLeast(av, '1.3.0')) add(['crit', `bd ${bv} at ${where} shadows bd ${av} at ${alt}`, mine ? `mv ${where} ${where}.cadre-old` : fix('rm-bd', `removes the old bd at ${where} that shadows bd ${av} at ${alt}. Alternative without sudo: put ${pre}/bin first in PATH.`, `rm ${where}`)])
-    else if (npm) add(['crit', head, `npm install -g @beads/bd@latest${mine && bv && where !== alt ? `, then mv ${where} ${where}.cadre-old` : ''}`])
-    else if ((await r(['curl', '--version']))?.exitCode === 0) add(['crit', head, BD_SH])
-    else add(['crit', head, 'install Node.js (npm) or curl first'])
-  }
   if (mac) { facts.jail = 'none'; add(['warn', 'no bwrap on macOS: throwaway-worktree mode, network unenforced']) }
   else {
     const w = await r(['bwrap', '--version']), wv = ver(text(w)); facts.bwrap = wv; facts.jail = await jailMode(h.run)
@@ -117,7 +101,7 @@ export async function setupItems(h: Host): Promise<Item[]> {
   const p = await mplan(h, path, PATCH).catch((e: Error) => e), need = !(p instanceof Error) && p.lines.length > 0
   m.rows.push(p instanceof Error ? ['crit', `user settings unreadable: ${p.message}`] : need ? ['crit', 'user settings lack env CLAUDE_CODE_ENABLE_TODO_TOOLS="1"', 'confirm the user settings: press 1'] : ['ok', 'user settings: env CLAUDE_CODE_ENABLE_TODO_TOOLS is set'])
   await report(h, 'setup', m.rows, false)   // the run card holds the checklist; the pane's doctor tab has the rows
-  if (!m.rows.some(r => r[0] === 'crit')) await h.store.set(STAMP, { cc: m.facts.cc, bd: m.facts.bd, bwrap: m.facts.bwrap ?? '', jail: m.facts.jail, at: await h.now() })
+  if (!m.rows.some(r => r[0] === 'crit')) await h.store.set(STAMP, { cc: m.facts.cc, bwrap: m.facts.bwrap ?? '', jail: m.facts.jail, at: await h.now() })
   if (need) await proposeUser(h, p.lines, fnv1a64(p.lines.join('\n') + (p.old ?? '')))
   const home = await h.home()
   return [...m.rows.map(([l, t, f]) => ({ name: t.replaceAll(`${home}/`, '~/'), st: need && /^user settings lack/.test(t) ? 'wait' : l === 'crit' ? 'fail' : l === 'warn' ? 'warn' : 'ok', why: l === 'ok' ? undefined : f?.replace(/^! /, '').replaceAll(`${home}/`, '~/') })), await prefsItem(h)]
@@ -128,17 +112,7 @@ async function proposeUser(h: Host, lines: string[], sig: string): Promise<void>
   await h.ui.update(u => ({ ...u, 'setup.pending': sig }))
   await initPropose(h, USER_CARD, `setup user settings\n${sig}`, { title: 'setup · user settings · confirm', short: 'setup user settings', sub: 'setup', lines: ['cadre writes this after you confirm (a .bak is kept):', ...lines.map(l => `  ~/.claude/settings.json: ${l}`)] })
 }
-// An older repo keeps its task store in .beads. Moving it is never automatic: doctor shows a card (init:92); its Confirm (`setup confirm`) lands here.
-async function proposeMove(h: Host): Promise<void> {
-  if ((await h.board.read()).decisions?.some(d => d.id === `init:${STORE_CARD}`)) return
-  await initPropose(h, STORE_CARD, 'move task store', { title: 'task store · move to .cadre/store · confirm', short: 'move task store', sub: 'setup', lines: ['the task store is in .beads; cadre moves it to .cadre/store after you confirm.', 'No task may be running. If the store does not answer from its new place, it goes back.', 'By hand afterwards: BEADS_DIR=.cadre/store bd list'] })
-}
-async function moveStoreNow(h: Host): Promise<string> {
-  const root = await h.cwd(), cfg = await cfgOf(h)
-  return `setup: ${await moveStore(h, root, dir => new BdStore({ run: h.run, cwd: root, actor: 'cadre/setup', bin: cfg.store.bin, timeoutMs: cfg.store.timeoutMs, dir }))}`
-}
 export async function confirmUser(h: Host): Promise<string> {
-  if ((await h.board.read()).decisions?.some(d => d.id === `init:${STORE_CARD}`)) { await initConfirm(h, STORE_CARD); return moveStoreNow(h) }
   const was = (await h.ui.read())['setup.pending'], good = await initConfirm(h, USER_CARD), path = `${await h.home()}/.claude/settings.json`
   if (!good || !was) return 'setup: nothing pending; press 1 for the current diff'
   const p = await mplan(h, path, PATCH); if (fnv1a64(p.lines.join('\n') + (p.old ?? '')) !== was) return 'setup: the settings file changed since you saw it; nothing written'
@@ -165,15 +139,13 @@ async function project(h: Host, cfg: Config): Promise<Row[]> {
   if (!(await gitOk(h.run, root, ['rev-parse', '--git-dir']))) return [['crit', 'not inside a git repo', '/cadre init']]
   const miss = (await progress(h)).filter(s => !s.done)
   rows.push(miss.length ? ['warn', `init incomplete: ${miss.map(s => s.name).join(', ')}`, '/cadre init'] : ['ok', 'init complete'])
-  if ((await h.store.get(await scoped(h, 'gitignore.review'))) && (await h.readText(`${root}/.gitignore`))?.includes(BD_BLOCK.split('\n')[0])) rows.push(['warn', 'bd added ignore lines to .gitignore; review them', 'keep or remove the "# Beads / Dolt files" block'])   // left alone: the file changed during setup (commands/init.restoreIgnore)
   const pol = await policyOf(h), c = assess(await safe(() => h.settings(), {}), pol.repo, pol.wtRoot)
   rows.push(c.state === 'contained' ? ['ok', 'containment contained'] : ['warn', `containment degraded: ${c.why.join('; ')}`, '/cadre init'])
-  const dir = await dirOf(h, root)
-  rows.push(dir ? ['ok', 'task store: .cadre/store (by hand: BEADS_DIR=.cadre/store bd list)'] : ['warn', 'task store: .beads (older layout; by hand: bd list)', 'press 1: move it to .cadre/store in the dialog'])
-  if (!dir) await proposeMove(h)
+  for (const old of ['.beads', '.cadre/store']) if (await h.stat(`${root}/${old}`)) rows.push(['warn', `${old}: a task store from an older version; it is not read`, `finish its plans with that version, then delete ${old}`])   // clean break (0.15)
+  if (await h.store.get(`sync.control:${(await h.board.read()).repo}`)) rows.push(['warn', 'sync state from an older version is not read', 'sync starts over from a full compare'])
   let tasks: Awaited<ReturnType<Awaited<ReturnType<typeof storeOf>>['list']>> = []
-  try { const s = await storeOf(h), p = await s.probe(); rows.push(!p.ok ? ['crit', `beads: ${p.detail.slice(0, 100)}`, '/cadre init'] : p.journal ? ['ok', `beads ${p.version} reachable, journal on`] : ['warn', 'beads reachable, journal off', '/cadre init']); if (p.ok) tasks = await s.list({}) }
-  catch (e) { rows.push(['crit', `beads unreachable: ${(e as Error).message.slice(0, 100)}`, '/cadre init']) }
+  try { const s = await storeOf(h), p = await s.probe(); rows.push(!p.ok ? ['crit', `task store: ${p.detail.slice(0, 100)}`, 'cadre stays off here: put the project on a disk with hard links'] : p.journal ? ['ok', 'task store in .cadre/state, journal on'] : ['warn', 'task store journal off', '/cadre init']); if (p.ok) tasks = await s.list({}) }
+  catch (e) { rows.push(['crit', `task store unreachable: ${(e as Error).message.slice(0, 100)}`, 'cadre stays off here: put the project on a disk with hard links']) }
   if (await oldState(h, tasks)) rows.push(['warn', 'finish or cancel plans from the previous version before upgrading', 'its run state is not read: finish or cancel those plans with the previous version'])
   for (const b of [cfg.branches.main, cfg.branches.dev]) rows.push(b && await exists(h.run, root, b) ? ['ok', `branch ${b} exists`] : ['crit', `branch ${b || '(main unset)'} missing`, '/cadre init'])
   const now = await h.now(), stale = tasks.filter(t => t.assignee && ['active', 'review', 'blocked'].includes(t.category) && !leaseLive(t, now)).map(t => t.id), bound = Object.keys(await h.bind.read()).filter(k => !k.startsWith('~')).length

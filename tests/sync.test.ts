@@ -2,8 +2,6 @@ import { describe, expect, test } from 'claude-code/testing'
 import { AdapterError, call } from '../task-management/protocol'
 import { hash, merge } from '../task-management/sync-engine/merge'
 import { fakeHost, task } from './support'
-import { BdStore } from '../task-management/adapters/beads/store'
-import { EVENTS_TAIL } from './fixtures/bd/events-tail'
 import { apply } from '../core/machine'
 import { setState, syncAdd } from '../task-management/sync-engine/loop'
 import { initPropose } from '../core/dispatch'
@@ -36,19 +34,11 @@ describe('adapter protocol client', () => {
 
 describe('3-way merge', () => {
   const base = { l: { title: hash('a'), status: hash('todo') }, r: { title: hash('a'), status: hash('todo') } }
-  test('remote-only change is pulled; both changed -> conflict (beads wins); status change -> drift + resend', () => {
+  test('remote-only change is pulled; both changed -> conflict (local wins); status change -> drift + resend', () => {
     expect(merge({ title: 'a' }, { title: 'b' }, base).pull).toEqual({ title: 'b' })
     expect(merge({ title: 'x' }, { title: 'b' }, base).conflict).toEqual(['title'])
     const d = merge({ title: 'a', status: 'todo' }, { status: 'Closed' }, base); expect(d.drift).toBe(true); expect(d.next.l.status).toBeUndefined()
     expect(merge({ title: 'a' }, { title: 'a' }, base).pull).toEqual({})
-  })
-})
-
-describe('bd journal -> events (real bd 1.3.1 records)', () => {
-  test('status and assignee come from the issue snapshot; ops are create|update|close', async () => {
-    const s = new BdStore({ run: async () => ({ exitCode: 0, stdout: EVENTS_TAIL, stderr: '' }), cwd: '/r', actor: 'a' }); (s as any).journal = true
-    const ev = (await s.events('0'))!.events
-    expect(ev.map(e => [e.op, e.actor, e.status, e.assignee])).toEqual([['create', 'it-dainb', 'open', undefined], ['update', 'jira', 'open', undefined], ['update', 'jira', 'in_progress', undefined], ['update', 'jira', 'in_progress', 'bob'], ['update', 'jira', 'in_progress', 'bob'], ['update', 'jira', 'in_progress', 'bob'], ['close', 'jira', 'closed', 'bob']])
   })
 })
 

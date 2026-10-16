@@ -252,7 +252,7 @@ export async function testerDone(h: Host, d: Deps, task: Task, wt: string, view:
   await d.store.setMeta(task.id, { 'cadre.specCommit': spec, 'cadre.red': card, 'cadre.specTests': JSON.stringify(g.tests ?? []), 'cadre.locked': JSON.stringify(locked), 'cadre.testRun': use ? JSON.stringify(use) : '', ...(steps.includes('worker') ? {} : { 'cadre.sourceCommit': spec }) }, d.actor)
   const adopted = use && noTest && !pkg.checks.test && d.cfg.tdd?.testerCommand.adopt !== false ? await adopt(h, d, pkg, use, tests.map(t => t.path), task.id) : null
   for (let i = 0; i < (hasRed ? 2 : 1); i++) await apply(h, { kind: 'advance', id: task.id, at: await h.now(), actor: 'mod' }, pipe)   // tester -> red -> worker
-  const nx = (await h.board.read()).tasks.find(x => x.id === task.id)?.step; if (nx) await d.store.setMeta(task.id, { 'cadre.step': nx }, d.actor)   // beads keeps the step: a /clear rebuilds the board from it (a worker's report was refused 'active·tester')
+  const nx = (await h.board.read()).tasks.find(x => x.id === task.id)?.step; if (nx) await d.store.setMeta(task.id, { 'cadre.step': nx }, d.actor)   // the store keeps the step: a /clear rebuilds the board from it (a worker's report was refused 'active·tester')
   if (adopted) h.log(adopted)   // the human's (Activity, decisions); the tester is not told
   return { ...g, card }
 }
@@ -280,9 +280,9 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
   if (acc && !pipe(t.type, t.lane).includes('tester')) return { text: `${id}: type ${t.type} has no tester step; reject instead` }
   const r = await apply(h, acc ? { kind: 'rewind', id, at: await h.now(), actor: by, on: 'tester' } : { kind: 'unblock', id, at: await h.now(), actor: by }, pipe)
   if (!r.ok) return { text: r.error }
-  await d.store.resume(id, d.actor)   // beads follows the board out of blocked (as unblock does), or the next report cannot move it
+  await d.store.resume(id, d.actor)   // the store follows the board out of blocked (as unblock does), or the next report cannot move it
   const note = acc ? `spec change accepted: ${task!.meta['cadre.specChange'] ?? ''}` : 'spec change rejected: the locked tests stay; conform to them'
-  await d.store.setMeta(id, { 'cadre.blocked': '', 'cadre.decision': note.slice(0, 1500) }, d.actor); await d.store.comment(id, `[cadre:decision v1] ${note}`, d.actor)
+  await d.store.setMeta(id, { 'cadre.blocked': '', 'cadre.decision': note.slice(0, 1500) }, d.actor)
   const bind = await h.bind.read(), w = acc ? undefined : Object.keys(bind).find(a => !a.startsWith('~') && bind[a].taskId === id && bind[a].role === 'worker')
   if (w) await step(h, w, { type: 'resume', text: 'The spec change was rejected: the locked tests stay. Make them pass, then report done.' })   // as unblock does: the worker that asked is waiting
   return { text: acc ? `${id}: accepted; spawn it for the tester to amend the spec (new red, amended specCommit)` : w ? `${id}: rejected; the worker is resumed to conform to the locked tests` : `${id}: rejected; spawn it to resume the worker` }

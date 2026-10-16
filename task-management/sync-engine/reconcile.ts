@@ -51,7 +51,7 @@ export async function reconcile(c: Ctx, tasks: () => Promise<Task[]>, since: str
         for (const f of r.conflict) { const v = f === 'priority' ? unprio(c, rt.fields[f]) : rt.fields[f]; if (v !== undefined) keep[`cadre.remote.${f}`] = String(v) }
         if (r.drift) { const sm = Object.entries(c.t.mapping?.status ?? {}).find(([, x]) => x === rt.fields.status)?.[0]; keep['cadre.remote.status'] = sm ?? String(rt.fields.status) }
         if (Object.keys(keep).length) await c.store.setMeta(t.id, keep, `${c.actor}+sync`)
-        if (r.conflict.length) { notes.set(t.id, `cadre: ${r.conflict.join(', ')} changed on both sides; the beads value was kept`); await flag(c.h, t.id, 'conflict') }
+        if (r.conflict.length) { notes.set(t.id, `cadre: ${r.conflict.join(', ')} changed on both sides; the local value was kept`); await flag(c.h, t.id, 'conflict') }
         if (r.drift) await flag(c.h, t.id, 'drift')
         if (r.conflict.length || r.drift) touched.add(t.id)   // the pull's own writes are +sync (skipped by the journal scan): push these back this cycle
         await save(c, t.id, { ...m, rid: rt.rid, etag: rt.etag, ...r.next })

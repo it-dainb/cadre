@@ -5,7 +5,7 @@ import { modelText } from '../core/say'
 import type { Host, Secret } from '../types'
 import { fnv1a64 } from '../core/board'
 import { ask, settle } from '../core/decide'
-import { initItems, restoreIgnore, scoped, type Item } from './init'
+import { initItems, scoped, type Item } from './init'
 import { setupItems } from './doctor'
 import { LIMIT } from '../policy/guards'
 import { RUN } from '../core/dispatch'
@@ -69,8 +69,7 @@ export async function start(h: Host, k: Kind, goal?: { text: string; mode: 'auto
   const its = await items(h, k)
   if (finished(its)) { await end(h, true); await settle(h, `run:${k}`); if (goal) { await goalBrief(h, goal.text, goal.mode); return `${k}: all done · ${goal.mode === 'yolo' ? 'yolo · ' : ''}Claude plans your goal` } return `${k}: all done` }
   const guide = `${(await h.root?.()) ?? '.'}/guides/${k}.md`; await mark(h, { kind: k, ...(goal ? { goal } : {}) })
-  const gi = k === 'init' && its.find(i => i.name === 'task store')?.st !== 'ok' ? await h.readText(`${await h.cwd()}/.gitignore`) : undefined   // this run will init the task store: keep the .gitignore bytes (init.restoreIgnore)
-  await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, guide, ...(gi !== undefined ? { gi: { had: gi !== null, text: gi ?? '' } } : {}) } } : s)); await resnap(h)
+  await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, guide } } : s)); await resnap(h)
   await draw(h, k, its, 'on')
   const at0 = k === 'init' ? ` The project root is ${await h.cwd()}: start every Bash call with cd "${await h.cwd()}" && and give files there by their full path.` : ''   // a shell left in a package folder made a second .cadre there, live 0.10.0
   const who = again === undefined ? '' : 'The user chose "Let Claude try again" in the cadre dialog: go on now. '
@@ -82,7 +81,6 @@ export async function recheck(h: Host, turn = false, ended = turn): Promise<stri
   const r = (await h.secret.read()).run; if (!r) return ''
   if (await moved(h, r)) return `${r.kind}: stopped · a settings file changed · press 1`
   const k = r.kind, its = await items(h, k), fails = its.filter(i => i.st === 'fail'), turns = r.turns + (turn ? 1 : 0)
-  if (finished(its)) await restoreIgnore(h)
   if (finished(its) && r.goal) { await end(h, true); await settle(h, `run:${k}`); await goalBrief(h, r.goal.text, r.goal.mode); h.toast('init done · Claude plans your goal'); return `${k}: all done · Claude plans your goal` }   // no "all done" dialog: the plan's dialog is next
   if (finished(its)) { await end(h, true); await draw(h, k, its, 'done'); h.toast(`cadre: ${k} done`); return `${k}: all done` }
   const out = turns >= LIMIT.turns || (await h.now()) - r.at >= LIMIT.ms

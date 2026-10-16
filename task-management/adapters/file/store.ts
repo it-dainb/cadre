@@ -157,7 +157,6 @@ export class FileStore implements TaskStore {
   move(id: TaskId, to: 'review' | 'blocked', actor: string) { return this.op(JSON.stringify(['move', id, to, actor]), m => m.move(id, to, actor)) }
   heartbeat(id: TaskId) { return this.op(JSON.stringify(['hb', id]), m => m.heartbeat(id)) }
   update(id: TaskId, patch: Parameters<TaskStore['update']>[1], actor: string) { return this.op(JSON.stringify(['update', id, patch, actor]), m => m.update(id, patch, actor)) }
-  comment(id: TaskId, text: string, actor: string) { return this.op(JSON.stringify(['comment', id, text, actor]), m => m.comment(id, text, actor)) }
   setMeta(id: TaskId, kv: Record<string, string>, actor: string, ifRevision?: string) { return this.op(JSON.stringify(['meta', id, kv, actor, ifRevision]), m => m.setMeta(id, kv, actor, ifRevision)) }
   setControl(patch: Record<string, unknown>, ifRevision?: string) { return this.op(JSON.stringify(['control', patch, ifRevision]), m => m.setControl(patch, ifRevision)) }
   setExternalRef(id: TaskId, ref: string, actor: string) { return this.op(JSON.stringify(['ref', id, ref, actor]), m => m.setExternalRef(id, ref, actor)) }

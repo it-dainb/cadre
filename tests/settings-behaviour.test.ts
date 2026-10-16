@@ -15,7 +15,6 @@ import { isProt, writableJail } from '../core/git'
 import { allowlist } from '../agents/index'
 import { coverageGaps, sliceNotes } from '../core/validate'
 import { asciiOf } from '../config/index'
-import { machine } from '../commands/doctor'
 import { policyOf } from '../policy/guards'
 import { ELSEWHERE } from './fixtures/settings-proof'
 import { guideOf, nextStep } from '../core/clarify'
@@ -31,7 +30,6 @@ const stat = (files: number, lines: number, path = 'src/a.ts') => ({ paths: Arra
 const rec = { on: true, turns: 50, startedAt: 0 } as any, bound = (c: Config, cost = 5, idle = 2) => boundOf(rec, c.drive, cost, idle, 60 * 60_000)
 const B = { taskId: 't', role: 'worker', step: 'worker', worktree: '/w', sessionId: 's', ctxTokens: 120_000, startedAt: 0, lastAt: 0 } as any
 const started = async (c: Config) => { const h = host(c); await start(h); return { pol: await policyOf(h), ui: (await h.ui.read()).cfg } }
-const runs = async (c: Config) => { const seen: string[][] = []; const h = Object.assign(host(c), { run: async (a: string[]) => { seen.push(a); return { exitCode: 1, stdout: '', stderr: '' } } }); await machine(h, c).catch(() => {}); return seen.map(a => a.join(' ')).join('\n') }
 
 const VAGUE = { outcome: 0.9, scope: 0.4, acceptance: 0.5, constraints: 0.8 }
 // key -> [a non-default value, the observable]
@@ -65,14 +63,13 @@ const PROBES: Record<string, [unknown, (c: Config) => unknown]> = {
   effectCheck: ['always', async c => (await started(c)).pol.effectCheck],
   'reuse.maxContextPct': [50, c => stale(B, 1, c)], 'reuse.cacheTtlMs': [0, c => stale({ ...B, ctxTokens: 70_000 }, 10, c)],
   'cost.prices': [{ haiku: { in: 1, out: 1 } }, c => usdOf({ in: 1e6, out: 0, cr: 0, cw: 0, model: 'claude-haiku-5' }, c)],
-  'store.bin': ['/opt/bd', runs],
   'ui.glyphs': ['ascii', c => asciiOf(c.ui.glyphs, {})], 'ui.flash': [false, async c => (await started(c)).ui], 'ui.density': ['compact', async c => (await started(c)).ui],
   'ui.notify': ['off', async c => (await started(c)).ui], 'ui.escalateAfterMs': [5_000, async c => (await started(c)).ui],
 }
 // read only inside a turn/hook flow that has no smaller entry point; why they are trusted is in ADR 0019 (fixed list of exceptions, kept short)
 const PLUMBING: Record<string, string> = {
   'cost.clearHintPct': 'core/reuse.drain: toast after an epic lands past this fill (one comparison)', 'cost.compactPct': 'core/reuse.drain: toast past this fill (one comparison)',
-  'store.kind': 'hooks/register wire.store: memory vs bd (tests replace wire.store, so the kit cannot call the shipped factory)', 'store.timeoutMs': 'hooks/register wire.store -> BdStore timeoutMs',
+  'store.kind': 'hooks/register wire.store: memory vs file (tests replace wire.store, so the kit cannot call the shipped factory)',
 }
 
 describe('every setting changes behaviour (ADR 0019)', () => {

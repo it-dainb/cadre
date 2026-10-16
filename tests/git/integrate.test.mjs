@@ -20,11 +20,11 @@ function world(check = ['test', '-f', 'c.txt'], jail = 'off') {
   commit(d, 'CHANGELOG.md', skeleton(), 'chore: init'); sh(d, 'branch', 'dev'); sh(d, 'branch', 'epic/p3-auth', 'dev')
   sh(d, 'checkout', '-q', 'epic/p3-auth'); commit(d, 'c.txt', 'c\n', 'feat: login'); sh(d, 'checkout', '-q', 'main')
   const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.packages = [{ root: '.', setup: ['true'], checks: { test: check } }]; cfg.jail = jail
-  const comments = [], h = fakeHost()
+  const h = fakeHost()
   Object.assign(h, { cwd: async () => d, home: async () => d, run, config: async () => cfg, readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } }, write: async (p, t) => writeFileSync(p, t),
-    taskStore: async () => ({ list: async () => [{ id: 'm-2', category: 'done', meta: { 'cadre.changelog': JSON.stringify({ category: 'Added', entry: 'Login' }) } }], comment: async (...a) => { comments.push(a) } }) })
+    taskStore: async () => ({ list: async () => [{ id: 'm-2', category: 'done', meta: { 'cadre.changelog': JSON.stringify({ category: 'Added', entry: 'Login' }) } }] }) })
   const task = (id, state = 'done') => ({ id, title: id, type: 'feature', kind: 'code', merges: true, state, step: '', phaseSince: 0, deps: [], flags: [] })
-  return h.board.update(b => ({ ...b, epic: 'p3', plan: { id: 'p3', slug: 'auth', state: 'approved', epicBranch: 'epic/p3-auth' }, tasks: [task('m-2')] })).then(() => ({ d, h, comments, task }))
+  return h.board.update(b => ({ ...b, epic: 'p3', plan: { id: 'p3', slug: 'auth', state: 'approved', epicBranch: 'epic/p3-auth' }, tasks: [task('m-2')] })).then(() => ({ d, h, task }))
 }
 
 test('integration: --no-ff merge, changelog amended in, suites green -> dev moves, landed, epic branch gone, release proposed', async () => {
@@ -38,10 +38,10 @@ test('integration: --no-ff merge, changelog amended in, suites green -> dev move
   assert.equal((await h.ui.read()).rel, '0.1.0')
   assert.deepEqual(Object.values((await h.events.read()).epics).flat().map(e => e.type).filter(t => t.startsWith('plan') || t.startsWith('release')), ['plan.landed', 'release.proposed'])
 })
-test('integration red: dev untouched, plan back to approved, integration-failed flag, comment left, throwaway gone', async () => {
-  const { d, h, comments } = await world(['false']), old = sh(d, 'rev-parse', 'dev')
+test('integration red: dev untouched, plan back to approved, integration-failed flag, throwaway gone', async () => {
+  const { d, h } = await world(['false']), old = sh(d, 'rev-parse', 'dev')
   assert.match(await integrateEpic(h, 'p3'), /root|\.:test failed/); assert.equal(sh(d, 'rev-parse', 'dev'), old)
-  const b = await h.board.read(); assert.equal(b.plan.state, 'approved'); assert.deepEqual(b.plan.flags, ['integration-failed']); assert.equal(comments.length, 1)
+  const b = await h.board.read(); assert.equal(b.plan.state, 'approved'); assert.deepEqual(b.plan.flags, ['integration-failed'])
   assert.equal(sh(d, 'worktree', 'list').split('\n').length, 1); assert.equal(sh(d, 'branch', '--list', 'epic/p3-auth').trim(), 'epic/p3-auth')
 })
 test('integration refuses: open child, git:dev flag (human commit on dev), non-approved plan', async () => {
@@ -87,7 +87,7 @@ const { MemoryStore } = await import('../../task-management/adapters/memory/stor
 const { defaults: types } = await import('../../task-management/registry.ts')
 async function driven(mode, check, extra = {}) {
   const w = await world(check), store = new MemoryStore(() => 1000); await store.init({ types: types(), journal: false })
-  const epic = await store.createEpic('auth', 'g'); store.comment = async () => {}
+  const epic = await store.createEpic('auth', 'g'); 
   Object.assign(w.h, { taskStore: async () => store })
   await w.h.board.update(b => ({ ...b, epic, plan: { ...b.plan, id: epic }, tasks: [], drive: { ...b.drive, on: true, mode, epicId: epic, ...extra } }))
   return { ...w, store, epic }

@@ -26,7 +26,7 @@ test('worktree add keeps failing: one trial per backoff step, one dialog naming 
   const d = mkdtempSync(join(tmpdir(), 'cadre-lf-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
   writeFileSync(join(d, 'u.txt'), 'u\n'); commit(d, 'CHANGELOG.md', skeleton(), 'chore: init'); sh(d, 'branch', 'dev')
   const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.packages = [{ root: '.', setup: ['true'], checks: { test: ['true'] } }]; cfg.jail = 'off'
-  const store = new MemoryStore(); await store.init({ types: types(), journal: false }); store.comment = async () => {}
+  const store = new MemoryStore(); await store.init({ types: types(), journal: false })
   let T = 0, fail = false, adds = 0
   const h = fakeHost(); Object.assign(h, { cwd: async () => d, home: async () => d, config: async () => cfg, taskStore: async () => store, now: async () => T,
     run: (argv, o) => fail && argv.includes('worktree') && argv.includes('add') ? (adds++, Promise.resolve({ exitCode: 128, stdout: '', stderr: `fatal: could not create directory '${argv.at(-2)}': No space left on device` })) : run(argv, o),

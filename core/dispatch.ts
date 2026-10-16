@@ -29,7 +29,7 @@ export const storeOf = (h: Host): Promise<TaskStore> => { const f = (h as any).t
 export { cfgOf }   // the one config read path lives in config/index (ADR 0019)
 export const registryOf = async (h: Host): Promise<TypeRegistry> => ((await cfgOf(h)).types as TypeRegistry) ?? typeDefaults()
 
-// the recorded mission (stage 3 / approve of a mission draft): the newest open milestone. A new session's board is cold, beads is the truth.
+// the recorded mission (stage 3 / approve of a mission draft): the newest open milestone. A new session's board is cold, the store is the truth.
 export async function missionOf(store: TaskStore): Promise<string | null> {
   const ms = (await store.list({})).filter(t => t.type === 'milestone' && t.category !== 'done' && t.category !== 'cancelled').sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
   return ms[0]?.title ?? null

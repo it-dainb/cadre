@@ -10,7 +10,7 @@ export function merge(local: Record<string, string>, remote: Record<string, stri
   for (const f of Object.keys(local)) {
     const lh = hash(local[f]), lc = lh !== base.l[f], rv = remote[f], rh = rv === undefined ? base.r[f] : hash(rv), rc = rv !== undefined && rh !== base.r[f]
     if (!HUMAN.includes(f)) {
-      if (f === 'status' && rc && rh !== lh) { drift = true; r[f] = rh; delete l[f] }   // beads wins: resend; flag drift
+      if (f === 'status' && rc && rh !== lh) { drift = true; r[f] = rh; delete l[f] }   // local wins: resend; flag drift
       continue
     }
     if (rc && rh === lh) { l[f] = r[f] = lh } else if (rc && lc) { conflict.push(f); r[f] = rh } else if (rc) { pull[f] = rv!; l[f] = r[f] = rh }

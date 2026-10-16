@@ -1,4 +1,4 @@
-// TaskStore contract (DESIGN 11.1): every implementation (memory now, beads later) must pass this. Not a test file: call `contract(name, make)` from one.
+// TaskStore contract (DESIGN 11.1): every implementation (memory, file) must pass this. Not a test file: call `contract(name, make)` from one.
 import { describe, expect, test } from 'claude-code/testing'
 import type { TaskStore } from '../task-management/store'
 
@@ -101,10 +101,10 @@ export function contract(name: string, make: () => TaskStore) {
       expect(await code(s.close(a.id, { outcome: 'done' }))).toBe('NotClosable')
       expect((await s.close(b.id, { outcome: 'done', ifRevision: (await s.get(b.id)).revision })).category).toBe('done')
     })
-    test('update / comment / setExternalRef / record / list filters', async () => {
+    test('update / setExternalRef / record / list filters', async () => {
       const s = await fresh(); const { e, d } = await plan(s); const a = await d('a')
       expect((await s.update(a.id, { title: 'A2', labels: ['security'], priority: 0 }, 'u'))).toMatchObject({ title: 'A2', labels: ['security'], priority: 0 })
-      await s.comment(a.id, 'hi', 'u'); await s.setExternalRef(a.id, 'pm#7', 'u'); expect((await s.get(a.id)).externalRef).toBe('pm#7')
+      await s.setExternalRef(a.id, 'pm#7', 'u'); expect((await s.get(a.id)).externalRef).toBe('pm#7')
       const m = await s.record('mission', 'M', 'goal'), dec = await s.record('decision', 'D', 'why', a.id)
       expect((await s.get(m)).type).toBe('milestone'); expect((await s.get(dec)).type).toBe('decision')
       expect((await s.list({ parent: e })).map(t => t.id)).toEqual([a.id]); expect(await s.list({ parent: e, updatedAfter: '2999-01-01' })).toEqual([])

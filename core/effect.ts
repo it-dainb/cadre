@@ -15,7 +15,7 @@ import { noReportCard } from './render'
 
 const WRITERS = ['Edit', 'Write', 'NotebookEdit', 'Bash', 'PowerShell', 'Monitor']
 export const writes = (tool: string) => WRITERS.includes(tool) || (tool.startsWith('mcp__') && !tool.startsWith('mcp__cadre__'))   // no write capability in any allowlist -> skipped
-const STATUS = ['status', '--porcelain=v2', '-z', '--', '.', ':(exclude).cadre', ':(exclude).beads', ':(exclude).claude/settings.local.json']
+const STATUS = ['status', '--porcelain=v2', '-z', '--', '.', ':(exclude).cadre', ':(exclude).claude/settings.local.json']
 const git = (h: Host, tree: string, ...a: string[]) => h.run(['git', '-C', tree, ...a])
 
 // Records of `status --porcelain=v2 -z`, keyed by the record text -> its path (a rename record owns the following origin path).

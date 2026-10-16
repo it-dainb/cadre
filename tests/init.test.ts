@@ -19,7 +19,7 @@ import { goal as goalBrief } from '../core/lanes'
 type R = { exitCode: number; stdout?: string; stderr?: string }
 const ROOT = '/repo', HOME = '/hm/u', RK = repoKeyOf(ROOT), PLUG = '/plug', CFG = `${ROOT}/.cadre/config.json`
 const PKG = { root: '.', setup: ['npm', 'ci'], checks: { test: ['npm', 'test'] }, tdd: { paths: ['test/**'] } }
-const READY = { [CFG]: JSON.stringify({ branches: { main: 'main', dev: 'dev' }, packages: [PKG] }), [`${ROOT}/.git/info/exclude`]: '.cadre/store/\n.cadre/store.gate.lock\n.claude/settings.local.json\n', [`${ROOT}/CHANGELOG.md`]: skeleton() }
+const READY = { [CFG]: JSON.stringify({ branches: { main: 'main', dev: 'dev' }, packages: [PKG] }), [`${ROOT}/.git/info/exclude`]: '.cadre/state/\n.claude/settings.local.json\n', [`${ROOT}/CHANGELOG.md`]: skeleton() }
 // bwrap answers by inner argv: `npm ci` setup, `npm test` passes, anything else is red; find lists the caches setup wrote
 const jailed = (red: string[] = []) => (argv: string[]): R | undefined => {
   if (argv[0] === 'bwrap' && !argv.includes('--')) return { exitCode: 0, stdout: argv[1] === '--help' ? '--overlay-src --tmp-overlay' : '' }   // jailMode probes
@@ -74,7 +74,7 @@ describe('init checks (ADR 0010): read-only, one per phase', () => {
   test('repository: unborn HEAD, a missing dev branch, a missing exclude line, unset main are each named', async () => {
     expect((await items(mk({ branches: [], files: READY }).h)).repository).toBe('fail: no first commit yet')
     expect((await items(mk({ branches: ['main'], files: READY }).h)).repository).toBe('fail: branch dev is missing')
-    expect((await items(mk({ files: { ...READY, [`${ROOT}/.git/info/exclude`]: '.cadre/store/\n.cadre/store.gate.lock\n' } }).h)).repository).toBe('fail: .git/info/exclude lacks .claude/settings.local.json')
+    expect((await items(mk({ files: { ...READY, [`${ROOT}/.git/info/exclude`]: '.cadre/state/\n' } }).h)).repository).toBe('fail: .git/info/exclude lacks .claude/settings.local.json')
     expect((await items(mk({ files: { ...READY, [CFG]: '{}' } }).h)).repository).toBe('fail: branches.main is not set in .cadre/config.json')
   })
   test('mission: a draft waits for the human on its card; a recorded one is read back from the store', async () => {
@@ -332,22 +332,21 @@ describe('settings watch (ADR 0010): a settings file changed outside cadre durin
 })
 
 describe('agent-run setup', () => {
-  test('bd missing: Claude gets the setup guide; once bd answers, the turn end finds everything green, stamps, ends the run', async () => {
-    const tools: Record<string, string> = { git: 'git version 2.43.0', bwrap: 'bubblewrap 0.11.0', socat: 'x', npm: '10.0.0' }
+  test('git identity missing: Claude gets the setup guide; once it is set, the turn end finds everything green, stamps, ends the run', async () => {
+    const tools: Record<string, string> = { git: 'git version 2.43.0', bwrap: 'bubblewrap 0.11.0', socat: 'x', npm: '10.0.0' }; let ident = false
     const { h, sent, tick } = mk({ files: { [`${HOME}/.claude/settings.json`]: '{"env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"}}' }, extra: argv => {
       if (argv[0] === 'git' && argv[1] === '--version') return { exitCode: 0, stdout: tools.git }
-      if (argv[0] === 'git' && argv[1] === 'var') return { exitCode: 0, stdout: 'A <a@b> 1 +0000' }
+      if (argv[0] === 'git' && argv[1] === 'var') return ident ? { exitCode: 0, stdout: 'A <a@b> 1 +0000' } : { exitCode: 128, stdout: '' }
       if (argv[0] === 'bwrap') return { exitCode: 0, stdout: argv[1] === '--help' ? '--overlay-src' : tools.bwrap }
-      if (argv[0] === 'bd') return tools.bd ? { exitCode: 0, stdout: argv[1] === 'update' ? '--if-revision' : tools.bd } : { exitCode: 127 }
       if (argv[0] === 'test' || argv[0] === 'chmod' || argv[0] === 'uname') return { exitCode: 0, stdout: argv[0] === 'uname' ? 'Linux' : '' }
       if (argv[0] in tools) return { exitCode: 0, stdout: tools[argv[0]] }
       return argv[0] === 'git' ? undefined : { exitCode: 127 }
     } })
     expect(await start(h, 'setup')).toBe('setup: Claude is on it · progress in the cadre pane'); await tick()
     expect(sent).toEqual([`Set up cadre on this machine. Follow ${PLUG}/guides/setup.md step by step.`])
-    expect((await card(h, 'run:setup'))!.lines).toContain('✗ bd not found: npm install -g @beads/bd@latest')
-    tools.bd = 'bd version 1.3.1'; await turnEnd(h, {}); await tick()   // Claude installed it with a visible Bash call
-    expect((await card(h, 'run:setup'))!.title).toBe('setup · all done'); expect((await h.secret.read()).run).toBeUndefined(); expect(await h.store.get('cadre:setup')).toMatchObject({ bd: '1.3.1' })
+    expect((await card(h, 'run:setup'))!.lines).toContain('✗ git identity missing: commits need your name and email: ask for them, then git config --global user.name and user.email')
+    ident = true; await turnEnd(h, {}); await tick()   // Claude asked and set it with a visible Bash call
+    expect((await card(h, 'run:setup'))!.title).toBe('setup · all done'); expect((await h.secret.read()).run).toBeUndefined(); expect(await h.store.get('cadre:setup')).toMatchObject({ cc: expect.any(String) })
     expect(sent).toHaveLength(1)
   })
 })
@@ -357,8 +356,8 @@ describe('guides', () => {
     const g = BUDGET.guides as Record<string, string>
     expect(Object.keys(g)).toEqual(['deep', 'goal', 'init', 'setup'])   // goal: tests/lanes.test.ts · deep: tests/clarify.test.ts
     for (const t of [g.init, g.setup]) { expect(banned(t.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, ''))).toEqual([]); expect(t).toContain('AskUserQuestion'); expect(t).not.toContain('sudo apt') }
-    expect(g.init).toContain('bd config set events-journal true'); expect(g.init).toContain('"kind": "mission"'); expect(g.init).toContain(skeleton().trim())
-    expect(g.setup).toContain('npm install -g @beads/bd@latest'); expect(g.setup).toContain('confirm the user settings'); for (const t of [g.init, g.setup]) expect(t).toContain('Never edit a Claude Code settings file'.slice(0, 10))
+    expect(g.init).toContain('creates its task store in `.cadre/state`'); expect(g.init).toContain('`.cadre/state/`'); expect(g.init).toContain('"kind": "mission"'); expect(g.init).toContain(skeleton().trim())
+    for (const t of [g.init, g.setup]) expect(t).not.toMatch(/\bbd\b|beads/i); expect(g.setup).toContain('confirm the user settings'); for (const t of [g.init, g.setup]) expect(t).toContain('Never edit a Claude Code settings file'.slice(0, 10))
   })
 })
 
@@ -474,13 +473,6 @@ describe('known red before a goal', () => {
     await initItems(h); expect(await confirm(h)).toBe('init: safety settings written · setup committed')
     expect(calls.map(a => a.join(' '))).toEqual(expect.arrayContaining(['git commit --no-verify -m chore: set up cadre -- CHANGELOG.md', 'git merge-base --is-ancestor old new', 'git update-ref refs/heads/dev new old']))
   })
-})
-
-test('the run that starts the task store keeps the .gitignore bytes (bd adds to it); a run with the store ready keeps none', async () => {
-  const a = mk({ files: { ...READY, [`${ROOT}/.gitignore`]: 'node_modules/\n' }, journal: false }); await start(a.h, 'init')
-  expect((await a.h.secret.read()).run?.gi).toEqual({ had: true, text: 'node_modules/\n' })
-  const b = mk({ files: READY, journal: false }); await start(b.h, 'init'); expect((await b.h.secret.read()).run?.gi).toEqual({ had: false, text: '' })
-  const c = mk({ files: READY }); await c.h.board.update(x => ({ ...x, plan: { id: 'm', slug: 'mission', state: 'draft', epicBranch: '' } })); await start(c.h, 'init'); expect((await c.h.secret.read()).run).toBeDefined(); expect((await c.h.secret.read()).run?.gi).toBeUndefined()
 })
 
 // live (quick tier, a folder with no git, Esc mid-setup): after setup main chose the lane, said "next is step 2" and stopped; nothing pushed it and no plan came.

@@ -20,7 +20,6 @@ import { repoKeyOf, scoped } from '../commands/init'
 import type { Binding, Host } from '../types'
 import { guard, setPolicy } from '../policy/guards'
 import { send as guardSend } from '../policy/guards'
-import { controlOf } from '../task-management/sync-engine/loop'
 
 // agents bound as admission binds them (a run record each)
 const bound = async (h: Host, m: Record<string, Binding>) => { await h.bind.update(() => ({})); for (const [a, b] of Object.entries(m)) await step(h, a, { type: 'spawn.ok', bind: b }) }
@@ -146,7 +145,7 @@ describe('compaction (8.3, S49) and rehydrate (8.2, 13.4)', () => {
     expect((await compact(h, { agentId: 'ag1', messages: [] }, (e: any) => e)).instructions).toContain(`task ${a}`)
     const bare = fakeHost(); expect(await compact(bare, { messages: [] }, () => 'engine')).toBe('engine')
   })
-  const cleared = async (h: any) => {   // a /clear: fresh $.state and session id, same $.store and beads
+  const cleared = async (h: any) => {   // a /clear: fresh $.state and session id, same $.store and task store
     const f = fakeHost() as any; Object.assign(f, { taskStore: h.taskStore, config: h.config, usage: h.usage, submit: h.submit })
     const runs = ((await h.store.get(`cadre:${repoKeyOf('/repo')}:runs`)) as string[] | undefined) ?? []   // the run records survive too
     for (const k of ['board', 'resumes', 'runs', ...runs.map(x => `run:${x}`)]) f.store.set(`cadre:${repoKeyOf('/repo')}:${k}`, await h.store.get(`cadre:${repoKeyOf('/repo')}:${k}`))
@@ -194,7 +193,7 @@ describe('compaction (8.3, S49) and rehydrate (8.2, 13.4)', () => {
   })
   test('cold board, no task store yet (init before stage 2): rehydrate is false and logs nothing', async () => {
     const f = fakeHost() as any, logs: string[] = []; f.log = (t: string) => { logs.push(t) }
-    f.taskStore = async () => ({ list: async () => { throw new Error('no beads database found') } })
+    f.taskStore = async () => ({ list: async () => { throw new Error('the store is not initialized') } })
     expect(await rehydrate(f)).toBe(false); expect(logs).toEqual([])
   })
   test('ring rebuilt from the journal (transitions) + at-stamped records (phases), fresh seqs; adapters reset; records-only without a journal', async () => {
@@ -256,9 +255,9 @@ describe('drive (9)', () => {
     usage(3); await turn(h, { reason: 'answer' }); expect((await h.board.read()).drive.costUsd).toBe(6)   // new baseline 3
     usage(9); await turn(h, { reason: 'answer' }); expect((await h.board.read()).drive.stopped).toMatch(/^cost \$12/); expect(cfg.drive.maxCostUsd).toBe(10)
   })
-  test('lease in beads: another session holding a live lease is refused and never drives', async () => {
+  test('lease in the control doc: another session holding a live lease is refused and never drives', async () => {
     const { h, store, epic, submitted } = await mk({ session: 'S1' })
-    await store.setMeta(await controlOf(h, store), { 'cadre.drive': JSON.stringify({ on: true, level: 'epic', epicId: epic, turns: 0, cost: 0, last: 0, sess: 'S2', startedAt: 1000, lastSeq: 0, idle: 0, lease: { session: 'S2', until: 9e15 } }) }, 'x')
+    await store.setControl({ drive: { on: true, level: 'epic', epicId: epic, turns: 0, cost: 0, last: 0, sess: 'S2', startedAt: 1000, lastSeq: 0, idle: 0, lease: { session: 'S2', until: 9e15 } } })
     expect(await arm(h, 'auto')).toBe('drive is held by S2')
     await h.board.update((s: any) => ({ ...s, drive: { ...s.drive, on: true } }))
     await turn(h, { reason: 'answer' })

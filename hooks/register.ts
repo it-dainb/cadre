@@ -4,7 +4,7 @@ import { modelText } from '../core/say'
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 import type { Host } from '../types'
-import { UI, emptySnapshot } from '../core/board'
+import { UI, emptySnapshot, sessionOf } from '../core/board'
 import { emptyRing, subscribe } from '../core/events'
 import { drain, meter, compact, submit } from '../core/reuse'
 import { goal, watchdog } from '../core/drive'
@@ -32,8 +32,8 @@ import { load } from '../config/index'
 import { wire, repoKeyOf, rootFor } from '../commands/init'
 import { prefsCall } from '../commands/prefs'
 import { clarifyCall, clarifyCheck } from '../core/clarify'
-import { BdStore } from '../task-management/adapters/beads/store'
-import { dirOf } from '../task-management/adapters/beads/layout'
+import { FileStore } from '../task-management/adapters/file/store'
+import { StoreError } from '../task-management/store'
 import { MemoryStore } from '../task-management/adapters/memory/store'
 
 const board = atom({ plugin: 'cadre', key: 'board' } as const, emptySnapshot())
@@ -43,13 +43,19 @@ const ui = atom({ plugin: 'cadre', key: 'ui' } as const, {})
 const git = atom({ plugin: 'cadre', key: 'git' } as const, { busy: false, epoch: 0 })
 const bind = atom({ plugin: 'cadre', key: 'bind' } as const, {})
 
-// The one TaskStore factory (init stage 2 and dispatch both use `wire.store`): memory for CADRE_STORE=memory (tests), else bd. Config is the full layered load.
+// The one TaskStore factory (init and dispatch both use `wire.store`): memory for CADRE_STORE=memory (tests), else the file store in .cadre/state, made on first use.
+// ponytail: one FileStore per call (a cold scan each); its cache must not outlive this hook's Host (L3). Cache per root if the scans show up.
 let mem: MemoryStore | undefined
+const ready = new Set<string>()   // roots whose store answered the probe this load
 wire.store = async (h, cfg, root) => {
   if (cfg.store.kind === 'memory') { if (!mem) { mem = new MemoryStore(); await mem.init({ types: cfg.types as any, journal: false }) } return mem }
   const actor = String((await h.store.get(`cadre:${repoKeyOf(root)}:actor`)) ?? '') || `cadre/${h.rand(3)}`
   await h.store.set(`cadre:${repoKeyOf(root)}:actor`, actor)
-  return new BdStore({ run: h.run, cwd: root, actor, bin: cfg.store.bin, timeoutMs: cfg.store.timeoutMs, dir: await dirOf(h, root) })
+  const s = new FileStore(h, `${root}/.cadre/state`, await sessionOf(h)); if (ready.has(root)) return s
+  const p = await s.probe()
+  if (!p.ok) { await h.secret.update(x => ({ ...x, active: false, storeOff: p.detail })); throw new StoreError('Unavailable', p.detail) }   // no activation (core/session.wake)
+  if (p.detail !== 'initialized' || !p.journal) await s.init({ types: cfg.types as any, journal: true })
+  ready.add(root); return s
 }
 
 // The repo root: the git top level above the session's project root (Claude Code started in a package folder still works on the repo), spelled from the
