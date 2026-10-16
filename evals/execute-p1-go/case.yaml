@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: execute-p1-go
-description: "DESIGN §14 real-model (b): execute the approved plan p-p1 end to end on the go fixture (tester → red → worker → green → reviewer → merge)."
+description: "DESIGN §14 real-model (b): execute the approved plan end to end on the go fixture (tester → red → worker → green → reviewer → merge)."
 tags: [cadre, pipeline, go]
 plugins: ["../.."]
 runs: 1

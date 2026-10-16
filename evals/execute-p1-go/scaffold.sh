@@ -1,6 +1,6 @@
 #!/bin/bash
 # Scaffold for the cadre eval (DESIGN §14 "Eval bootstrap"): runs in the empty sandbox cwd (home/cwd) via `plugin eval --scaffold`.
-# Copies evals/fixtures/go, writes a validated .cadre/config.json, git init + dev, and a pre-initialised .cadre/store/ holding the APPROVED plan p-p1 (kit-only approval: the human step is simulated by status open + the epic branch).
+# Copies evals/fixtures/go, writes a validated .cadre/config.json and the task-tool gate, git init + dev, and the APPROVED plan in .cadre/state (evals/seed.mjs: the human step is simulated by approving its tasks in the store, plus the epic branch).
 set -euo pipefail
 FIX="$(cd "$(dirname "$0")/../fixtures/go" && pwd)"
 cp -a "$FIX"/. .
@@ -20,20 +20,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 MD
 git init -q -b main
 git config user.email eval@example.com; git config user.name eval
-printf '.cadre/store/\n.cadre/store.gate.lock\n' >> .git/info/exclude
+printf '.cadre/state/\n.claude/settings.local.json\n' >> .git/info/exclude
+mkdir -p .claude && echo '{ "env": { "CLAUDE_CODE_ENABLE_TASKS": "false", "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1" } }' > .claude/settings.local.json   # the task-tool gate init writes
 git add -A && git commit -qm 'chore: initial commit'
-export BEADS_DIR="$PWD/.cadre/store"
-bd init --non-interactive --skip-agents --skip-hooks -p p >/dev/null
-bd config set status.custom draft:frozen,in_review:wip >/dev/null
-bd config set types.custom refactor,docs,test,spike,decision,milestone,gate >/dev/null
-bd config set events-journal true >/dev/null
-bd create --id p-p1 -t epic -s draft --title='Slug length cap' --stdin --allow-empty-description <<<'Let callers cap the length of a slug.' >/dev/null
-bd create --parent p-p1 -t feature -s draft --title='Add SlugMax' --priority=2 \
-  --acceptance=$'S1: Given the title "Hello, World!" When SlugMax is called with max 5 Then it returns "hello"\nS2: Given the title "ab cd ef" When SlugMax is called with max 3 Then it returns "ab" (no trailing dash)\nS3: Given any title When SlugMax is called with a max at least as long as the slug Then it equals the slug' \
-  --design='{"symbols":[{"name":"SlugMax","kind":"function","params":["s string","max int"],"returns":"string","status":"new"}]}' \
-  --metadata='{"cadre.package":".","cadre.changelog":"{\"category\":\"Added\",\"entry\":\"SlugMax truncates a slug to a maximum length\"}"}' --stdin --allow-empty-description <<<'Cap a slug at max characters without leaving a trailing dash.' >/dev/null
-bd update p-p1.1 -s open >/dev/null
-git add -A && git commit -qm 'chore: beads gitignore'
 git branch dev main
-git branch epic/p-p1-slug-length-cap dev
+node --experimental-transform-types --no-warnings "$(dirname "$0")/../seed.mjs" >/dev/null <<'JSON'   # the approved plan, in cadre's task store (.cadre/state), and its epic branch
+{
+ "epic": {
+  "title": "Slug length cap",
+  "goal": "Let callers cap the length of a slug."
+ },
+ "tasks": [
+  {
+   "title": "Add SlugMax",
+   "description": "Cap a slug at max characters without leaving a trailing dash.",
+   "type": "feature",
+   "acceptance": "S1: Given the title \"Hello, World!\" When SlugMax is called with max 5 Then it returns \"hello\"\nS2: Given the title \"ab cd ef\" When SlugMax is called with max 3 Then it returns \"ab\" (no trailing dash)\nS3: Given any title When SlugMax is called with a max at least as long as the slug Then it equals the slug",
+   "design": "{\"symbols\":[{\"name\":\"SlugMax\",\"kind\":\"function\",\"params\":[\"s string\",\"max int\"],\"returns\":\"string\",\"status\":\"new\"}]}",
+   "meta": {
+    "cadre.package": ".",
+    "cadre.changelog": "{\"category\":\"Added\",\"entry\":\"SlugMax truncates a slug to a maximum length\"}"
+   }
+  }
+ ]
+}
+JSON
 [ -z "$(git status --short)" ] || { echo "scaffold left a dirty tree" >&2; git status --short >&2; exit 1; }

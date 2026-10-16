@@ -39,7 +39,7 @@ Up to 0.14 main planned through Claude Code's built-in task tools (TaskCreate/Up
 - Plans in flight on 0.14 finish on 0.14. Each older project shows one "run /cadre init" toast and one confirm; the gate applies after a restart.
 - Non-cadre sessions in a set-up project also run without the built-in task tools, until the gate keys are removed from its settings by hand.
 - The spawner claims what it picks before its next await, so two turn ends at once never exceed `maxParallel` (a race found while landing this release).
-- Evaluations that scaffolded an approved plan into beads need a store seeding step before they run again; the `auto-report` evaluation is retired (its premise is gone) and the model × effort bench is retired until the quality benches after 1.0.
+- Evaluations seed their approved plan with `evals/seed.mjs` (cadre's FileStore from node; a new session adopts the plan from the store) and write the task-tool gate as init would; their prompts no longer name a plan id (ids are minted). The `auto-report` evaluation is retired (its premise is gone) and the model × effort bench is retired until the quality benches after 1.0.
 
 ## Known limits
 

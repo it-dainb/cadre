@@ -23,13 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 MD
 git init -q -b main
 git config user.email eval@example.com; git config user.name eval
-printf '.cadre/store/\n.cadre/store.gate.lock\n' >> .git/info/exclude
+printf '.cadre/state/\n.claude/settings.local.json\n' >> .git/info/exclude
+mkdir -p .claude && echo '{ "env": { "CLAUDE_CODE_ENABLE_TASKS": "false", "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1" } }' > .claude/settings.local.json   # the task-tool gate init writes
 git add -A && git commit -qm 'chore: initial commit'
-export BEADS_DIR="$PWD/.cadre/store"
-bd init --non-interactive --skip-agents --skip-hooks -p p >/dev/null
-bd config set status.custom draft:frozen,in_review:wip >/dev/null
-bd config set types.custom refactor,docs,test,spike,decision,milestone,gate >/dev/null
-bd config set events-journal true >/dev/null
-git add -A && git commit -qm 'chore: beads gitignore'
 git branch dev main
 [ -z "$(git status --short)" ] || { echo "scaffold left a dirty tree" >&2; git status --short >&2; exit 1; }
