@@ -49,6 +49,14 @@ describe('refusals name the field and say how to retry; nothing is stored', () =
     expect(err(await tool(w, 'task', { title: 'x', description: 'y', after: Array(21).fill('m-2') }))).toContain('error: after: at most 20 items, got 21')
     expect(err(await tool(w, 'task', { description: 'y' }))).toBe('error: title: required; add it and call again')
     expect(err(await tool(w, 'amend', { id: 'm-2', expectedRevision: -1, title: 'z' }))).toBe('error: expectedRevision: at least 0, got -1; fix it and call again')
+    // review 0.15 #8, #25: the nested objects are strict too (unknown keys and caps), and plan does not offer fields it always refuses
+    expect(err(await tool(w, 'task', { title: 'x', description: 'y', changelog: { category: 'Added', entry: 'e', extra: 1 } }))).toContain('error: changelog.extra: unknown field')
+    expect(err(await tool(w, 'task', { title: 'x', description: 'y', changelog: { category: 'Added', entry: 'e'.repeat(501) } }))).toContain('error: changelog.entry: at most 500 characters')
+    expect(err(await tool(w, 'task', { title: 'x', description: 'y', interface: { symbols: [{ name: 'a', kind: 'function', params: [], returns: 'v', status: 'new', note: 'x' }] } }))).toContain('error: interface.symbols[0].note: unknown field')
+    expect(err(await tool(w, 'task', { title: 'x', description: 'y', interface: { symbols: Array(51).fill({ name: 'a' }) } }))).toContain('error: interface.symbols: at most 50 items')
+    expect(err(await tool(w, 'plan', { title: 'x', description: 'y', lane: 'full', reason: 'r', notes: [{ text: 't', who: 'me' }] }))).toContain('error: notes')
+    expect(err(await tool(w, 'plan', { title: 'x', description: 'y', paths: ['a.ts'] }))).toContain('error: paths: unknown field')
+    expect(MAIN.find(t => t.name === 'plan')!.description).not.toContain('enum')
     expect((await w.store.list({})).length).toBe(before)
   })
   test('field rules: a malformed scenario names its index; no plan yet names the tool to call', async () => {

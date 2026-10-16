@@ -27,12 +27,16 @@ export const SPECS = [
 
 // Main's tools (core/plantools, commands/prefs): registered at session start only where the work is due (hooks/register); an agent's call is refused.
 // Strict schemas: checked in code (core/validate.checkInput) before anything is stored; caps refuse, never truncate.
-const L = (n: number) => ({ type: 'string', maxLength: n }), B = { type: 'boolean' }, O = { type: 'object' }, N = { type: 'integer', minimum: 0 }
+const L = (n: number) => ({ type: 'string', maxLength: n }), B = { type: 'boolean' }, N = { type: 'integer', minimum: 0 }
 const IDS = { type: 'array', maxItems: 20, items: L(64) }, LIST = (n: number, k: number) => ({ type: 'array', maxItems: n, items: L(k) })
-const TASK = { type: L(40), package: L(200), scope: L(80), breaking: B, scenarios: LIST(20, 500), changelog: O, interface: O, paths: LIST(20, 200), core: B, repro: B }
+const CHANGELOG = { type: 'object', properties: { category: L(20), entry: L(500), none: B, reason: L(300) } }   // the shape itself: validate.validateFields
+const SYMBOL = { type: 'object', properties: { name: L(200), kind: L(40), params: LIST(20, 300), returns: L(300), status: L(20) } }
+const INTERFACE = { type: 'object', properties: { symbols: { type: 'array', maxItems: 50, items: SYMBOL }, none: B, reason: L(300) } }
+const TASK = { type: L(40), package: L(200), scope: L(80), breaking: B, scenarios: LIST(20, 500), changelog: CHANGELOG, interface: INTERFACE, paths: LIST(20, 200), core: B, repro: B }
+const { paths: _p, core: _c, ...ONE } = TASK   // a one-step plan's task fields: paths and core belong to plans of 2+ tasks
 export const MAIN_SPECS = [
-  { name: 'plan', isDeferred: false, description: 'Start a plan (a draft the user approves): title, description, its size from the enum, reason (one line). A one-step plan carries its task\'s fields here. Answer: {id, plan, revision}.',
-    inputSchema: { type: 'object', additionalProperties: false, required: ['title', 'description'], properties: { kind: { type: 'string', enum: ['plan', 'mission'] }, title: L(200), description: L(8000), lane: { type: 'string', enum: ['ask', 'lite', 'full', 'milestone'] }, reason: L(300), mission: L(1000), notes: {}, assumed: LIST(5, 200), ...TASK } } },
+  { name: 'plan', isDeferred: false, description: 'Start a plan (a draft the user approves): title, description, lane (how big the work is), reason (one line). A one-step plan carries its task\'s fields here. Answer: {id, plan, revision}.',
+    inputSchema: { type: 'object', additionalProperties: false, required: ['title', 'description'], properties: { kind: { type: 'string', enum: ['plan', 'mission'] }, title: L(200), description: L(8000), lane: { type: 'string', enum: ['ask', 'lite', 'full', 'milestone'] }, reason: L(300), mission: L(1000), notes: {}, assumed: LIST(5, 200), ...ONE } } },
   { name: 'task', isDeferred: false, description: 'Add a task to the draft plan: title, description, type, package, scenarios ["S1: Given … When … Then …"], changelog, interface, paths; after: ids it waits for; epic: its epic in a milestone. Answer: {id, plan, revision}.',
     inputSchema: { type: 'object', additionalProperties: false, required: ['title', 'description'], properties: { title: L(200), description: L(8000), ...TASK, epic: L(64), after: IDS } } },
   { name: 'epic', isDeferred: false, description: 'Milestone only. Add an epic to the roadmap: title, goal, size (1-7 tasks), core?, paths?, after?. Or {id, planned:true} once its tasks are drafted. Answer: {id, plan, revision}.',
