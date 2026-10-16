@@ -93,12 +93,29 @@ for (const e of drv.filter(e => e.kind === 'press1' && offered(e.t) && e.t + 500
   const hit = dlines.find(l => bad.test(l)) ?? panes.map(p => p.text.split('\n').find(l => bad.test(l))).find(Boolean)
   if (hit) fail('errors', hit.replace(/^\S+ \[\w+\] /, ''))
 }
+// main's own tool calls that went through, from its transcript (not the agents')
+const went = (() => {
+  const ok = new Map(), calls = []
+  for (const f of walk(join(dir, 'jsonl')).filter(f => f.endsWith('.jsonl') && !f.includes('/subagents/'))) for (const l of read(f).split('\n').filter(Boolean)) {
+    let d; try { d = JSON.parse(l) } catch { continue }
+    const c = d.message?.content; if (!Array.isArray(c)) continue
+    if (d.type === 'assistant') for (const b of c) if (b.type === 'tool_use') calls.push(b)
+    if (d.type === 'user') for (const b of c) if (b.type === 'tool_result') ok.set(b.tool_use_id, !b.is_error)
+  }
+  return calls.filter(b => ok.get(b.id))
+})()
 // 6. the goal reaches the plan dialog within the turn and dialog budget
+//    main's question call is one dialog however many tabs the watcher logged (one per question), and its one clarify round (ADR 0020: at most
+//    maxQuestions in ONE call) earns its dialog on top of set up, safety settings and the plan: on haiku a clear goal may still score unclear
+//    (main's judgement; the clarify tier's CLARIFY=none judges that, not this budget)
 {
   const plan = drv.find(e => e.kind === 'plan'), until = plan?.t ?? tEnd
   // a fault the cell injected (FAULT=interrupt|kill) earns the setup's one recovery dialog ("… stopped …")
-  const faulted = drv.some(e => e.kind === 'fault'), budget = DIALOGS + (faulted && drv.some(e => e.kind === 'dialog' && /stopped/.test(e.text)) ? 1 : 0)
-  const dialogs = drv.filter(e => e.kind === 'dialog' && e.t < until).length + (plan ? 1 : 0)
+  const faulted = drv.some(e => e.kind === 'fault'); let budget = DIALOGS + (faulted && drv.some(e => e.kind === 'dialog' && /stopped/.test(e.text)) ? 1 : 0)
+  const norm = x => x.replace(/\s+/g, ' ').trim().slice(0, 40), asks = went.filter(b => b.name === 'AskUserQuestion').map(b => (b.input?.questions ?? []).map(q => norm(q.question ?? '')).filter(Boolean))
+  const seen = drv.filter(e => e.kind === 'dialog' && e.t < until).map(e => asks.findIndex(qs => qs.includes(norm(e.text)))), calls = new Set(seen.filter(i => i >= 0))
+  const dialogs = seen.filter(i => i < 0).length + calls.size + (plan ? 1 : 0)
+  budget += Math.min(1, calls.size)
   const nTurns = turns.filter(([a]) => a < until).length
   Object.assign(stats, { plan: !!plan, dialogs, turns: nTurns, secsToPlan: plan ? Math.round((plan.t - drv[0].t) / 1000) : null })
   if (!plan) fail('no-plan', `no plan dialog in ${Math.round((tEnd - drv[0].t) / 1000)} s; last screen: ${band(panes.at(-1)?.text ?? '').split('\n').filter(l => l.trim() && !/^─/.test(l)).slice(-3).join(' | ')}`)
@@ -159,14 +176,7 @@ if (wantLanded && !drv.some(e => e.kind === 'landed')) fail('not-landed', `dev: 
 // 12. clarify (CLARIFY=ask|none|assumed|deep): main's own calls before the plan, from its transcript (not the agents'): one explorer (Agent type Explore);
 //     ask: one AskUserQuestion that went through, 1-3 questions; none: no question; assumed: no question and the plan dialog lists "assumed:"; deep: 1-8 questions, one per call
 if (process.env.CLARIFY) {
-  const ok = new Map(), calls = []
-  for (const f of walk(join(dir, 'jsonl')).filter(f => f.endsWith('.jsonl') && !f.includes('/subagents/'))) for (const l of read(f).split('\n').filter(Boolean)) {
-    let d; try { d = JSON.parse(l) } catch { continue }
-    const c = d.message?.content; if (!Array.isArray(c)) continue
-    if (d.type === 'assistant') for (const b of c) if (b.type === 'tool_use') calls.push(b)
-    if (d.type === 'user') for (const b of c) if (b.type === 'tool_result') ok.set(b.tool_use_id, !b.is_error)
-  }
-  const went = calls.filter(b => ok.get(b.id)), explore = went.filter(b => b.name === 'Agent' && b.input?.subagent_type === 'Explore').length
+  const explore = went.filter(b => b.name === 'Agent' && b.input?.subagent_type === 'Explore').length
   const qs = went.filter(b => b.name === 'AskUserQuestion').map(b => b.input?.questions?.length ?? 0), want = process.env.CLARIFY
   const assumed = panes.some(p => /approve/.test(p.text) && /assumed:/.test(p.text))
   Object.assign(stats, { explorers: explore, questions: qs })
