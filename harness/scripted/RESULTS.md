@@ -39,7 +39,10 @@ No fallback is needed: (a)–(b) keep the in-harness mod (no stub endpoint), (c)
 | `auto_mode_classifier` | auto mode's permission classifier (`source=side_query`, stage `xml_s1`, sonnet, ~138k chars of system prompt), one per classified tool call (`SubagentHandback`, `Bash`; not `TaskStop` or a plugin's `Agent`) | stubbed: `<block>no</block><severity>0</severity>` = allow, so a scripted run never sees a classifier refusal |
 | `prompt_suggestion` | after a main turn, a fork of main's request (170 tools, streamed) | off: `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` (the proxy refused 33 of them in the run before) |
 
-The same side-query family (`away_summary`, `agent_summary`, `hook_prompt`) did not occur in these short runs; the proxy refuses them if they do.
+| `agent_summary` | the progress line of a background agent running > ~30 s: a fork of its transcript, streamed, asking to "Describe your most recent action in 3-5 words" (first seen in the dev-moved cell) | stubbed (streamed `Working on the task`) |
+| `usage_limit` | not a leak: the usage-limit cell's scripted worker sends one request on purpose; while `<log dir>/limit` exists the proxy answers it with a 429 and the unified rate-limit headers | injected |
+
+The rest of that side-query family (`away_summary`, `hook_prompt`) has not occurred; the proxy refuses any unstubbed request (500, logged with its shape and which known phrases its body holds, never the body), so a new kind costs nothing and shows in `effort.jsonl`.
 
 Spend: before the refusing proxy, 5 requests reached the API: 1 `quota_check` (haiku, 1 output token) and 4 `auto_mode_classifier` (sonnet,
 64 output tokens, ~35k input tokens each) in the first two auto probes; under US$0.5 at list price. Every later run: none.
