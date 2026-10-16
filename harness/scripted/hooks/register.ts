@@ -48,7 +48,7 @@ function main(rows: Row[]): Act {
     if (n('task') < 2) return { tool: T('task'), input: { ...TASKS[n('task')], ...(n('task') ? { after: [num('task', 0, /"id":\s*"([^"]+)"/)] } : {}) } }
     const b = num('task', 1, /"id":\s*"([^"]+)"/), desc = `${TASKS[1].description} Trim the input first.`
     if (!n('amend')) return { tool: T('amend'), input: { id: b, expectedRevision: +(num('plan', 0, /"revision":\s*(\d+)/) ?? 1), description: desc } }   // the revision main read at plan time: stale by now
-    if (n('amend') === 1 && (res('amend', 0)?.isError || /^error:/.test(res('amend', 0)?.text ?? '')))   // a refusal: an error result, or a result that says error return { tool: T('amend'), input: { id: b, expectedRevision: +(num('amend', 0, /expectedRevision (\d+)\D*$/) ?? 0), description: desc } }
+    if (n('amend') === 1 && /call again with expectedRevision \d+/.test(res('amend', 0)?.text ?? '')) return { tool: T('amend'), input: { id: b, expectedRevision: +(num('amend', 0, /call again with expectedRevision (\d+)/) ?? 0), description: desc } }   // refused as stale: retry with the revision it names
     return { text: 'The plan is drafted: approve it in the dialog (key 1 opens it).' }
   }
   if (script === 'full') {
