@@ -114,14 +114,15 @@ export async function prPoll(h: Host): Promise<void> {
     const sha = await tip(h.run, root, 'FETCH_HEAD')
     if (!(await landDev(h, { dev, sha, old: pr.devTip, tmp: '', epic: pr.from }))) {   // the merge is on the remote's dev, the local dev moved meanwhile: it waits as a landing onto the local commits (landPending re-integrates them through the gates)
       const held = await op(h, async () => !(await exists(h.run, root, pendingRef(dev))) && (await casRef(h.run, root, pendingRef(dev), sha, '0'.repeat(40))) && (await git(h.run, root, ['update-ref', baseRef(dev), pr.devTip]), await git(h.run, root, ['branch', '-D', pr.from]).catch(() => ''), true))
+      if (!held && (await exists(h.run, root, pendingRef(dev)))) return void h.log(`pull request #${pr.n} merged: it lands after the landing waiting on ${dev}`)   // one pending ref: the merge waits its turn (an integrate again would push an old dev the remote refuses)
       if (!held) return void (await failed(h, p!.id, `${dev} moved here while pull request #${pr.n} merged; integrate again`, false, false))
     }
     await h.run(['git', 'push', cfg.landing.remote, '--delete', pr.branch], { cwd: root }); await h.store.del(K)
     await onDev(h, p!.id, dev, sha, [])
   } catch (e) {
-    const err = (e as Error).message.slice(0, 200), n = w.err === err ? w.n + 1 : 1; h.log(`pull request #${pr.n}: ${err}`)
+    const err = (e as Error).message.slice(0, 200), same = err.replace(/[0-9a-f]{8,}|\d+/gi, '#'), n = w.err === same ? w.n + 1 : 1; h.log(`pull request #${pr.n}: ${err}`)
     if (n >= 3) return void (await red(`pull request #${pr.n}: the same error three times: ${err}`, false))
-    await h.store.set(K, { n, err, next: now + Math.min(30_000 * 2 ** n, 600_000) })
+    await h.store.set(K, { n, err: same, next: now + Math.min(30_000 * 2 ** n, 600_000) })   // request ids and times differ on each try: the same error with its numbers masked
   }
 }
 
@@ -131,6 +132,8 @@ export async function prPoll(h: Host): Promise<void> {
 // the retry finds it on the submodule's dev but not in the recorded pointer and bumps again: the bump is never lost. A milestone has no branch in a submodule:
 // its epics land on the submodule's own dev. A submodule without that dev gets it at the commit the parent records.
 // ponytail: pr mode refuses submodule changes (one pull request per repository is not built).
+// ponytail: a milestone epic moves the submodule's dev when it integrates into the milestone branch; a milestone abandoned after that leaves those commits on
+// the submodule's dev, never recorded by the parent (revert them there). Holding them until the milestone lands needs a milestone branch per submodule.
 type Sub = { root: string; sr: string; st: string; sha: string; devTip: string }
 async function subMerge(h: Host, cfg: any, root: string, tmp: string, from: string, epicId: string, pr: boolean): Promise<{ why: string; fix: boolean } | Sub[]> {
   const dev = cfg.branches.dev, out: Sub[] = []

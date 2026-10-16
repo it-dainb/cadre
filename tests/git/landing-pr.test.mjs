@@ -17,7 +17,7 @@ const commit = (d, f, body, msg) => { writeFileSync(join(d, f), body); sh(d, 'ad
 // the stub: pr create/view/checks/merge read and write $GHSTATE; merge does a --no-ff merge into dev on the bare remote
 const GH = `#!/bin/sh
 S=$GHSTATE
-echo "$1 $2" >> $S/calls; [ -f $S/broken ] && [ "$1" = pr ] && { echo "HTTP 502" >&2; exit 1; }
+echo "$1 $2" >> $S/calls; [ -f $S/flaky ] && [ "$1" = pr ] && { echo "HTTP 502 (request id $$:$(date +%s%N))" >&2; exit 1; }; [ -f $S/broken ] && [ "$1" = pr ] && { echo "HTTP 502" >&2; exit 1; }
 case "$1 $2" in
   "--version "*) echo "gh version 2.60.0" ;;
   "auth status") exit 0 ;;
@@ -124,4 +124,20 @@ test('pr: the local dev moved while the pull request merged: the plan lands, the
   const dev = sh(w.d, 'rev-parse', 'dev'), remote = execFileSync('git', ['--git-dir', w.R, 'rev-parse', 'dev'], { encoding: 'utf8' }).trim()
   for (const c of [local, remote]) assert.equal(execFileSync('git', ['-C', w.d, 'merge-base', '--is-ancestor', c, dev]).length, 0)
   assert.equal(sh(w.d, 'show', 'dev:c.txt'), 'c'); assert.equal(sh(w.d, 'show', 'dev:local.txt'), 'l')
+})
+// review r2 N8: a gh error that carries a request id or a time is the same error each try
+test('pr: the same gh error with a different request id each time takes the red path at the third', async () => {
+  const w = await world(); await integrateEpic(w.h, 'p3'); w.set('flaky', '')
+  for (const ms of [31_000, 61_000]) { await w.wait(ms); assert.equal((await w.plan()).state, 'integrating') }
+  await w.wait(121_000); const p = await w.plan(); assert.equal(p.state, 'approved'); assert.deepEqual(p.flags, ['integration-failed'])
+})
+// review r2 N7: a landing already waits on dev (the pending ref moved past the dev the pull request was opened on): the merge waits for it, then lands onto it
+test('pr: merged while another landing waits on dev: the plan keeps integrating, then lands after it; both are on dev', async () => {
+  const w = await world(); await integrateEpic(w.h, 'p3'); w.set('checks', '[{"name":"ci","bucket":"pass"}]')
+  const base = sh(w.d, 'rev-parse', 'dev'); sh(w.d, 'checkout', '-q', '-b', 'other', 'dev'); commit(w.d, 'other.txt', 'o\n', 'feat: other'); sh(w.d, 'checkout', '-q', 'main')
+  sh(w.d, 'update-ref', 'refs/cadre/pending/dev', sh(w.d, 'rev-parse', 'other')); sh(w.d, 'update-ref', 'refs/cadre/base/dev', base); sh(w.d, 'branch', '-D', 'other')
+  await w.poll(); assert.equal((await w.plan()).state, 'integrating')   // not failed: it waits its turn
+  const { autoLand } = await import('../../core/integrate.ts'); await autoLand(w.h)   // the waiting landing lands (dev is checked out nowhere)
+  await w.poll(); assert.equal((await w.plan()).state, 'done-on-dev'); await autoLand(w.h)
+  assert.equal(sh(w.d, 'show', 'dev:c.txt'), 'c'); assert.equal(sh(w.d, 'show', 'dev:other.txt'), 'o')
 })
