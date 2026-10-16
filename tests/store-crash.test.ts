@@ -5,6 +5,11 @@ import { describe, expect, test } from 'claude-code/testing'
 import { FileStore, SCRIPTS, type FileHost } from '../task-management/adapters/file/store'
 import { MemoryStore } from '../task-management/adapters/memory/store'
 import { contract } from './store-contract'
+import { fakeHost } from './support'
+import { wire } from '../commands/init'
+import '../hooks/register'
+
+const shipped = wire.store   // the factory register installs; other test files replace wire.store
 
 type Fs = Map<string, { t: string }>
 const D = '/r/.cadre/state', reg = {} as any
@@ -172,6 +177,17 @@ describe('file store crash safety', () => {
     expect(h1.calls).toBe(c1); expect(t.meta.x).toBe('1')
     expect(live()).toBe(n)   // no second entry
     expect(scans[0]).toBe('1'); expect(scans.slice(1).every(f => f === '0')).toBe(true)
+  })
+
+  // review r3 N12: the factory re-probes a store it saw initialized, so one wipe costs one refused op, not every op until a restart
+  test('the store factory after a wipe: the next op is refused as not initialized, the call after re-inits and succeeds', async () => {
+    const fs: Fs = new Map(), h = { ...fakeHost(), ...hostOf(fs) } as any, cfg = { store: { kind: 'file' }, types: reg } as any, root = '/wired'
+    expect(String(shipped)).toContain('FileStore.of')
+    await (await shipped(h, cfg, root)).createEpic('e', 'g')
+    for (const p of [...fs.keys()]) if (p.startsWith(`${root}/`)) fs.delete(p)
+    expect(await code((await shipped(h, cfg, root)).createEpic('x', 'g'))).toBe('NotInitialized')
+    expect((await (await shipped(h, cfg, root)).createEpic('y', 'g'))).toBeTruthy()
+    expect((await new FileStore(hostOf(fs), `${root}/.cadre/state`, 'C').list({})).map(t => t.title)).toEqual(['y'])
   })
 
   test('a warm store whose dir is wiped (rm -rf, git clean): a write is refused as not initialized, never committed onto the stale cache; a regrown store resurrects nothing', async () => {
