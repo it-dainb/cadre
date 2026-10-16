@@ -156,9 +156,9 @@ async function life(h: Host, store: TaskStore, reg: TypeRegistry, id: string, se
 
 // ---- revision, graph ----
 const revOf = async (store: TaskStore, plan: string) => Number((await store.get(plan)).meta['cadre.rev'] ?? 0)
-async function wrote(h: Host, store: TaskStore, plan: string, id: string, context: string[] = []): Promise<Out> {
-  const revision = (await revOf(store, plan)) + 1, at = await h.now()
-  await store.setMeta(plan, { 'cadre.rev': String(revision), 'cadre.receipt': '' }, 'main')
+async function wrote(h: Host, store: TaskStore, plan: string, id: string, context: string[] = [], taken?: number): Promise<Out> {   // taken: amend bumped it already
+  const revision = taken ?? (await revOf(store, plan)) + 1, at = await h.now()
+  if (taken === undefined) await store.setMeta(plan, { 'cadre.rev': String(revision), 'cadre.receipt': '' }, 'main')
   return { result: modelData('tool-result', { id, plan, revision, at, by: 'main' }), ...(context.length ? { context } : {}) }
 }
 const BLOCK = ['blocks', 'waits-for']
@@ -213,33 +213,40 @@ type Entry = { criterion: string; original: string; reason: string; evidence: st
 const ledgerOf = (t: Task): Entry[] => { try { return JSON.parse(t.meta['cadre.amendments'] || '[]') } catch { return [] } }
 const sid = (l: string) => /^S\d+/.exec(l)?.[0] ?? l
 const NOT = ['id', 'expectedRevision', 'scenarios', 'after', 'remove', 'reason', 'evidence']
-function criteria(t: Task, i: In): { criterion: string; original: string }[] {
+function criteria(t: Task, i: In): { criterion: string; original: string }[] {   // a value equal to the stored one is no change; after (new waits) is one
   const was = new Map((t.acceptance ?? '').split('\n').filter(Boolean).map(l => [sid(l), l])), now = new Map(((i.scenarios ?? []) as string[]).map(l => [sid(l), l]))
   const sc = i.scenarios ? [...new Set([...was.keys(), ...now.keys()])].filter(k => was.get(k) !== now.get(k)).map(k => ({ criterion: `scenario ${k}`, original: was.get(k) ?? '(none)' })) : []
-  const orig = (k: string) => (k === 'title' ? t.title : k === 'description' ? t.description : k === 'interface' ? t.design : k === 'type' ? t.type : t.meta[`cadre.${k}`]) || '(none)'
-  return [...sc, ...Object.keys(i).filter(k => !NOT.includes(k)).map(k => ({ criterion: k, original: orig(k) }))]
+  const raw = (k: string) => (k === 'title' ? t.title : k === 'description' ? t.description : k === 'interface' ? t.design : k === 'type' ? t.type : t.meta[`cadre.${k}`]) ?? ''
+  const f = fieldsOf(i), given = (k: string) => (k === 'title' || k === 'description' || k === 'type' ? i[k] : k === 'interface' ? f.patch.design : f.meta[`cadre.${k}`])
+  const deps = t.deps.filter(d => BLOCK.includes(d.type)).map(d => d.id), after = ((i.after ?? []) as string[]).filter(x => !deps.includes(x))
+  return [...sc, ...Object.keys(i).filter(k => !NOT.includes(k) && given(k) !== raw(k)).map(k => ({ criterion: k, original: raw(k) || '(none)' })), ...(after.length ? [{ criterion: 'after', original: deps.join(', ') || '(none)' }] : [])]
 }
 async function amend(h: Host, i: In): Promise<Out> {
   const { id, expectedRevision, after = [], remove, reason, evidence, ...m } = i, s = await planOf(h); if (!s) return no(NOPLAN)
-  const { store, reg } = await deps(h), cur = await revOf(store, s.plan!.id)
+  const { store, reg } = await deps(h), p = await store.get(s.plan!.id), cur = Number(p.meta['cadre.rev'] ?? 0)
   if (expectedRevision !== cur) return no(`expectedRevision: the plan is at revision ${cur}, not ${expectedRevision}; check your change against it and call again with expectedRevision ${cur}`)
   if (id === s.plan!.id && s.plan!.state !== 'draft') return no('id: the approved plan itself is fixed; amend its tasks')
-  if (remove) { const r = await life(h, store, reg, id, 'deleted', undefined, reason); return typeof r.result === 'string' ? r : wrote(h, store, s.plan!.id, id, r.context) }
-  if (!after.length && !Object.keys(m).length) return no('nothing to change: give at least one field to change')
-  const g = await graph(store, s, after, id); if (g) return no(g)
-  const t = await store.get(id).catch(() => null), approved = !!t && id !== s.plan!.id && (t.category !== 'draft' || !!t.meta['cadre.amended']), cs = approved ? criteria(t!, i) : [], at = await h.now()
+  if (!remove && !after.length && !Object.keys(m).length) return no('nothing to change: give at least one field to change')
+  const g = remove ? null : await graph(store, s, after, id); if (g) return no(g)
+  const t = await store.get(id).catch(() => null), approved = !!t && id !== s.plan!.id && (t.category !== 'draft' || !!t.meta['cadre.amended']), at = await h.now()
+  const cs = !approved ? [] : remove ? [{ criterion: 'removed', original: t!.title }] : criteria(t!, i)
   if (approved && (!reason || !evidence)) return no(`${reason ? 'evidence' : 'reason'}: required to change an approved task; give why (reason) and what shows it (evidence: a test output, a file and line), then call again`)
+  if (approved && !cs.length) return no('nothing to change: every value you gave equals the current one')
   const twice = cs.find(c => ledgerOf(t!).some(x => x.criterion === c.criterion)); if (twice) return no(`${twice.criterion}: changed once already; a second change to it is the user's: ask them`)
+  // the revision is taken with one compare-and-set on the plan before the write: a write that landed after the check above refuses this one
+  try { await store.setMeta(s.plan!.id, { 'cadre.rev': String(cur + 1), 'cadre.receipt': '' }, 'main', p.revision) } catch (x) { if (x instanceof StoreError && x.code === 'GuardMismatch') return no('expectedRevision: the plan changed while you wrote; read it with status and call again with its new revision'); throw x }
+  const log = () => store.setMeta(id, { 'cadre.amendments': JSON.stringify([...ledgerOf(t!), ...cs.map(c => ({ ...c, reason, evidence, at }))]) }, 'main')
+  if (remove) { const r = await life(h, store, reg, id, 'deleted', undefined, reason); if (typeof r.result === 'string') return r; if (approved) await log(); return wrote(h, store, s.plan!.id, id, r.context, cur + 1) }
   const r = await edit(h, store, reg, id, { ...m, after }); if ('error' in r) return no(r.error)
   if (approved) {
-    await store.setMeta(id, { 'cadre.amendments': JSON.stringify([...ledgerOf(t!), ...cs.map(c => ({ ...c, reason, evidence, at }))]) }, 'main')
+    await log()
     if (yoloOn((await h.board.read()).drive)) {   // yolo: no dialog; main's change stands, recorded
       await store.approve([id]); await store.setMeta(id, { 'cadre.amended': '' }, 'main'); await mirror(h, store, reg)
       await apply(h, { kind: 'approve', id, at, actor: 'main' }, pipeOf(reg)); await h.board.update(b => ({ ...b, approval: { planId: null, missing: [] }, sheet: [] }) as typeof b); await settleIf(h, 'plan:')
       await DRIVE.decided?.(h, 'plan', `${id} amended by Claude (${cs.map(c => c.criterion).join(', ')}): ${reason}`)
     }
   }
-  return wrote(h, store, s.plan!.id, id, r.context)
+  return wrote(h, store, s.plan!.id, id, r.context, cur + 1)
 }
 // a question for the code base: queued here, started by the spawner when this turn ends (core/spawner.explores); the answer comes back as a message
 async function explore(h: Host, i: In): Promise<Out> {

@@ -79,6 +79,12 @@ describe('refusals name the field and say how to retry; nothing is stored', () =
     expect((await w.store.get(a)).title).toBe('Add login')
     expect((await tool(w, 'amend', { id: a, expectedRevision: 2, title: 'z' })).result.revision).toBe(3)
     expect(err(await tool(w, 'amend', { id: a, expectedRevision: 3 }))).toBe('error: nothing to change: give at least one field to change')
+  })  // review 0.15 #9: the check, the write and the bump were three steps: another write landing after the check was overwritten unseen
+  test('a write that lands between amend\'s revision check and its write: the amend is refused, nothing changes', async () => {
+    const w = await world(); const { plan, a } = await planned(w), get = w.store.get.bind(w.store); let raced = false
+    w.store.get = async id => { const t = await get(id); if (id === plan && !raced) { raced = true; await w.store.setMeta(plan, { 'cadre.rev': '3' }, 'main') } return t }
+    expect(err(await tool(w, 'amend', { id: a, expectedRevision: 2, title: 'z' }))).toContain('error: expectedRevision: the plan changed while you wrote')
+    expect((await w.store.get(a)).title).toBe('Add login'); expect((await w.store.get(plan)).meta['cadre.rev']).toBe('3')
   })
 })
 
@@ -91,6 +97,19 @@ describe('approval: an edit revokes it, an open question blocks it', () => {
     expect(r.result.revision).toBe(3)
     expect((await w.store.get(a)).category).toBe('draft'); expect((await w.store.get(plan)).meta['cadre.receipt']).toBe('')
     expect(err(await tool(w, 'amend', { id: plan, expectedRevision: 3, title: 'x' }))).toBe('error: id: the approved plan itself is fixed; amend its tasks')
+  })
+  // review 0.15 #26, #29: removing an approved task, a value equal to the current one, and after[] go through the ledger like any change
+  test('the ledger: removing an approved task needs reason and evidence and is recorded; an equal value is no change; after is a criterion', async () => {
+    const w = await world(); const { plan, a } = await planned(w)
+    const b = await tool(w, 'task', { title: 'Add logout', description: 'impl', ...TASK, paths: ['src/logout.ts'] })
+    await w.text({ cmd: 'approve', args: [plan] })
+    let rev = b.result.revision
+    expect(err(await tool(w, 'amend', { id: b.result.id, expectedRevision: rev, remove: true }))).toContain('error: reason: required to change an approved task')
+    expect(err(await tool(w, 'amend', { id: a, expectedRevision: rev, title: 'Add login', reason: 'r', evidence: 'e' }))).toBe('error: nothing to change: every value you gave equals the current one')
+    const r = await tool(w, 'amend', { id: a, expectedRevision: rev, after: [b.result.id], reason: 'logout first', evidence: 'src/a.ts:3' }); rev = r.result.revision
+    expect(JSON.parse((await w.store.get(a)).meta['cadre.amendments']).map((x: any) => x.criterion)).toEqual(['after'])
+    const d = await tool(w, 'amend', { id: b.result.id, expectedRevision: rev, remove: true, reason: 'not needed', evidence: 'issue 3' })
+    expect(d.result).toMatchObject({ id: b.result.id }); expect(JSON.parse((await w.store.get(b.result.id)).meta['cadre.amendments'] ?? '[]')).toEqual([expect.objectContaining({ criterion: 'removed', reason: 'not needed', evidence: 'issue 3' })])
   })
   test('an open question keeps the plan from approval until main records the user\'s answer', async () => {
     const w = await world(); const { plan } = await planned(w)
