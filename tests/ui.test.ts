@@ -7,7 +7,7 @@ import { pane } from '../ui/pane'
 import { type Line, at, attention, read, txt } from '../ui/model'
 import { levelOf, onEvent, textOf } from '../ui/notify'
 import { acts, openPane, renderBand, renderCard, renderPane, resumeBanner, tickUi } from '../ui/index'
-import { fakeHost } from './support'
+import { fakeHost, task } from './support'
 import { BASE, MIN, NOOP, approval, planDec, ring, view } from './fixtures/ui/epic'
 import { SCENARIOS } from '../scenarios/index'
 
@@ -118,6 +118,14 @@ describe('notification policy (UI-DESIGN 4)', () => {
     await onEvent(h, ev('flag.raised', { taskId: 'c6', flag: 'loop' }, { taskId: 'c6', at: 1000 })); await onEvent(h, ev('drive.status', { state: 'paused', reason: 'blocked c6' }, { at: 1500 }))
     await onEvent(h, ev('flag.resolved', { taskId: 'c6', flag: 'loop,drift' }, { taskId: 'c6', at: 3000 }))
     await run(); expect(of('toast')[1]).toBe('Drive paused: blocked c6'); expect(of('toast').join()).not.toContain('press 1')
+  })
+  test('a merged toast never offers a settled approval or blocked task; neither escalates once settled', async () => {
+    const { h, of, run } = mk(), plan = { id: 'plan:p3', kind: 'plan', title: 'approve plan p3', options: [] } as any
+    await h.board.update(b => ({ ...b, decisions: [plan], tasks: [task('a7', { state: 'blocked' } as any)] }))
+    await onEvent(h, ev('sync.state_changed', { target: 'pm', state: 'offline', at: 0 }, { at: 0 }))
+    await onEvent(h, ev('approval.pending', { planId: 'p3', missing: [] }, { at: 1000 })); await onEvent(h, ev('task.transitioned', { taskId: 'a7', from: 'active', to: 'blocked' }, { taskId: 'a7', at: 1500 }))
+    await h.board.update(b => ({ ...b, decisions: [], tasks: b.tasks.map(t => ({ ...t, state: 'pending' as any })) }))   // approved; the blocked task answered (no event of its own)
+    await run(); expect(of('toast')).toEqual(['pm offline · retrying']); expect(of('notify')).toEqual([])
   })
   test('escalation: unacked after 120 s goes to OS notify once; an ack cancels it; drive paused notifies immediately', async () => {
     const a = mk(), f = (id: string, at: number) => ev('flag.raised', { taskId: id, flag: 'g' }, { taskId: id, at })

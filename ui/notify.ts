@@ -1,6 +1,6 @@
 // Notification policy (UI-DESIGN 4): level from kind + severity + needsHuman (never stored), dedupe by key, <=1 toast / 8 s with merging, OS notify <=1/item and <=3 / 15 min,
 // escalation after ui.escalateAfterMs unless acked, status line = top attention item only. State lives in the cadre.ui atom; side effects run after the CAS settles.
-import type { CadreEvent, Host } from '../types'
+import type { CadreEvent, Host, Snapshot } from '../types'
 import { CFG, attention, read } from './model'
 import { clip } from './layout'
 import { needsOf } from './v2/facts'
@@ -43,20 +43,21 @@ export function textOf(e: CadreEvent): { text: string; key: string } | undefined
 }
 const CLOSE: Partial<Record<CadreEvent['type'], (e: CadreEvent) => string[]>> = { 'flag.resolved': e => String(e.data.flag).split(',').map(f => `flag:${e.taskId}:${f}`), 'sync.state_changed': e => (e.data.state === 'ok' ? [`off:${e.data.target}`] : []) }   // a keep resolves every flag at once: "a,b"
 
+// an approval or a blocked task settles on the board (core/decide.settle, a release, a cancel), with no event of its own: its key closes once the
+// board no longer owes it, checked before every use of `open` (an event, the merged flush, the escalation); an event's CLOSE keys go with it
+const owed = (b: Snapshot, k: string) => { const [kind, id] = k.split(':'); return kind === 'approve' ? (b.decisions ?? []).some(d => d.id === `plan:${id}`) : kind === 'q' ? b.tasks.some(t => t.id === id && t.state === 'blocked') : true }
+async function prune(h: Host, drop: string[] = []): Promise<Record<string, number>> { const b = await h.board.read(); let o: Record<string, number> = {}; await h.ui.update(u => ({ ...u, open: o = Object.fromEntries(Object.entries((u.open as Record<string, number> | undefined) ?? {}).filter(([k]) => !drop.includes(k) && owed(b, k))) })); return o }
 export const ack = (h: Host) => h.now().then(n => h.ui.update(u => ({ ...u, ack: n })))   // composer submit, any /cadre, a cadre press, pane focus
 
 // a merged toast fires up to 8 s after its items: one settled meanwhile (closed in `open`) is dropped, never offered ("flagged loop · press 1" after Keep)
 async function toast(h: Host, text: string, key: string, now: number): Promise<void> {
   let direct = false, first = false, wait = 0
-  await h.ui.update(u => {
-    const q = (u.q as [string, string][] | undefined) ?? [], dt = now - ((u.lt as number | undefined) ?? -1e9)
-    direct = dt >= 8000 && !q.length; first = !direct && !q.length; wait = Math.max(0, 8000 - dt)
-    return direct ? { ...u, lt: now } : { ...u, q: [...q, [text, key]] }
-  })
+  await h.ui.update(u => { const q = (u.q as [string, string][] | undefined) ?? [], dt = now - ((u.lt as number | undefined) ?? -1e9)
+    direct = dt >= 8000 && !q.length; first = !direct && !q.length; wait = Math.max(0, 8000 - dt); return direct ? { ...u, lt: now } : { ...u, q: [...q, [text, key]] } })
   if (direct) h.ops?.toast(text, { timeoutMs: 6000 })
   else if (first) h.ops?.after(wait, async () => {   // coalesce what arrived inside the window
-    let q: string[] = []
-    await h.ui.update(u => { const o = (u.open as Record<string, number> | undefined) ?? {}; q = ((u.q as [string, string][]) ?? []).filter(([, k]) => k in o).map(([t]) => t); return { ...u, q: [], lt: now + wait } })
+    let q: string[] = []; const o = await prune(h)
+    await h.ui.update(u => { q = ((u.q as [string, string][]) ?? []).filter(([, k]) => k in o).map(([t]) => t); return { ...u, q: [], lt: now + wait } })
     if (q.length) h.ops?.toast(q.length === 1 ? q[0] : `${q.length} updates: ${q.join(' · ')}`, { timeoutMs: 6000 })
   })
 }
@@ -78,7 +79,7 @@ export async function syncStatus(h: Host): Promise<void> { const v = await read(
 // subscribed to core/events: one call per emitted event
 export async function onEvent(h: Host, e: CadreEvent): Promise<void> {
   const k = CLOSE[e.type]?.(e), lv = levelOf(e, yoloOn((await h.board.read()).drive)), t = textOf(e)
-  if (k?.length) await h.ui.update(u => ({ ...u, open: Object.fromEntries(Object.entries((u.open as Record<string, number> | undefined) ?? {}).filter(([x]) => !k.includes(x))) }))
+  await prune(h, k)
   if (lv >= 2 && t) {
     let fresh = false
     await h.ui.update(u => { const o = (u.open as Record<string, number> | undefined) ?? {}; fresh = !(t.key in o); return fresh ? { ...u, open: { ...o, [t.key]: e.at } } : u })
@@ -88,7 +89,7 @@ export async function onEvent(h: Host, e: CadreEvent): Promise<void> {
         if (e.type === 'drive.status') await notify(h, t.key, t.text, e.at)   // drive paused/finished: immediately
         else h.ops?.after(((await h.ui.read()).cfg as { escalateAfterMs?: number } | undefined)?.escalateAfterMs ?? CFG.escalateAfterMs, async () => {
           const u = await h.ui.read()
-          if (t.key in ((u.open as object) ?? {}) && ((u.ack as number | undefined) ?? 0) < e.at) await notify(h, t.key, t.text, await h.now())
+          if (t.key in (await prune(h)) && ((u.ack as number | undefined) ?? 0) < e.at) await notify(h, t.key, t.text, await h.now())
         })
       }
     }
