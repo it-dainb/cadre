@@ -121,5 +121,13 @@ export function contract(name: string, make: () => TaskStore) {
       expect((await s.events(all!.head))!.events).toEqual([]); expect((await s.events('0', 1))!.events).toHaveLength(1)
       expect(await (await fresh(false)).events()).toBeNull()
     })
+    test('control: one repo-wide doc, shallow-merged; ifRevision is a CAS (stores that have it)', async () => {
+      const s = make(); if (!s.control || !s.setControl) return   // optional member: the beads adapter has none (last test: its replay is unaffected)
+      await s.init({ types: reg, journal: true })
+      expect(await s.control()).toEqual({ revision: '0', doc: {} })
+      const r1 = await s.setControl({ drive: { session: 'A' } }, '0'); expect(r1).toEqual({ revision: '1', doc: { drive: { session: 'A' } } })
+      expect(await code(s.setControl({ drive: { session: 'B' } }, '0'))).toBe('GuardMismatch')
+      expect((await s.setControl({ 'sync.pm': 'c1' })).doc).toEqual({ drive: { session: 'A' }, 'sync.pm': 'c1' }); expect((await s.control()).revision).toBe('2')
+    })
   })
 }

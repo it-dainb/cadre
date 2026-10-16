@@ -1,4 +1,4 @@
-// In-memory TaskStore: TEST ONLY (CADRE_STORE=memory). Same contract test as the beads adapter (tests/store-contract.ts).
+// In-memory TaskStore: CADRE_STORE=memory, and the op engine of the file store (adapters/file: it hydrates `tasks`/`journal`/`ctl`, sets `mint`, reads `log`). Same contract test (tests/store-contract.ts).
 import { StoreError } from '../../store'
 import type { Category, DepType, NewTask, Task, TaskId, TaskStore } from '../../store'
 
@@ -7,12 +7,13 @@ const LEASE_MS = 5 * 60_000
 const BLOCKING: DepType[] = ['blocks', 'waits-for', 'conditional-blocks']
 
 export class MemoryStore implements TaskStore {
-  private tasks: Map<TaskId, Task> | null = null
+  tasks: Map<TaskId, Task> | null = null
   private n = 0
-  private journal = false
-  private log: { seq: string; op: string; id: TaskId; actor: string; status?: string; assignee?: string; category?: Category; at?: number }[] = []
+  journal = false
+  ctl: { revision: string; doc: Record<string, unknown> } = { revision: '0', doc: {} }
+  log: { seq: string; op: string; id: TaskId; actor: string; status?: string; assignee?: string; category?: Category; at?: number }[] = []
   readonly comments: Record<TaskId, string[]> = {}
-  constructor(private now: () => number = () => Date.now()) {}
+  constructor(private now: () => number = () => Date.now(), public mint: () => TaskId = () => `m-${++this.n}`) {}
 
   private db() { if (!this.tasks) throw new StoreError('NotInitialized'); return this.tasks }
   private t(id: TaskId): Task { const t = this.db().get(id); if (!t) throw new StoreError('NotFound', id); return t }
@@ -23,7 +24,7 @@ export class MemoryStore implements TaskStore {
     return structuredClone(t)
   }
   private mk(o: Partial<Task> & { title: string; type: string; category: Category }): Task {
-    const t: Task = { id: `m-${++this.n}`, description: '', nativeStatus: '', priority: 2, deps: [], labels: [], meta: {}, updatedAt: '', ...o }
+    const t: Task = { id: this.mint(), description: '', nativeStatus: '', priority: 2, deps: [], labels: [], meta: {}, updatedAt: '', ...o }
     this.db().set(t.id, t); this.touch(t, 'create'); return t
   }
   private mine(t: Task, actor: string) { if (t.assignee !== actor) throw new StoreError('GuardMismatch', `${t.id} is held by ${t.assignee ?? 'nobody'}`) }
@@ -99,6 +100,11 @@ export class MemoryStore implements TaskStore {
     if (o.ifRevision !== undefined && t.revision !== o.ifRevision) throw new StoreError('GuardMismatch', `${id} is at revision ${t.revision}`)
     t.category = o.outcome; delete t.leaseUntil; if (o.note) t.meta['close.note'] = o.note
     return this.touch(t, 'close', o.session)
+  }
+  async control() { this.db(); return structuredClone(this.ctl) }
+  async setControl(patch: Record<string, unknown>, ifRevision?: string) {
+    this.db(); if (ifRevision !== undefined && this.ctl.revision !== ifRevision) throw new StoreError('GuardMismatch', `control is at revision ${this.ctl.revision}`)
+    this.ctl = { revision: String(Number(this.ctl.revision) + 1), doc: { ...this.ctl.doc, ...patch } }; return structuredClone(this.ctl)
   }
   async events(since?: string, limit = 500) {
     if (!this.journal) return null

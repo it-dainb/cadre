@@ -1,0 +1,70 @@
+// The file store against real sh/ln/mv/sync: the TaskStore contract, two stores (= two sessions) racing on one directory, a writer killed mid-op,
+// a late `ln` after a timeout, and a writer suspended across a compaction. The kit twin (tests/store-crash.test.ts) enumerates Host-call interleavings.
+import '../dev/register.mjs'
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { execFile, spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { randomBytes } from 'node:crypto'
+
+const { FileStore } = await import('../../task-management/adapters/file/store.ts')
+const { contract } = await import('../store-contract.ts')
+const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { timeout: o.timeoutMs }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
+const host = (o = {}) => ({ run, now: async () => Date.now(), rand: (n = 16) => randomBytes(n).toString('hex'), write: async (p, t) => { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, t) }, ...o })
+const fresh = () => join(mkdtempSync(join(tmpdir(), 'cadre-store-')), 'state')
+const reg = {}
+
+contract('file (real sh)', () => new FileStore(host(), fresh(), 's1'))
+
+test('two sessions race 20 writes each on one task: every write lands once, revisions never fork', async () => {
+  const dir = fresh(), a = new FileStore(host(), dir, 'A'), b = new FileStore(host(), dir, 'B')
+  await a.init({ types: reg, journal: true }); const e = await a.createEpic('E', 'g')
+  const go = (s, who) => Promise.all(Array.from({ length: 20 }, async (_, i) => { for (;;) { try { return await s.setMeta(e, { [`${who}${i}`]: '1' }, who) } catch (x) { if (x.code !== 'Busy') throw x } } }))
+  await Promise.all([go(a, 'a'), go(b, 'b')])
+  const t = await new FileStore(host(), dir, 'C').get(e)
+  assert.equal(Object.keys(t.meta).length, 40); assert.equal(t.revision, String(1 + 40))
+  const seqs = readdirSync(join(dir, 'j')).filter(n => /^\d+$/.test(n)).map(Number).sort((x, y) => x - y)
+  assert.deepEqual(seqs, Array.from({ length: seqs.length }, (_, i) => i + 1))   // one entry per seq, no gap
+})
+
+test('a writer killed mid-commit (SIGKILL in the commit sh) leaves the store at its last committed revision; the next session writes on', async () => {
+  const dir = fresh(), a = new FileStore(host(), dir, 'A'); await a.init({ types: reg, journal: true }); const e = await a.createEpic('E', 'g')
+  const killer = host({ run: (argv, o) => argv[2]?.includes('ln "$1"') ? new Promise(res => { const c = execFile(argv[0], argv.slice(1), () => res({ exitCode: 137, stdout: '', stderr: 'killed' })); c.kill('SIGKILL') }) : run(argv, o) })
+  const k = new FileStore(killer, dir, 'K')
+  await assert.rejects(k.setMeta(e, { x: '1' }, 'k'), x => x.code === 'Timeout')
+  const b = new FileStore(host(), dir, 'B'); assert.equal((await b.get(e)).revision, '1')
+  assert.equal((await b.setMeta(e, { y: '1' }, 'b')).revision, '2')
+})
+
+test('a late ln after a timeout: the same call returns the committed result, no second entry', async () => {
+  const dir = fresh(), a = new FileStore(host(), dir, 'A'); await a.init({ types: reg, journal: true }); const e = await a.createEpic('E', 'g')
+  let late   // the first commit run reports a timeout at once while its sh still runs and links 50 ms later
+  const slow = host({ run: async (argv, o) => argv[2]?.includes('ln "$1"') && !late ? (late = new Promise(r => setTimeout(r, 50)).then(() => run(argv, o)), { exitCode: 1, stdout: '', stderr: 'aborted: still running after 120000ms' }) : run(argv, o) })
+  const s = new FileStore(slow, dir, 'S')
+  await assert.rejects(s.setMeta(e, { x: '1' }, 's'), x => x.code === 'Timeout'); await late
+  const t = await s.setMeta(e, { x: '1' }, 's'); assert.equal(t.revision, '2')
+  assert.equal((await a.get(e)).revision, '2'); assert.equal((await a.events()).events.filter(v => v.op === 'meta').length, 1)
+})
+
+test('a writer suspended across a compaction: its ln lands in a folded slot, is removed, and the op redoes on the head', async () => {
+  const dir = fresh(), a = new FileStore(host(), dir, 'A'); await a.init({ types: reg, journal: true }); const e = await a.createEpic('E', 'g')
+  let gate, release = new Promise(r => (gate = r))
+  const sus = host({ run: async (argv, o) => { if (argv[2]?.includes('ln "$1"') && gate) { const g = gate; gate = null; g(); await release } return run(argv, o) } })
+  const s = new FileStore(sus, dir, 'S'); await s.get(e)
+  let resume; const parked = new Promise(r => (resume = r)); release = parked
+  const p = s.setMeta(e, { s: '1' }, 's')
+  await new Promise(r => setTimeout(r, 30))
+  for (let i = 0; i < 5; i++) await a.setMeta(e, { [`a${i}`]: '1' }, 'a')
+  assert.equal(await a.compact(0), 7); resume()
+  const t = await p; assert.equal(t.revision, '7'); assert.equal(t.meta.s, '1'); assert.equal(t.meta.a4, '1')
+  const c = new FileStore(host(), dir, 'C'); assert.deepEqual(await c.get(e), t)
+  assert.deepEqual((await c.events('6')).events.map(v => v.op), ['meta']); await assert.rejects(c.events('5'), x => x.code === 'TooOld')   // events 1..6 were folded
+})
+
+test('probe: ln + sync work here; a directory where they fail is not ok', async () => {
+  assert.equal((await new FileStore(host(), fresh(), 'P').probe()).ok, true)
+  const ro = host({ run: (argv, o) => run(argv[2]?.includes('probe.') ? ['sh', '-c', 'exit 1'] : argv, o) })
+  const p = await new FileStore(ro, fresh(), 'P').probe(); assert.equal(p.ok, false); assert.match(p.detail, /hard links/)
+})
