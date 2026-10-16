@@ -23,6 +23,9 @@ const cwds: Record<string, string> = {}   // agentId -> the folder cadre spawned
 // ---- fixtures: titleCase(s) on the `single` repo, lite lane ----
 const GOAL = /Goal from the user/
 function main(rows: Row[]): Act {
+  // the tool-surface probe (probes/0.15): main asks for Agent once; under a settings deny the call comes back refused
+  const m = rows.map(r => isText(r) && /S0-PROBE main-agent/.test(r.text)).lastIndexOf(true)
+  if (m >= 0) return rows.slice(m + 1).some(r => r.role === 'assistant') ? { text: END } : { tool: 'Agent', input: { description: 's0 main agent', subagent_type: 'general-purpose', prompt: 'S0-PROBE tag=end. Do the task you are given.' } }
   const g = rows.map(r => isText(r) && GOAL.test(r.text)).lastIndexOf(true)
   if (g < 0) return { text: 'OK.' }
   const after = rows.slice(g + 1), calls = after.flatMap(r => (r.role === 'assistant' ? r.toolUses ?? [] : []))
@@ -76,7 +79,7 @@ function agent(rows: Row[], cwd: string): [string, Act] {
   if (done(rows) > (script === 'loop' ? 40 : 15)) return ['cap', { text: END }]   // loop: past the breaker (20 in a row)
   if (probe === 'end') return [probe, { text: END }]
   if (probe === 'hb') return [probe, /No such tool available: SubagentHandback/.test(JSON.stringify(rows.at(-1))) ? { text: END } : { text: END, tool: 'SubagentHandback', input: { message: END } }]   // the tool exists in auto mode only
-  if (probe === 'wedge') return [probe, k === 0 ? { tool: 'Bash', input: { command: 'node -e "setTimeout(() => {}, 600000)"', description: 'Wait' } } : { text: END }]
+  if (probe === 'wedge' || probe === 'tools') return [probe, k === 0 ? { tool: 'Bash', input: { command: 'node -e "setTimeout(() => {}, 600000)"', description: 'Wait' } } : { text: END }]
   const role = brief.match(/\b(Worker|Reviewer|Explorer|Tester|Planner) brief/)?.[1]?.toLowerCase() ?? 'unknown'
   return [role, ROLES[role]?.(k, brief, cwd) ?? { text: END }]
 }
@@ -93,7 +96,7 @@ async function* answer(e: any, a: Act): AsyncGenerator<any, any, any> {
 export const register: Register = (on) => {
   on('session.start', async ($: any, e, next) => {
     try { script = JSON.parse(await $.fs.read('/work/run/.git/scripted.json')).script ?? script } catch {}
-    await L($, `script ${script}`); await $.command.register({ name: 's0', description: 'scripted probe: /s0 end|hb|wedge', immediate: true }); return next(e)
+    await L($, `script ${script}`); await $.command.register({ name: 's0', description: 'scripted probe: /s0 end|hb|wedge|tools', immediate: true }); return next(e)
   })
   on('agent.spawn', async ($: any, e: any, next) => { const r = await next(e); if (r?.agentId) cwds[r.agentId] = e.cwd ?? '/work/run'; return r })
   on('turn.step', async function* ($: any, e: any, next) {
@@ -107,9 +110,14 @@ export const register: Register = (on) => {
   // (c)/(d) probe: spawned from this command frame, so this plugin's turn.step (another registration) still sees the children's steps (G6)
   on('command.run', { command: 's0' }, async ($: any, e: any) => {
     const tag = String(e.args ?? '').trim() || 'end'
-    const r = await $.agent.spawn({ prompt: `S0-PROBE tag=${tag}. Do the task you are given.`, description: `s0 ${tag}`, subagentType: 'general-purpose' })
+    if (tag === 'tools') {   // probes/0.15: the tool surface under the settings gate, and hard links where the file store will live
+      await L($, `tools ${JSON.stringify((await $.tool.list()).map((t: any) => t.name).filter((n: string) => /^(Task|Todo|Agent$|mcp__)/.test(n)))}`)
+      const ln = await $.process.run(['sh', '-c', 'cd /work/run && mkdir -p .cadre/state && cd .cadre/state && rm -f j.* && echo a > t.1 && echo b > t.2 && ln t.1 j.1 && sync j.1 && echo link=ok; ln t.2 j.1 2>/dev/null && echo cas=overwrote || echo cas=refused; stat -c nlink=%h j.1; [ j.1 -ef t.1 ] && echo ef=same; cat j.1; df -T . | tail -1'])
+      await L($, `ln exit=${ln.exitCode} ${JSON.stringify(ln.stdout + ln.stderr)}`)
+    }
+    let r: any; try { r = await $.agent.spawn({ prompt: `S0-PROBE tag=${tag}. Do the task you are given.`, description: `s0 ${tag}`, subagentType: 'general-purpose' }) } catch (x) { r = { threw: String(x) } }
     await L($, `spawned ${tag} -> ${JSON.stringify(r)}`)
-    if (tag === 'wedge' && r?.agentId) $.clock.after(20_000, async () => {   // a timer frame, as the backstop's: no hook is calling
+    if ((tag === 'wedge' || tag === 'tools') && r?.agentId) $.clock.after(20_000, async () => {   // a timer frame, as the backstop's: no hook is calling
       try { await L($, `TaskStop ${r.agentId} -> ${JSON.stringify(await $.tool.call({ tool: 'TaskStop', task_id: r.agentId }))}`) } catch (x) { await L($, `TaskStop ${r.agentId} threw ${x}`) }
     })
     return { text: `s0 ${tag} spawned` }

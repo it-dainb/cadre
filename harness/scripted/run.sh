@@ -2,8 +2,9 @@
 # S0 scripted runs: zero quota by design. Every model request is answered by the scripted mod (hooks/register.ts); PROXY=1 logs any request that
 # still reaches the network to effort.jsonl, which must stay empty. Haiku everywhere as the fallback (H0).
 #   harness/scripted/run.sh plan  [name]          (commit first: the plugin is HEAD) one `single` plan (fixtures "single ready", scenario goal, LANDED=1) with cadre + the scripted mod (inner)
-#   harness/scripted/run.sh probe [name] [tags]   the scripted mod alone: /s0 end, /s0 hb, /s0 wedge (forced-exit forms; TaskStop from a timer)
-# Env: CC_VERSION=<host build> PERM=auto|bypassPermissions (probe) BUDGET (plan, s). Evidence: harness/out/scripted/<name>/
+#   harness/scripted/run.sh probe [name] [tags]   the scripted mod alone: /s0 end, /s0 hb, /s0 wedge (forced-exit forms; TaskStop from a timer),
+#     /s0 tools (tool list, hard links in .cadre/state, spawn + TaskStop), tag main-agent (main's model calls Agent)
+# Env: CC_VERSION=<host build> PERM=auto|bypassPermissions (probe) SETTINGS=<json> (probe: the work dir's .claude/settings.local.json) BUDGET (plan, s). Evidence: harness/out/scripted/<name>/
 H=$(cd "$(dirname "$0")/.." && pwd); R=$(dirname "$H"); S=$H/scripted
 c=$1; n=${2:-s0-$c}; O=$H/out/scripted/$n; rm -rf "$O"; mkdir -p "$O"
 # prompt suggestions are a forked request outside turn.step (source=prompt_suggestion): off, as the proxy would refuse each one
@@ -23,9 +24,10 @@ plan)
   leak "$O/cell/effort.jsonl" "$(grep -c 'ANTHROPIC_BASE_URL=http://127.0.0.1:8899' "$TUI_DIR/$n/cmd") cmd line(s) via 127.0.0.1:8899";;
 probe)
   mkdir -p "$TMP/p/harness/bench" && cp -a "$S/.claude-plugin" "$S/hooks" "$TMP/p/" && cp "$S/stub-proxy.mjs" "$TMP/p/harness/bench/effort-proxy.mjs" && git -C "$TMP/p" init -q && snap "$TMP/p" || exit 1
+  [ -n "$SETTINGS" ] && { printf 'mkdir -p .claude && cat > .claude/settings.local.json <<"EOF"\n%s\nEOF\n' "$SETTINGS" >"$TMP/settings.sh"; export SCAFFOLD=$TMP/settings.sh; }
   SPIKE=$TMP/p "$H/tui.sh" start "$n" >"$O/start.txt" 2>&1 || grep -q "auto mode on" "$O/start.txt" || { cat "$O/start.txt"; exit 1; }   # tui.sh waits for the bypass footer; auto shows its own
   up=$(docker exec "cadre-tui-$n" sh -c 'cat /proc/[0-9]*/cmdline 2>/dev/null | tr "\0" " " | grep -c effort-proxy')
-  for t in ${3:-end hb wedge}; do "$H/tui.sh" send "$n" "/s0 $t"; sleep 3; done
+  for t in ${3:-end hb wedge}; do [ "$t" = main-agent ] && "$H/tui.sh" send "$n" "S0-PROBE main-agent" || "$H/tui.sh" send "$n" "/s0 $t"; sleep 3; done
   "$H/tui.sh" wait-for "$n" 'SCRIPTED TaskStop .*' 60 debug >/dev/null; sleep 20
   "$H/tui.sh" capture "$n" "$O/pane.txt"; D=$TUI_DIR/$n; cp "$D"/out/debug*.log "$O/"; cp "$D/out/effort.jsonl" "$D/out/stubbed.jsonl" "$O/" 2>/dev/null
   grep -h 'SCRIPTED' "$O"/debug*.log | sed 's/^[^ ]* //' | tee "$O/scripted.txt"
