@@ -129,9 +129,9 @@ const gated = (c: Command): boolean => ['approve', 'reject', 'resolve', 'release
 
 // ---- init confirm (DESIGN 10.1): the decision is bound to the diff's content hash; a confirm is the dialog's answer to it ----
 // `d` (optional) is what the human sees: sub = the command the options run (`init`, `setup`, `sync add <name>`); `change` = the re-plan command (none: no Cancel/Change, e.g. sync add)
-export async function initPropose(h: Host, stage: number, diff: string, d?: { title: string; short?: string; lines: string[]; sub: string; change?: string }): Promise<void> {
+export async function initPropose(h: Host, stage: number, diff: string, d?: { title: string; short?: string; lines: string[]; sub: string; change?: string; confirm?: string; keep?: string }): Promise<void> {   // confirm: another command than `<sub> confirm`; keep: a "Keep it" answer
   if (d) await ask(h, { id: `init:${stage}`, kind: 'init', title: d.title, short: d.short, lines: d.lines, hash: fnv1a64(diff), tab: 'epic',
-    options: [{ key: 'a', label: 'Confirm', verb: 'approve', run: `${d.sub} confirm` }, ...(d.change ? [{ key: 'x', label: 'Cancel', verb: 'reject', run: `${d.sub} cancel` }, { key: 'c', label: 'Change', verb: 'change', run: d.change }] : [])] })
+    options: [{ key: 'a', label: 'Confirm', verb: 'approve', run: d.confirm ?? `${d.sub} confirm` }, ...(d.keep ? [{ key: 'k', label: 'Keep it', verb: 'reject', run: d.keep }] : []), ...(d.change ? [{ key: 'x', label: 'Cancel', verb: 'reject', run: `${d.sub} cancel` }, { key: 'c', label: 'Change', verb: 'change', run: d.change }] : [])] })
 }
 // true when the card for `stage` was still pending (the caller then re-reads the files and must find what the card showed); either way it is settled
 export async function initConfirm(h: Host, stage: number): Promise<boolean> {

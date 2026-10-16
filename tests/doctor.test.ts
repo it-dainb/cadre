@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { confirmUser, doctor, machine, nudge, setupItems, toolsRow } from '../commands/doctor'
+import { confirmUnset, confirmUser, doctor, keepUser, machine, nudge, setupItems, toolsRow } from '../commands/doctor'
 import { scoped } from '../commands/init'
 import { defaults } from '../config/index'
 import { settle } from '../core/decide'
@@ -186,4 +186,23 @@ test('the task-tool gate per repo: repo A set up again, repo B still toasts "run
   for (const h of [a, b]) await h.secret.update(s => ({ ...s, active: true, tools: { on: ['report', 'plan'], refused: [] } }))
   await nudge(a); await nudge(b); expect(a.toasts).toEqual([]); expect(b.toasts).toEqual(['cadre: run /cadre init'])
   expect(await toolsRow(a)).toEqual(['ok', 'cadre tools loaded']); expect(await toolsRow(b)).toEqual(['crit', 'settings.local lacks the task-tool gate', '/cadre init'])
+})
+
+// review 0.15 #28: the user may have set the todo flag themselves: the card offers Keep it, and Doctor stops asking
+test('user settings: Keep it leaves the todo flag and the row is ok from then on', async () => {
+  const OLD = '{"env":{"CLAUDE_CODE_ENABLE_TODO_TOOLS":"1"}}\n', h = mk({ files: { [USER]: OLD } }); await setupItems(h)
+  expect((await h.board.read()).decisions!.find(x => x.id === 'init:91')!.options.map(o => o.label)).toEqual(['Confirm', 'Keep it'])
+  expect(await keepUser(h)).toBe('setup: env CLAUDE_CODE_ENABLE_TODO_TOOLS stays in your user settings'); expect((await h.board.read()).decisions!.some(x => x.id === 'init:91')).toBe(false)
+  expect((await setupItems(h)).find(i => i.name.startsWith('user settings'))).toMatchObject({ st: 'ok' }); expect(h.files[USER]).toBe(OLD)
+  expect((await h.board.read()).decisions!.some(x => x.id === 'init:91')).toBe(false)
+})
+// review 0.15 #10 (spec 3b): a repo whose config is gone keeps the gate keys init added; Doctor's card removes exactly those, then the stamp
+test('clean break: cadre off here (no config): Doctor offers to remove only the keys init added that still hold its value', async () => {
+  const LOCAL = '/repo/.claude/settings.local.json', OLD = JSON.stringify({ env: { CLAUDE_CODE_ENABLE_TASKS: 'false', CLAUDE_CODE_ENABLE_TODO_TOOLS: '1', X: 'y' }, permissions: { allow: ['Bash'] } })
+  const h = mk({ files: { [LOCAL]: OLD } }); await h.store.set(await scoped(h, 'settings'), { rev: 1, added: ['CLAUDE_CODE_ENABLE_TASKS'] })   // the todo flag was there before init
+  await h.secret.update(x => ({ ...x, active: false })); await doctor(h); const d = (await h.board.read()).decisions!.find(x => x.id === 'init:92')!
+  expect(d.lines).toEqual(['cadre removes these after you confirm (a .bak is kept):', '  .claude/settings.local.json: - env.CLAUDE_CODE_ENABLE_TASKS']); expect(d.options.map(o => o.run)).toEqual(['setup unset', 'setup keepunset'])
+  expect(await confirmUnset(h)).toBe('setup: cadre\'s task-tool settings removed from this project · restart Claude Code for it to apply')
+  expect(JSON.parse(h.files[LOCAL])).toEqual({ env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '1', X: 'y' }, permissions: { allow: ['Bash'] } }); expect(h.files[`${LOCAL}.bak`]).toBe(OLD)
+  expect(await h.store.get(await scoped(h, 'settings'))).toBeUndefined(); await doctor(h); expect((await h.board.read()).decisions!.some(x => x.id === 'init:92')).toBe(false)
 })

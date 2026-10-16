@@ -11,13 +11,13 @@ import { assess } from '../policy/containment'
 import { policyOf } from '../policy/guards'
 import { call } from '../task-management/protocol'
 import { openPane } from '../ui/index'
-import { GATE_REV, gated, progress, scoped, type Item } from './init'
+import { GATE, GATE_REV, gated, progress, scoped, type Item } from './init'
 import { prefsItem, prefsRow } from './prefs'
 import { doctorRows } from '../config/route'
 import { runOf } from '../core/lifecycle'
 
 export type Row = ['ok' | 'warn' | 'crit', string, string?]   // level, line, fix (a command for the human)
-const PIN = '2.1.295', EXITS = '2.1.299', STAMP = 'cadre:setup', USER_CARD = 91, TODO = 'CLAUDE_CODE_ENABLE_TODO_TOOLS'
+const PIN = '2.1.295', EXITS = '2.1.299', STAMP = 'cadre:setup', USER_CARD = 91, UNSET_CARD = 92, TODO = 'CLAUDE_CODE_ENABLE_TODO_TOOLS', KEPT = 'cadre:setup:todo'
 const ver = (s: string) => s.match(/\d+(\.\d+)+/)?.[0] ?? ''
 const atLeast = (v: string, min: string) => { const a = v.split('.').map(Number), b = min.split('.').map(Number); for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0); return true }
 // The oldest Claude Code cadre runs on: 2.1.295 added Button children (every press in the band and the pane; older builds throw "needs a label" and nothing
@@ -115,9 +115,10 @@ const userPlan = async (h: Host) => {
 async function userRow(h: Host): Promise<Row> {
   const p = await userPlan(h); if ('error' in p) return ['warn', `user settings unreadable: ${p.error}`, 'fix ~/.claude/settings.json by hand']
   if (!p.next) return ['ok', 'user settings: nothing of cadre\'s']
+  if (await h.store.get(KEPT)) return ['ok', `user settings: env ${TODO} is yours; kept`]   // the user set it themselves (the card's Keep it)
   if ((await h.ui.read())['setup.pending'] !== p.sig || !(await h.board.read()).decisions?.some(d => d.id === `init:${USER_CARD}`)) {
     await h.ui.update(u => ({ ...u, 'setup.pending': p.sig }))
-    await initPropose(h, USER_CARD, `setup user settings\n${p.sig}`, { title: 'setup · user settings · confirm', short: 'setup user settings', sub: 'setup', lines: ['cadre removes this after you confirm (a .bak is kept):', `  ~/.claude/settings.json: - env.${TODO}`, 'each set-up project carries it in its own settings now'] })
+    await initPropose(h, USER_CARD, `setup user settings\n${p.sig}`, { title: 'setup · user settings · confirm', short: 'setup user settings', sub: 'setup', keep: 'setup mine', lines: ['cadre removes this after you confirm (a .bak is kept):', `  ~/.claude/settings.json: - env.${TODO}`, 'each set-up project carries it in its own settings now'] })
   }
   return ['warn', `user settings carry env ${TODO} from an older cadre; it now lives in each project's settings`, 'press 1: remove it in the dialog']
 }
@@ -128,6 +129,38 @@ export async function confirmUser(h: Host): Promise<string> {
   const text = JSON.stringify(p.next, null, 2) + '\n'
   if (p.old !== null) await h.write(`${p.path}.bak`, p.old); await h.write(p.path, text); await h.ui.update(({ 'setup.pending': _p, ...u }) => u)
   return (await h.readText(p.path)) === text ? 'setup: user settings written' : 'setup: ~/.claude/settings.json did not read back as written; the .bak has the old file'
+}
+// the user card's Keep it: the flag is the user's own; Doctor stops offering to remove it
+export async function keepUser(h: Host): Promise<string> {
+  await initConfirm(h, USER_CARD); await h.store.set(KEPT, true); await h.ui.update(({ 'setup.pending': _p, ...u }) => u)
+  return `setup: env ${TODO} stays in your user settings`
+}
+// clean break (spec 3b): no /cadre off exists; a repo turns cadre off by dropping .cadre/config.json. Its settings.local still carries the gate keys init
+// added (scoped 'settings'.added): a card removes exactly those that still hold cadre's value (.bak, write, re-read), then the stamp
+const unsetPlan = async (h: Host) => {
+  const path = `${await h.cwd()}/.claude/settings.local.json`, st = (await h.store.get(await scoped(h, 'settings'))) as { added?: string[] } | undefined, old = await h.readText(path)
+  let cur: any = {}; try { cur = old ? JSON.parse(old) : {} } catch { return null }
+  const keys = (st?.added ?? []).filter(k => cur?.env?.[k] !== undefined && cur.env[k] === (GATE as Record<string, string>)[k]); if (!keys.length) return null
+  const { ...env } = cur.env; for (const k of keys) delete env[k]; const next = { ...cur, env }; if (!Object.keys(env).length) delete next.env
+  return { path, old, keys, next, sig: fnv1a64((old ?? '') + keys.join()) }
+}
+async function unsetRows(h: Host): Promise<Row[]> {
+  const p = await unsetPlan(h); if (!p) return []
+  if ((await h.ui.read())['unset.pending'] !== p.sig || !(await h.board.read()).decisions?.some(d => d.id === `init:${UNSET_CARD}`)) {
+    await h.ui.update(u => ({ ...u, 'unset.pending': p.sig }))
+    await initPropose(h, UNSET_CARD, `setup unset\n${p.sig}`, { title: 'cadre is off here · its settings · confirm', short: 'remove cadre settings', sub: 'setup', confirm: 'setup unset', keep: 'setup keepunset', lines: ['cadre removes these after you confirm (a .bak is kept):', ...p.keys.map(k => `  .claude/settings.local.json: - env.${k}`)] })
+  }
+  return [['warn', `cadre is not set up here, but its task-tool settings remain (${p.keys.join(', ')})`, 'press 1: remove them in the dialog']]
+}
+export async function confirmUnset(h: Host, keep = false): Promise<string> {
+  const was = (await h.ui.read())['unset.pending'], good = await initConfirm(h, UNSET_CARD), p = await unsetPlan(h)
+  await h.ui.update(({ 'unset.pending': _p, ...u }) => u)
+  if (keep) { await h.store.del(await scoped(h, 'settings')); return 'setup: the settings stay; cadre no longer counts them as its own' }
+  if (!good || !was) return 'setup: nothing pending; press 1 for the current card'
+  if (!p || p.sig !== was) return 'setup: the settings file changed since you saw it; nothing written'
+  const text = JSON.stringify(p.next, null, 2) + '\n'
+  if (p.old !== null) await h.write(`${p.path}.bak`, p.old); await h.write(p.path, text); await h.store.del(await scoped(h, 'settings'))
+  return (await h.readText(p.path)) === text ? 'setup: cadre\'s task-tool settings removed from this project · restart Claude Code for it to apply' : 'setup: settings.local.json did not read back as written; the .bak has the old file'
 }
 // session.start: no stamp, or the Claude Code build changed since: one toast
 export async function setupDue(h: Host): Promise<boolean> {   // also registers main's preferences tool in a dormant repo (hooks/register)
@@ -153,7 +186,7 @@ export async function toolsRow(h: Host): Promise<Row> {
 // ---- doctor: machine rows + project rows; no writes ----
 async function project(h: Host, cfg: Config): Promise<Row[]> {
   const root = await h.cwd(), rows: Row[] = [], safe = async <T>(f: () => Promise<T>, d: T) => f().catch(() => d)
-  if (!(await h.secret.read()).active && !(await h.readText(`${root}/.cadre/config.json`))) return [['warn', 'project: not set up here (no .cadre/config.json)', '/cadre <goal> sets it up']]
+  if (!(await h.secret.read()).active && !(await h.readText(`${root}/.cadre/config.json`))) return [['warn', 'project: not set up here (no .cadre/config.json)', '/cadre <goal> sets it up'], ...(await unsetRows(h))]
   if (!(await gitOk(h.run, root, ['rev-parse', '--git-dir']))) return [['crit', 'not inside a git repo', '/cadre init']]
   const miss = (await progress(h)).filter(s => !s.done)
   rows.push(miss.length ? ['warn', `init incomplete: ${miss.map(s => s.name).join(', ')}`, '/cadre init'] : ['ok', 'init complete'])
