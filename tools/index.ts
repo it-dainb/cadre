@@ -7,9 +7,11 @@ import { raise, report, runCheck } from '../core/close'
 import { warm } from '../core/session'
 import { askAnswer, askOf } from '../core/asks'
 import { planned } from '../core/planner'
-import { refuse, tried, validateReport } from '../core/validate'
+import { checkInput, refuse, tried, validateReport } from '../core/validate'
 import * as G from '../core/git'
 import { charge, runOf, step } from '../core/lifecycle'
+import { PLAN_TOOLS } from '../core/plantools'
+import { prefsCall } from '../commands/prefs'
 
 export const TOOLS = ['report', 'inspect', 'run_check'] as const
 const S = { type: 'string' }, ARR = { type: 'array' }
@@ -22,6 +24,40 @@ export const SPECS = [
   { name: 'run_check', isDeferred: false, description: 'Run a named check of your task package on your tree. Output: exit, seconds, truncated, capped body.',
     inputSchema: { type: 'object', additionalProperties: false, required: ['name', 'task'], properties: { schemaVersion: V, name: S, task: S } } },
 ] as const
+
+// Main's tools (core/plantools, commands/prefs): registered at session start only where the work is due (hooks/register); an agent's call is refused.
+// Strict schemas: checked in code (core/validate.checkInput) before anything is stored; caps refuse, never truncate.
+const L = (n: number) => ({ type: 'string', maxLength: n }), B = { type: 'boolean' }, O = { type: 'object' }, N = { type: 'integer', minimum: 0 }
+const IDS = { type: 'array', maxItems: 20, items: L(64) }, LIST = (n: number, k: number) => ({ type: 'array', maxItems: n, items: L(k) })
+const TASK = { type: L(40), package: L(200), scope: L(80), breaking: B, scenarios: LIST(20, 500), changelog: O, interface: O, paths: LIST(20, 200), core: B, repro: B }
+export const MAIN_SPECS = [
+  { name: 'plan', isDeferred: false, description: 'Start a plan (a draft the user approves): title, description, its size from the enum, reason (one line). A one-step plan carries its task\'s fields here. Answer: {id, plan, revision}.',
+    inputSchema: { type: 'object', additionalProperties: false, required: ['title', 'description'], properties: { kind: { type: 'string', enum: ['plan', 'mission'] }, title: L(200), description: L(8000), lane: { type: 'string', enum: ['ask', 'lite', 'full', 'milestone'] }, reason: L(300), mission: L(1000), notes: {}, assumed: LIST(5, 200), ...TASK } } },
+  { name: 'task', isDeferred: false, description: 'Add a task to the draft plan: title, description, type, package, scenarios ["S1: Given … When … Then …"], changelog, interface, paths; after: ids it waits for; epic: its epic in a milestone. Answer: {id, plan, revision}.',
+    inputSchema: { type: 'object', additionalProperties: false, required: ['title', 'description'], properties: { title: L(200), description: L(8000), ...TASK, epic: L(64), after: IDS } } },
+  { name: 'epic', isDeferred: false, description: 'Milestone only. Add an epic to the roadmap: title, goal, size (1-7 tasks), core?, paths?, after?. Or {id, planned:true} once its tasks are drafted. Answer: {id, plan, revision}.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: { id: L(64), title: L(200), goal: L(2000), size: { type: 'integer', minimum: 1 }, core: B, paths: LIST(20, 200), after: IDS, planned: B } } },
+  { name: 'amend', isDeferred: false, description: 'Change a task (or the draft plan) by id: any field task takes, after (more ids to wait for), or remove:true for a draft. expectedRevision: the revision your last answer gave. An approved task goes back to the user for approval.',
+    inputSchema: { type: 'object', additionalProperties: false, required: ['id', 'expectedRevision'], properties: { id: L(64), expectedRevision: N, title: L(200), description: L(8000), ...TASK, size: { type: 'integer', minimum: 1 }, after: IDS, remove: B } } },
+  { name: 'explore', isDeferred: false, description: 'Ask a read-only explorer a question about the code; it starts when your turn ends and its answer comes back as a message. {id} reads a full answer again.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: { question: L(2000), id: L(64) } } },
+  { name: 'ask', isDeferred: false, description: 'Record an open question for the user on the draft plan; the plan cannot be approved while one is open. Ask the user, then {id, answer} records their answer.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: { question: L(500), id: L(16), answer: L(2000) } } },
+] as const
+export const PREFS_SPEC = { name: 'preferences', isDeferred: false, description: 'Hand over the user\'s setup preferences: mode "auto"|"yolo", maxTurns, maxCostUsd, maxWallMinutes, maxParallel, maxEpics (0 = no limit on the last two). Only during setup.',
+  inputSchema: { type: 'object', additionalProperties: false, properties: { mode: { type: 'string', enum: ['auto', 'yolo'] }, maxTurns: N, maxCostUsd: { type: 'number' }, maxWallMinutes: N, maxParallel: N, maxEpics: N } } } as const
+export const MAIN = [...MAIN_SPECS, PREFS_SPEC]
+const ENVELOPE = ['tool', 'tool_use_id', 'agentId', 'requestMeta', 'consent']
+// main's tool call: role gate, strict schema, then the handler (no task deps: preferences answers in a dormant repo too)
+export async function mainTool(h: Host, e: any): Promise<unknown> {
+  const name = String(e.tool).replace(/^mcp__cadre__/, ''), spec = MAIN.find(t => t.name === name)!
+  const i = e.input ?? Object.fromEntries(Object.entries(e).filter(([k]) => !ENVELOPE.includes(k)))
+  if (e.agentId) return { result: modelText('tool-result', bad(`${name} is for the main session; finish your own step with report`)) }
+  const err = checkInput(spec.inputSchema, i); if (err) return { result: modelText('tool-result', bad(err)) }
+  if (name !== 'preferences') return PLAN_TOOLS[name](h, i)
+  const r: any = await prefsCall(h, { tool: 'TaskCreate', metadata: { kind: 'preferences', ...i } })
+  return r?.deny ? { result: modelText('tool-result', bad(String(r.deny).replaceAll('metadata.', ''))) } : r
+}
 
 const bad = (m: string) => `error: ${m}`
 
@@ -91,4 +127,5 @@ export async function handleWith(h: Host, d: Deps, e: any): Promise<{ result: st
   } catch (x) { return { result: modelText('tool-result', bad(String((x as Error).message ?? x))) } }
 }
 // tool.call for mcp__cadre__*: answer {result}.
-export const handle: Hook = async (h, e, next) => (TOOLS.some(t => e.tool === `mcp__cadre__${t}`) ? (await warm(h), handleWith(h, await resolveDeps(h), e)) : next(e))
+export const handle: Hook = async (h, e, next) => (MAIN.some(t => e.tool === `mcp__cadre__${t.name}`) ? mainTool(h, e).catch(x => ({ result: modelText('tool-result', bad(String((x as Error).message ?? x))) })) as any
+  : TOOLS.some(t => e.tool === `mcp__cadre__${t}`) ? (await warm(h), handleWith(h, await resolveDeps(h), e)) : next(e))

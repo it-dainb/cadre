@@ -105,3 +105,24 @@ test('during a setup run main\'s stop is refused while a check is red; with no r
   const r = await $.classic.Stop({ stop_hook_active: false, last_assistant_message: 'done looking' })
   expect(r.block).toMatch(/^Setup is not done: these checks still fail\.\n1\. repository: no git repository yet \(phase 1\)/)
 })
+
+// main's tools are registered at session start only where their work is due (the set is fixed for the session); a refused one is kept for Doctor
+const MAIN_NAMES = ['plan', 'task', 'epic', 'amend', 'explore', 'ask']
+const startWith = async ($: any, on: any, o: { active: boolean; stamp?: string; refuse?: string }) => {
+  const tools: string[] = []
+  on('session.start', () => ({ cwd: '/work' })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('env.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined }))
+  on('session.version', () => ({ value: { version: '2.1.299' } })); on('store.get', ($: any, e: any) => ({ value: e.key === 'cadre:setup' && o.stamp ? { cc: o.stamp } : undefined }))
+  on('fs.read', () => { if (!o.active) throw new Error('ENOENT'); return { value: '{}' } }); on('fs.stat', () => ({ value: undefined })); on('command.register', () => ({ value: undefined })); on('env.set', () => ({ value: undefined }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined }))
+  on('tool.register', ($: any, e: any) => { if (e.name === o.refuse) throw new Error('refused'); tools.push(e.name); return { value: undefined } }); mock.clock(on)
+  await $.session.start(START); return tools
+}
+test('tools at start: dormant on a set-up machine: the agent tools only', async ($, on) => {
+  expect(await startWith($, on, { active: false, stamp: '2.1.299' })).toEqual(['report', 'inspect', 'run_check'])
+})
+test('tools at start: dormant, setup due (no stamp, or another Claude Code build): preferences too', async ($, on) => {
+  expect(await startWith($, on, { active: false, stamp: '2.1.290' })).toEqual(['report', 'inspect', 'run_check', 'preferences'])
+})
+test('tools at start: an active repo gets every main tool; one Claude Code refuses is left out', async ($, on) => {
+  expect(await startWith($, on, { active: true, stamp: '2.1.299', refuse: 'ask' })).toEqual(['report', 'inspect', 'run_check', ...MAIN_NAMES.filter(t => t !== 'ask'), 'preferences'])
+})

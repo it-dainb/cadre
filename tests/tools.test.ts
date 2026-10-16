@@ -1,0 +1,145 @@
+import { describe, expect, test } from 'claude-code/testing'
+import { MAIN, mainTool } from '../tools/index'
+import { handleWith } from '../tools/index'
+import { mainAgent } from '../core/plantools'
+import { checkInput } from '../core/validate'
+import { prefsCall } from '../commands/prefs'
+import { toolsRow } from '../commands/doctor'
+import { fakeHost } from './support'
+import { FULL, world } from './fixtures/native/world'
+import type { Host } from '../types'
+
+type W = Awaited<ReturnType<typeof world>>
+const tool = (w: W, name: string, input: Record<string, unknown>, agentId?: string) => mainTool(w.h, { tool: `mcp__cadre__${name}`, tool_use_id: 'u1', ...(agentId ? { agentId } : {}), ...input }) as Promise<any>
+const err = (r: any) => (typeof r.result === 'string' ? r.result : '')
+const { type, package: pkg, scenarios, changelog, interface: iface, paths } = FULL
+const TASK = { type, package: pkg, scenarios, changelog, interface: iface, paths }
+async function planned(w: W) {
+  const p = await tool(w, 'plan', { title: 'Auth login', description: 'goal', lane: 'full', reason: 'two steps' })
+  const a = await tool(w, 'task', { title: 'Add login', description: 'impl', ...TASK })
+  return { plan: p.result.plan as string, a: a.result.id as string }
+}
+
+describe('main tools: valid input is stored with the plan revision', () => {
+  test('plan then task: a receipt {id, plan, revision, at, by} per write, revision +1, the missing line rides along', async () => {
+    const w = await world()
+    const p = await tool(w, 'plan', { title: 'Auth login', description: 'goal', lane: 'full', reason: 'two steps' })
+    expect(p.result).toEqual({ id: 'm-1', plan: 'm-1', revision: 1, at: expect.any(Number), by: 'main' })
+    const t = await tool(w, 'task', { title: 'Add login', description: 'impl', type: 'feature' })
+    expect(t.result).toMatchObject({ id: 'm-2', plan: 'm-1', revision: 2 }); expect(t.context).toEqual(['missing: m-2: scenarios, changelog, interface, package'])
+    expect((await w.store.get('m-1')).meta['cadre.rev']).toBe('2')
+    expect((await w.h.board.read()).tasks.map(x => x.id)).toEqual(['m-2'])
+  })
+  test('after[]: the task waits for the named ids; amend with the current revision edits it', async () => {
+    const w = await world(); const { a } = await planned(w)
+    const b = await tool(w, 'task', { title: 'Add logout', description: 'impl', ...TASK, paths: ['src/logout.ts'], after: [a] })
+    expect((await w.store.get(b.result.id)).deps).toEqual([{ id: a, type: 'blocks' }])
+    const m = await tool(w, 'amend', { id: b.result.id, expectedRevision: b.result.revision, title: 'Add logout button' })
+    expect(m.result).toMatchObject({ id: b.result.id, revision: b.result.revision + 1 }); expect((await w.store.get(b.result.id)).title).toBe('Add logout button')
+  })
+})
+
+describe('refusals name the field and say how to retry; nothing is stored', () => {
+  test('schema: unknown field, wrong type, a cap (rejected, never truncated), a missing required field', async () => {
+    const w = await world(); await planned(w)
+    const before = (await w.store.list({})).length
+    expect(err(await tool(w, 'task', { title: 'x', description: 'y', colour: 'red' }))).toBe('error: colour: unknown field (allowed: title, description, type, package, scope, breaking, scenarios, changelog, interface, paths, core, repro, epic, after); remove it and call again')
+    expect(err(await tool(w, 'task', { title: 5, description: 'y' }))).toBe('error: title: expected a string, got 5; fix it and call again')
+    expect(err(await tool(w, 'task', { title: 'x'.repeat(201), description: 'y' }))).toBe('error: title: at most 200 characters, got 201; shorten it and call again')
+    expect(err(await tool(w, 'task', { title: 'x', description: 'y', after: Array(21).fill('m-2') }))).toContain('error: after: at most 20 items, got 21')
+    expect(err(await tool(w, 'task', { description: 'y' }))).toBe('error: title: required; add it and call again')
+    expect(err(await tool(w, 'amend', { id: 'm-2', expectedRevision: -1, title: 'z' }))).toBe('error: expectedRevision: at least 0, got -1; fix it and call again')
+    expect((await w.store.list({})).length).toBe(before)
+  })
+  test('field rules: a malformed scenario names its index; no plan yet names the tool to call', async () => {
+    const w = await world()
+    expect(err(await tool(w, 'task', { title: 'x', description: 'y' }))).toBe('error: no plan yet: call plan first')
+    await planned(w)
+    expect(err(await tool(w, 'task', { title: 'x', description: 'y', scenarios: ['user can log in'] }))).toContain('error: scenarios[0]: expected "S1: Given <state> When <action> Then <outcome>"')
+  })
+  test('graph: an unknown id and a cycle are refused before the write', async () => {
+    const w = await world(); const { a } = await planned(w)
+    expect(err(await tool(w, 'task', { title: 'x', description: 'y', after: ['m-9'] }))).toBe(`error: after[0]: m-9 is not a task of this plan (known: ${a}); fix it and call again`)
+    const b = await tool(w, 'task', { title: 'Add logout', description: 'impl', ...TASK, paths: ['src/logout.ts'], after: [a] })
+    expect(err(await tool(w, 'amend', { id: a, expectedRevision: b.result.revision, after: [b.result.id] }))).toBe(`error: after[0]: ${b.result.id} already waits for ${a}, so this would be a cycle; drop it and call again`)
+    expect(err(await tool(w, 'amend', { id: a, expectedRevision: b.result.revision, after: [a] }))).toBe('error: after[0]: a task cannot wait for itself; remove it and call again')
+    expect((await w.store.get(a)).deps).toEqual([])
+  })
+  test('a stale expectedRevision is refused with the current one; the retry with it passes', async () => {
+    const w = await world(); const { a } = await planned(w)
+    expect(err(await tool(w, 'amend', { id: a, expectedRevision: 1, title: 'z' }))).toBe('error: expectedRevision: the plan is at revision 2, not 1; check your change against it and call again with expectedRevision 2')
+    expect((await w.store.get(a)).title).toBe('Add login')
+    expect((await tool(w, 'amend', { id: a, expectedRevision: 2, title: 'z' })).result.revision).toBe(3)
+    expect(err(await tool(w, 'amend', { id: a, expectedRevision: 3 }))).toBe('error: nothing to change: give at least one field to change')
+  })
+})
+
+describe('approval: an edit revokes it, an open question blocks it', () => {
+  test('approve writes a receipt; an amend sends the task back to the user and clears the receipt', async () => {
+    const w = await world(); const { plan, a } = await planned(w)
+    expect((await w.text({ cmd: 'approve', args: [plan] })).text).toContain('approved')
+    expect(JSON.parse((await w.store.get(plan)).meta['cadre.receipt'])).toEqual({ plan, revision: 2, at: expect.any(Number), by: 'human' })
+    const r = await tool(w, 'amend', { id: a, expectedRevision: 2, description: 'impl, with remember-me' })
+    expect(r.result.revision).toBe(3)
+    expect((await w.store.get(a)).category).toBe('draft'); expect((await w.store.get(plan)).meta['cadre.receipt']).toBe('')
+    expect(err(await tool(w, 'amend', { id: plan, expectedRevision: 3, title: 'x' }))).toBe('error: id: the approved plan itself is fixed; amend its tasks')
+  })
+  test('an open question keeps the plan from approval until main records the user\'s answer', async () => {
+    const w = await world(); const { plan } = await planned(w)
+    const q = await tool(w, 'ask', { question: 'Keep the old session format?' })
+    expect(q.result).toMatchObject({ id: 'q1', plan, revision: 3 }); expect(q.context).toEqual(['missing: open question q1 (ask the user, then answer it with ask)'])
+    expect((await w.text({ cmd: 'approve', args: [plan] })).text).toContain('open question q1')
+    expect(err(await tool(w, 'ask', { id: 'q1' }))).toBe('error: answer: required with id; give the user\'s answer in their words')
+    expect(err(await tool(w, 'ask', { id: 'q7', answer: 'no' }))).toBe('error: id: no question q7; open: q1')
+    await tool(w, 'ask', { id: 'q1', answer: 'yes, keep it' })
+    expect((await w.h.board.read()).approval.missing).toEqual([])
+  })
+})
+
+describe('role gate and the other tools', () => {
+  test('an agent cannot call main\'s tools; main cannot report', async () => {
+    const w = await world()
+    for (const t of MAIN) expect(err(await tool(w, t.name, {}, 'agent-1'))).toBe(`error: ${t.name} is for the main session; finish your own step with report`)
+    expect((await handleWith(w.h, {} as any, { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: 's' } })).result).toBe('error: only a spawned agent reports')
+  })
+  test('explore queues a question for the spawner (3 at most); {id} reads an answer', async () => {
+    const w = await world()
+    expect((await tool(w, 'explore', { question: 'where is login handled?' })).result).toContain('An explorer starts when this turn ends')
+    expect((await w.h.ui.read()).explore).toEqual(['where is login handled?'])
+    await tool(w, 'explore', { question: 'b' }); await tool(w, 'explore', { question: 'c' })
+    expect(err(await tool(w, 'explore', { question: 'd' }))).toContain('error: question: 3 explorers are already waiting')
+    expect(err(await tool(w, 'explore', { id: 'ask-zz' }))).toBe('error: id: no explorer answer ask-zz')
+    await w.h.ui.update(u => ({ ...u, asks: { 'agent-123456': { id: 'ask-123456', q: 'where?', k: 0, answer: 'src/login.ts:3' } } }))
+    expect((await tool(w, 'explore', { id: 'ask-123456' })).result).toMatchObject({ id: 'ask-123456', description: 'src/login.ts:3', status: 'completed' })
+  })
+  test('epic: only in a milestone; a new epic needs title, goal and size', async () => {
+    const w = await world(); await planned(w)
+    expect(err(await tool(w, 'epic', { title: 'x', goal: 'g', size: 2 }))).toBe('error: epics belong to a milestone (plan lane "milestone"); add tasks with task')
+    const v = await world(); await tool(v, 'plan', { title: 'Big', description: 'goal', lane: 'milestone', reason: 'three parts' })
+    expect(err(await tool(v, 'epic', { title: 'x', goal: 'g' }))).toBe('error: size: required for a new epic; add it and call again')
+    expect((await tool(v, 'epic', { title: 'Auth', goal: 'log in', size: 2, paths: ['src/auth/'] })).result).toMatchObject({ id: 'm-2', revision: 2 })
+    expect((await v.store.get('m-2')).type).toBe('epic')
+  })
+  test('preferences and TaskCreate {kind:"preferences"} raise the same card', async () => {
+    const mk = () => { const h = fakeHost() as Host; void h.secret.update(s => ({ ...s, run: { kind: 'setup' as const, at: 0, turns: 0, follow: 0, guide: 'g' } })); return h }
+    const a = mk(), b = mk()
+    const r1: any = await mainTool(a, { tool: 'mcp__cadre__preferences', tool_use_id: 'u', mode: 'yolo', maxTurns: 50 })
+    const r2: any = await prefsCall(b, { tool: 'TaskCreate', subject: 'preferences', description: '', metadata: { kind: 'preferences', mode: 'yolo', maxTurns: 50 } })
+    expect(r1).toEqual(r2)
+    expect((await a.board.read()).decisions).toEqual((await b.board.read()).decisions); expect((await a.ui.read())['prefs.pending']).toEqual((await b.ui.read())['prefs.pending'])
+    expect((await mainTool(a, { tool: 'mcp__cadre__preferences', tool_use_id: 'u', maxTurns: 0 }) as any).result).toBe('error: maxTurns: expected a whole number from 1 to 10000')
+  })
+  test('main\'s Agent: refused toward the tools; an agent\'s own Agent call passes', () => {
+    expect(mainAgent({ tool: 'Agent' })).toEqual({ deny: 'plan the work with plan and task; to learn about the code, call explore with your question' })
+    expect(mainAgent({ tool: 'Agent', agentId: 'a1' })).toBeUndefined(); expect(mainAgent({ tool: 'Read' })).toBeUndefined()
+  })
+  test('Doctor: a tool Claude Code refused is a crit row; an active repo without them this session says restart', async () => {
+    const h = fakeHost()
+    await h.secret.update(s => ({ ...s, tools: { on: ['report', 'plan'], refused: ['ask'] } })); expect((await toolsRow(h))[0]).toBe('crit')
+    await h.secret.update(s => ({ ...s, tools: { on: ['report'], refused: [] } })); expect(await toolsRow(h)).toEqual(['warn', 'the planning tools are not loaded in this session', 'restart Claude Code'])
+    await h.secret.update(s => ({ ...s, tools: { on: ['report', 'plan'], refused: [] } })); expect(await toolsRow(h)).toEqual(['ok', 'cadre tools loaded'])
+  })
+  test('checkInput: nested items name their index', () => {
+    expect(checkInput({ type: 'object', properties: { after: { type: 'array', items: { type: 'string' } } } }, { after: ['a', 2] })).toBe('after[1]: expected a string, got 2; fix it and call again')
+  })
+})

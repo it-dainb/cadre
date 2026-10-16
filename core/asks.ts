@@ -15,8 +15,8 @@ export const askById = async (h: Host, id: string) => Object.values(await all(h)
 const one = (s: string, n: number) => { const t = s.replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t }
 
 // admission: the spawn started (next answered its agentId)
-export async function asked(h: Host, agentId: string, e: { prompt?: string; tool_use_id?: string }): Promise<void> {
-  await h.ui.update(u => ({ ...u, asks: { ...(u.asks as object), [agentId]: { id: `ask-${agentId.slice(-6)}`, q: one(String(e.prompt ?? ''), 80), tu: e.tool_use_id, k: 0 } } }))
+export async function asked(h: Host, agentId: string, e: { prompt?: string; tool_use_id?: string }, told?: false): Promise<void> {   // told false: no card shows it, its answer is sent to main (askStopped)
+  await h.ui.update(u => ({ ...u, asks: { ...(u.asks as object), [agentId]: { id: `ask-${agentId.slice(-6)}`, q: one(String(e.prompt ?? ''), 80), tu: e.tool_use_id, k: 0, ...(told === false ? { told } : {}) } } }))
 }
 // the card main sees instead of the agent's text: role, status, one line of the answer (<= 200), where the rest is
 export const askCard = (a: Ask): string => [`EXPLORER ${a.id} "${a.q}"`, a.answer === undefined ? 'explorer → finishing its answer' : `explorer → answered (${a.cites ?? 0} citations)`,

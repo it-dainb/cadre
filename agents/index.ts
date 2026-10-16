@@ -14,7 +14,7 @@ export const TOOLS: Record<Role, readonly string[]> = {
 }
 // main: no shell, no Cron*/ScheduleWakeup (a second loop owner, DESIGN 9). File tools are fenced (policy/guards).
 export const MAIN_TOOLS: readonly string[] = ['Read', 'LSP', 'WebFetch', 'WebSearch', 'ToolSearch', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet',
-  'Agent', 'AskUserQuestion', 'SendMessage', 'Skill', 'Edit', 'Write', 'NotebookEdit', I]
+  'Agent', 'AskUserQuestion', 'SendMessage', 'Skill', 'Edit', 'Write', 'NotebookEdit', I, ...['plan', 'task', 'epic', 'amend', 'explore', 'ask', 'preferences'].map(t => `mcp__cadre__${t}`)]   // main's own tools (tools/index MAIN)
 const DESC: Record<Role, string> = {
   worker: 'implements one approved task in its own folder',
   tester: 'writes black-box tests for one task from its scenarios',

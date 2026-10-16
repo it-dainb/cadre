@@ -42,6 +42,7 @@ const inflight = new Set<string>()   // `task:role` in flight: two turn ends at 
 // the spawner's step at a turn end or /cadre: start every agent the board wants, within maxParallel, counted against the drive bounds
 export async function spawnStep(h: Host, event: string): Promise<void> {
   if (!FRAMES.includes(event) || !h.spawnAgent) throw new Error(`spawn refused: ${event} is not a frame an agent's events stay under`)
+  await explores(h)
   await syncMode(h)
   if (!modOn(await h.board.read()) || !(await ready(h))) return
   const t = await h.now(); await h.ui.update(u => ({ ...u, idleAt: t }))   // a sign of life: the watchdog's window starts over
@@ -77,6 +78,15 @@ async function landAll(h: Host): Promise<boolean> {
 // main's digest (ADR 0018): one line per landing, handed over as context on main's next turn (core/briefs.context), never a turn of its own
 export const told = (h: Host, line: string) => h.ui.update(u => ({ ...u, digest: [...((u.digest as string[]) ?? []), line].slice(-20) }))
 
+// main's explore tool (core/plantools) queued questions: each starts one read-only explorer from this frame, in either mode; admission reads the question off the intent
+async function explores(h: Host) {
+  const q = ((await h.ui.read()).explore as string[] | undefined) ?? []; if (!q.length || life.ending) return
+  await h.ui.update(u => ({ ...u, explore: undefined }))
+  for (const x of q) {
+    const n = await intend(h, x, 'explore', await sessionOf(h))
+    try { const r = await h.spawnAgent!({ prompt: modelText('agent-brief', n), description: 'explore' }); if (r?.deny) h.log(`explorer not started: ${r.deny}`) } catch (e) { h.log(`explorer not started: ${e}`) } finally { await settleIntent(h, n) }
+  }
+}
 async function one(h: Host, id: string, role: string) {
   if (life.ending) return   // the session is quitting: an agent started now would die with it, its claim left behind
   const k = `${id}:${role}`, n = await intend(h, id, role, await sessionOf(h)); inflight.add(k)

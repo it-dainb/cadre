@@ -146,9 +146,16 @@ export async function confirmUser(h: Host): Promise<string> {
   return 'setup: user settings written'
 }
 // session.start: no stamp, or the Claude Code build changed since: one toast
-export async function nudge(h: Host): Promise<void> {
+export async function setupDue(h: Host): Promise<boolean> {   // also registers main's preferences tool in a dormant repo (hooks/register)
   const s = (await h.store.get(STAMP)) as { cc?: string } | undefined, cc = await h.version?.().catch(() => undefined)
-  if (!s || (cc && s.cc !== cc)) h.toast('cadre: run /cadre setup')
+  return !s || (!!cc && s.cc !== cc)
+}
+export async function nudge(h: Host): Promise<void> { if (await setupDue(h)) h.toast('cadre: run /cadre setup') }
+// main's tools: Claude Code refused them, or the repo turned on after this session started (the set is fixed at start)
+export async function toolsRow(h: Host): Promise<Row> {
+  const s = await h.secret.read(), t = s.tools
+  if (t?.refused.length) return ['crit', `Claude Code refused cadre's tools: ${t.refused.join(', ')}`, 'cadre needs its tools: drop allowedMcpServers from managed settings, or start Claude Code without --bare']
+  return s.active && t && !t.on.includes('plan') ? ['warn', 'the planning tools are not loaded in this session', 'restart Claude Code'] : ['ok', 'cadre tools loaded']
 }
 
 // ---- doctor: machine rows + project rows; no writes ----
@@ -196,5 +203,5 @@ export async function doctor(h: Host): Promise<string> {
   const m = await machine(h, cfg)   // read-only: a fix line only when its script already exists (setup writes them)
   for (const x of m.scripts) if (x.run && (await h.readText(x.path)) === null) for (const r of m.rows) if (r[2] === `! ${x.run}`) r[2] = 'run /cadre setup to prepare the fix'
   const pe = (await h.ui.read()).paneErr as { reason: string } | undefined   // ui/index.openPane: the last open that failed this session
-  return report(h, 'doctor', [...m.rows, await prefsRow(h), ...(await doctorRows(h)), ...(pe ? [['warn', `the cadre pane could not open: ${pe.reason}`, 'run /cadre to open it; if it keeps failing, report the reason'] as Row] : []), ...(await project(h, cfg))])
+  return report(h, 'doctor', [...m.rows, await prefsRow(h), await toolsRow(h), ...(await doctorRows(h)), ...(pe ? [['warn', `the cadre pane could not open: ${pe.reason}`, 'run /cadre to open it; if it keeps failing, report the reason'] as Row] : []), ...(await project(h, cfg))])
 }

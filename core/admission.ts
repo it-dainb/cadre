@@ -55,6 +55,11 @@ export async function admitWith(h: Host, d: Deps, e: any, next: ((e: any) => any
   if (e.workflow) return deny('workflow agents are not available; use a plain Agent call')
   const s = await h.board.read(), mine = next.origin?.plugin === 'cadre', it = mine ? await intentOf(h, String(e.prompt ?? '').trim()) : undefined   // the spawner's own start names its intent
   if (mine && !it) { h.log(`spawn refused: no intent ${String(e.prompt ?? '').slice(0, 40)}`); return deny('this start has no task behind it, so it was not started') }   // never an explorer
+  const explorer = async (x: any, told?: false) => {   // a read-only explorer, tracked from the start: its stop is observed and main only sees its card (core/asks)
+    const r = await next({ ...x, subagentType: 'cadre:explorer', model: routeOf(d, 'explorer', 'light').model, prompt: modelText('agent-brief', brief('explorer', { id: '', title: '', type: '', question: x.prompt })) })
+    if (r?.agentId) await asked(h, r.agentId, x, told); return r
+  }
+  if (it?.role === 'explore') return explorer({ ...e, prompt: modelText('agent-brief', it.taskId) }, false)   // main's explore tool (core/plantools): the question rides on the intent; the answer goes to main as a message
   if (it && it.role !== 'planner' && !s.tasks.some(x => x.id === it.taskId)) return deny(`${it.taskId} is no longer on the board`)
   if (it?.role === 'planner') return epicOf(s, it.taskId) ? planner(h, d, e, next, s, it.taskId) : deny(`${it.taskId} has no plan to draft now`)   // a ready epic's planner (ADR 0021)
   if (it) e = { ...e, prompt: modelText('agent-brief', '') }   // the brief's notes are main's words only
@@ -63,10 +68,7 @@ export async function admitWith(h: Host, d: Deps, e: any, next: ((e: any) => any
   if (ids.length && s.drive.on && !s.drive.stopped && s.drive.spawn === 'mod' && next.origin?.plugin !== 'cadre') return deny(`${ids[0]} starts by itself; do not spawn agents for the plan's tasks. An Agent without a task id (to explore or ask) is fine`)   // mod mode (ADR 0018): only the spawner's own call, never main's
   if (!ids.length) {   // marker-less: a read-only explorer; forks pass untouched
     if (e.fork) return next(e)
-    const m = routeOf(d, 'explorer', 'light').model
-    const r = await next({ ...e, subagentType: 'cadre:explorer', model: m, prompt: modelText('agent-brief', brief('explorer', { id: '', title: '', type: '', question: e.prompt })) })
-    if (r?.agentId) await asked(h, r.agentId, e)   // tracked from the start: its stop is observed and main only sees its card (core/asks)
-    return r
+    return explorer(e)
   }
   if (e.fork) return deny('a task agent cannot be a fork; spawn it without fork')
   const t = s.tasks.find(x => x.id === ids[0])!

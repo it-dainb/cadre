@@ -154,3 +154,30 @@ export function validateReport(r: any): string | null {
   if (typeof r.summary === 'string' && r.summary.length > 1500) return `summary: at most 1500 chars, got ${r.summary.length}`
   return null
 }
+
+// Main's tool input (tools/index MAIN): the strict schema checked in code before anything is stored. Unknown fields, wrong types and caps are refused, naming
+// the field and how to retry; nothing is truncated. The schema subset: type object|string|integer|number|boolean|array, enum, required, maxLength, maxItems, items.
+type Sch = { type?: string; enum?: readonly unknown[]; required?: readonly string[]; properties?: Record<string, Sch>; maxLength?: number; maxItems?: number; minimum?: number; items?: Sch }
+const isType = (t: string | undefined, v: unknown) => !t || (t === 'array' ? Array.isArray(v) : t === 'integer' ? Number.isInteger(v) : t === 'object' ? !!v && typeof v === 'object' && !Array.isArray(v) : typeof v === t)
+export function checkInput(s: Sch, v: unknown, path = ''): string | null {
+  const at = path || 'input', again = 'fix it and call again'
+  if (!isType(s.type, v)) return `${at}: expected ${s.type === 'integer' ? 'a whole number' : `a${/^[aeio]/.test(s.type!) ? 'n' : ''} ${s.type}`}, got ${show(v)}; ${again}`
+  if (s.enum && !s.enum.includes(v)) return `${at}: expected one of ${s.enum.map(x => JSON.stringify(x)).join(', ')}, got ${show(v)}; ${again}`
+  if (typeof v === 'number' && s.minimum !== undefined && v < s.minimum) return `${at}: at least ${s.minimum}, got ${v}; ${again}`
+  if (typeof v === 'string' && s.maxLength && v.length > s.maxLength) return `${at}: at most ${s.maxLength} characters, got ${v.length}; shorten it and call again`
+  if (Array.isArray(v)) {
+    if (s.maxItems && v.length > s.maxItems) return `${at}: at most ${s.maxItems} items, got ${v.length}; split the work and call again`
+    for (const [i, x] of v.entries()) { const e = s.items && checkInput(s.items, x, `${at}[${i}]`); if (e) return e }
+  }
+  if (s.type === 'object' && s.properties) {
+    const o = v as Record<string, unknown>, dot = path ? `${path}.` : ''
+    for (const k of Object.keys(o)) if (!(k in s.properties)) return `${dot}${k}: unknown field (allowed: ${Object.keys(s.properties).join(', ')}); remove it and call again`
+    for (const k of s.required ?? []) if (o[k] === undefined) return `${dot}${k}: required; add it and call again`
+    for (const [k, p] of Object.entries(s.properties)) if (o[k] !== undefined) { const e = checkInput(p, o[k], `${dot}${k}`); if (e) return e }
+  }
+  return null
+}
+// a plan's open questions (main's ask tool): each blocks its approval until main records the user's answer
+export interface Question { id: string; q: string; answer?: string }
+export const questionsOf = (t?: Pick<Task, 'meta'>): Question[] => { try { const v = JSON.parse(t?.meta['cadre.questions'] || '[]'); return Array.isArray(v) ? v : [] } catch { return [] } }
+export const openQuestions = (t?: Pick<Task, 'meta'>): string[] => questionsOf(t).filter(q => q.answer === undefined).map(q => `open question ${q.id} (ask the user, then answer it with ask)`)

@@ -21,10 +21,10 @@ import { autoLand } from '../core/integrate'
 import { answer, describe } from '../native/tasks'
 import { mainTurn } from '../core/dispatch'
 import { wrap } from '../core/effect'
-import { handle, SPECS } from '../tools/index'
+import { handle, MAIN_SPECS, PREFS_SPEC, SPECS } from '../tools/index'
 import { context, attachment } from '../core/briefs'
 import { decide, run } from '../commands/cadre'
-import { nudge, oldLine, tooOld } from '../commands/doctor'
+import { nudge, oldLine, setupDue, tooOld } from '../commands/doctor'
 import { pump, turnEnd, seen, stopCheck, redNote, watch, halt } from '../commands/agentrun'
 import { tick } from '../task-management/sync-engine/loop'
 import { autoAsk, onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapCard, resumeBanner } from '../ui/index'
@@ -167,7 +167,8 @@ export const register: Register = (on, opts) => {
     await $.env.set('ENABLE_TOOL_SEARCH', 'false')   // S13: isDeferred:false alone does not stop deferral
     await update($, ui, x => ({ ...x, headless: !e.isInteractive || undefined }))   // core/spawner.spawnMode: a one-shot -p run ends before an agent's turn end
     await wake(host($)).catch(e => $.ui.log(`session start: ${e}`)); await halt(host($)).catch(() => {}); await syncMode(host($)).catch(() => {})   // a setup cut short in an earlier session: the band says so   // active repos only: $.store 'policy' + cadre.ui.cfg + containment band (agents ship as agents/*.md files, A28)
-    for (const t of SPECS) await $.tool.register(t)   // report, inspect, run_check: isDeferred:false (5.2)
+    { const h = host($), act = await wake(h).catch(() => false), set = [...SPECS, ...(act ? MAIN_SPECS : []), ...(act || (await setupDue(h).catch(() => true)) ? [PREFS_SPEC] : [])], refused: string[] = []   // report, inspect, run_check: isDeferred:false (5.2); main's tools only where the work is due (the set is fixed for the session)
+      for (const t of set) await $.tool.register(t).catch(() => { refused.push(t.name) }); await update($, secret, x => ({ ...x, tools: { on: set.map(t => t.name), refused } })) }   // refused (managed allowedMcpServers, --bare): Doctor says so
     { const h = host($); if (await wake(h).catch(() => false)) { await nudge(h).catch(() => {}); await autoLand(h).catch(x => $.ui.log(`land: ${x}`)) } }   // a landing that waited for the user's checkout   // active repos only: no setup stamp for this Claude Code build -> one toast
     $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void watch(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}); void watchdog(h).catch(() => {}); void h.secret.read().then(s => backstop(h, s.session ?? '')).catch(() => {}); void autoLand(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
     $.clock.every(30_000, () => { const h = host($); void wake(h).then(act => act && tickUi(h)).catch(() => {}) })   // live timeline cursor (blit, no re-render)

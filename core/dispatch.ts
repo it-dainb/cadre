@@ -11,7 +11,7 @@ import { emit } from './events'
 import { ask, plural, settle, settleIf } from './decide'
 import { scoped } from '../commands/init'
 import { apply, epicNext } from './machine'
-import { missingList } from './validate'
+import { missingList, openQuestions } from './validate'
 import { cutEpic } from './branches'
 import { laneLine, laneOption, queueBrief } from './lanes'
 import { isMs, roadmap } from './milestone'
@@ -66,8 +66,8 @@ const goalOf = (mission: string) => (mission.split('\n')[0] ?? '').replace(/^goa
 // re-ask over the current drafts (every draft change AND every refused approve); board.approval gets the missing list. Returns it.
 // what approval still needs; a roadmap complete otherwise needs its critic's review (ADR 0015)
 const planMissing = async (store: TaskStore, s: { plan: Plan | null }, drafts: Task[], reg: TypeRegistry): Promise<string[]> => {
-  const m = !s.plan || s.plan.slug === 'mission' ? [] : missingList(drafts, reg)
-  return !m.length && isMs(s.plan) && !(await store.get(s.plan!.id)).meta['cadre.critique'] ? ['critic review (the roadmap rules say how)'] : m
+  const m = !s.plan || s.plan.slug === 'mission' ? [] : missingList(drafts, reg), q = s.plan ? openQuestions(await store.get(s.plan.id).catch(() => undefined)) : []   // main's ask tool (core/plantools)
+  return [...q, ...(!m.length && isMs(s.plan) && !(await store.get(s.plan!.id)).meta['cadre.critique'] ? ['critic review (the roadmap rules say how)'] : m)]
 }
 export async function redraw(h: Host, store: TaskStore, reg: TypeRegistry): Promise<string[]> {
   const s = await h.board.read()
@@ -174,6 +174,7 @@ async function approve(h: Host, c: Command): Promise<Out> {
   const ids = drafts.map(t => t.id), first = !plan.approvedAt
   if (mis && first) { await store.record('mission', goalOf(mis), mis); await store.setMeta(plan.id, { 'cadre.mission': '' }, 'human'); await h.board.update(b => ({ ...b, mission: goalOf(mis) })) }   // the mission approved with its first plan
   await store.approve(ids)
+  await store.setMeta(plan.id, { 'cadre.receipt': JSON.stringify({ plan: plan.id, revision: Number(epic.meta['cadre.rev'] ?? 0), at, by: 'human' }) }, 'human')   // the approval receipt; a tool write clears it (core/plantools)
   for (const t of drafts) if (t.meta['cadre.amended']) await store.setMeta(t.id, { 'cadre.amended': '' }, 'human')
   await mirror(h, store, reg)   // tasks the board lost (after /clear) come back as drafts; the machine then approves them
   const pipe = pipeOf(reg)
