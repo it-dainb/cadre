@@ -228,6 +228,19 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     expect((await h.ui.read()).held).toBe(true); expect(tries).toBe(1); expect((await h.ui.read()).goal).toBe('plan it')   // held: the goal is not handed over in the hold's own tick
     await h.ui.update(({ held: _h, ...u }) => u); await sendBrief(h); expect(tries).toBe(2); expect((await h.ui.read()).goal).toBe('plan it')   // the throw keeps it for the next tick
   })
+  test('a submit that goes through resets the throw count: only throws in a row hold the run', async () => {
+    const { h, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]
+    await start(h, 'init'); await h.secret.update(s => ({ ...s, run: { ...s.run!, errs: 2 } })); await pump(h)
+    expect((await h.secret.read()).run?.errs).toBe(0)
+  })
+  test('a retry keeps the newer goal the human queued; a fresh goal replaces the queued one; neither is dropped without a log line', async () => {
+    const a = mk({ files: READY }); await items(a.h); await confirm(a.h)
+    await a.h.ui.update(u => ({ ...u, goal: 'Goal from the user: newer' })); await start(a.h, 'init', { text: 'older', mode: 'auto' }, 0)
+    expect((await a.h.ui.read()).goal).toBe('Goal from the user: newer'); expect(a.h.logs.some(l => l.includes('older'))).toBe(true)
+    const b = mk({ files: { ...READY, [`${PLUG}/guides/goal.md`]: (BUDGET.guides as Record<string, string>).goal } }); await items(b.h); await confirm(b.h)
+    await b.h.ui.update(u => ({ ...u, goal: 'Goal from the user: older' })); await start(b.h, 'init', { text: 'newer', mode: 'auto' })
+    expect((await b.h.ui.read()).goal).toMatch(/^Goal from the user: newer/); expect(b.h.logs.some(l => l.includes('older'))).toBe(true)
+  })
   test('a refused goal brief waits for the human: no submit until they type', async () => {
     const { h, sent } = mk({ files: READY }); let stopped = true, tries = 0; h.submit = async (t: string) => (tries++, stopped ? { drop: 'the session was stopped' } : (sent.push(t), {}))
     await h.ui.update(u => ({ ...u, goal: 'plan it' })); await pump(h); await pump(h); await pump(h)

@@ -9,7 +9,7 @@ import { initItems, scoped, type Item } from './init'
 import { setupItems } from './doctor'
 import { LIMIT } from '../policy/guards'
 import { RUN } from '../core/dispatch'
-import { goal as goalBrief, queueBrief, sendBrief } from '../core/lanes'
+import { GOAL_TAG, goal as goalBrief, queueBrief, sendBrief } from '../core/lanes'
 import { cfgOf, storeOf } from '../core/dispatch'
 import { diff as jdiff } from '../policy/settings'
 const EXPLORE = 'mcp__cadre__explore'
@@ -40,6 +40,7 @@ export async function pump(h: Host, inFrame = false): Promise<void> {
   const r = text ? await h.submit?.(modelText('brief', text)).catch((e: Error) => ({ err: e.message })) as { drop?: string; err?: string } | undefined : undefined
   if (r?.drop || r?.err) h.log(`could not hand the step to Claude: ${(r.drop ?? r.err)!.slice(0, 120)}`)
   const errs = r?.err ? ((await h.secret.read()).run?.errs ?? 0) + 1 : 0   // a thrown submit is no human stop: the step goes again on the next tick, held after 3 (a host error that repeats must not loop silently)
+  if (text && !r?.drop && !r?.err) await h.secret.update(s => (s.run?.errs ? { ...s, run: { ...s.run, errs: 0 } } : s))   // a submit that went through: only throws in a row hold the run
   if (errs && errs < 3) { await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, errs } } : s)); return send(h, text!) }
   if (r?.drop && inFrame) return send(h, text!)
   const run = (r?.drop || r?.err) && (await h.secret.read()).run
@@ -88,6 +89,8 @@ async function stuck(h: Host, r: NonNullable<Secret['run']>, its: Item[], why: s
 // (live 0.12.0: an Esc on a write told Claude to wait for the user; it read every retry brief as the plugin's, not the user's, and stopped again)
 export async function start(h: Host, k: Kind, goal?: { text: string; mode: 'auto' | 'yolo' }, again?: number): Promise<string> {
   if (goal) await settle(h, 'init:goal')
+  const q = (await h.ui.read()).goal as string | undefined   // a goal queued while no run was on: a retry's older goal gives way to it, a fresh one replaces it (never silently)
+  if (goal && q?.startsWith(GOAL_TAG)) { if (again !== undefined) { h.log(`the earlier goal gives way to the newer one: ${goal.text.slice(0, 80)}`); goal = undefined } else { h.log(`a newer goal replaces the queued one: ${q.slice(GOAL_TAG.length, 80)}`); await h.ui.update(({ goal: _g, ...u }) => u) } }
   await h.ui.update(({ held: _h, ...u }) => u)   // a new start hands its brief over: a hold left by an earlier stop must not swallow it (pump re-holds once if the host still drops)
   const at = await h.now(); await h.secret.update(s => ({ ...s, run: { kind: k, at, turns: 0, follow: again ?? 0, guide: '', snap: {}, ...(goal ? { goal } : {}) } }))   // before the checks: mission waits for the plan in a goal run
   const its = await items(h, k)

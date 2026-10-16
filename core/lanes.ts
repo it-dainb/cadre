@@ -96,7 +96,8 @@ export async function changeLane(h: Host, store: TaskStore, reg: TypeRegistry, p
 }
 
 // ---- briefs to main (the goal, a change request, an approved plan): `$.prompt.submit` is refused from a command or press frame (live 0.7.0), so it waits in `ui.goal` and goes out from commands/agentrun.pump ----
-export const queueBrief = (h: Host, text: string) => h.ui.update(u => ({ ...u, goal: text }))
+export const GOAL_TAG = 'Goal from the user: '
+export const queueBrief = async (h: Host, text: string) => { const q = (await h.ui.read()).goal as string | undefined; if (q && q !== text) h.log(`a queued brief was replaced: ${q.slice(0, 80)}`); await h.ui.update(u => ({ ...u, goal: text })) }
 export async function sendBrief(h: Host): Promise<void> {
   let text: string | undefined; await h.ui.update(u => { text = u.goal as string | undefined; if (!text) return u; const { goal: _g, ...r } = u; return r })
   if (!text) return
@@ -112,6 +113,6 @@ export async function goal(h: Host, text: string, mode: 'auto' | 'yolo' = 'auto'
   const at = await h.now(); await h.ui.update(({ halt: _h, ...u }) => ({ ...u, mode, modeAt: at }))
   await h.secret.update(s => ({ ...s, goalRun: { text, mode, follow: 0, ...(deep ? { deep: true } : {}) } }))   // main's stop is checked until the lane's step is done (commands/agentrun.goalStop)   // relane stamps it on the plan this goal drafts (within MODE_TTL)
   const none = !(await h.board.read()).mission && !(await Promise.resolve().then(() => storeOf(h)).then(missionOf).catch(() => 'unknown'))   // no recorded mission (a repo set up for this goal): main drafts it into the plan (ADR 0014)
-  await queueBrief(h, `Goal from the user: ${text.slice(0, 1000)}${none ? '\nThere is no mission yet.' : ''}\n\n${guideOf(g, (await cfgOf(h)).planning, dg)}`)
+  await queueBrief(h, `${GOAL_TAG}${text.slice(0, 1000)}${none ? '\nThere is no mission yet.' : ''}\n\n${guideOf(g, (await cfgOf(h)).planning, dg)}`)
   return deep ? 'deep: Claude explores, then asks one question at a time · say "enough" to plan sooner' : `goal${mode === 'yolo' ? ' (yolo)' : ''}: Claude is on it · the plan comes up for approval${mode === 'yolo' ? ' · after that nothing is asked until it lands on dev' : ''}`
 }
