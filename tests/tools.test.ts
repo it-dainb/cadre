@@ -7,6 +7,7 @@ import { checkInput } from '../core/validate'
 import { toolsRow } from '../commands/doctor'
 import { scoped } from '../commands/init'
 import { fakeHost } from './support'
+import { decide } from '../commands/cadre'
 import { FULL, world } from './fixtures/native/world'
 import type { Host } from '../types'
 
@@ -90,14 +91,22 @@ describe('refusals name the field and say how to retry; nothing is stored', () =
 })
 
 describe('approval: an edit revokes it, an open question blocks it', () => {
-  test('approve writes a receipt; an amend sends the task back to the user and clears the receipt', async () => {
+  test('approve; an amend sends the task back to the user', async () => {
     const w = await world(); const { plan, a } = await planned(w)
     expect((await w.text({ cmd: 'approve', args: [plan] })).text).toContain('approved')
-    expect(JSON.parse((await w.store.get(plan)).meta['cadre.receipt'])).toEqual({ plan, revision: 2, at: expect.any(Number), by: 'human' })
     const r = await tool(w, 'amend', { id: a, expectedRevision: 2, description: 'impl, with remember-me', reason: 'users asked', evidence: 'issue 12' })
     expect(r.result.revision).toBe(3)
-    expect((await w.store.get(a)).category).toBe('draft'); expect((await w.store.get(plan)).meta['cadre.receipt']).toBe('')
+    expect((await w.store.get(a)).category).toBe('draft')
     expect(err(await tool(w, 'amend', { id: plan, expectedRevision: 3, title: 'x' }))).toBe('error: id: the approved plan itself is fixed; amend its tasks')
+  })
+  // review 0.15 #24: the card is bound to the plan's revision, so an edit of the plan itself (not in its tasks) re-asks too
+  test('an edit of the plan after its card was drawn: a press on the card the human saw is refused, the new card approves', async () => {
+    const w = await world(); const { plan } = await planned(w)
+    const card = async () => ((await w.h.board.read()).decisions ?? []).find(d => d.id === `plan:${plan}`)
+    const seen = (await card())!; expect(seen).toBeDefined()
+    expect((await tool(w, 'amend', { id: plan, expectedRevision: 2, description: 'goal, sign-up too' })).result).toMatchObject({ revision: 3 })
+    expect((await decide(w.h, seen.id, 'a', seen.hash)).text).toBe('refused: it changed; review again')
+    const now = (await card())!; expect(now.hash).not.toBe(seen.hash); expect((await decide(w.h, now.id, 'a', now.hash)).text).toContain('approved')
   })
   // review 0.15 #26, #29: removing an approved task, a value equal to the current one, and after[] go through the ledger like any change
   test('the ledger: removing an approved task needs reason and evidence and is recorded; an equal value is no change; after is a criterion', async () => {

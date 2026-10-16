@@ -1,6 +1,6 @@
 // Main's planning tools (parent plan §3.2): plan, task, epic, amend, explore, ask, status. tools/index checks the strict schema (validate.checkInput) and the
 // role; here the graph (after[]: ids of this plan, no wait that leads back), then the write through the TaskStore. Every write bumps the plan's revision
-// (cadre.rev) and clears its approval receipt (cadre.receipt, written by dispatch.approve): an edit revokes approval; amend names the revision it read. ask's
+// (cadre.rev); the approval card is bound to the drafts and the plan's text (dispatch.planHash): an edit re-asks, an approved task amended goes back to draft; amend names the revision it read. ask's
 // open questions block approval (dispatch.planMissing). Drafts, field mapping, frozen approved fields and the lifecycle (close/admission register LIFECYCLE).
 import { modelData, modelText } from './say'
 import { askById, askTask } from './asks'
@@ -158,7 +158,7 @@ async function life(h: Host, store: TaskStore, reg: TypeRegistry, id: string, se
 const revOf = async (store: TaskStore, plan: string) => Number((await store.get(plan)).meta['cadre.rev'] ?? 0)
 async function wrote(h: Host, store: TaskStore, plan: string, id: string, context: string[] = [], taken?: number): Promise<Out> {   // taken: amend bumped it already
   const revision = taken ?? (await revOf(store, plan)) + 1, at = await h.now()
-  if (taken === undefined) await store.setMeta(plan, { 'cadre.rev': String(revision), 'cadre.receipt': '' }, 'main')
+  if (taken === undefined) await store.setMeta(plan, { 'cadre.rev': String(revision) }, 'main')
   return { result: modelData('tool-result', { id, plan, revision, at, by: 'main' }), ...(context.length ? { context } : {}) }
 }
 const BLOCK = ['blocks', 'waits-for']
@@ -234,7 +234,7 @@ async function amend(h: Host, i: In): Promise<Out> {
   if (approved && !cs.length) return no('nothing to change: every value you gave equals the current one')
   const twice = cs.find(c => ledgerOf(t!).some(x => x.criterion === c.criterion)); if (twice) return no(`${twice.criterion}: changed once already; a second change to it is the user's: ask them`)
   // the revision is taken with one compare-and-set on the plan before the write: a write that landed after the check above refuses this one
-  try { await store.setMeta(s.plan!.id, { 'cadre.rev': String(cur + 1), 'cadre.receipt': '' }, 'main', p.revision) } catch (x) { if (x instanceof StoreError && x.code === 'GuardMismatch') return no('expectedRevision: the plan changed while you wrote; read it with status and call again with its new revision'); throw x }
+  try { await store.setMeta(s.plan!.id, { 'cadre.rev': String(cur + 1) }, 'main', p.revision) } catch (x) { if (x instanceof StoreError && x.code === 'GuardMismatch') return no('expectedRevision: the plan changed while you wrote; read it with status and call again with its new revision'); throw x }
   const log = () => store.setMeta(id, { 'cadre.amendments': JSON.stringify([...ledgerOf(t!), ...cs.map(c => ({ ...c, reason, evidence, at }))]) }, 'main')
   if (remove) { const r = await life(h, store, reg, id, 'deleted', undefined, reason); if (typeof r.result === 'string') return r; if (approved) await log(); return wrote(h, store, s.plan!.id, id, r.context, cur + 1) }
   const r = await edit(h, store, reg, id, { ...m, after }); if ('error' in r) return no(r.error)
