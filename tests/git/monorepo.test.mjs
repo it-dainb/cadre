@@ -3,7 +3,7 @@
 import '../dev/register.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { execFile, execFileSync } from 'node:child_process'
+import { execFile, execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -18,10 +18,10 @@ const run = (argv, o = {}) => new Promise(res => { const p = execFile(argv[0], a
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()
 const put = (d, p, t) => { mkdirSync(join(d, p, '..'), { recursive: true }); writeFileSync(join(d, p), t) }
 const CHANGELOG = '# Changelog\n\nAll notable changes to this project will be documented in this file.\n\nThe format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).\n\n## [Unreleased]\n'
-// dgtx-frek's shape: the package in kit/, main and dev already there, cadre's files at the root
+// a monorepo's shape: the package in kit/, main and dev already there, cadre's files at the root
 function monorepo() {
   const d = mkdtempSync(join(tmpdir(), 'cadre-mono-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
-  put(d, 'kit/package.json', '{"name":"kit","scripts":{"test":"node -e 0"}}\n'); put(d, 'kit/src/a.js', 'export const a = 1\n'); put(d, 'README.md', '# frek\n')
+  put(d, 'kit/package.json', '{"name":"kit","scripts":{"test":"node -e 0"}}\n'); put(d, 'kit/src/a.js', 'export const a = 1\n'); put(d, 'README.md', '# my_project\n')
   sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'chore: initial commit'); sh(d, 'branch', 'dev', 'main')
   put(d, '.git/info/exclude', '.cadre/state/\n.claude/settings.local.json\n')
   put(d, '.cadre/config.json', JSON.stringify({ branches: { main: 'main', dev: 'dev' }, packages: [{ root: 'kit', checks: { test: ['npm', 'test'] } }] }) + '\n'); put(d, 'CHANGELOG.md', CHANGELOG)
@@ -52,7 +52,7 @@ test('resume after /clear with the real store: a pointer (control doc) to an epi
   const ptr = id => ({ mission: null, epic: id, plan: { id, slug: 'homepage', state: 'draft', epicBranch: '' }, drive: { on: false, level: 'epic', epicId: null, turns: 0, costUsd: 0, startedAt: null }, bind: {} })
   const cleared = async id => { await s.setControl({ board: ptr(id) }); return hostAt(d) }
 
-  const gone = await cleared('frek-zzz')
+  const gone = await cleared('my_project-zzz')
   assert.equal(await rehydrate(gone), false); assert.equal((await s.control()).doc.board, undefined); assert.equal((await gone.board.read()).plan, null)
 
   const kept = await cleared(epic)
@@ -60,4 +60,10 @@ test('resume after /clear with the real store: a pointer (control doc) to an epi
 
   const kit = hostAt(join(d, 'kit'))   // main's shell folder: no store there, nothing to resume
   assert.equal(await rehydrate(kit), false); assert.equal((await kit.board.read()).plan, null)
+})
+
+test('the tree names no private project: tests use generic names (my_project)', () => {
+  const root = new URL('../../', import.meta.url).pathname, bad = ['dg' + 'tx', 'fr' + 'ek'].join('|')
+  const r = spawnSync('git', ['-C', root, 'grep', '-n', '-i', '-E', bad], { encoding: 'utf8' })
+  assert.equal(r.status, 1, r.stdout)   // 1: no match
 })

@@ -516,10 +516,10 @@ describe('onboarding: /cadre <goal> in a repo cadre is not set up in', () => {
     expect((await h.ui.read()).mode).toBe('yolo')
     const n = boot({ setUp: false }); expect((await goal(n.h, 'fix it')).text).toBe('Welcome to cadre · run /cadre setup once on this machine'); expect((await n.h.board.read()).decisions ?? []).toEqual([])
   })
-  // live 0.9.1 (dgtx-frek): /clear, a goal, Set up; a pointer left by an earlier session named a draft the store did not have; the goal was typed again mid-init
+  // live 0.9.1 (a user's monorepo): /clear, a goal, Set up; a pointer left by an earlier session named a draft the store did not have; the goal was typed again mid-init
   test('a second goal while setting up waits, once (the newest text); a stale draft pointer never blocks; still exactly 3 dialogs and the plan is approvable', async () => {
     const { h, files, sent, tick, asked, seen } = boot()
-    await (await (h as any).taskStore()).setControl({ board: { mission: null, epic: 'dgtx-frek-32t', plan: { id: 'dgtx-frek-32t', slug: 'homepage', state: 'draft', epicBranch: '' }, drive: { on: false }, bind: {} } })
+    await (await (h as any).taskStore()).setControl({ board: { mission: null, epic: 'my_project-32t', plan: { id: 'my_project-32t', slug: 'homepage', state: 'draft', epicBranch: '' }, drive: { on: false }, bind: {} } })
     await goal(h, 'fix the login bug'); await seen()
     expect((await goal(h, 'fix the login bug!')).text).toBe(SETTING_UP)   // the dialog is up: it shows the newest text
     expect((await card(h, 'init:goal'))!.lines[0]).toBe('fix the login bug!')
