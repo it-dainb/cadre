@@ -10,7 +10,7 @@ import * as G from './git'
 import { ownerOf, unitsOf } from './discover'
 import { pathsOf } from './validate'
 
-export interface Pkg { root: string; setup?: string[]; checks: Record<string, string[]>; verify?: string[]; knownRed?: string[]; viewInclude?: string[]; routing?: Record<string, { model: string; effort?: string }>; tdd?: { check?: string; paths: string[]; report?: string; stubs?: string[]; skeleton?: string[] } }
+export interface Pkg { root: string; setup?: string[]; checks: Record<string, string[]>; verify?: string[]; knownRed?: string[]; viewInclude?: string[]; routing?: Record<string, { model: string; effort?: string }>; ownGit?: boolean; tdd?: { check?: string; paths: string[]; report?: string; stubs?: string[]; skeleton?: string[] } }
 
 // the units a task touches, by its declared paths (H7); more than one = a cross-unit task (core/close runs every one's verify checks on its squash)
 export const unitsOfTask = (d: Pick<Deps, 'cfg'>, task: Pick<Task, 'meta'>): Pkg[] => [...new Set(pathsOf(task).map(f => ownerOf(unitsOf(d.cfg) as Pkg[], f)).filter((u): u is Pkg => !!u))]
@@ -20,7 +20,9 @@ export const pkgOf = (d: Pick<Deps, 'cfg'>, task: Pick<Task, 'meta'>): Pkg | und
   const all = unitsOf(d.cfg) as Pkg[], by = unitsOfTask(d, task), at = task.meta['cadre.package'] || (by.length ? by[0].root : all.length === 1 ? all[0].root : '.')   // a cross-unit task: its first unit gates it green; its squash checks them all
   return ownerOf(all, at)
 }
-export const rootOf = (p?: Pkg) => (!p || p.root === '.' ? '' : p.root)
+export const rootOf = (p?: Pkg) => (!p || p.root === '.' || p.ownGit ? '' : p.root)   // an own-repository unit's worktree is the unit itself
+// a unit with its own repository (a git submodule, H7): a task's branches, worktree, squash and baseline live in that repository; top = the parent repo
+export const inRepo = <D extends Pick<Deps, 'root'> & { top?: string }>(d: D, u?: Pick<Pkg, 'root' | 'ownGit'>): D => (u?.ownGit && !d.top ? { ...d, root: `${d.root}/${u.root}`, top: d.root } : d)
 // jail: off = run unsandboxed; auto = the sandbox when this machine has one; on = the sandbox or nothing (the check fails with the reason)
 export async function modeOf(h: Host, d: Pick<Deps, 'cfg'>): Promise<'overlay' | 'copy' | 'none'> {
   if (d.cfg.jail === 'off') return 'none'

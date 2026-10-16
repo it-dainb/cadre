@@ -13,6 +13,7 @@ const { defaults } = await import('../../config/index.ts')
 const { MemoryStore } = await import('../../task-management/adapters/memory/store.ts')
 const { admitWith } = await import('../../core/admission.ts')
 const C = await import('../../core/close.ts')
+const { integrateEpic } = await import('../../core/integrate.ts')
 const { handleWith } = await import('../../tools/index.ts')
 
 const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: o.cwd }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
@@ -60,4 +61,38 @@ test('monorepo: a task maps to its unit by its paths (no package named): only th
 test('microservices: a task across two services gets one integration check across both on its squash, each unit once', async () => {
   const r = await (await world(['svc/api', 'svc/web'], ['svc/api/h.go', 'svc/web/v.ts'])).land()
   assert.deepEqual(r.green, ['svc/api']); assert.deepEqual(r.close.sort(), ['svc/api', 'svc/web']); assert.equal(sh(r.d, 'show', 'epic/p1-x:svc/web/v.ts'), 'x')
+})
+
+// 5b: a submodule unit (ownGit) lands in its own repository: the task branch, worktree and squash live there; the plan's integration merges its epic branch
+// into its dev through its own checks, then the parent's pointer bump lands through the parent's gates
+test('submodule: the task works and squashes in the submodule repo; integration lands its dev, then the parent dev carries the pointer bump', async () => {
+  const S = mkdtempSync(join(tmpdir(), 'cadre-sub-')), d = mkdtempSync(join(tmpdir(), 'cadre-parent-')), LOG = `${d}-log`
+  for (const r of [S, d]) { execFileSync('git', ['init', '-q', '-b', 'main', r]); sh(r, 'config', 'user.name', 't'); sh(r, 'config', 'user.email', 't@t') }
+  writeFileSync(join(S, 'core.c'), 'int a;\n'); sh(S, 'add', '-A'); sh(S, 'commit', '-qm', 'init'); sh(S, 'branch', 'dev')
+  writeFileSync(join(d, 'README'), 'p\n'); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'init')
+  execFileSync('git', ['-C', d, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', S, 'lib']); sh(d, 'commit', '-qm', 'add lib'); sh(d, 'branch', 'dev'); sh(d, 'branch', 'epic/p1-x', 'dev')
+  const L = join(d, 'lib'); sh(L, 'config', 'user.name', 't'); sh(L, 'config', 'user.email', 't@t'); sh(L, 'branch', 'dev', 'origin/dev'); writeFileSync(LOG, '')
+  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.jail = 'off'
+  cfg.units = [{ root: '.', kind: 'app', checks: { verify: ['sh', '-c', `echo parent >> ${LOG}`] }, verify: ['verify'] }, { root: 'lib', kind: 'submodule', ownGit: true, verify: ['verify'], checks: { verify: ['sh', '-c', `test -f core.c && echo lib >> ${LOG}`] } }]
+  const store = new MemoryStore(); await store.init({ types: {}, journal: true })
+  const epic = await store.createEpic('E', 'goal'), id = (await store.createDraft({ title: 'task 0', description: 'd', acceptance: 'S1: Given x When y Then z', design: DESIGN, type: 'refactor', parent: epic, meta: { 'cadre.paths': '["lib/x.c"]', 'cadre.changelog': JSON.stringify({ none: true, reason: 'internal' }) } })).id
+  await store.approve([epic, id])
+  const h = fakeHost(); let tick = 0
+  Object.assign(h, { cwd: async () => d, home: async () => d, run, now: async () => (tick += 1000), stat: async p => (existsSync(p) ? { kind: 'dir' } : undefined), write: async (p, t) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) }, readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } } })
+  const dep = { store, cfg, reg: cfg.types, root: d, home: d, wtRoot: `${d}-wt`, key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' }
+  await h.secret.update(x => ({ ...x, session: 's1' })); h.taskStore = async () => store; h.config = async () => cfg
+  await h.board.update(s => ({ ...s, seq: 1, epic, plan: { id: epic, slug: 'x', state: 'approved', epicBranch: 'epic/p1-x' }, tasks: [task(id, { title: 'task 0', type: 'refactor' })] }))
+  let n = 0; const next = async e => ({ agentId: `ag${++n}`, model: 'm', echo: e })
+  const rep = (agentId, body) => handleWith(h, dep, { tool: 'mcp__cadre__report', agentId, input: { schemaVersion: 1, ...body } }).then(r => r.result)
+  await admitWith(h, dep, { prompt: `work on ${id}` }, next); const wt = (await store.get(id)).meta['cadre.worktree']
+  assert.equal(execFileSync('git', ['-C', wt, 'rev-parse', '--git-common-dir'], { encoding: 'utf8' }).trim(), execFileSync('git', ['-C', L, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' }).trim())   // the submodule's repository
+  writeFileSync(join(wt, 'x.c'), 'int x;\n'); assert.match(await rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' }), /report accepted/)
+  assert.deepEqual(readFileSync(LOG, 'utf8').split('\n').filter(Boolean), ['lib']); writeFileSync(LOG, '')   // the green gate ran the submodule's checks, at its root
+  await admitWith(h, dep, { prompt: `work on ${id}` }, next); assert.match(await rep('ag2', { role: 'reviewer', verdict: 'pass', summary: 'ok', findings: [], coverage: [{ scenario: 'S1', ok: true }], contractStatus: [{ name: 'f', ok: true }] }), /pass@/)
+  const pdev = sh(d, 'rev-parse', 'dev'); assert.equal(await C.closeTask(h, dep, id), null)
+  assert.equal(sh(L, 'show', 'epic/p1-x:x.c'), 'int x;'); assert.equal(sh(d, 'rev-parse', 'epic/p1-x'), pdev)   // squashed in the submodule; the parent's epic untouched
+  assert.equal(await integrateEpic(h, epic), null)
+  const ldev = sh(L, 'rev-parse', 'dev'); assert.equal(sh(L, 'show', 'dev:x.c'), 'int x;')   // the submodule's dev got the plan, through its checks
+  assert.equal(sh(d, 'ls-tree', 'dev', 'lib').split(/\s+/)[2], ldev); assert.match(sh(d, 'log', '-1', '--format=%s', 'dev'), new RegExp(`chore: lib to ${ldev.slice(0, 7)}`))   // the parent's pointer bump on its dev
+  assert.deepEqual(readFileSync(LOG, 'utf8').split('\n').filter(Boolean), ['lib'])   // the parent's gates: the bump touched only the submodule's own path
 })

@@ -16,7 +16,7 @@ import { checkpoint, resolveGit, sweep } from './effect'
 import { policyOf } from '../policy/guards'
 import { integrateEpic } from './integrate'
 import { green as tddGreen, lockedViolations, verifyOf, redOf, resolveSpec, specChange, testerDone } from './tdd'
-import { modeOf, pkgOf, unitsOfTask } from './specview'
+import { inRepo, modeOf, pkgOf, unitsOfTask } from './specview'
 import * as G from './git'
 import { decided, hardStop, limited, stop } from './drive'
 import { queueBrief } from './lanes'
@@ -61,7 +61,7 @@ export async function runCheck(h: Host, d: Deps, task: Task, wt: string, name: s
   const pkgRoot = !pkg.root || pkg.root === '.' ? wt : `${wt}/${pkg.root}`, scratch = `${d.wtRoot}/${d.key}.scratch/${task.id}`, t0 = await h.now()
   await h.run(['mkdir', '-p', scratch])
   const r = await G.checkRun(h.run, await modeOf(h, d), { wt, scratch, pkgRoot, argv, writable: d.cfg.jailWritable })
-  const secs = Math.round(((await h.now()) - t0) / 1000), out = r.stdout + r.stderr, cut = out.length > 16384, path = `${d.root}/.cadre/tmp/logs/${task.id}-${name}-${t0}.log`
+  const secs = Math.round(((await h.now()) - t0) / 1000), out = r.stdout + r.stderr, cut = out.length > 16384, path = `${d.top ?? d.root}/.cadre/tmp/logs/${task.id}-${name}-${t0}.log`
   await h.write(path, out).catch(() => {})
   await emit(h, 'check.ran', { taskId: task.id, name, ok: r.exitCode === 0, secs, ...(task.meta['cadre.step'] ? { phase: task.meta['cadre.step'] } : {}) }, { taskId: task.id })
   if (r.exitCode || task.meta['cadre.lastCheck']) await d.store.setMeta(task.id, { 'cadre.lastCheck': r.exitCode ? `${name} failed (exit ${r.exitCode}):\n${out.slice(-1200).replaceAll(`${wt}/`, '')}` : '' }, d.actor).catch(() => {})   // the failing tests a respawned agent starts from (admission's handoff)
@@ -256,7 +256,7 @@ export const observe: Hook = async (h, e, next) => observeWith(h, await resolveD
 async function cleanup(h: Host, d: Deps, id: string, task: Task, keep?: string) {
   const gone = agentsOf(await h.bind.read(), id); for (const a of gone) await end(h, a, 'answer', keep ? 'cancelled' : 'done')
   await prune(h, id, gone)   // the ended records and the budget of a closed task go
-  const wt = task.meta['cadre.worktree'], br = task.meta['cadre.branch']
+  const wt = task.meta['cadre.worktree'], br = task.meta['cadre.branch']; d = inRepo(d, pkgOf(d, task))
   if (keep && br && (await G.exists(h.run, d.root, br))) await G.git(h.run, d.root, ['update-ref', keep, await G.tip(h.run, d.root, br)])
   if (wt) await G.op(h, () => G.worktreeRemove(h.run, d.root, wt, br))
   await h.run(['rm', '-rf', `${d.wtRoot}/${d.key}.views/${id}`])
@@ -269,6 +269,7 @@ export async function closeTask(h: Host, d: Deps, id: string, actor: 'main' | 'm
   if (!(t.state === 'review' && t.step === 'merge')) return `${id} is ${t.state}${t.step ? `·${t.step}` : ''}: only a review-passed task (review✓) can be completed`
   await sweep(h).catch(() => {})
   const gf = Object.keys((await h.git.read()).flags ?? {}).find(f => f.startsWith('git:')); if (gf) return `merges are refused while git flag ${gf} is open; ask the human to keep or restore it (they answer it in the cadre dialog)`
+  d = inRepo(d, pkgOf(d, await d.store.get(id)))   // a submodule unit's task squashes into that repository's epic branch (H7)
   const task = await d.store.get(id), C = task.meta['cadre.sourceCommit'], wt = task.meta['cadre.worktree'], base = task.meta['cadre.base'], spec = d.reg[t.type], plan = (await h.board.read()).plan, br = branchOf({ plan }, t)   // a milestone task squashes into its epic's branch (ADR 0015)
   if (!plan || !C || !wt) return `${id} has no reviewed commit`
   if (task.meta['cadre.review'] !== `pass@${C}`) return `${id} has no pass@${sha7(C)} review`
@@ -310,7 +311,7 @@ export async function closeTask(h: Host, d: Deps, id: string, actor: 'main' | 'm
   await patch(h, id, x => ({ ...x, card: card({ id, title: t.title, role: 'main', to: 'done', commit: sha, flags: [], next }) }))
   await cleanup(h, d, id, task)
   if (task.meta['cadre.core'] === 'true') await coreLanded(h, d, files, task.design).catch(e => h.log(`core lock: ${e}`))   // its files are locked for the other tasks of the plan
-  await refresh(h, d, sha, id).catch(e => h.log(`refresh after ${id}: ${e}`))   // running siblings get the new tip now (core/rebase)
+  if (!d.top) await refresh(h, d, sha, id).catch(e => h.log(`refresh after ${id}: ${e}`))   // running siblings get the new tip now (core/rebase); a submodule's tip is not the plan's
   return null
 }
 

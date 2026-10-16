@@ -28,7 +28,7 @@ const commitPaths = async (h: Host, wt: string, paths: string[], msg: string, am
 
 // setup + suites.integration per touched unit (files = null: every unit), each unit once. Returns the failure text, or null when green.
 async function runSuites(h: Host, cfg: any, wt: string, files: string[] | null, epicId: string, kr: { root: string; n: string }[] = []): Promise<string | null> {
-  const pkgs: any[] = unitsOf(cfg), hit = new Set(files?.map(f => ownerOf(pkgs, f))), touched = pkgs.filter(p => !files || hit.has(p))
+  const pkgs: any[] = unitsOf(cfg), hit = new Set(files?.map(f => ownerOf(pkgs, f))), touched = pkgs.filter(p => !p.ownGit && (!files || hit.has(p)))   // a submodule's checks ran in its own repository (subLand)
   const mode = await modeOf(h, { cfg }).catch((e: Error) => e); if (mode instanceof Error) return mode.message
   const base = JSON.parse((await Promise.resolve().then(async () => (await storeOf(h)).get(epicId)).catch(() => null))?.meta['cadre.baseline'] || '{}')
   const scratch = `${wt}-scratch`; await h.run(['mkdir', '-p', scratch])
@@ -109,6 +109,20 @@ export async function prPoll(h: Host): Promise<void> {
   } catch (e) { const n = w.n + 1; await h.store.set(K, { n, next: now + Math.min(30_000 * 2 ** n, 600_000) }); h.log(`pull request #${pr.n}: ${(e as Error).message.slice(0, 200)}`) }
 }
 
+// 5b: each submodule unit the plan changed lands in its own repository first (its epic branch -> its dev, through its own checks), then the parent's pointer
+// moves to it in the integration commit, so the parent's gates see the bump. Returns the failure text, or null.
+async function subLand(h: Host, cfg: any, root: string, tmp: string, dev: string, from: string, epicId: string): Promise<string | null> {
+  for (const u of unitsOf(cfg).filter(u => u.ownGit)) {
+    const sr = `${root}/${u.root}`, hs: Host = { ...h, cwd: async () => sr }, st = `${tmp}-${u.root.replace(/\W/g, '-')}`
+    if (!(await exists(h.run, sr, from)) || (await ok(h.run, sr, ['merge-base', '--is-ancestor', from, dev]))) continue   // nothing of this plan in it
+    const m = await mergeEpic(hs, { dev, epic: from, tmp: st, msg: `merge ${from} (${epicId})` }).catch(e => e as Error); if (m instanceof Error) return `${u.root}: merge of ${from} into ${dev} failed: ${m.message}`
+    const red = await runSuites(h, { ...cfg, units: [{ ...u, root: '.', ownGit: false }] }, st, null, epicId); if (red) { await worktreeRemove(h.run, sr, st).catch(() => {}); return `${u.root}: ${red}` }
+    if (!(await landDev(hs, { dev, sha: m.sha, old: m.devTip, tmp: st, epic: from }))) return `${u.root}: ${dev} moved during integration; call TaskUpdate completed again`
+    await git(h.run, tmp, ['update-index', '--cacheinfo', `160000,${m.sha},${u.root}`]); await git(h.run, tmp, ['commit', '--no-verify', '-m', `chore: ${u.root} to ${m.sha.slice(0, 7)} (${epicId})`])
+  }
+  return null
+}
+
 // §3.9 Integration. null = landed on dev; otherwise the refusal / failure text (also left as a comment on the epic).
 export async function integrateEpic(h: Host, epicId: string): Promise<string | null> {
   const s = await h.board.read(), p = s.plan, ep = epicOf(s, epicId)   // a milestone's epic lands on the milestone branch; the milestone lands on dev (ADR 0015)
@@ -143,6 +157,8 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
       }
       if (out !== text) { await h.write(path, out); sha = await commitPaths(h, tmp, [cfg.changelog.path], '', true) }
     }
+    const sub = await subLand(h, cfg, root, tmp, dev, from, epicId); if (sub) return await fail(sub, true)
+    sha = await tip(h.run, tmp, 'HEAD')
     if (!ep && cfg.landing.mode === 'pr') return await openPr(h, cfg, epicId, dev, m.devTip, sha, from, tmp)   // CI is the gate there
     const files = (await git(h.run, tmp, ['diff', '--name-only', `${m.devTip}..${sha}`])).split('\n').filter(Boolean)
     const kr: { root: string; n: string }[] = [], red = await runSuites(h, cfg, tmp, files, epicId, kr); if (red) return await fail(red, true)

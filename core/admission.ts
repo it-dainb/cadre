@@ -20,7 +20,7 @@ import { taskBranch, wtPath, wtRootOf } from './branches'
 import * as G from './git'
 import { checkpoint } from './effect'
 import { warm } from './session'
-import { buildView, pkgOf } from './specview'
+import { buildView, inRepo, pkgOf, rootOf } from './specview'
 import { realRoot } from '../policy/guards'
 import { lockCore, watch } from './rebase'
 import { notesOf, pathsOf, sliceNotes, specTestsOf, untested } from './validate'
@@ -30,6 +30,7 @@ import { budgetOf, intentOf, reserve, step as lifeStep, unreserve } from './life
 
 export interface Deps {
   store: TaskStore; cfg: Config; reg: TypeRegistry; root: string; home: string; wtRoot: string; key: string; actor: string; session: string
+  top?: string   // set by specview.inRepo: root is a submodule's repository, top the parent's
   view?: (h: Host, d: Deps, t: Task, wt: string) => Promise<string>   // spec view builder (core/specview, M5); absent = tester/red are skipped (3.1)
 }
 const ROLE: Record<string, Role> = { tester: 'tester', worker: 'worker', reviewer: 'reviewer', explorer: 'explorer' }   // red/green are mod-run, merge is main's close
@@ -118,7 +119,7 @@ async function plan(d: Deps, s: Snapshot, t: SnapTask, task: Task): Promise<Part
 }
 export async function setup(h: Host, d: Deps, task: Task, wt: string) {   // packages[] are hand-written until M5; `setup` runs in the writable jail (network on)
   const pkg = pkgOf(d, task) as any
-  const pkgRoot = !pkg || pkg.root === '.' || !pkg.root ? wt : `${wt}/${pkg.root}`, scratch = `${d.wtRoot}/${d.key}.scratch/${task.id}`
+  const pkgRoot = !rootOf(pkg) ? wt : `${wt}/${pkg.root}`, scratch = `${d.wtRoot}/${d.key}.scratch/${task.id}`
   for (const argv of pkg?.setup?.length ? [pkg.setup as string[]] : []) {   // Pkg.setup is one argv (discover.ts)
     await h.run(['mkdir', '-p', scratch])
     const r = d.cfg.jail === 'off' ? await h.run(argv, { cwd: pkgRoot }) : await h.run(G.writableJail({ wt, scratch, pkgRoot, argv, writable: d.cfg.jailWritable }))
@@ -150,8 +151,8 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
   if (!(await d.store.ready(t.epic ?? s.epic)).includes(t.id)) return deny(`${t.id} is not ready (waiting on a dependency or gate); spawn a task that TaskList shows ready`)
   const running = s.tasks.filter(x => x.state === 'active').length
   if (d.cfg.maxParallel > 0 && running >= d.cfg.maxParallel) return deny(`${running} agents already running (limit ${d.cfg.maxParallel}); wait for one to finish`)
-  const spike = kindOf(spec) === 'spike'
-  if (!spike && !(await G.exists(h.run, d.root, branchOf(s, t)))) return lostEpic(h, s, t)
+  const spike = kindOf(spec) === 'spike', top = d; d = inRepo(d, pkgOf(d, await d.store.get(t.id)))
+  if (!spike && !(await G.exists(h.run, d.root, branchOf(s, t)))) { if (d === top) return lostEpic(h, s, t); await G.git(h.run, d.root, ['branch', branchOf(s, t), (await G.exists(h.run, d.root, d.cfg.branches.dev)) ? d.cfg.branches.dev : 'HEAD']) }   // a submodule's epic branch: cut from its dev on first use
   const res = await apply(h, { kind: 'claim', id: t.id, at: await h.now(), actor: 'mod', owner: d.actor }, pipe)   // the CAS reserve: one winner (S2)
   if (!res.ok) return deny(res.error)
   const step = res.board.tasks.find(x => x.id === t.id)!.step, role = ROLE[step], wt = wtPath(d.wtRoot, d.key, t.id)
@@ -182,7 +183,7 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
 
 // ---- active|blocked: next step (new role) or rebind (stale lease). Same claim actor, same worktree, computed handoff. ----
 async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapshot, t: SnapTask) {
-  const task = await d.store.get(t.id), role = ROLE[t.step], now = await h.now(), bind = await h.bind.read(), mine = agentsOf(bind, t.id)
+  const task = await d.store.get(t.id), role = ROLE[t.step], now = await h.now(), bind = await h.bind.read(), mine = agentsOf(bind, t.id); d = inRepo(d, pkgOf(d, task))
   if (!role || (role === 'tester' && !d.view)) return deny(`${t.id}: step ${t.step || '?'} runs without an agent; wait and call TaskList`)
   if (mine.some(a => a.startsWith('~') && bind[a].role === role)) return deny(`${t.id} is already being spawned; wait`)   // another step's start may run beside it
   if (role === 'worker' && stepsOf(d)(t.type, t.lane).includes('red') && !task.meta['cadre.specCommit']) return deny(`${t.id}: its spec tests are not recorded yet; the tester step must finish first`)

@@ -10,7 +10,7 @@ import { ask, yoloOn } from './decide'
 import { fnv1a64 } from './board'
 import * as G from './git'
 import { baseOf } from './branches'
-import { auditView, matches, modeOf, pkgOf, rootOf, type Pkg } from './specview'
+import { auditView, inRepo, matches, modeOf, pkgOf, rootOf, type Pkg } from './specview'
 import { untested } from './validate'
 import { policyOf, setPolicy } from '../policy/guards'
 import { step } from './lifecycle'
@@ -157,6 +157,7 @@ async function baseline(h: Host, d: Deps, pkg: Pkg, name: string): Promise<Base 
   const s = await h.board.read(), br = s.plan?.epicBranch; if (!s.epic || !br) return null
   const key = `${pkg.root}:${name}`, all = JSON.parse((await d.store.get(s.epic)).meta['cadre.baseline'] || '{}') as Record<string, Base>
   if (all[key]) return all[key]
+  d = inRepo(d, pkg)
   const start = (await G.git(h.run, d.root, ['merge-base', br, await baseOf(h, d.cfg.branches.dev)])).trim(), tmp = `${d.wtRoot}/${d.key}.scratch/baseline`, root = rootOf(pkg) ? `${tmp}/${pkg.root}` : tmp
   await h.run(['git', '-C', d.root, 'worktree', 'add', '-f', '--detach', tmp, start]); await h.run(['mkdir', '-p', `${tmp}-s`])
   try {
