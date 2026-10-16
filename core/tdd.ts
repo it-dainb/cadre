@@ -160,6 +160,7 @@ async function baseline(h: Host, d: Deps, pkg: Pkg, name: string): Promise<Base 
   d = inRepo(d, pkg)
   const start = (await G.git(h.run, d.root, ['merge-base', br, await baseOf(h, d.cfg.branches.dev)])).trim(), tmp = `${d.wtRoot}/${d.key}.scratch/baseline`, root = rootOf(pkg) ? `${tmp}/${pkg.root}` : tmp
   await h.run(['git', '-C', d.root, 'worktree', 'add', '-f', '--detach', tmp, start]); await h.run(['mkdir', '-p', `${tmp}-s`])
+  const sub = await G.subInit(h.run, d.root, tmp); if (sub) { h.log(`baseline: ${sub}`); await h.run(['git', '-C', d.root, 'worktree', 'remove', '--force', tmp]); return null }   // no baseline: every red is the task's
   try {
     if (pkg.setup?.length) await h.run(d.cfg.jail === 'off' ? pkg.setup : G.writableJail({ wt: tmp, scratch: `${tmp}-s`, pkgRoot: root, argv: pkg.setup, writable: d.cfg.jailWritable }), { cwd: root })
     const r = await runCheck(h, d, { id: 'baseline' } as Task, tmp, pkg, name); all[key] = { exit: r.exit, ...(r.cases ? { fails: failing(r.cases) } : {}) }

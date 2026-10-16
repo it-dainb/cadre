@@ -103,3 +103,12 @@ export async function checkRun(run: Run, mode: 'overlay' | 'copy' | 'none', j: J
     return mode === 'copy' ? await run(copyJail(k), { timeoutMs }) : await run(j.argv, { cwd: k.pkgRoot, env: j.env, timeoutMs })
   } finally { await run(['rm', '-rf', cp]) }
 }
+// a worktree's submodules, checked out at the commits it records, cloned from the main checkout's own copy of each (no network). Returns why not, or null.
+export async function subInit(run: Run, root: string, wt: string): Promise<string | null> {
+  for (const [, sha, path] of (await run(['git', '-C', wt, 'submodule', 'status'])).stdout.split('\n').map(l => /^-([0-9a-f]{40}) (\S+)/.exec(l) ?? []).filter(m => m.length)) {
+    const src = `${root}/${path}`, names = (await run(['git', '-C', wt, 'config', '-f', '.gitmodules', '--get-regexp', '^submodule\\..*\\.path$'])).stdout.split('\n'), name = names.find(x => x.endsWith(` ${path}`))?.split(' ')[0].slice(10, -5) ?? path
+    if ((await run(['git', '-C', src, 'cat-file', '-e', `${sha}^{commit}`])).exitCode) return `${path}: the commit the repository records for it (${sha.slice(0, 7)}) is not in ${path}; fetch it there (git -C ${path} fetch), then try again`
+    const r = await run(['git', '-C', wt, '-c', 'protocol.file.allow=always', '-c', `submodule.${name}.url=${src}`, 'submodule', 'update', '--init', '--', path]); if (r.exitCode) return `${path}: ${r.stderr.trim().slice(0, 200)}`
+  }
+  return null
+}

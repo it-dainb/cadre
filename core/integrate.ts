@@ -9,7 +9,7 @@ import { BLOCKING, epicNext } from './machine'
 import { cut, insert } from './changelog'
 import { modeOf } from './specview'
 import { ownerOf, unitsOf } from './discover'
-import { casRef, checkRun, exists, git, ok, op, tip, worktreeRemove, writableJail } from './git'
+import { casRef, checkRun, exists, git, ok, op, subInit, tip, worktreeRemove, writableJail } from './git'
 import { baseOf, baseRef, checkedOut, inferVersion, landDev, lastTag, mergeEpic, move, pendingRef, release, wtPath, wtRootOf } from './branches'
 import { clearKnownRed, repoKeyOf, scoped } from '../commands/init'
 import { redFix } from './drive'
@@ -30,6 +30,7 @@ const commitPaths = async (h: Host, wt: string, paths: string[], msg: string, am
 async function runSuites(h: Host, cfg: any, wt: string, files: string[] | null, epicId: string, kr: { root: string; n: string }[] = []): Promise<string | null> {
   const pkgs: any[] = unitsOf(cfg), hit = new Set(files?.map(f => ownerOf(pkgs, f))), touched = pkgs.filter(p => !p.ownGit && (!files || hit.has(p)))   // a submodule's checks ran in its own repository (subLand)
   const mode = await modeOf(h, { cfg }).catch((e: Error) => e); if (mode instanceof Error) return mode.message
+  const sub = await subInit(h.run, await h.cwd(), wt); if (sub) return sub   // the parent's checks build against its submodules at the commits it records
   const base = JSON.parse((await Promise.resolve().then(async () => (await storeOf(h)).get(epicId)).catch(() => null))?.meta['cadre.baseline'] || '{}')
   const scratch = `${wt}-scratch`; await h.run(['mkdir', '-p', scratch])
   try {
@@ -161,6 +162,7 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
     sha = await tip(h.run, tmp, 'HEAD')
     if (!ep && cfg.landing.mode === 'pr') return await openPr(h, cfg, epicId, dev, m.devTip, sha, from, tmp)   // CI is the gate there
     const files = (await git(h.run, tmp, ['diff', '--name-only', `${m.devTip}..${sha}`])).split('\n').filter(Boolean)
+    const si = await subInit(h.run, root, tmp); if (si) return await fail(si, true, false)   // a pinned submodule commit this machine lacks: one dialog, no fix task
     const kr: { root: string; n: string }[] = [], red = await runSuites(h, cfg, tmp, files, epicId, kr); if (red) return await fail(red, true)
     if (!(await landDev(h, { dev, sha, old: m.devTip, tmp, epic: from }))) return await fail(`${dev} moved during integration; call TaskUpdate completed again`, false)
     await offer(h, dev)   // the user has it checked out: the landing waits for them

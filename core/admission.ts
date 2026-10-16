@@ -130,7 +130,7 @@ export async function setup(h: Host, d: Deps, task: Task, wt: string) {   // pac
 async function ensureWt(h: Host, d: Deps, wt: string, branch: string): Promise<'kept' | 'readd' | null> {
   if (await h.stat(wt)) return 'kept'
   if (!(await G.exists(h.run, d.root, branch))) return null
-  await G.op(h, () => G.worktreeReadd(h.run, d.root, wt, branch)); return 'readd'
+  await G.op(h, () => G.worktreeReadd(h.run, d.root, wt, branch)); const sub = await G.subInit(h.run, d.root, wt); if (sub) throw new StoreError('Invalid', sub); return 'readd'
 }
 async function lostEpic(h: Host, s: Snapshot, t: SnapTask) {   // epic branch missing: epic blocked, human resolves (re-cut from dev or cancel)
   await commit(h, x => (x.plan && epicNext(x.plan.state, 'lost') ? { ...x, plan: { ...x.plan, state: epicNext(x.plan.state, 'lost')!, flags: [...new Set([...(x.plan.flags ?? []), 'lost-epic'])] } } : x))
@@ -168,7 +168,7 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
     let cwd = d.root, meta: Record<string, string> = { 'cadre.step': step }
     if (!spike) {
       const base = await G.tip(h.run, d.root, branchOf(s, t))
-      if (!(await ensureWt(h, d, wt, branch))) { await G.op(h, () => G.worktreeAdd(h.run, d.root, wt, branch, base)); created = true; await setup(h, d, task, wt) }
+      if (!(await ensureWt(h, d, wt, branch))) { await G.op(h, () => G.worktreeAdd(h.run, d.root, wt, branch, base)); created = true; const sub = await G.subInit(h.run, d.root, wt); if (sub) throw new StoreError('Invalid', sub); await setup(h, d, task, wt) }
       cwd = viewed(d, role) ? await d.view!(h, d, task, wt) : wt
       meta = { ...meta, 'cadre.base': task.meta['cadre.base'] ?? base, 'cadre.branch': branch, 'cadre.worktree': wt }
     }
