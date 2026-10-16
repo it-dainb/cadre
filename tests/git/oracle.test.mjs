@@ -56,3 +56,19 @@ test('dialog-budget counts main\'s question call once and allows its one clarify
   assert.ok(budget([]).includes('dialog-budget'))   // dialogs main never asked still count one each
   assert.ok(budget(qs, ['Release now?']).includes('dialog-budget'))   // one dialog beyond the clarify round still fails
 })
+
+// quick + L cells on 6665614 (haiku): every cell forces agents to haiku with CLAUDE_CODE_SUBAGENT_MODEL(_FORCE) and the reviewer's keys refuse haiku, so
+// routing failed "reviewer on claude-haiku-5-5/high" in every PROXY=1 cell: the oracle never handed the cell's env.json to expect-routing.
+test('routing allows the model the cell env forces', () => {
+  const routing = env => {
+    const d = mkdtempSync(join(tmpdir(), 'cadre-oracle-')), t = 1_792_131_660_000
+    cpSync(join(fix, 'panes'), join(d, 'panes'), { recursive: true })
+    writeFileSync(join(d, 'driver.log'), `${t} start x\n${t + 1000} end\n`)
+    writeFileSync(join(d, 'effort.jsonl'), JSON.stringify({ at: t + 500, role: 'reviewer', model: 'claude-haiku-5-5', output_config: { effort: 'high' } }) + '\n')
+    if (env) writeFileSync(join(d, 'env.json'), JSON.stringify(env))
+    try { execFileSync('node', [join(root, 'harness/oracle.mjs'), d], { stdio: 'pipe' }) } catch {}
+    return JSON.parse(readFileSync(join(d, 'verdict.json'), 'utf8')).fails.map(f => f.invariant)
+  }
+  assert.ok(!routing({ CLAUDE_CODE_SUBAGENT_MODEL: 'haiku', CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '1' }).includes('routing'))
+  assert.ok(routing().includes('routing'))   // without the forcing env a reviewer on haiku is still off the settings
+})

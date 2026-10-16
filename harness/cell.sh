@@ -91,7 +91,7 @@ pause1; sleep 7; kill $W 2>/dev/null; wait $W 2>/dev/null; log "end"   # no pres
 
 # ---- evidence (harness/out is gitignored), then the verdict ----
 cp "$D"/out/debug*.log "$O/" 2>/dev/null; mkdir -p "$O/jsonl"; find "$D/projects" -name '*.jsonl' -exec cp --parents {} "$O/jsonl" \; 2>/dev/null
-cp "$D/out/effort.jsonl" "$O/" 2>/dev/null; cp "$D/work/.cadre/config.json" "$O/cadre-config.json" 2>/dev/null   # PROXY=1: the requests and the repo settings for the routing invariant
+cp "$D/out/effort.jsonl" "$D/out/env.json" "$O/" 2>/dev/null; cp "$D/work/.cadre/config.json" "$O/cadre-config.json" 2>/dev/null   # PROXY=1: the requests and the repo settings for the routing invariant
 git -C "$D/work" for-each-ref --format='%(refname:short) %(objectname:short)' refs/heads >"$O/refs-after" 2>/dev/null
 (cd "$D/work" && find . -name .cadre -o -name .beads | grep -v '^./.cadre$\|^./.beads$' >"$O/stray-state"; true)
 # no credential may reach a mounted dir or the evidence (ccr keeps its copy of the login in the container's own filesystem, gone with --rm)

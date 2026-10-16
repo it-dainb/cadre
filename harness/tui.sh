@@ -40,6 +40,7 @@ start)
   [ -n "$SCAFFOLD" ] && (cd "$D/work" && bash "$SCAFFOLD" >"$D/out/scaffold.log" 2>&1 || { cat "$D/out/scaffold.log"; exit 1; })
   git -C "$D/work" config user.email q@x 2>/dev/null
   ID='-e GIT_AUTHOR_NAME=cadre -e GIT_AUTHOR_EMAIL=cadre@localhost -e GIT_COMMITTER_NAME=cadre -e GIT_COMMITTER_EMAIL=cadre@localhost'; [ -n "$NO_GIT_IDENT" ] && ID=   # NO_GIT_IDENT=1: a machine with no git identity
+  echo '{"CLAUDE_CODE_SUBAGENT_MODEL":"haiku","CLAUDE_CODE_SUBAGENT_MODEL_FORCE":"1"}' >"$D/out/env.json"   # the forcing env below, for the oracle's routing check
   docker run -d --rm --name "$C" --user "$(id -u):$(id -g)" \
     $ID -e CLAUDE_CODE_SUBAGENT_MODEL=haiku -e CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 -e TERM=xterm-256color $EXTRA_ENV -e CADRE_REF \
     --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined \
