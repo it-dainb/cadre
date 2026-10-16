@@ -30,7 +30,7 @@ export const defaults = () => ({
   // ADR 0023: the tester proposes the command that runs its tests, cadre runs it for red (and green); with no test check it becomes the package's
   tdd: { testerCommand: { use: true, adopt: true }, collectErrors: ['ERROR collecting', 'errors? during collection', 'ImportError', 'ModuleNotFoundError', 'Cannot find module', 'ERR_MODULE_NOT_FOUND', 'SyntaxError', 'Test suite failed to run', '\\[build failed\\]', '\\[setup failed\\]', 'no tests ran', 'No tests found'] },
   review: { coverage: { enforce: true }, deepLabels: ['security', 'breaking'], maxRework: 3, coreTask: 'core', coreDiff: 'thorough', tiers: { light: { files: 5, lines: 100, paths: 2 }, thorough: { files: 20, lines: 500 }, risky: ['**/auth/**', '**/security/**', '**/crypto/**', '**/permission*/**', '**/migrations/**', '.github/**', '.gitlab-ci.yml', 'Dockerfile', '**/package.json', '**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/go.mod', '**/Cargo.toml', '**/pyproject.toml', '**/requirements*.txt'] } },
-  limits: { reportRetries: 3, nudges: 2, silentRuns: 3, startFails: 3, rebaseRounds: 2, testerRounds: 3 },
+  limits: { reportRetries: 3, nudges: 2, silentRuns: 3, startFails: 3, limitWaitMinutes: 15, rebaseRounds: 2, testerRounds: 3 },
   lanes: { fullAt: 3, milestoneAt: 8 },
   planning: { clarify: { enabled: true, maxQuestions: 3, threshold: 0.7 }, deep: { maxRounds: 8 } },   // ADR 0020: explorer + clarity before a goal's plan; /cadre deep
   branches: { main: '', dev: 'dev', epicPrefix: 'epic/' }, release: { onEpicDone: 'propose' },
@@ -66,6 +66,7 @@ export const REG: Record<string, Meta> = {
   'drive.maxWallMinutes': m(D, 'a drive stops after this many minutes', { cls: 'U', ...N(1, 10_080) }), 'drive.noProgressTurns': m(D, 'an epic stops after this many turns without progress', { cls: 'U', ...N(1, 100) }),
   'limits.nudges': m(D, 'times an agent that stopped without a report is nudged', N(0, 10)), 'limits.silentRuns': m(D, 'agent runs without a report before the task blocks', N(1, 10)),
   'limits.startFails': m(D, 'failed agent starts of one task before the run stops', N(1, 10)),
+  'limits.limitWaitMinutes': m(D, 'after a usage limit, the drive waits at least this long before it goes on (minutes)', N(0, 300)),
   disable: m(D, 'turn cadre off for you, from the next session (env CADRE_DISABLE)', { cls: 'U' }),
   maxParallel: m(P, 'tasks running at once (0 = no cadre cap)', N(0, 100)), 'milestone.maxEpics': m(P, 'epics of a milestone running at once (0 = no cap)', N(0, 100)),
   ...roleRows('worker'), ...roleRows('tester'), ...roleRows('reviewer'),

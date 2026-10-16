@@ -205,7 +205,7 @@ export async function limited(h: Host, e: { reason?: string; answer?: string }):
   if (e.reason !== 'error') return null
   const hit = ((await h.usage?.().catch(() => undefined))?.rateLimits ?? []).filter(r => r.percentUsed >= 100), now = await h.now()
   if (!hit.length && !/usage limit|rate limit|\b429\b/i.test(String(e.answer ?? ''))) return null
-  const until = Math.max(now + 15 * 60_000, ...hit.map(r => Date.parse(r.resetsAt ?? '') || 0))
+  const until = Math.max(now + (await cfgOf(h)).limits.limitWaitMinutes * 60_000, ...hit.map(r => Date.parse(r.resetsAt ?? '') || 0))
   await stop(h, `usage limit until ${new Date(until).toISOString().slice(11, 16)} UTC`, { flag: 'limit', resetAt: until }); return until   // lifts by itself at resetAt (the watchdog kicks), or by drive resume
 }
 
