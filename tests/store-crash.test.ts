@@ -159,7 +159,7 @@ describe('file store crash safety', () => {
 
   test('a doc that never parses (a hand edit) names its file; it is not read as a scan race', async () => {
     const { fs, a, id } = await seeded(); await a.compact(0); const doc = under(fs, `${D}/d`).find(p => base(p).startsWith(`${id}.`))!; fs.set(doc, { t: '{"id": oops' })
-    expect(await new FileStore(hostOf(fs), D, 'S').get(id).then(() => 'ok', (e: any) => e.message)).toContain(`${base(doc)} is damaged`)
+    expect(await new FileStore(hostOf(fs), D, 'S').get(id).then(() => 'ok', (e: any) => e.message)).toContain(`the task store file .cadre/state/d/${base(doc)} is damaged`)   // review r3 N13: relative to the repo, never a host path
   })
 
   test('one store per directory and session: a retry after a Timeout through another hook reuses the op id; each view runs on its own Host; warm reads scan only the tail', async () => {

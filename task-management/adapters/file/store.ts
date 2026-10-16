@@ -75,7 +75,7 @@ export class FileStore implements TaskStore {
       else if (k === 'M' || k === 'N') mk.push(l.slice(1))
       else if (k === 'H') hd = Number(a)
     }
-    if (bad) throw new StoreError('Unavailable', `the task store file ${this.dir}/d/${bad} is damaged (not JSON): restore it or remove it, then retry`)   // never a race: docs land by mv
+    if (bad) throw new StoreError('Unavailable', `the task store file .cadre/state/d/${bad} is damaged (not JSON): restore it or remove it, then retry`)   // never a race: docs land by mv
     if (full && (torn || mk[0] !== mk[1])) return again('the store kept moving under a scan')
     // the cache's identity: entry `seen` (printed again by the scan) must be the one this cache applied. A wiped dir (rm -rf, git clean) or one regrown
     // by another session would else take entries above `seen` onto stale docs; a full scan then reads it as it is (empty = not initialized).
@@ -156,7 +156,7 @@ export class FileStore implements TaskStore {
   probe() { return this.serial(() => this.probeNow()) }
   private async probeNow() {
     const r = await this.h.run(sh('probe', this.dir, this.h.rand(4)), { timeoutMs: TIMEOUT }).catch(e => ({ exitCode: 1, stderr: String(e) }))
-    if (r.exitCode) return { ok: false, journal: false, version: 'file', detail: `hard links or sync fail in ${this.dir}: ${r.stderr.slice(0, 120)}` }
+    if (r.exitCode) return { ok: false, journal: false, version: 'file', detail: `hard links or sync fail in .cadre/state: ${r.stderr.slice(0, 120)}` }
     await this.sync(); return { ok: true, journal: this.mem.journal, version: 'file', detail: this.mem.tasks ? 'initialized' : 'not initialized' }
   }
   events(since?: string, limit = 500) { return this.serial(() => this.eventsNow(since, limit)) }
