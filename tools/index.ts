@@ -130,6 +130,8 @@ export async function handleWith(h: Host, d: Deps, e: any): Promise<{ result: st
     }
   } catch (x) { return { result: modelText('tool-result', bad(String((x as Error).message ?? x))) } }
 }
-// tool.call for mcp__cadre__*: answer {result}.
-export const handle: Hook = async (h, e, next) => (MAIN.some(t => e.tool === `mcp__cadre__${t.name}`) ? mainTool(h, e).catch(x => ({ result: modelText('tool-result', bad(String((x as Error).message ?? x))) })) as any
+// tool.call for mcp__cadre__*: answer {result}. Claude Code takes a string, an array or nothing as an MCP tool's result and refuses an object (main read an
+// error although the write had happened): a structured answer goes out as its JSON text
+const wired = (r: any) => (r && r.result !== undefined && typeof r.result !== 'string' && !Array.isArray(r.result) ? { ...r, result: JSON.stringify(r.result) } : r)
+export const handle: Hook = async (h, e, next) => (MAIN.some(t => e.tool === `mcp__cadre__${t.name}`) ? mainTool(h, e).then(wired, x => ({ result: modelText('tool-result', bad(String((x as Error).message ?? x))) })) as any
   : TOOLS.some(t => e.tool === `mcp__cadre__${t}`) ? (await warm(h), handleWith(h, await resolveDeps(h), e)) : next(e))

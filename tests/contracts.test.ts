@@ -4,7 +4,8 @@ import { REPORTS, validateReport } from '../core/validate'
 import { handoffOf } from '../core/briefs'
 import { runOf } from '../core/lifecycle'
 import { judge } from '../policy/guards'
-import { handleWith, mainTool } from '../tools/index'
+import { handleWith } from '../tools/index'
+import { viaEngine } from './fixtures/engine'
 import { world as replay } from './fixtures/replay/world'
 import { FULL, world } from './fixtures/native/world'
 
@@ -69,7 +70,7 @@ describe('the handoff: five fixed fields built from records', () => {
 })
 
 describe('the amendment ledger', () => {
-  const tool = (w: Awaited<ReturnType<typeof world>>, name: string, input: object) => mainTool(w.h, { tool: `mcp__cadre__${name}`, tool_use_id: 'u', ...input }) as Promise<any>
+  const tool = (w: Awaited<ReturnType<typeof world>>, name: string, input: object) => viaEngine(w.h, { tool: `mcp__cadre__${name}`, tool_use_id: 'u', ...input }) as Promise<any>
   async function approved(drive?: 'yolo') {
     const w = await world(); await tool(w, 'plan', { title: 'Auth', description: 'g', lane: 'full', reason: 'r' })
     const { type, package: pkg, scenarios, changelog, interface: iface, paths } = FULL, a = (await tool(w, 'task', { title: 'Add login', description: 'impl', type, package: pkg, scenarios, changelog, interface: iface, paths })).result.id

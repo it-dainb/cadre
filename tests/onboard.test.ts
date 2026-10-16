@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { NO_PLAN, READY, WELCOME, decide, route, run, status } from '../commands/cadre'
 import { confirmPrefs, nextOf, prefsItem, prefsRow, wantOf } from '../commands/prefs'
-import { mainTool } from '../tools/index'
+import { viaEngine } from './fixtures/engine'
 import { ROUTES } from '../core/dispatch'
 import { ask } from '../core/decide'
 import { fakeHost, task } from './support'
@@ -44,7 +44,7 @@ describe('setup preferences: main hands them over, cadre writes ~/.claude/cadre.
     void h.secret.update(s => ({ ...s, run: { kind: 'setup' as const, at: 0, turns: 0, follow: 0, guide: 'g' } }))
     return { h, files }
   }
-  const call = (h: Host, input: Record<string, unknown>, agentId?: string) => mainTool(h, { tool: 'mcp__cadre__preferences', tool_use_id: 'u', ...input, ...(agentId ? { agentId } : {}) }) as Promise<any>
+  const call = (h: Host, input: Record<string, unknown>, agentId?: string) => viaEngine(h, { tool: 'mcp__cadre__preferences', tool_use_id: 'u', ...input, ...(agentId ? { agentId } : {}) }) as Promise<any>
   const err = (r: any) => (typeof r.result === 'string' ? r.result : '')
   const card = async (h: Host) => ((await h.board.read()).decisions ?? []).find(d => d.id === 'init:93')
   test('values: only mode, the three limits and the two parallel caps, in range; defaults drop their keys', () => {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { MAIN, mainTool } from '../tools/index'
+import { MAIN } from '../tools/index'
+import { viaEngine } from './fixtures/engine'
 import { handleWith } from '../tools/index'
 import { mainAgent } from '../core/plantools'
 import { checkInput } from '../core/validate'
@@ -10,7 +11,7 @@ import { FULL, world } from './fixtures/native/world'
 import type { Host } from '../types'
 
 type W = Awaited<ReturnType<typeof world>>
-const tool = (w: W, name: string, input: Record<string, unknown>, agentId?: string) => mainTool(w.h, { tool: `mcp__cadre__${name}`, tool_use_id: 'u1', ...(agentId ? { agentId } : {}), ...input }) as Promise<any>
+const tool = (w: W, name: string, input: Record<string, unknown>, agentId?: string) => viaEngine(w.h, { tool: `mcp__cadre__${name}`, tool_use_id: 'u1', ...(agentId ? { agentId } : {}), ...input }) as Promise<any>
 const err = (r: any) => (typeof r.result === 'string' ? r.result : '')
 const { type, package: pkg, scenarios, changelog, interface: iface, paths } = FULL
 const TASK = { type, package: pkg, scenarios, changelog, interface: iface, paths }
@@ -149,9 +150,9 @@ describe('role gate and the other tools', () => {
   })
   test('preferences: the card comes up; the choices wait for its confirm', async () => {
     const a = fakeHost() as Host; await a.secret.update(s => ({ ...s, run: { kind: 'setup' as const, at: 0, turns: 0, follow: 0, guide: 'g' } }))
-    const r1: any = await mainTool(a, { tool: 'mcp__cadre__preferences', tool_use_id: 'u', mode: 'yolo', maxTurns: 50 })
+    const r1: any = await viaEngine(a, { tool: 'mcp__cadre__preferences', tool_use_id: 'u', mode: 'yolo', maxTurns: 50 })
     expect(r1.result).toEqual({ preferences: 'shown to the user' }); expect((await a.board.read()).decisions?.map(d => d.id)).toEqual(['init:93']); expect((await a.ui.read())['prefs.pending']).toMatchObject({ want: { mode: 'yolo', maxTurns: 50 } })
-    expect((await mainTool(a, { tool: 'mcp__cadre__preferences', tool_use_id: 'u', maxTurns: 0 }) as any).result).toBe('error: maxTurns: expected a whole number from 1 to 10000')
+    expect((await viaEngine(a, { tool: 'mcp__cadre__preferences', tool_use_id: 'u', maxTurns: 0 }) as any).result).toBe('error: maxTurns: expected a whole number from 1 to 10000')
   })
   test('main\'s Agent: refused toward the tools; an agent\'s own Agent call passes', () => {
     expect(mainAgent({ tool: 'Agent', prompt: 'where is login?' }, ['m-2'])).toEqual({ deny: 'plan the work with plan and task; to learn about the code or ask a critic, call explore with your question' })

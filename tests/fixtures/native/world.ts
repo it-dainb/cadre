@@ -4,7 +4,7 @@ import { MemoryStore } from '../../../task-management/adapters/memory/store'
 import { defaults } from '../../../task-management/registry'
 import { fakeHost } from '../../support'
 import { dispatch, storeOf } from '../../../core/dispatch'
-import { mainTool } from '../../../tools/index'
+import { viaEngine } from '../engine'
 
 export const SCEN = ['S1: Given a user When they log in Then a session exists']
 export const CONTRACT = { symbols: [{ name: 'login', kind: 'function', params: ['email: string'], returns: 'Session', status: 'new' }] }
@@ -29,10 +29,10 @@ export async function plan(w: Awaited<ReturnType<typeof world>>, meta: Record<st
   return { plan: p.result.task.id as string, task: t.result.task.id as string }
 }
 
-// The plan tools driven in the shape older tests were written in (TaskCreate/TaskUpdate/TaskList/TaskGet): every call goes through main's tool (tools/index.mainTool),
+// The plan tools driven in the shape older tests were written in (TaskCreate/TaskUpdate/TaskList/TaskGet): every call goes through main's tool as the engine sees it (tests/fixtures/engine.viaEngine),
 // and its answer comes back in that shape ({deny} / {result:{task}} / {result:{success, error?}}). An amendment of an approved task gives a reason and evidence.
 export async function viaTools(h: Host, tool: string, i: Record<string, any>, agentId?: string): Promise<any> {
-  const t = (name: string, a: Record<string, unknown>) => mainTool(h, { tool: `mcp__cadre__${name}`, tool_use_id: 'u', ...(agentId ? { agentId } : {}), ...a }) as Promise<any>
+  const t = (name: string, a: Record<string, unknown>) => viaEngine(h, { tool: `mcp__cadre__${name}`, tool_use_id: 'u', ...(agentId ? { agentId } : {}), ...a }) as Promise<any>
   const err = (r: any) => (typeof r.result === 'string' && r.result.startsWith('error: ') ? r.result.slice(7) : null), ctx = (r: any) => (r.context ? { context: r.context } : {})
   const m = { ...(i.metadata ?? {}) }, plan = (await h.board.read()).plan
   if (tool === 'TaskCreate') {
