@@ -181,7 +181,12 @@ if (process.env.CLARIFY) {
 //     store/<ms>.json: cadre's $.store snapshots (scenarios/_lib.sh); run records `…:run:<agentId>` {role, state, log}, budgets `…:budget:<taskId>`.
 if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fail('zero-quota', `${r.split('\n').length} request(s) the stub proxy refused: ${r.split('\n')[0]}`) }
 {
-  const snaps = (existsSync(join(dir, 'store')) ? readdirSync(join(dir, 'store')) : []).filter(f => f.endsWith('.json')).sort().map(f => { try { return { t: +basename(f, '.json'), s: JSON.parse(read(join(dir, 'store', f))) } } catch { return null } }).filter(Boolean)
+  // the control doc at a snapshot: its newest after-image, from d/_control.<seq> or the highest journal entry j/<n> that wrote it (task-management/adapters/file)
+  const ctlOf = p => { let best = [-1, {}]; for (const l of (existsSync(p) ? read(p) : '').split('\n')) { const [n, ...v] = l.split('\t'), x = (() => { try { return JSON.parse(v.join('\t')) } catch { return undefined } })(); if (!x) continue
+    const d = n.match(/^d\/_control\.(\d+)$/), e = n.match(/^j\/(\d+)$/), seq = +(d?.[1] ?? e?.[1] ?? -1), doc = d ? x : e && x.docs && '_control' in x.docs ? x.docs._control : undefined
+    if (doc && seq > best[0]) best = [seq, doc] }
+    return Object.fromEntries(Object.entries(best[1].doc ?? {}).map(([k, v]) => [`cadre:ctl:${k}`, v])) }
+  const snaps = (existsSync(join(dir, 'store')) ? readdirSync(join(dir, 'store')) : []).filter(f => f.endsWith('.json')).sort().map(f => { try { return { t: +basename(f, '.json'), s: { ...JSON.parse(read(join(dir, 'store', f))), ...ctlOf(join(dir, 'store', f.replace(/json$/, 'state'))) } } } catch { return null } }).filter(Boolean)
   const pick = (s, k) => Object.fromEntries(Object.entries(s).flatMap(([key, v]) => { const m = key.match(new RegExp(`:${k}:([^:]+)$`)); return m && v ? [[m[1], v]] : [] }))
   const runs = s => pick(s, 'run'), lost = r => r.state?.state === 'ended' && r.state.cause === 'lost'
   const subs = walk(join(dir, 'jsonl')).filter(f => f.includes('/subagents/') && f.endsWith('.jsonl')).map(f => {
