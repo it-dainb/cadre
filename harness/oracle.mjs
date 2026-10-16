@@ -63,7 +63,9 @@ for (const e of drv.filter(e => e.kind === 'press1' && offered(e.t) && e.t + 500
 // 3. no refusal repeated >= 3 times with the same text (tool calls refused, Claude's stop refused)
 {
   const n = new Map()
-  for (const f of walk(join(dir, 'jsonl')).filter(f => f.endsWith('.jsonl'))) for (const l of read(f).split('\n').filter(Boolean)) {
+  // forced: the worker's same call 20x in a row IS the scenario (scripted/loop; the breaker, then the forced step, checked under ORACLE=forced): its
+  // refusals are error results since tools/index sends them as {deny}, so only main's transcript is held to the rule there
+  for (const f of walk(join(dir, 'jsonl')).filter(f => f.endsWith('.jsonl') && !(process.env.ORACLE === 'forced' && f.includes('/subagents/')))) for (const l of read(f).split('\n').filter(Boolean)) {
     let d; try { d = JSON.parse(l) } catch { continue }
     const c = d.type === 'user' ? d.message?.content : undefined
     const texts = typeof c === 'string' ? (c.startsWith('Stop hook feedback') ? [c] : [])
