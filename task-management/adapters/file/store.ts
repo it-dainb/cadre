@@ -42,8 +42,8 @@ export class FileStore implements TaskStore {
   private tail: Entry[] = []; private at = new Map<string, number>(); private stale: string[] = []   // entries above the snap · doc id -> seq · superseded doc files
   private pending = new Map<string, string>()          // call -> op id of a Timeout: the same call re-issues the same id
   private disk = new Map<string, number>()             // doc id -> seq of its newest file at the last full load
-  private q: Promise<unknown> = Promise.resolve()      // one op or read at a time per instance: the tick fans out beside tool.call
-  private serial<T>(f: () => Promise<T>): Promise<T> { const p = this.q.then(f, f); this.q = p.catch(() => {}); return p }
+  private static q = new Map<string, Promise<unknown>>()   // one op or read at a time per directory and session, across instances (a hook makes its own): the tick fans out beside tool.call
+  private serial<T>(f: () => Promise<T>): Promise<T> { const p = (FileStore.q.get(this.dir + this.sid) ?? Promise.resolve()).then(f, f); FileStore.q.set(this.dir + this.sid, p.catch(() => {})); return p }
   constructor(private h: FileHost, private dir: string, private sid: string) { this.mem = new MemoryStore(() => this.t) }
 
   // bring the cache to the head: the tail above `seen`, or docs + tail when the cache is cold or the tail was folded
