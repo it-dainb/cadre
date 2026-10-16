@@ -141,11 +141,11 @@ export async function gateDue(h: Host): Promise<boolean> {
   return st?.rev !== GATE_REV || !gated(local)
 }
 export async function nudge(h: Host): Promise<void> { if (await setupDue(h)) h.toast('cadre: run /cadre setup'); else if (await gateDue(h)) h.toast('cadre: run /cadre init') }
-// main's tools: Claude Code refused them, or the repo turned on after this session started (the set is fixed at start)
+// main's tools: Claude Code refused them, or the repo turned on after this session started (they load at main's next turn: hooks/register.arm)
 export async function toolsRow(h: Host): Promise<Row> {
   const s = await h.secret.read(), t = s.tools
   if (t?.refused.length) return ['crit', `Claude Code refused cadre's tools: ${t.refused.join(', ')}`, 'cadre needs its tools: drop allowedMcpServers from managed settings, or start Claude Code without --bare']
-  if (s.active && t && !t.on.includes('plan')) return ['warn', 'the planning tools are not loaded in this session', 'restart Claude Code']
+  if (s.active && t && !t.on.includes('plan')) return ['warn', 'the planning tools load at Claude\'s next turn', 'send Claude any message; if they stay missing, restart Claude Code']
   if (s.active && t?.task?.length) return ['crit', `the built-in task tools are on in this session (${t.task.join(', ')})`, '/cadre init, then restart Claude Code']
   return s.active && (await gateDue(h)) ? ['crit', 'settings.local lacks the task-tool gate', '/cadre init'] : ['ok', 'cadre tools loaded']
 }

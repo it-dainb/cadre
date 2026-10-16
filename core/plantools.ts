@@ -21,6 +21,7 @@ import { epicBranch, slug } from './branches'
 import { capped, clearRetries, missingLine, questionsOf, refuse, validateFields } from './validate'
 import { nextAction, subject, taskText } from './render'
 import { clarifyTool } from './clarify'
+import { idsIn } from './briefs'
 
 // Plan rules (DESIGN 3.1): ≤1.5 KB, byte-stable for one registry. Carried once per plan, in the first answer's `context`.
 export const planRules = (reg: TypeRegistry): string => [
@@ -281,5 +282,5 @@ export const PLAN_TOOLS: Record<string, (h: Host, i: In) => Promise<Out>> = { pl
 // An agent's own calls carry agentId and pass.
 export const TASK_TOOLS = ['TaskCreate', 'TaskGet', 'TaskList', 'TaskUpdate']
 export const mainAgent = (e: { tool?: string; agentId?: string; prompt?: string }, ids: string[], origin?: { plugin?: string }) => (e.agentId || (origin?.plugin && origin.plugin !== 'engine') ? undefined   // a plugin's own call (cadre's spawner starting an explorer or a task) passes
-  : e.tool === 'Agent' && !ids.some(id => String(e.prompt ?? '').includes(id)) ? { deny: modelText('deny', 'plan the work with plan and task; to learn about the code or ask a critic, call explore with your question') }
+  : e.tool === 'Agent' && !idsIn(String(e.prompt ?? ''), ids).length ? { deny: modelText('deny', 'plan the work with plan and task; to learn about the code or ask a critic, call explore with your question') }
   : TASK_TOOLS.includes(String(e.tool)) ? { deny: modelText('deny', 'plan with the plan tools instead: plan, task, epic, amend; status reads the plan and moves a task on') } : undefined)

@@ -154,6 +154,17 @@ async function seed($) {
   await update($, secret, x => ({ ...s.sec, root: (x as any).root })); await update($, ui, () => ({ ...s.ui, cfg: { ...(s.ui as any)?.cfg, ...s.c } }))
 }
 
+// main's tools for a repo that turned on in this session (/cadre init after start): registered at main's next turn start; Agent and the task tools are refused
+// only once they are listed (the model sees a registered tool from its next prompt on), so main always has a way to plan
+async function arm($): Promise<void> {
+  const s = await read($, secret), t = s.tools; if (!t || s.old) return
+  if (t.due?.length) { await update($, secret, x => ({ ...x, tools: { ...x.tools!, on: [...x.tools!.on, ...t.due!], due: undefined } })); return }
+  if (t.on.includes('plan') || t.refused.includes('plan') || !(await wake(host($)).catch(() => false))) return
+  const due: string[] = [], refused: string[] = []
+  for (const sp of [...MAIN_SPECS, PREFS_SPEC]) if (!t.on.includes(sp.name)) await $.tool.register(sp).then(() => { due.push(sp.name) }, () => { refused.push(sp.name) })
+  await update($, secret, x => ({ ...x, tools: { ...x.tools!, refused: [...x.tools!.refused, ...refused], due } }))
+}
+
 export const register: Register = (on, opts) => {
   options = { strictness: opts?.strictness as string | undefined }
   subscribe(onEvent)   // ui/notify: toasts, notify, status line from the event stream
@@ -170,7 +181,7 @@ export const register: Register = (on, opts) => {
     await $.env.set('ENABLE_TOOL_SEARCH', 'false')   // S13: isDeferred:false alone does not stop deferral
     await update($, ui, x => ({ ...x, headless: !e.isInteractive || undefined }))   // core/spawner.spawnMode: a one-shot -p run ends before an agent's turn end
     await wake(host($)).catch(e => $.ui.log(`session start: ${e}`)); await halt(host($)).catch(() => {}); await syncMode(host($)).catch(() => {})   // a setup cut short in an earlier session: the band says so   // active repos only: $.store 'policy' + cadre.ui.cfg + containment band (agents ship as agents/*.md files, A28)
-    { const h = host($), act = await wake(h).catch(() => false), set = [...SPECS, ...(act ? MAIN_SPECS : []), ...(act || (await setupDue(h).catch(() => true)) ? [PREFS_SPEC] : [])], refused: string[] = []   // report, inspect, run_check: isDeferred:false (5.2); main's tools only where the work is due (the set is fixed for the session)
+    { const h = host($), act = await wake(h).catch(() => false), set = [...SPECS, ...(act ? MAIN_SPECS : []), ...(act || (await setupDue(h).catch(() => true)) ? [PREFS_SPEC] : [])], refused: string[] = []   // report, inspect, run_check: isDeferred:false (5.2); main's tools only where the work is due (a repo that turns on later gets them at main's next turn: arm)
       for (const t of set) await $.tool.register(t).catch(() => { refused.push(t.name) }); const listed = ((await $.tool.list().catch(() => [])) as { name: string }[]).map(t => t.name)
       await update($, secret, x => ({ ...x, tools: { on: set.map(t => t.name), refused, task: TASK_TOOLS.filter(n => listed.includes(n)) } })) }   // task: the task tools this session still shows (Doctor: the repo's settings lack the gate)   // refused (managed allowedMcpServers, --bare): Doctor says so
     { const h = host($); if (await wake(h).catch(() => false)) { await nudge(h).catch(() => {}); await autoLand(h).catch(x => $.ui.log(`land: ${x}`)) } }   // a landing that waited for the user's checkout   // active repos only: no setup stamp for this Claude Code build -> one toast
@@ -192,14 +203,14 @@ export const register: Register = (on, opts) => {
   // 4. tool.check allow
   on('tool.check', async ($, e, next) => { if (!(await wake(host($)))) return next(e); await warm(host($)); const cl = await clarifyCheck(host($), e, next.origin); if (cl) return cl; return check(host($), e, next) }).catch(denyCheck)
   // 5. guards (main's Agent and task tools, L1, fence, MCP pre-checks)
-  on('tool.call', { tool: /./ }, async ($, e, next) => { const h = host($); if (!(await wake(h))) return (await h.secret.read()).run ? settingsOnly(h, e, next) : next(e); await warm(h); const ag = mainAgent(e, (await h.board.read()).tasks.map(t => t.id), next.origin); if (ag) return ag; const cl = await clarifyCall(h, e, next.origin); if (cl) return cl; return guard(h, e, next) }).catch(denyCall)
+  on('tool.call', { tool: /./ }, async ($, e, next) => { const h = host($); if (!(await wake(h))) return (await h.secret.read()).run ? settingsOnly(h, e, next) : next(e); await warm(h); const ag = (await h.secret.read()).tools?.on.includes('plan') && mainAgent(e, (await h.board.read()).tasks.map(t => t.id), next.origin); if (ag) return ag; const cl = await clarifyCall(h, e, next.origin); if (cl) return cl; return guard(h, e, next) }).catch(denyCall)
   // 6. wrap (L3 per-call fingerprint, delta drain, result card, tester log); then our own MCP tools answer innermost
   on('tool.call', { tool: /^/ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return wrap(host($), e, next) }).catch(denyCall)
   // agent-run setup/init: main's tool results carry what is still red; its stop is refused while a check it owns is red; turn.start feeds the watchdog (commands/agentrun). Outside cadre's own tools, which answer without next: main's explore must reach seen (a goal's clarify step)
   on('tool.call', { tool: /./ }, async ($, e, next) => { const h = host($); if (!e.agentId) await seen(h, { name: e.tool, ask: e.question !== undefined }).catch(() => {}); const r = await next(e); if (e.agentId) return r; await seen(h, { tool: true }).catch(() => {}); const t = r?.result !== undefined ? await redNote(h).catch(() => null) : null; return t ? { ...r, context: [...(r.context ?? []), modelText('context', t)] } : r }).catch(passOn)   // a note only: on failure the result goes through as it is
   on('tool.call', { tool: /^mcp__cadre__/ }, ($, e, next) => handle(host($), e, next)).catch(denyCall)
   on('classic.Stop', async ($, e, next) => { const r = await next(e); const t = await stopCheck(host($), e).catch(() => null); return t ? { ...r, block: modelText('nudge', t) } : r }).catch(passOn)
-  on('turn.start', async ($, e, next) => { const r = await next(e); await seen(host($), { start: true }).catch(() => {}); await mainTurn(host($), true).catch(() => {}); return r })   // only main raises turn.start: its plan card waits for its turn end (core/dispatch.mainTurn)
+  on('turn.start', async ($, e, next) => { await arm($).catch(() => {}); const r = await next(e); await seen(host($), { start: true }).catch(() => {}); await mainTurn(host($), true).catch(() => {}); return r })   // only main raises turn.start: its plan card waits for its turn end (core/dispatch.mainTurn)
   // 7. session.send
   on('session.send', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return send(host($), e, next) }).catch(denySend)
   // 8. prompt.submit, prompt.attachment, turn.step, session.compact, command.run, config.set

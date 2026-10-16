@@ -120,7 +120,7 @@ const startWith = async ($: any, on: any, o: { active: boolean; stamp?: string; 
   on('session.version', () => ({ value: { version: '2.1.299' } })); on('store.get', ($: any, e: any) => ({ value: e.key === 'cadre:setup' && o.stamp ? { cc: o.stamp } : undefined }))
   on('fs.read', () => { if (!o.active) throw new Error('ENOENT'); return { value: '{}' } }); on('fs.stat', () => ({ value: undefined })); on('command.register', () => ({ value: undefined })); on('env.set', () => ({ value: undefined }))
   on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined }))
-  on('tool.register', ($: any, e: any) => { if (e.name === o.refuse) throw new Error('refused'); tools.push(e.name); return { value: undefined } }); mock.clock(on)
+  on('tool.register', ($: any, e: any) => { if (e.name === o.refuse) throw new Error('refused'); tools.push(e.name); return { value: undefined } }); on('tool.call', () => ({ result: 'ran' })); mock.clock(on)
   await $.session.start(START); return tools
 }
 test('tools at start: dormant on a set-up machine: the agent tools only', ENGINE, async ($, on) => {
@@ -134,8 +134,7 @@ test('tools at start: an active repo gets every main tool; one Claude Code refus
 })
 
 test('main in an active repo: an Agent with no task in it and the built-in task tools are refused toward cadre\'s tools; an agent\'s Agent passes', ENGINE, async ($, on) => {
-  on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined })); on('env.get', () => ({ value: undefined })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' }))
-  on('fs.read', () => ({ value: '{}' })); on('fs.stat', () => ({ value: undefined })); on('tool.call', () => ({ result: 'ran' })); on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined }))
+  await startWith($, on, { active: true, stamp: '2.1.299' })
   expect((await $.tool.call({ tool: 'Agent', prompt: 'where is login handled?', description: 'x' }) as any).deny).toContain('call explore with your question')
   expect((await $.tool.call({ tool: 'TaskCreate', subject: 's', description: 'd' }) as any).deny).toContain('plan with the plan tools')
 })
@@ -152,4 +151,20 @@ test('a goal run: main\'s explore through the real chain counts as its clarify e
   expect(String((await $.tool.call({ tool: 'mcp__cadre__ask', clarity: { outcome: 1, scope: 1, acceptance: 1, constraints: 1 } }) as any).result)).toContain('call explore first')
   expect(String((await $.tool.call({ tool: 'mcp__cadre__explore', question: 'where is login handled?' }) as any).result)).toContain('An explorer starts when this turn ends')
   expect(String((await $.tool.call({ tool: 'mcp__cadre__ask', clarity: { outcome: 1, scope: 1, acceptance: 1, constraints: 1 } }) as any).result)).not.toContain('call explore first')
+})
+
+// review 0.15 #6: the repo turned on mid-session (/cadre init): the plan tools were never registered, yet Agent and the task tools were refused, so main had no way to plan
+test('a repo that turns on mid-session: main keeps Agent until its plan tools are registered (next turn) and listed (the turn after)', ENGINE, async ($, on) => {
+  let inited = false; const tools: string[] = []
+  on('session.start', () => ({ cwd: '/work' })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('env.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined }))
+  on('session.version', () => ({ value: { version: '2.1.299' } })); on('store.get', ($: any, e: any) => ({ value: e.key === 'cadre:setup' ? { cc: '2.1.299' } : undefined }))
+  on('fs.read', () => { if (!inited) throw new Error('ENOENT'); return { value: '{}' } }); on('fs.stat', () => ({ value: undefined })); on('command.register', () => ({ value: undefined })); on('env.set', () => ({ value: undefined }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined })); on('ui.log', () => ({ value: undefined })); on('ui.toast', () => ({ value: undefined }))
+  on('tool.register', ($: any, e: any) => { tools.push(e.name); return { value: undefined } }); on('tool.call', () => ({ result: 'ran' })); on('turn.start', ($: any, e: any) => e); mock.clock(on)
+  await $.session.start(START); expect(tools).not.toContain('plan')
+  inited = true   // /cadre init wrote the config
+  const agent = () => $.tool.call({ tool: 'Agent', prompt: 'where is login handled?', description: 'x' }) as any
+  expect(await agent()).toEqual({ result: 'ran' })   // no plan tool to point to: Agent stays
+  await $.turn.start({ turnId: 't1' }); expect(tools).toEqual(expect.arrayContaining(MAIN_NAMES)); expect(await agent()).toEqual({ result: 'ran' })   // registered now, listed from the next prompt
+  await $.turn.start({ turnId: 't2' }); expect((await agent()).deny).toContain('call explore with your question')
 })

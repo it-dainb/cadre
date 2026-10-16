@@ -129,6 +129,7 @@ describe('role gate and the other tools', () => {
   test('main\'s Agent: refused toward the tools; an agent\'s own Agent call passes', () => {
     expect(mainAgent({ tool: 'Agent', prompt: 'where is login?' }, ['m-2'])).toEqual({ deny: 'plan the work with plan and task; to learn about the code or ask a critic, call explore with your question' })
     expect(mainAgent({ tool: 'Agent', prompt: 'TASK-m-2' }, ['m-2'])).toBeUndefined()   // a planned task's start (Claude starts the agents): on to admission
+    expect(mainAgent({ tool: 'Agent', prompt: 'look at c-12' }, ['c-1'])?.deny).toBeDefined()   // a task id inside another id is not a planned task's start
     expect(mainAgent({ tool: 'Agent', prompt: 'run-ab12' }, [], { plugin: 'cadre' })).toBeUndefined(); expect(mainAgent({ tool: 'Agent', prompt: 'x' }, [], { plugin: 'engine' })?.deny).toBeDefined()   // cadre's spawner starts its explorers through the same chain
     expect(mainAgent({ tool: 'Agent', agentId: 'a1' }, [])).toBeUndefined(); expect(mainAgent({ tool: 'Read' }, [])).toBeUndefined()
     for (const t of ['TaskCreate', 'TaskGet', 'TaskList', 'TaskUpdate']) expect(mainAgent({ tool: t }, []).deny).toContain('plan with the plan tools'); expect(mainAgent({ tool: 'TaskStop' }, [])).toBeUndefined()
@@ -136,7 +137,7 @@ describe('role gate and the other tools', () => {
   test('Doctor: a tool Claude Code refused is a crit row; an active repo without them this session says restart', async () => {
     const h = fakeHost()
     await h.secret.update(s => ({ ...s, tools: { on: ['report', 'plan'], refused: ['ask'] } })); expect((await toolsRow(h))[0]).toBe('crit')
-    await h.secret.update(s => ({ ...s, tools: { on: ['report'], refused: [] } })); expect(await toolsRow(h)).toEqual(['warn', 'the planning tools are not loaded in this session', 'restart Claude Code'])
+    await h.secret.update(s => ({ ...s, tools: { on: ['report'], refused: [] } })); expect(await toolsRow(h)).toEqual(['warn', 'the planning tools load at Claude\'s next turn', 'send Claude any message; if they stay missing, restart Claude Code'])
     await h.secret.update(s => ({ ...s, tools: { on: ['report', 'plan'], refused: [], task: ['TaskCreate'] } })); expect(await toolsRow(h)).toEqual(['crit', 'the built-in task tools are on in this session (TaskCreate)', '/cadre init, then restart Claude Code'])
     await h.secret.update(s => ({ ...s, tools: { on: ['report', 'plan'], refused: [] } })); expect(await toolsRow(h)).toEqual(['crit', 'settings.local lacks the task-tool gate', '/cadre init'])
     await h.store.set(await scoped(h, 'settings'), { rev: 1, added: [] }); (h as any).readText = async () => JSON.stringify({ env: { CLAUDE_CODE_ENABLE_TASKS: 'false', CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' } })
