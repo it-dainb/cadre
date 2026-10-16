@@ -227,8 +227,9 @@ export async function arm(h: Host, mode: Mode): Promise<string> {
 async function lift(h: Host): Promise<boolean> {
   const s = await h.board.read(), c = s.drive.cause, now = await h.now()
   if (!s.drive.stopped || !c?.flag || (c.resetAt ? now < c.resetAt : !!s.tasks.find(t => t.id === c.taskId)?.flags.some(f => f.startsWith(c.flag)))) return false
-  let mine = false; await casDrive(h, await storeOf(h), r => (r?.stopped && JSON.stringify(r.cause) === JSON.stringify(c) ? ((mine = true), { ...r, stopped: undefined, cause: undefined }) : undefined))
-  if (!mine) return false   // the record holds another stop: it is not this cause's to lift
+  let mine = false, rec: DriveRec | undefined; await casDrive(h, await storeOf(h), r => ((rec = r), r?.stopped && JSON.stringify(r.cause) === JSON.stringify(c) ? ((mine = true), { ...r, stopped: undefined, cause: undefined }) : undefined))
+  if (!mine && rec?.stopped) return false   // the record holds another stop: it is not this cause's to lift
+  if (!mine) { await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: undefined, cause: undefined } })); return true }   // another session lifted it already: this board follows
   await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: undefined, cause: undefined } })); await driveEvent(h, 'resumed', c.flag); return true
 }
 export async function kick(h: Host, force = false): Promise<void> {

@@ -136,6 +136,13 @@ describe('review fixes: the backstop holds', () => {
     expect(stops).toEqual(['ag1']); expect(((await w.h.board.read()).decisions ?? []).map(d => d.id)).toEqual(['stalled:ag1'])
     await w.h.board.update(b => ({ ...b, decisions: [] })); await backstop(w.h, 's1'); expect((await w.h.board.read()).decisions).toEqual([])   // the OK is not undone
   })
+  test('a run of an earlier session (TaskStop: not running here): it ends lost quietly, no "did not stop" dialog, the deadline is gone', async () => {
+    const w = await world(), [id] = w.ids, stops: string[] = []; Object.assign(w.h, { stopAgent: async (x: string) => { stops.push(x); throw new Error(`Task ${x} is not running`) } })
+    await w.at('ag1', id, 'worker'); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' }); await stepOf(w.h, { agentId: 'ag1' })
+    w.clock.now += BACKSTOP + 1000; await backstop(w.h, 's1'); await backstop(w.h, 's1')
+    expect(stops).toEqual(['ag1']); expect((await runOf(w.h, 'ag1'))!.deadline).toBeUndefined(); expect((await runOf(w.h, 'ag1'))!.state).toEqual({ state: 'ended', cause: 'lost' })
+    expect((await w.h.board.read()).decisions ?? []).toEqual([])
+  })
   test('the failure path rewrites the hand-back too: main never reads the agent\'s prose', () => {
     const next = Object.assign((e: any) => e, { called: false, error: { kind: 'thrown', message: 'boom' } })
     expect(denyCall({ ui: { log: () => {} } }, { tool: 'SubagentHandback', agentId: 'ag1', input: { message: 'my long prose' } }, next).input.message).not.toContain('prose')

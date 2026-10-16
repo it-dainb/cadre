@@ -168,10 +168,13 @@ const mainOf = async (h: Host, cfg: any, root: string) => cfg.branches.main || (
 // ---- H5: a landing that waits for the user's checkout (core/branches.move). One dialog offers to land it; it lands by itself once the branch is checked out nowhere. ----
 const ask1 = (h: Host, b: string, line: string) => ask(h, { id: `pending:${b}`, kind: 'flag', title: `${b} has new work for your checkout`, hash: fnv1a64(line), tab: 'epic', lines: [line, 'Land: bring it into your checkout now (your own commits and edits are kept).'], options: [{ key: 'l', label: 'Land', verb: 'change', run: `land ${b}` }] })
 async function offer(h: Host, b: string) { if (await exists(h.run, await h.cwd(), pendingRef(b))) await ask1(h, b, `cadre did not move ${b}: you have it checked out.`) }
+const asked = async (h: Host, b: string) => ((await h.board.read()).decisions ?? []).some(d => d.id === `pending:${b}`)   // a new process starts with no dialogs: the tick asks again
+const inFlight = new Set<string>()   // ponytail: per process; two sessions on one repo each get their own tmp (a random suffix), so they only repeat the suites
 // (2) the user committed on b meanwhile: their commit is never dropped; the landing re-integrates onto it through the gates (trial merge, suites); (1) the click:
 // HEAD is b and b is the base: a fast-forward moves ref, index and files together (it refuses on conflicting local edits). Checked out nowhere: it lands by CAS.
-// A failed re-integration (a conflict or red checks on the user's commits) is remembered by its inputs {pending, base, the user's tip}: the tick does not try it
-// again until one of them moves, or the user presses Land. The suites run outside the git lock.
+// A failed re-integration (a real conflict or red checks on the user's commits) is held under its inputs {pending, base, the user's tip} with its reason: the tick
+// does not try it again until one of them moves, or the user presses Land; it re-asks the held dialog when it is gone. Anything else (git busy, a failed merge
+// step) throws: the next tick retries. The suites run outside the git lock, one re-integration per branch at a time, each in its own tmp.
 export async function landPending(h: Host, b: string, click = false): Promise<string | null> {
   const root = await h.cwd(), cfg = await cfgOf(h), P = pendingRef(b), K = await scoped(h, `land:${b}`)
   for (let round = 0; round < 3; round++) {
@@ -180,22 +183,28 @@ export async function landPending(h: Host, b: string, click = false): Promise<st
     if (sha === cur) return clean(h, b)   // nothing left to land (a rolled-back release)
     if (round === 2) break
     if (cur !== base) {
-      if (!click && (await h.store.get(K)) === key) return 'held'
-      const tmp = wtPath(await wtRootOf(h, cfg), repoKeyOf(root), `land-${b.replace(/\W/g, '-')}`), c = await trial(h, root, cur, sha)
-      let why = c?.length ? `your commits on ${b} conflict with the landing in ${c.join(', ')}: resolve them on ${b}, then Land.` : null
-      if (!why) {
-        const next = await op(h, async () => { await git(h.run, root, ['worktree', 'add', '--detach', tmp, cur]); await git(h.run, tmp, ['merge', '--no-ff', '--no-verify', '-m', `merge the landing into your ${b}`, sha]); return tip(h.run, tmp, 'HEAD') }).catch((x: Error) => x)
-        const red = next instanceof Error ? next.message : await runSuites(h, cfg, tmp, (await git(h.run, tmp, ['diff', '--name-only', `${cur}..${next}`])).split('\n').filter(Boolean), '')
-        await op(h, () => worktreeRemove(h.run, root, tmp)).catch(() => {})
-        if (red) why = `the landing does not pass its checks on your ${b}: ${red.slice(0, 200)}`
-        else if (await op(h, () => casRef(h.run, root, P, next as string, sha))) await git(h.run, root, ['update-ref', baseRef(b), cur])
-      }
-      if (why) { await h.store.set(K, key); await ask1(h, b, why); return 'held' }
+      const held = click ? undefined : ((await h.store.get(K)) as { key: string; why: string } | undefined)
+      if (held?.key === key) { if (!(await asked(h, b))) await ask1(h, b, held.why); return 'held' }
+      const F = `${root} ${b}`; if (inFlight.has(F)) return 'busy'
+      inFlight.add(F)
+      const tmp = wtPath(await wtRootOf(h, cfg), repoKeyOf(root), `land-${b.replace(/\W/g, '-')}-${Math.random().toString(36).slice(2, 8)}`)
+      let why: string | null = null
+      try {
+        const c = await trial(h, root, cur, sha)
+        if (c?.length) why = `your commits on ${b} conflict with the landing in ${c.join(', ')}: resolve them on ${b}, then Land.`
+        else {
+          const next = await op(h, async () => { await git(h.run, root, ['worktree', 'add', '--detach', tmp, cur]); await git(h.run, tmp, ['merge', '--no-ff', '--no-verify', '-m', `merge the landing into your ${b}`, sha]); return tip(h.run, tmp, 'HEAD') })
+          const red = await runSuites(h, cfg, tmp, (await git(h.run, tmp, ['diff', '--name-only', `${cur}..${next}`])).split('\n').filter(Boolean), '')
+          if (red) why = `the landing does not pass its checks on your ${b}: ${red.slice(0, 200)}`
+          else await op(h, async () => (await casRef(h.run, root, P, next, sha)) && casRef(h.run, root, baseRef(b), cur, base))   // pending and its base move together, each by CAS
+        }
+      } finally { inFlight.delete(F); await worktreeRemove(h.run, root, tmp).catch(() => {}) }   // no ref moves: outside the lock, so a busy lock never leaves it behind
+      if (why) { await h.store.set(K, { key, why }); await ask1(h, b, why); return 'held' }
       continue
     }
     const wt = await checkedOut(h, b)
     if (!wt) { if (await op(h, () => casRef(h.run, root, `refs/heads/${b}`, sha, cur))) return clean(h, b); continue }   // checked out nowhere: it lands by itself
-    if (!click) return 'waits'
+    if (!click) { if (!(await asked(h, b))) await offer(h, b); return 'waits' }
     const r = await op(h, async () => (await h.run(['git', '-C', wt, 'symbolic-ref', '-q', 'HEAD'])).stdout.trim() !== `refs/heads/${b}` || (await tip(h.run, wt, 'HEAD')) !== cur ? null : h.run(['git', '-C', wt, 'merge', '--ff-only', sha]))   // the worktree still has b at the base, checked under the lock
     if (!r) continue
     if (r.exitCode) { await ask1(h, b, `your uncommitted edits touch the same files as the landing: commit or stash them, then Land. ${r.stderr.trim().slice(0, 120)}`); return 'edits' }
@@ -211,11 +220,11 @@ async function clean(h: Host, b: string) {
 // the next landing, session start and the 5 s tick: what waits lands where it can; a dev the user moved is merged into the running plan, and its workers get it
 export async function autoLand(h: Host): Promise<void> {
   const cfg = await cfgOf(h), root = await h.cwd(), s = await h.board.read()
-  for (const b of [cfg.branches.dev, await mainOf(h, cfg, root)]) await landPending(h, b)
+  for (const b of [cfg.branches.dev, await mainOf(h, cfg, root)]) await landPending(h, b).catch(x => h.log(`land ${b}: ${x}`))   // a busy lock: the next tick retries
   if (s.plan?.state !== 'approved' || isMs(s.plan) || !(await exists(h.run, root, s.plan.epicBranch))) return
   const was = await tip(h.run, root, s.plan.epicBranch), dev = await baseOf(h, cfg.branches.dev), pair = `${await tip(h.run, root, dev)} ${was}`, K = await scoped(h, 'freshen')
   if ((await h.store.get(K)) === pair) return   // that dev did not merge into this plan cleanly: tried once, again when either moves
   await freshen(h, root, s.plan.epicBranch, dev, wtPath(await wtRootOf(h, cfg), repoKeyOf(root), 'freshen'))
   const now = await tip(h.run, root, s.plan.epicBranch); if (now !== was) await refresh(h, await resolveDeps(h), now, ''); else if (!(await ok(h.run, root, ['merge-base', '--is-ancestor', dev, now]))) await h.store.set(K, pair)
 }
-ROUTES.land = async (h, c) => ({ text: (await landPending(h, c.args[0] ?? (await cfgOf(h)).branches.dev, true)) ? 'not landed: the dialog says why' : `${c.args[0]}: landed into your checkout` })
+ROUTES.land = async (h, c) => { const r = await landPending(h, c.args[0] ?? (await cfgOf(h)).branches.dev, true); return { text: r === 'busy' ? 'not landed yet: its checks are running; Land again when they finish' : r ? 'not landed: the dialog says why' : `${c.args[0]}: landed into your checkout` } }

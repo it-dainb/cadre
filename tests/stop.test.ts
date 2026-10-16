@@ -70,6 +70,12 @@ describe('review fixes: one cause, one stop', () => {
     await stop(w2.h, 'usage limit until 00:15 UTC', { flag: 'limit', resetAt: 1 })   // the record already holds the red stop
     expect((await w2.h.board.read()).drive).toMatchObject({ stopped: `blocked ${id}`, cause: { taskId: id, flag: 'red' } })
   })
+  test('another session lifted the record already: this session\'s board follows and is no longer stopped', async () => {
+    const w = await redStopped(), [id] = w.ids, w2 = await world({ store: w.store, kv: w.kv, session: 's2' }), cause = { taskId: id, flag: 'red' }
+    await w2.h.board.update(b => ({ ...b, epic: w.epic, plan: (b as any).plan ?? { id: w.epic, slug: 'service', state: 'approved', epicBranch: 'epic/p1-service', mode: 'yolo' }, drive: { ...b.drive, on: true, epicId: w.epic, mode: 'yolo', stopped: `blocked ${id}`, cause } }))
+    await retry(w, id); expect((await w.h.board.read()).drive.stopped).toBeUndefined()   // session 1 lifts the record
+    await kick(w2.h); expect((await w2.h.board.read()).drive).toMatchObject({ stopped: undefined, cause: undefined })
+  })
   test('a cause with no flag never lifts by itself (no stop-resume churn)', async () => {
     const w = await world(), [id] = w.ids; await arm(w.h, 'yolo')
     await stop(w.h, `${id} is blocked with no question to answer`, { taskId: id } as any); await kick(w.h); await kick(w.h)

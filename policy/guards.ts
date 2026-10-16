@@ -173,9 +173,9 @@ export const send: Hook = async (h, e, next) => {
   if (!e.agentId && b[e.to] && s.drive.on && !s.drive.stopped && s.drive.spawn === 'mod') return { isDelivered: false, reason: modelText('deny', 'cadre resumes this agent when its task needs it; do not message it') }   // mod mode: main never messages an agent (ADR 0024 §2.6)
   // main messaging an agent whose step is over (live: it re-prompted the finished tester as if it were the worker, then stopped): the next step is a NEW agent
   if (!e.agentId && b[e.to] && t && t.step !== own.step) return { isDelivered: false, reason: modelText('deny', `${t.id}'s ${own.role} has finished; do not message it. ${t.step === 'merge' ? `Complete TASK-${t.id} (TaskUpdate ${t.id} completed)` : `Start the next agent with Agent prompt "TASK-${t.id}"`}`) }
-  // main mode: an agent that is done or parked would be ended at its next step (exit rule 5), so main's words would go nowhere: say what moves it instead
+  // any mode but mod (above): an agent that is done, parked or retired would be ended at its next step (exit rule 5), so main's words would go nowhere: say what moves it instead
   const rs = !e.agentId && b[e.to] && t ? (await runOf(h, e.to))?.state?.state : undefined
-  if (rs && !['running', 'refused', 'silent'].includes(rs)) return { isDelivered: false, reason: modelText('deny', rs === 'waiting' ? `${t!.id} waits for a decision: give it with TaskUpdate ${t!.id} metadata.decision; its agent is resumed with it` : `${t!.id}'s ${own.role} has handed in its work; do not message it. cadre resumes it when ${t!.id} needs it`) }
+  if (rs && !['running', 'refused', 'silent'].includes(rs)) return { isDelivered: false, reason: modelText('deny', rs === 'waiting' ? `${t!.id} waits for the human's decision: ask them, then TaskUpdate ${t!.id} metadata.decision "accept: …" or "reject: …"; its agent is resumed with it` : rs === 'retired' ? `${t!.id}'s ${own.role} was retired; do not message it. Start a fresh one with Agent prompt "TASK-${t!.id}"` : `${t!.id}'s ${own.role} has handed in its work; do not message it. cadre resumes it when ${t!.id} needs it`) }
   const known = new Set(ts.map(x => x.id))
   const other = idsIn(`${e.to} ${e.text}`, known).find(id => id !== own.taskId)
   return other ? { isDelivered: false, reason: modelText('deny', `you work on ${own.taskId} only; do not name ${other}`) } : next(e)

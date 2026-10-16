@@ -164,3 +164,30 @@ test('a repo whose main branch is master: a landing waiting on it lands by itsel
   sh(d, 'update-ref', pendingRef('master'), ahead); sh(d, 'update-ref', 'refs/cadre/base/master', was)
   await autoLand(w.h); assert.equal(sh(d, 'rev-parse', 'master'), ahead); assert.equal(ok(d, 'rev-parse', '--verify', '-q', pendingRef('master')), false)
 })
+// ---- review r2 fixes ----
+test('two ticks at once while a green re-integration runs its checks: the second skips it, the first lands, no false hold', async () => {
+  const w = await world(), { d } = w; w.cfg.packages = [{ root: '.', setup: ['true'], checks: { test: ['sh', '-c', 'sleep 1; test -f c.txt'] } }]
+  sh(d, 'checkout', '-q', 'dev'); assert.equal(await integrateEpic(w.h, await w.plan('c.txt')), null)
+  commit(d, 'v.txt', 'v\n', 'docs: mine'); sh(d, 'checkout', '-q', 'main')
+  const bases = [], checks = [], logs = w.h.logs.length; const r0 = w.h.run; w.h.run = async (argv, o) => { if (argv.includes('update-ref') && argv.includes('refs/cadre/base/dev') && !argv.includes('-d')) bases.push(argv.length); if (argv.join(' ').includes('sleep 1')) checks.push(1); return r0(argv, o) }
+  const first = autoLand(w.h); await new Promise(r => setTimeout(r, 300)); await autoLand(w.h); await first
+  assert.equal(checks.length, 1); assert.deepEqual(w.h.logs.slice(logs), [])   // the second tick did not touch it: no second run, no failed worktree
+  assert.equal(sh(d, 'show', 'dev:c.txt'), 'c.txt'); assert.equal(sh(d, 'show', 'dev:v.txt'), 'v'); assert.equal(ok(d, 'rev-parse', '--verify', '-q', pendingRef('dev')), false)
+  assert.ok(!(await w.decisions()).includes('pending:dev')); assert.ok(bases.every(n => n === 7))   // the base moves by CAS (ref, new, old)
+})
+test('a busy git lock during a re-integration is no hold: the next free tick lands it', async () => {
+  const w = await world(), { d } = w; sh(d, 'checkout', '-q', 'dev'); assert.equal(await integrateEpic(w.h, await w.plan('c.txt')), null)
+  commit(d, 'v.txt', 'v\n', 'docs: mine'); sh(d, 'checkout', '-q', 'main')
+  await w.h.git.update(g => ({ ...g, busy: true })); await autoLand(w.h); assert.ok(ok(d, 'rev-parse', '--verify', pendingRef('dev')))
+  await w.h.git.update(g => ({ ...g, busy: false })); await autoLand(w.h)
+  assert.equal(sh(d, 'show', 'dev:c.txt'), 'c.txt'); assert.equal(ok(d, 'rev-parse', '--verify', '-q', pendingRef('dev')), false)
+})
+test('a new process (no dialogs): a held landing asks again with its reason, a waiting one offers Land again', async () => {
+  const w = await world(), { d } = w; w.cfg.packages = [{ root: '.', setup: ['true'], checks: { test: ['sh', '-c', 'test ! -f bad.txt'] } }]
+  sh(d, 'checkout', '-q', 'dev'); assert.equal(await integrateEpic(w.h, await w.plan('c.txt')), null)
+  await w.h.board.update(b => ({ ...b, decisions: [] })); await autoLand(w.h); assert.deepEqual(await w.decisions(), ['pending:dev'])   // waits for the checkout
+  commit(d, 'bad.txt', 'x\n', 'chore: red'); sh(d, 'checkout', '-q', 'main'); await autoLand(w.h)
+  const why = (await w.h.board.read()).decisions[0].lines[0]; assert.match(why, /does not pass its checks/)
+  await w.h.board.update(b => ({ ...b, decisions: [] })); for (let i = 0; i < 2; i++) await autoLand(w.h)
+  const ds = (await w.h.board.read()).decisions; assert.deepEqual(ds.map(x => x.id), ['pending:dev']); assert.equal(ds[0].lines[0], why)
+})
