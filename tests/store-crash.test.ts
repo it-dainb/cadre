@@ -16,9 +16,10 @@ function sh(fs: Fs, argv: readonly string[]): { exitCode: number; stdout: string
   const a = argv.slice(4), ok = (stdout = '') => ({ exitCode: 0, stdout, stderr: '' }), num = (n: string) => /^\d+$/.test(n)
   switch (kind(argv)) {
     case 'scan': {
-      const [d, since, full] = a, out: string[] = [], mk = (k: string) => k + under(fs, `${d}/j`).map(base).filter(n => n.startsWith('snap.')).map(n => ` ${n.slice(5)}`).join('')
+      const [d, since, full] = a; if (![...fs.keys()].some(p => p.startsWith(`${d}/`))) return ok()   // [ -d "$d" ] || exit 0
+      const out: string[] = [], mk = (k: string) => k + under(fs, `${d}/j`).map(base).filter(n => n.startsWith('snap.')).map(n => ` ${n.slice(5)}`).join('')
       if (full === '1') { out.push(mk('M')); for (const p of under(fs, `${d}/d`)) out.push(`D ${base(p)} ${fs.get(p)!.t}`) }
-      let h = 0; for (const p of under(fs, `${d}/j`)) { const n = base(p); if (n.startsWith('snap.')) out.push(`S ${fs.get(p)!.t}`); else if (num(n)) { h = Math.max(h, Number(n)); if (Number(n) > Number(since)) out.push(`E ${n} ${fs.get(p)!.t}`) } }
+      let h = 0; for (const p of under(fs, `${d}/j`)) { const n = base(p); if (n.startsWith('snap.')) out.push(`S ${fs.get(p)!.t}`); else if (num(n)) { h = Math.max(h, Number(n)); if (Number(n) >= Number(since)) out.push(`E ${n} ${fs.get(p)!.t}`) } }
       out.push(`H ${h}`); if (full === '1') out.push(mk('N'))
       return ok(out.join('\n'))
     }
@@ -156,6 +157,11 @@ describe('file store crash safety', () => {
     expect((await s.get(id)).id).toBe(id)
   })
 
+  test('a doc that never parses (a hand edit) names its file; it is not read as a scan race', async () => {
+    const { fs, a, id } = await seeded(); await a.compact(0); const doc = under(fs, `${D}/d`).find(p => base(p).startsWith(`${id}.`))!; fs.set(doc, { t: '{"id": oops' })
+    expect(await new FileStore(hostOf(fs), D, 'S').get(id).then(() => 'ok', (e: any) => e.message)).toContain(`${base(doc)} is damaged`)
+  })
+
   test('one store per directory and session: a retry after a Timeout through another hook reuses the op id; each view runs on its own Host; warm reads scan only the tail', async () => {
     const { fs, id } = await seeded(), dir = `${D}/of`; for (const [p, f] of [...fs]) if (p.startsWith(`${D}/`)) fs.set(p.replace(D, dir), f)
     let late: (() => unknown) | undefined; const scans: string[] = []
@@ -166,6 +172,19 @@ describe('file store crash safety', () => {
     expect(h1.calls).toBe(c1); expect(t.meta.x).toBe('1')
     expect(live()).toBe(n)   // no second entry
     expect(scans[0]).toBe('1'); expect(scans.slice(1).every(f => f === '0')).toBe(true)
+  })
+
+  test('a warm store whose dir is wiped (rm -rf, git clean): a write is refused as not initialized, never committed onto the stale cache; a regrown store resurrects nothing', async () => {
+    for (const regrow of [false, true]) {
+      const fs: Fs = new Map(), dir = `${D}/wipe${regrow}`, A = FileStore.of(hostOf(fs), dir, 'A')
+      await A.init({ types: reg, journal: true }); const ep = await A.createEpic('e', 'g'), id = (await A.createDraft({ title: 't', description: '', type: 'feature', parent: ep })).id
+      for (let i = 1; i <= 5; i++) await A.setMeta(id, { c: String(i) }, 'a')
+      for (const p of [...fs.keys()]) if (p.startsWith(`${dir}/`)) fs.delete(p)
+      if (regrow) { const B = new FileStore(hostOf(fs), dir, 'B'); await B.init({ types: reg, journal: true }); const e2 = await B.createEpic('other', 'g'); for (let i = 0; i < 10; i++) await B.setMeta(e2, { k: String(i) }, 'b') }
+      expect(await code(A.setMeta(id, { after: 'wipe' }, 'a'))).toBe(regrow ? 'NotFound' : 'NotInitialized'); expect(A.initialized).toBe(regrow)
+      if (!regrow) { expect([...fs.keys()].filter(p => p.startsWith(`${dir}/j/`))).toEqual([]); await A.init({ types: reg, journal: true }) }
+      const C = new FileStore(hostOf(fs), dir, 'C'); expect((await C.list({})).map(t => t.title)).toEqual(regrow ? ['other'] : [])
+    }
   })
 
   test('a lost race backs off and retries past four tries', async () => {

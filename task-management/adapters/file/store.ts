@@ -18,7 +18,7 @@ export const SCRIPTS = {
   scan: `d=$1; [ -d "$d" ] || exit 0; [ -n "$4" ] && sleep "$4"
 k() { printf %s "$1"; for f in "$d"/j/snap.*; do [ -f "$f" ] && printf ' %s' "\${f##*.}"; done; echo; }
 if [ "$3" = 1 ]; then k M; for f in "$d"/d/*; do [ -f "$f" ] && printf 'D %s %s\\n' "\${f##*/}" "$(cat "$f")"; done; fi
-h=0; for f in "$d"/j/*; do [ -f "$f" ] || continue; n=\${f##*/}; case $n in snap.*) printf 'S %s\\n' "$(cat "$f")";; *[!0-9]*) ;; *) [ "$n" -gt "$h" ] && h=$n; [ "$n" -gt "$2" ] && printf 'E %s %s\\n' "$n" "$(cat "$f")";; esac; done
+h=0; for f in "$d"/j/*; do [ -f "$f" ] || continue; n=\${f##*/}; case $n in snap.*) printf 'S %s\\n' "$(cat "$f")";; *[!0-9]*) ;; *) [ "$n" -gt "$h" ] && h=$n; [ "$n" -ge "$2" ] && printf 'E %s %s\\n' "$n" "$(cat "$f")";; esac; done
 echo "H $h"; [ "$3" = 1 ] && k N; exit 0`,
   commit: `mkdir -p "$3" && s "$1" || exit 2
 if ln "$1" "$2" 2>/dev/null; then
@@ -52,7 +52,7 @@ export class FileStore implements TaskStore {
   constructor(private h: FileHost, private dir: string, private sid: string) { this.mem = new MemoryStore(() => this.t) }
   // The one store per directory and session in this process: warm incremental scans, and a Timeout's op id survives to the retry from the next hook.
   // `h` serves only the calls made through the returned view: a hook's Host never runs another hook's step.
-  private static live = new Map<string, FileStore>()
+  private static live = new Map<string, FileStore>()   // ponytail: never evicted (one per dir+session for the process; sessions are few), add an LRU if long-lived processes see many
   private next?: FileHost
   static of(h: FileHost, dir: string, sid: string): FileStore {
     const k = `${dir}\0${sid}`; let s = FileStore.live.get(k); if (!s) FileStore.live.set(k, (s = new FileStore(h, dir, sid)))
@@ -66,17 +66,22 @@ export class FileStore implements TaskStore {
     const again = (why: string) => { if (tries > 2) throw new StoreError('Unavailable', why); return this.sync(true, tries + 1) }
     const r = await this.h.run(sh('scan', this.dir, String(full ? 0 : this.seen), full ? '1' : '0', nap), { timeoutMs: TIMEOUT })
     if (r.exitCode) throw new StoreError('Unavailable', `store scan: ${r.stderr.slice(0, 200)}`)
-    const docs: [string, number, unknown][] = [], es = new Map<number, any>(), mk: string[] = []; let snap = { n: 0, ev: 0 }, hd = -1, torn = false
+    const docs: [string, number, unknown][] = [], es = new Map<number, any>(), mk: string[] = []; let snap = { n: 0, ev: 0 }, hd = -1, torn = false, bad = ''
     for (const l of r.stdout.split('\n')) {
       const [k, a, ...rest] = l.split(' ')
       if (k === 'S') { const v = json([a, ...rest].join(' ')); if (v?.n > snap.n) snap = v }
       else if (k === 'E') es.set(Number(a), json(rest.join(' ')))
-      else if (k === 'D') { const i = a.lastIndexOf('.'), v = json(rest.join(' ')); torn ||= v === undefined; docs.push([a.slice(0, i), Number(a.slice(i + 1)), v]) }
+      else if (k === 'D') { const i = a.lastIndexOf('.'), t = rest.join(' '), v = json(t); if (v === undefined) t.trim() ? (bad ||= a) : (torn = true); docs.push([a.slice(0, i), Number(a.slice(i + 1)), v]) }
       else if (k === 'M' || k === 'N') mk.push(l.slice(1))
       else if (k === 'H') hd = Number(a)
     }
+    if (bad) throw new StoreError('Unavailable', `the task store file ${this.dir}/d/${bad} is damaged (not JSON): restore it or remove it, then retry`)   // never a race: docs land by mv
     if (full && (torn || mk[0] !== mk[1])) return again('the store kept moving under a scan')
-    if (!full && (snap.n > this.seen || (hd >= 0 && Math.max(hd, snap.n) < this.seen))) return this.sync(true, tries)
+    // the cache's identity: entry `seen` (printed again by the scan) must be the one this cache applied. A wiped dir (rm -rf, git clean) or one regrown
+    // by another session would else take entries above `seen` onto stale docs; a full scan then reads it as it is (empty = not initialized).
+    // ponytail: with no entry above the snap (after a fold to 0) the snap's {n, ev} is the identity; a regrown store folded to the same n and ev passes.
+    const mine = this.tail.find(e => e.s === this.seen)
+    if (!full && (snap.n > this.seen || (hd >= 0 && Math.max(hd, snap.n) < this.seen) || (this.seen > 0 && !(mine ? es.get(this.seen)?.op === mine.op : snap.n === this.seen && snap.ev === this.fev)))) return this.sync(true, tries)
     const base = Math.max(full ? 0 : this.seen, snap.n), top = Math.max(base, ...es.keys())
     for (let s = base + 1; s <= top; s++) if (!es.get(s)?.docs) return again(`journal entry ${s} unreadable`)   // a gap = a compaction mid-scan
     if (full) {
@@ -84,7 +89,7 @@ export class FileStore implements TaskStore {
       for (const [id, s, v] of docs) { const b = best.get(id); if (b && b[0] >= s) this.stale.push(`${id}.${s}`); else { if (b) this.stale.push(`${id}.${b[0]}`); best.set(id, [s, v]) } }
       for (const [id, [s, v]] of best) { this.at.set(id, s); this.put(m, id, v) }
       this.disk = new Map(this.at)
-      Object.assign(this, { tail: [], seen: snap.n, ev: snap.ev })
+      Object.assign(this, { tail: [], seen: snap.n, ev: snap.ev, floor: snap.n, fev: snap.ev })
     }
     if (snap.n > this.floor) { this.tail = this.tail.filter(e => e.s > snap.n) }
     this.floor = Math.max(this.floor, snap.n); this.fev = Math.max(this.fev, snap.ev)
@@ -147,6 +152,7 @@ export class FileStore implements TaskStore {
     await this.sync(true); return n
   }
 
+  get initialized() { return this.seen < 0 || !!this.mem.tasks }   // false once a scan found the store wiped: the caller re-probes and re-inits
   probe() { return this.serial(() => this.probeNow()) }
   private async probeNow() {
     const r = await this.h.run(sh('probe', this.dir, this.h.rand(4)), { timeoutMs: TIMEOUT }).catch(e => ({ exitCode: 1, stderr: String(e) }))

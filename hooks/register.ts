@@ -49,7 +49,7 @@ const ready = new Set<string>()   // roots whose store answered the probe this l
 wire.store = async (h, cfg, root) => {
   if (cfg.store.kind === 'memory') { if (!mem) { mem = new MemoryStore(); await mem.init({ types: cfg.types as any, journal: false }) } return mem }
   if (!(await h.store.get(`cadre:${repoKeyOf(root)}:actor`))) await h.store.set(`cadre:${repoKeyOf(root)}:actor`, `cadre/${h.rand(3)}`)
-  const s = FileStore.of(h, `${root}/.cadre/state`, await sessionOf(h)); if (ready.has(root)) return s
+  const s = FileStore.of(h, `${root}/.cadre/state`, await sessionOf(h)); if (ready.has(root) && s.initialized) return s   // a wiped store re-probes and re-inits
   const p = await s.probe()
   if (!p.ok) { await h.secret.update(x => ({ ...x, active: false, storeOff: p.detail })); throw new StoreError('Unavailable', p.detail) }   // no activation (core/session.wake)
   if (p.detail !== 'initialized' || !p.journal) await s.init({ types: cfg.types as any, journal: true })

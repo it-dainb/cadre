@@ -4,7 +4,7 @@ import '../dev/register.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { randomBytes } from 'node:crypto'
@@ -80,4 +80,17 @@ test('a full scan paused between its doc and journal passes while another sessio
   while (!readdirSync(join(dir, '..')).includes('at')) await new Promise(r => setTimeout(r, 10))
   await b.compact(0); writeFileSync(go, ''); await p
   assert.deepEqual((await new FileStore(host(), dir, 'C').get(e)).meta, { c: '25', r: 'a' })
+})
+
+test('a warm store whose dir is removed (git clean -xdf) and regrown by another session: no write onto the stale cache, nothing resurrected', async () => {
+  for (const regrow of [false, true]) {
+    const dir = fresh(), a = FileStore.of(host(), dir, 'A'); await a.init({ types: reg, journal: true })
+    const e = (await a.createDraft({ title: 't', description: '', type: 'feature', parent: await a.createEpic('E', 'g') })).id   // c-3-1: not an id the regrown store mints
+    for (let i = 1; i <= 5; i++) await a.setMeta(e, { c: String(i) }, 'a')
+    rmSync(dir, { recursive: true, force: true })
+    if (regrow) { const b = new FileStore(host(), dir, 'B'); await b.init({ types: reg, journal: true }); const o = await b.createEpic('other', 'g'); for (let i = 0; i < 10; i++) await b.setMeta(o, { k: String(i) }, 'b') }
+    await assert.rejects(a.setMeta(e, { after: 'wipe' }, 'a'), x => x.code === (regrow ? 'NotFound' : 'NotInitialized'))
+    if (regrow) assert.deepEqual((await new FileStore(host(), dir, 'C').list({})).map(t => t.title), ['other'])
+    else assert.throws(() => readdirSync(join(dir, 'j')))
+  }
 })
