@@ -17,6 +17,7 @@ describe('MCP tool specs (5.2)', () => {
   })
   test('handle passes other tools through; lifecycle + resolve are registered', async () => {
     expect(await handle(fakeHost(), { tool: 'Read' }, (e: any) => `next:${e.tool}`)).toBe('next:Read')
+    expect(await handle(fakeHost(), { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker' } }, () => { throw new Error('answered') })).toEqual({ deny: 'error: only a spawned agent reports' })   // a refusal is an error result
     expect(Object.keys(LIFECYCLE).sort()).toEqual(['completed', 'decision', 'deleted', 'pending'])
     expect(typeof ROUTES.resolve).toBe('function')
   })

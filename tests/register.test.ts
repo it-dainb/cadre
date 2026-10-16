@@ -148,9 +148,10 @@ test('a goal run: main\'s explore through the real chain counts as its clarify e
   on('fs.read', ($, e) => { if (e.path === '/s.json') return { value: JSON.stringify(dump) }; throw new Error('ENOENT') }); on('fs.stat', () => ({ value: undefined }))
   on('ui.log', () => ({ value: undefined })); on('ui.toast', () => ({ value: undefined })); on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined }))
   mock.clock(on); await $.session.start(START)
-  expect(String((await $.tool.call({ tool: 'mcp__cadre__ask', clarity: { outcome: 1, scope: 1, acceptance: 1, constraints: 1 } }) as any).result)).toContain('call explore first')
-  expect(String((await $.tool.call({ tool: 'mcp__cadre__explore', question: 'where is login handled?' }) as any).result)).toContain('An explorer starts when this turn ends')
-  expect(String((await $.tool.call({ tool: 'mcp__cadre__ask', clarity: { outcome: 1, scope: 1, acceptance: 1, constraints: 1 } }) as any).result)).not.toContain('call explore first')
+  const said = (r: any) => String(r.deny ?? r.result)   // a refusal is a deny (the model's error result)
+  expect(said(await $.tool.call({ tool: 'mcp__cadre__ask', clarity: { outcome: 1, scope: 1, acceptance: 1, constraints: 1 } }))).toContain('call explore first')
+  expect(said(await $.tool.call({ tool: 'mcp__cadre__explore', question: 'where is login handled?' }))).toContain('An explorer starts when this turn ends')
+  expect(said(await $.tool.call({ tool: 'mcp__cadre__ask', clarity: { outcome: 1, scope: 1, acceptance: 1, constraints: 1 } }))).not.toContain('call explore first')
 })
 
 // review 0.15 #6: the repo turned on mid-session (/cadre init): the plan tools were never registered, yet Agent and the task tools were refused, so main had no way to plan

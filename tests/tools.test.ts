@@ -77,9 +77,11 @@ describe('refusals name the field and say how to retry; nothing is stored', () =
   })
   test('a stale expectedRevision is refused with the current one; the retry with it passes', async () => {
     const w = await world(); const { a } = await planned(w)
-    expect(err(await tool(w, 'amend', { id: a, expectedRevision: 1, title: 'z' }))).toBe('error: expectedRevision: the plan is at revision 2, not 1; check your change against it and call again with expectedRevision 2')
+    const stale = await tool(w, 'amend', { id: a, expectedRevision: 1, title: 'z' })
+    expect(err(stale)).toBe('error: expectedRevision: the plan is at revision 2, not 1; check your change against it and call again with expectedRevision 2')
+    expect(stale.isError).toBe(true)   // main reads a refusal as an error result (is_error), not an accepted answer
     expect((await w.store.get(a)).title).toBe('Add login')
-    expect((await tool(w, 'amend', { id: a, expectedRevision: 2, title: 'z' })).result.revision).toBe(3)
+    const ok = await tool(w, 'amend', { id: a, expectedRevision: 2, title: 'z' }); expect(ok.result.revision).toBe(3); expect(ok.isError).toBeUndefined()
     expect(err(await tool(w, 'amend', { id: a, expectedRevision: 3 }))).toBe('error: nothing to change: give at least one field to change')
   })  // review 0.15 #9: the check, the write and the bump were three steps: another write landing after the check was overwritten unseen
   test('a write that lands between amend\'s revision check and its write: the amend is refused, nothing changes', async () => {

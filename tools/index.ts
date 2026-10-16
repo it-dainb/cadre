@@ -1,5 +1,5 @@
 // The 3 MCP tools (DESIGN 5.2, 6.2, 6.6): report, inspect, run_check; strict schemas with schemaVersion, isDeferred:false. Registered in session.start from SPECS (register.ts).
-// Handlers answer `{result}` (an `error: …` text is a refusal the agent can retry). Descriptions are byte-stable.
+// Handlers answer `{result}` (an `error: …` text is a refusal the agent can retry; handle sends it as {deny}). Descriptions are byte-stable.
 import { modelText } from '../core/say'
 import type { Hook, Host } from '../types'
 import { resolveDeps, type Deps } from '../core/admission'
@@ -130,8 +130,10 @@ export async function handleWith(h: Host, d: Deps, e: any): Promise<{ result: st
     }
   } catch (x) { return { result: modelText('tool-result', bad(String((x as Error).message ?? x))) } }
 }
-// tool.call for mcp__cadre__*: answer {result}. Claude Code takes a string, an array or nothing as an MCP tool's result and refuses an object (main read an
-// error although the write had happened): a structured answer goes out as its JSON text
-const wired = (r: any) => (r && r.result !== undefined && typeof r.result !== 'string' && !Array.isArray(r.result) ? { ...r, result: JSON.stringify(r.result) } : r)
-export const handle: Hook = async (h, e, next) => (MAIN.some(t => e.tool === `mcp__cadre__${t.name}`) ? mainTool(h, e).then(wired, x => ({ result: modelText('tool-result', bad(String((x as Error).message ?? x))) })) as any
-  : TOOLS.some(t => e.tool === `mcp__cadre__${t}`) ? (await warm(h), handleWith(h, await resolveDeps(h), e)) : next(e))
+// tool.call for mcp__cadre__*. Claude Code takes a string, an array or nothing as an MCP tool's result and refuses an object (main read an error although
+// the write had happened): a structured answer goes out as its JSON text. A refusal goes out as {deny}: a hook's only error result (is_error:true;
+// d.ts ToolCallResult.deny), where a {result} text is an accepted answer whatever it says
+const wired = (r: any) => (typeof r?.result === 'string' && r.result.startsWith('error: ') ? { deny: modelText('deny', r.result) }
+  : r && r.result !== undefined && typeof r.result !== 'string' && !Array.isArray(r.result) ? { ...r, result: JSON.stringify(r.result) } : r)
+export const handle: Hook = async (h, e, next) => (MAIN.some(t => e.tool === `mcp__cadre__${t.name}`) ? mainTool(h, e).then(wired, x => wired({ result: modelText('tool-result', bad(String((x as Error).message ?? x))) })) as any
+  : TOOLS.some(t => e.tool === `mcp__cadre__${t}`) ? (await warm(h), handleWith(h, await resolveDeps(h), e).then(wired)) : next(e))
