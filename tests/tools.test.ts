@@ -121,6 +121,17 @@ describe('approval: an edit revokes it, an open question blocks it', () => {
     const d = await tool(w, 'amend', { id: b.result.id, expectedRevision: rev, remove: true, reason: 'not needed', evidence: 'issue 3' })
     expect(d.result).toMatchObject({ id: b.result.id }); expect(JSON.parse((await w.store.get(b.result.id)).meta['cadre.amendments'] ?? '[]')).toEqual([expect.objectContaining({ criterion: 'removed', reason: 'not needed', evidence: 'issue 3' })])
   })
+  // review r2 N3: removing an approved task that an earlier amend sent back to draft closes it as deleted, recorded; it is never hard-deleted
+  test('remove on an amended (back to draft) approved task: closed as deleted, both changes in the ledger, no error', async () => {
+    const w = await world(); const { plan, a } = await planned(w); await w.text({ cmd: 'approve', args: [plan] })
+    const r = await tool(w, 'amend', { id: a, expectedRevision: 2, description: 'impl, with remember-me', reason: 'users asked', evidence: 'issue 12' })
+    expect((await w.store.get(a)).category).toBe('draft')
+    expect(err(await tool(w, 'amend', { id: a, expectedRevision: r.result.revision, type: 'bug', reason: 'r', evidence: 'e' }))).toContain('type: fixed at creation')   // review r2 N4: a refused edit keeps the revision
+    const d = await tool(w, 'amend', { id: a, expectedRevision: r.result.revision, remove: true, reason: 'not needed', evidence: 'issue 3' })
+    expect(d.result).toMatchObject({ id: a, revision: r.result.revision + 1 })
+    const t = await w.store.get(a); expect(t.category).not.toBe('draft')
+    expect(JSON.parse(t.meta['cadre.amendments']).map((x: any) => x.criterion)).toEqual(['description', 'removed'])
+  })
   test('an open question keeps the plan from approval until main records the user\'s answer', async () => {
     const w = await world(); const { plan } = await planned(w)
     const q = await tool(w, 'ask', { question: 'Keep the old session format?' })

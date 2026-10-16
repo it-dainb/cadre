@@ -234,10 +234,17 @@ async function amend(h: Host, i: In): Promise<Out> {
   if (approved && !cs.length) return no('nothing to change: every value you gave equals the current one')
   const twice = cs.find(c => ledgerOf(t!).some(x => x.criterion === c.criterion)); if (twice) return no(`${twice.criterion}: changed once already; a second change to it is the user's: ask them`)
   // the revision is taken with one compare-and-set on the plan before the write: a write that landed after the check above refuses this one
-  try { await store.setMeta(s.plan!.id, { 'cadre.rev': String(cur + 1) }, 'main', p.revision) } catch (x) { if (x instanceof StoreError && x.code === 'GuardMismatch') return no('expectedRevision: the plan changed while you wrote; read it with status and call again with its new revision'); throw x }
+  let took: Task; try { took = await store.setMeta(s.plan!.id, { 'cadre.rev': String(cur + 1) }, 'main', p.revision) } catch (x) { if (x instanceof StoreError && x.code === 'GuardMismatch') return no('expectedRevision: the plan changed while you wrote; read it with status and call again with its new revision'); throw x }
   const log = () => store.setMeta(id, { 'cadre.amendments': JSON.stringify([...ledgerOf(t!), ...cs.map(c => ({ ...c, reason, evidence, at }))]) }, 'main')
-  if (remove) { const r = await life(h, store, reg, id, 'deleted', undefined, reason); if (typeof r.result === 'string') return r; if (approved) await log(); return wrote(h, store, s.plan!.id, id, r.context, cur + 1) }
-  const r = await edit(h, store, reg, id, { ...m, after }); if ('error' in r) return no(r.error)
+  if (remove) {   // an approved task is never deleted: one an earlier amend sent back to draft is approved again first, then closed as deleted; the ledger first
+    if (approved) { await log(); if (t!.category === 'draft') { await store.approve([id]); await store.setMeta(id, { 'cadre.amended': '' }, 'main') } }
+    const r = await life(h, store, reg, id, 'deleted', undefined, reason); if (typeof r.result === 'string') return r; return wrote(h, store, s.plan!.id, id, r.context, cur + 1)
+  }
+  const r = await edit(h, store, reg, id, { ...m, after })
+  if ('error' in r) {   // refused before it wrote anything: give the revision back (a CAS on our own bump), so main's retry needs no new revision
+    if ((await store.get(id).catch(() => null))?.revision === t?.revision) await store.setMeta(s.plan!.id, { 'cadre.rev': String(cur) }, 'main', took.revision).catch(() => {})
+    return no(r.error)
+  }
   if (approved) {
     await log()
     if (yoloOn((await h.board.read()).drive)) {   // yolo: no dialog; main's change stands, recorded
