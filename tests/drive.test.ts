@@ -165,6 +165,16 @@ describe('T6.3 gate policy', () => {
     const d = (await w.board()).decisions![0]; await decide(w.h, d.id, 'x', d.hash)   // the human rejects in the dialog: the worker is resumed and main, idle, is told
     expect((await w.board()).resumesQueued).toBe(1); expect((await w.h.ui.read()).goal).toBe(`Continue: ${w.t}: rejected; the worker is resumed to conform to the locked tests`)
   })
+  // quick tier continue-after-quit (2.1.299): a lite task's worker asked for a spec change; the card's first option, Accept, was refused (no tester step to
+  // rewind to) and the card came back after every answer until the budget ran out
+  test('a spec change on a task with no tester step offers only answers that apply; the first one settles it', async () => {
+    const w = await go('auto'); await bindWorker(w)
+    await report(w.h, await resolveDeps(w.h), 'ag1', { role: 'worker', outcome: 'spec_change', reason: 'pages start at 1' })
+    const d = (await w.board()).decisions!.find(x => x.id === `flag:${w.t}:spec_change`)!
+    expect(d.options.map(o => o.label)).toEqual(['Reject', 'Cancel task']); expect(d.lines.at(-1)).toContain('no step that rewrites its tests')
+    await decide(w.h, d.id, d.options[0].key, d.hash)
+    expect((await w.board()).decisions!.some(x => x.id === d.id)).toBe(false); expect((await w.board()).tasks[0].state).toBe('active')
+  })
   test('rework past the cap while driving: cancelled and recorded; a task others need stops the run instead', async () => {
     for (const critical of [false, true]) {
       const w = await go('auto'); await w.store.claim(w.t, (await resolveDeps(w.h)).actor); await w.store.setMeta(w.t, { 'cadre.sourceCommit': 'c1', 'cadre.worktree': '/wt/t' }, 'x'); for (let i = 0; i < 3; i++) await charge(w.h, w.t, 'rework')
