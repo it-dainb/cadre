@@ -233,6 +233,31 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     await start(h, 'init'); await h.secret.update(s => ({ ...s, run: { ...s.run!, errs: 2 } })); await pump(h)
     expect((await h.secret.read()).run?.errs).toBe(0)
   })
+  test("another frame's throw between this frame's read and write is never lost: the count is one update", async () => {
+    const { h, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]
+    await start(h, 'init'); await h.secret.update(s => ({ ...s, run: { ...s.run!, errs: 1 } }))
+    let race = false; h.submit = async () => { race = true; throw new Error('host busy') }
+    const other = () => h.secret.update(s => (s.run ? { ...s, run: { ...s.run, errs: (s.run.errs ?? 0) + 1 } } : s))   // the other frame counts its own throw
+    const { read, update } = h.secret
+    h.secret.read = async () => { const v = await read(); if (race) { race = false; await other() } return v }
+    h.secret.update = async f => { if (race) { race = false; await other() } return update(f) }
+    await pump(h); expect((await h.secret.read()).run).toBeUndefined(); expect((await card(h))!.title).toBe('init stopped · type anything to go on')   // 1 + theirs + ours = 3: held
+  })
+  test('a goal brief whose submit always throws is held after 3: one dialog, nothing more goes; a typed line lifts it; Drop clears it', async () => {
+    const { h } = mk({ files: READY }); let tries = 0, fail = true; h.submit = async () => { tries++; if (fail) throw new Error('host busy'); return {} }
+    await h.ui.update(u => ({ ...u, goal: 'plan it' })); for (let i = 0; i < 6; i++) await pump(h)
+    expect(tries).toBe(3); expect((await h.ui.read()).goal).toBe('plan it'); expect((await h.board.read()).decisions?.filter(d => d.id === 'goal:held').map(d => d.title)).toEqual(['goal stopped · type anything to go on'])
+    fail = false; await resume(h); expect(await card(h, 'goal:held')).toBeUndefined(); await pump(h)
+    expect(tries).toBe(4); expect((await h.ui.read()).goal).toBeUndefined(); expect((await h.ui.read()).goalErrs).toBeUndefined()   // went through: the count starts over
+    fail = true; await h.ui.update(u => ({ ...u, goal: 'plan that' })); for (let i = 0; i < 3; i++) await pump(h)
+    const d = (await card(h, 'goal:held'))!; expect((await decide(h, d.id, 'x', d.hash)).text).toBe('goal dropped')
+    expect((await h.ui.read()).goal).toBeUndefined(); expect((await h.ui.read()).held).toBeUndefined(); expect(await card(h, 'goal:held')).toBeUndefined()
+  })
+  test('a replaced goal is told to the human, not only logged', async () => {
+    const { h } = mk({ files: { ...READY, [`${PLUG}/guides/goal.md`]: (BUDGET.guides as Record<string, string>).goal } }); await items(h); await confirm(h)
+    await goalBrief(h, 'add login'); await goalBrief(h, 'add logout'); expect(h.toasts).toContain('your queued goal was replaced: add login')
+    await start(h, 'init', { text: 'add search', mode: 'auto' }); expect(h.toasts).toContain('your queued goal was replaced: add logout')
+  })
   test('a retry keeps the newer goal the human queued; a fresh goal replaces the queued one; neither is dropped without a log line', async () => {
     const a = mk({ files: READY }); await items(a.h); await confirm(a.h)
     await a.h.ui.update(u => ({ ...u, goal: 'Goal from the user: newer' })); await start(a.h, 'init', { text: 'older', mode: 'auto' }, 0)

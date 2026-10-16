@@ -2,7 +2,7 @@
 import type { Hook, Host } from '../types'
 import type { Command, Out } from '../core/dispatch'
 import { ROUTES, answer, cfgOf, dispatch, isHuman, registryOf, resolveEpic, restore, storeOf } from '../core/dispatch'
-import { changeLane, goal } from '../core/lanes'
+import { changeLane, dropGoal, goal } from '../core/lanes'
 import { unfinished, wake, warm } from '../core/session'
 import { ask } from '../core/decide'
 import { fnv1a64 } from '../core/board'
@@ -39,7 +39,7 @@ export async function route(h: Host, c: Command): Promise<Out> {   // every disp
     }
     case 'doctor': return { text: await doctor(h) }
     case 'deep': return { text: c.origin.kind === 'composer' ? await goal(h, a ?? '', (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto', true) : `refused: origin ${c.origin.kind} cannot start a goal; type it in the prompt` }   // ADR 0020: questions before the plan, even when drive.mode is yolo (the mode applies after approval)
-    case 'goal': case 'yolo': return { text: c.origin.kind === 'composer' ? await goal(h, a ?? '', c.cmd === 'yolo' || (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto') : `refused: origin ${c.origin.kind} cannot start a goal; type it in the prompt` }   // the human's own words only
+    case 'goal': case 'yolo': return { text: c.origin.kind === 'composer' ? await goal(h, a ?? '', c.cmd === 'yolo' || (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto') : c.cmd === 'goal' && a === 'drop' ? await dropGoal(h) : `refused: origin ${c.origin.kind} cannot start a goal; type it in the prompt` }   // the human's own words only; `goal drop`: the held goal's dialog (core/lanes.sendBrief)
     case 'lane': { const why = isHuman(c.origin); return { text: why ? `refused: ${why}` : await changeLane(h, await storeOf(h), await registryOf(h), a ?? '') } }
     case 'config': if (!a || a === 'show') return { text: configText(await cfgOf(h), c.args[1]) }
   }

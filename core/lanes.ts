@@ -6,7 +6,8 @@ import type { Task, TaskStore } from '../task-management/store'
 import { defaults, kindOf, type TypeRegistry } from '../task-management/registry'
 import { defaults as cfgDefaults } from '../config/index'
 import { cfgOf, draftsOf, missionOf, storeOf, touched } from './dispatch'
-import { plural, settleIf } from './decide'
+import { ask, plural, settle, settleIf } from './decide'
+import { fnv1a64 } from './board'
 import { MS } from './milestone'
 import { epicBranch } from './branches'
 import { guideOf } from './clarify'
@@ -97,13 +98,24 @@ export async function changeLane(h: Host, store: TaskStore, reg: TypeRegistry, p
 
 // ---- briefs to main (the goal, a change request, an approved plan): `$.prompt.submit` is refused from a command or press frame (live 0.7.0), so it waits in `ui.goal` and goes out from commands/agentrun.pump ----
 export const GOAL_TAG = 'Goal from the user: '
-export const queueBrief = async (h: Host, text: string) => { const q = (await h.ui.read()).goal as string | undefined; if (q && q !== text) h.log(`a queued brief was replaced: ${q.slice(0, 80)}`); await h.ui.update(u => ({ ...u, goal: text })) }
+export const queueBrief = async (h: Host, text: string) => { const q = (await h.ui.read()).goal as string | undefined; if (q && q !== text) { h.log(`a queued brief was replaced: ${q.slice(0, 80)}`); if (q.startsWith(GOAL_TAG)) replaced(h, q.slice(GOAL_TAG.length)) } await h.ui.update(u => ({ ...u, goal: text })) }
+export const replaced = (h: Host, goal: string) => h.toast(`your queued goal was replaced: ${goal.split('\n')[0]!.slice(0, 60)}`)   // the human's own words are never dropped unseen
+// a goal brief whose submit throws 3 times in a row is held like a run's step (commands/agentrun.pump): one dialog, nothing submitted until the human types (resume)
+const GOAL_HELD = 'goal:held'
+export const dropGoal = async (h: Host) => { await h.ui.update(({ goal: _g, held: _h, goalErrs: _e, ...u }) => u); await settle(h, GOAL_HELD); return 'goal dropped' }
 export async function sendBrief(h: Host): Promise<void> {
   let text: string | undefined; await h.ui.update(u => { text = u.goal as string | undefined; if (!text) return u; const { goal: _g, ...r } = u; return r })
   if (!text) return
   const r = await h.submit?.(modelText('brief', text)).catch((e: Error) => ({ err: e.message })) as { drop?: string; err?: string } | undefined
-  if (r?.err) { h.log(`could not hand the goal to Claude: ${r.err.slice(0, 120)}`); return h.ui.update(u => ({ ...u, goal: u.goal ?? text })) }   // a thrown submit loses nothing: the goal goes on the next tick
+  if (r?.err) {   // a thrown submit loses nothing: the goal goes on the next tick, held after 3 in a row
+    h.log(`could not hand the goal to Claude: ${r.err.slice(0, 120)}`); let n = 0
+    await h.ui.update(({ goalErrs: e, ...u }) => { n = ((e as number | undefined) ?? 0) + 1; return { ...u, goal: u.goal ?? text, ...(n < 3 ? { goalErrs: n } : { held: true }) } })
+    if (n < 3) return
+    const title = 'goal stopped · type anything to go on', lines = ['Claude could not get the goal.', `${text!.split('\n')[0]!.replace(GOAL_TAG, '').slice(0, 120)}`, 'Type anything in the prompt (for example: go on) and Claude picks up the goal.']
+    return ask(h, { id: GOAL_HELD, kind: 'init', title, short: 'goal stopped', lines, hash: fnv1a64(title + lines.join('\n')), tab: 'epic', options: [{ key: 'x', label: 'Drop the goal', verb: 'reject', run: 'goal drop' }] })
+  }
   if (r?.drop) { h.log(`could not hand the goal to Claude: ${r.drop.slice(0, 120)}`); return h.ui.update(u => ({ ...u, goal: text, held: true })) }   // stopped by the human: held until they type (commands/agentrun.pump, resume)
+  await h.ui.update(u => (u.goalErrs === undefined ? u : (({ goalErrs: _e, ...x }) => x)(u)))   // it went through: only throws in a row hold it
   const now = await h.now(); await h.secret.update(s => (s.goalRun && !s.goalRun.on ? { ...s, goalRun: { ...s.goalRun, on: true, seen: now } } : s))   // the goal run starts when main has the brief (commands/agentrun.goalStop)
 }
 // `/cadre <goal>` · `/cadre yolo <goal>` (commands/cadre, human origin, active repo): the guide inlined after the goal
