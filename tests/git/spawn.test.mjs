@@ -191,7 +191,7 @@ test('/cadre continue in mod mode: no step of main\'s -> no brief from a frame t
 
 test('a quit under way starts nothing; the owner is recorded before the spawn, so a session that dies mid-spawn reads as gone', async () => {
   const w = await world(2), [a, b] = w.ids; await arm(w.h, 'auto')
-  let seen; const claim = w.store.claim.bind(w.store); w.store.claim = async (...x) => { seen = await w.h.store.get(`cadre:k:hb:${a}`); return claim(...x) }   // what a session killed during the claim leaves
+  let seen; const claim = w.store.claim.bind(w.store); w.store.claim = async (...x) => { seen = (await w.store.control()).doc[`hb:${a}`]; return claim(...x) }   // what a session killed during the claim leaves
   await w.turn(); assert.deepEqual(seen, { s: 's1', at: 0 })
   life.ending = true; try { w.h.spawnAgent = async () => assert.fail('spawned while quitting'); await w.turn() } finally { life.ending = false }
 })

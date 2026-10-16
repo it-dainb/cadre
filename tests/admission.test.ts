@@ -77,7 +77,7 @@ describe('claim (3.4)', () => {
     expect(w.calls.some(c => c.join(' ').includes(`worktree add -b feat/${ids[0]}-task-0 /wt/repo-1/${ids[0]} abc1234`))).toBe(true)
     expect((await h.bind.read()).ag1).toMatchObject({ taskId: ids[0], role: 'worker', step: 'worker', sessionId: 's-a' }); expect(Object.keys(await h.bind.read())).toEqual(['ag1'])
     expect(ofEpic(await h.events.read(), epic).map(e => e.type)).toContain('agent.bound')
-    expect(((await h.store.get(`cadre:${repoKeyOf(await h.cwd())}:board`)) as any)?.bind?.ag1).toMatchObject({ taskId: ids[0], role: 'worker' })   // S22: the pointer carries the new binding before any main turn ends
+    expect(((await (await (h as any).taskStore()).control()).doc.board as any)?.bind?.ag1).toMatchObject({ taskId: ids[0], role: 'worker' })   // S22: the pointer carries the new binding before any main turn ends
   })
   test('S2: two spawns racing for one id -> exactly one wins, the other is denied', async () => {
     const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}); await w.board(h, epic, ids)

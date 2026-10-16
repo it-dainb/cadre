@@ -81,7 +81,7 @@ const fromRec = (kind: string, id: string, at: number, text: string, tr: boolean
   return kind === 'close' ? T('review', 'done') : kind === 'blocked' ? T('active', 'blocked') : kind === 'answer' ? T('active', 'done') : []
 }
 export async function ring(h: Host, store: TaskStore, epic: string): Promise<number> {
-  const tasks = await store.list({ parent: epic }), ids = new Set(tasks.map(t => t.id)), j = await store.events('0', 5000).catch(() => null), evs: Parameters<typeof rebuild>[2] = [], last: Record<string, string> = {}
+  const tasks = await store.list({ parent: epic }), ids = new Set(tasks.map(t => t.id)), j = await store.events(undefined, 5000).catch(() => null), evs: Parameters<typeof rebuild>[2] = [], last: Record<string, string> = {}
   for (const r of j?.events ?? []) {
     if (!ids.has(r.id) || !r.category || r.at === undefined) continue
     if (last[r.id] && last[r.id] !== r.category) evs.push({ at: r.at, type: 'task.transitioned', taskId: r.id, data: { taskId: r.id, from: last[r.id], to: r.category } })

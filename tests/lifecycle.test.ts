@@ -1,4 +1,4 @@
-// The run record (core/lifecycle): the pure next() as a state × event table, step() over $.state with its $.store mirror, and the invariants it carries so far.
+// The run record (core/lifecycle): the pure next() as a state × event table, step() over $.state with its control-doc mirror, and the invariants it carries so far.
 import { describe, expect, test } from 'claude-code/testing'
 import { backstop, budgetOf, exitStep, next, pruneRuns, restore, runOf, step, type Run, type RunEvent, type RunState } from '../core/lifecycle'
 import { scoped } from '../commands/init'
@@ -48,10 +48,10 @@ describe('next(): state × event', () => {
 })
 
 describe('step(): the run record', () => {
-  test('admission records the spawn; a report moves the run; the $.store mirror holds what $.state holds and survives /clear', async () => {
+  test('admission records the spawn; a report moves the run; the control-doc mirror holds what $.state holds and survives /clear', async () => {
     const w = await world(), [id] = w.ids; await w.at('ag1', id, 'worker')
     expect(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' })).toContain('report accepted')
-    const key = `cadre:${w.dep.key}:run:ag1`, mirrored = w.kv.get(key) as Run
+    const mirrored = (await w.store.control()).doc['run:ag1'] as Run
     expect(mirrored.state).toEqual({ state: 'idle-bound' }); expect(mirrored).toEqual(((await w.h.ui.read()).runs as Record<string, Run>).ag1)
     expect(mirrored.log.map(x => x.event)).toEqual(['spawn.ok', 'report.ok'])
     await w.h.ui.update(() => ({}))   // /clear
@@ -72,7 +72,7 @@ describe('step(): the run record', () => {
   })
   test('a binding with no run record ends lost and is unbound at its next event', async () => {
     const w = await world(), [id] = w.ids; await w.at('ag1', id, 'worker')
-    await w.h.ui.update(u => ({ ...u, runs: {} })); w.kv.delete(`cadre:${w.dep.key}:run:ag1`)   // the record is gone (an older store)
+    await w.h.ui.update(u => ({ ...u, runs: {} })); await w.store.setControl({ 'run:ag1': undefined })   // the record is gone (an older store)
     await step(w.h, 'ag1', { type: 'turn.end', text: 'go on' })
     expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'ended', cause: 'lost' }); expect((await w.h.bind.read()).ag1).toBeUndefined()
     expect(Object.values((await w.h.events.read()).epics).flat().some(e => e.type === 'agent.unbound' && e.data.reason === 'lost')).toBe(true)
@@ -87,7 +87,7 @@ describe('step(): the run record', () => {
     expect(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' })).toContain('report accepted'); await w.turn()
     expect(await w.rep('ag2', PASS)).toContain('pass@'); expect((await runOf(w.h, 'ag2'))?.state).toEqual({ state: 'idle-bound' })
     await w.turn(); expect((await w.h.board.read()).tasks[0].state).toBe('done')
-    for (const a of ['ag1', 'ag2']) { expect(await runOf(w.h, a)).toBeUndefined(); expect(w.kv.has(`cadre:${w.dep.key}:run:${a}`)).toBe(false) }
+    for (const a of ['ag1', 'ag2']) { expect(await runOf(w.h, a)).toBeUndefined(); expect((await w.store.control()).doc[`run:${a}`]).toBeUndefined() }
   })
 })
 
@@ -131,7 +131,7 @@ describe('invariant 3: every end, and an idle-bound run, yields exactly one next
     expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'ended', cause: 'blocked' }); expect(w.spawned).toEqual([])
   })
   test('ended lost (a binding with no record): one new agent', async () => {
-    const w = await world(), [id] = w.ids; await arm(w.h, 'auto'); await w.at('ag1', id, 'worker'); await w.h.ui.update(u => ({ ...u, runs: {} })); w.kv.delete(`cadre:${w.dep.key}:run:ag1`)
+    const w = await world(), [id] = w.ids; await arm(w.h, 'auto'); await w.at('ag1', id, 'worker'); await w.h.ui.update(u => ({ ...u, runs: {} })); await w.store.setControl({ 'run:ag1': undefined })
     await step(w.h, 'ag1', { type: 'report.refused' }); expect((await w.h.bind.read()).ag1).toBeUndefined()
     expect(await steps(w, w.turn)).toBe(1)
   })
@@ -158,8 +158,9 @@ describe('the store stays small', () => {
     const w = await world({ n: 2 }), [a, b] = w.ids; await w.at('ag1', a, 'worker'); await w.at('ag2', b, 'worker')
     await step(w.h, 'ag1', { type: 'end', cause: 'released', reason: 'stopped' })
     await pruneRuns(w.h, async () => true)
-    expect(w.kv.has(`cadre:${w.dep.key}:run:ag1`)).toBe(false); expect(w.kv.has(`cadre:${w.dep.key}:run:ag2`)).toBe(true); expect(w.kv.get(`cadre:${w.dep.key}:runs`)).toEqual(['ag2'])
-    await pruneRuns(w.h, async t => t !== b); expect(w.kv.get(`cadre:${w.dep.key}:runs`)).toEqual([])
+    const doc = async () => (await w.store.control()).doc
+    expect((await doc())['run:ag1']).toBeUndefined(); expect((await doc())['run:ag2']).toBeDefined()
+    await pruneRuns(w.h, async t => t !== b); expect((await doc())['run:ag2']).toBeUndefined()
   })
   test('after /clear a binding comes back only with its run record', async () => {
     const w = await world(), [id] = w.ids, b = { taskId: id, role: 'worker' as const, step: 'worker', worktree: '/wt', sessionId: 's2', ctxTokens: 0, startedAt: 0 }
@@ -202,7 +203,7 @@ describe('the backstop with two sessions on one repo: only the session that forc
     expect(stops).toEqual(['A ag1', 'A ag2']); expect((await runOf(A.h, 'ag1'))!.state).toEqual({ state: 'ended', cause: 'lost' })
     expect(((await A.h.board.read()).decisions ?? []).map(d => d.id)).toEqual(['stalled:ag1', 'stalled:ag2'])
     // a third run, forced by A, then A goes quiet past the alive window: B ends it (its TaskStop fails there: ended lost, quietly)
-    await A.h.store.set(await scoped(A.h, 'run:ag3'), { ...r, deadline: B.clock.now - 1, session: 's1', state: { state: 'idle-bound' } }); await A.h.store.set(await scoped(A.h, 'runs'), ['ag1', 'ag2', 'ag3'])
+    await A.store.setControl({ 'run:ag3': { ...r, deadline: B.clock.now - 1, session: 's1', state: { state: 'idle-bound' } } })
     await alive(B.clock.now - 1000); await backstop(B.h, 's2'); expect(stops).toEqual(['A ag1', 'A ag2']); expect((await runOf(B.h, 'ag3'))!.deadline).toBeDefined()   // 1 s old: still alive
     await alive(B.clock.now - 31_000); await backstop(B.h, 's2')
     expect(stops).toEqual(['A ag1', 'A ag2', 'B ag3']); expect((await runOf(B.h, 'ag3'))!).toMatchObject({ state: { state: 'ended', cause: 'lost' }, deadline: undefined })

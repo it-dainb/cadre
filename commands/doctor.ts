@@ -142,7 +142,7 @@ async function project(h: Host, cfg: Config): Promise<Row[]> {
   const pol = await policyOf(h), c = assess(await safe(() => h.settings(), {}), pol.repo, pol.wtRoot)
   rows.push(c.state === 'contained' ? ['ok', 'containment contained'] : ['warn', `containment degraded: ${c.why.join('; ')}`, '/cadre init'])
   for (const old of ['.beads', '.cadre/store']) if (await h.stat(`${root}/${old}`)) rows.push(['warn', `${old}: a task store from an older version; it is not read`, `finish its plans with that version, then delete ${old}`])   // clean break (0.15)
-  if (await h.store.get(`sync.control:${(await h.board.read()).repo}`)) rows.push(['warn', 'sync state from an older version is not read', 'sync starts over from a full compare'])
+  if ((await h.store.get(`sync.control:${(await h.board.read()).repo}`)) || (await h.store.get(await scoped(h, 'runs'))) || (await h.store.get(await scoped(h, 'board')))) rows.push(['warn', 'run and sync state from an older version is not read', 'finish those plans with that version; sync starts over from a full compare'])
   let tasks: Awaited<ReturnType<Awaited<ReturnType<typeof storeOf>>['list']>> = []
   try { const s = await storeOf(h), p = await s.probe(); rows.push(!p.ok ? ['crit', `task store: ${p.detail.slice(0, 100)}`, 'cadre stays off here: put the project on a disk with hard links'] : p.journal ? ['ok', 'task store in .cadre/state, journal on'] : ['warn', 'task store journal off', '/cadre init']); if (p.ok) tasks = await s.list({}) }
   catch (e) { rows.push(['crit', `task store unreachable: ${(e as Error).message.slice(0, 100)}`, 'cadre stays off here: put the project on a disk with hard links']) }

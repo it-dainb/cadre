@@ -3,6 +3,7 @@ import type { Host, SnapTask } from '../types'
 import { emptySnapshot } from '../core/board'
 import { emptyRing } from '../core/events'
 import { SAY, leaks } from '../core/say'
+import { MemoryStore } from '../task-management/adapters/memory/store'
 
 // boundary lint: every text that reaches a model goes through core/say.modelText; a leak there fails the test that produced it
 SAY.check = (kind, text) => { const l = leaks(kind, text); if (l.length) throw new Error(`model-visible leak (${kind}): ${l[0].slice(0, 200)}`) }
@@ -10,8 +11,9 @@ SAY.check = (kind, text) => { const l = leaks(kind, text); if (l.length) throw n
 const cell = <T>(v: T) => ({ read: async () => v, update: async (fn: (x: T) => T) => (v = fn(v)) })
 export function fakeHost(o: { t0?: number; files?: Record<string, string>; env?: Record<string, string>; options?: Host['options'] } = {}): Host & { logs: string[]; toasts: string[] } {
   let t = o.t0 ?? 1_000
-  const kv = new Map<string, unknown>(), logs: string[] = [], toasts: string[] = []
+  const kv = new Map<string, unknown>(), logs: string[] = [], toasts: string[] = [], mem = new MemoryStore(), ready = mem.init({ types: {} as any, journal: false })
   return {
+    taskStore: () => ready.then(() => mem),   // the repo's task store (run records, owners, the pointer live in its control doc); tests replace it as they need
     now: async () => (t += 10), rand: (n = 16) => 'ab'.repeat(n).slice(0, n * 2),
     board: cell(emptySnapshot('repo')), events: cell(emptyRing()), secret: cell({ active: true }), ui: cell({}), git: cell({ busy: false, epoch: 0 }), bind: cell({}),
     store: { get: async k => kv.get(k), set: async (k, v) => { kv.set(k, v) }, del: async k => { kv.delete(k) } },

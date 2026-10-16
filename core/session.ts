@@ -4,7 +4,7 @@ import type { TaskStore } from '../task-management/store'
 import { StoreError } from '../task-management/store'
 import { resetDelivery } from '../task-management/sync-engine/loop'
 import { repoKeyOf, scoped } from '../commands/init'
-import { cfgOf, gateDraw, mirror, missionOf, redraw, registryOf, storeOf } from './dispatch'
+import { cfgOf, ctlGet, ctlSet, gateDraw, mirror, missionOf, redraw, registryOf, storeOf } from './dispatch'
 import { ask, flagDecision, holds } from './decide'
 import { specAsk } from './tdd'
 import { propose } from './integrate'
@@ -35,11 +35,10 @@ export async function cardOf(h: Host, s: Snapshot, store?: TaskStore): Promise<{
   return { text, decisions: dec?.length ?? 0 }
 }
 
-// ---- lazy rehydrate (13.4) after /clear, /resume, a new session: board pointer + bindings from $.store, tasks from the store, then the card ----
-const pk = async (h: Host) => `cadre:${repoKeyOf(await h.cwd())}:board`
+// ---- lazy rehydrate (13.4) after /clear, /resume, a new session: the board pointer + bindings (control doc key `board`) and tasks from the store, then the card ----
 export async function savePointer(h: Host) {
   const s = await h.board.read()
-  if (!isCold(s)) await h.store.set(await pk(h), { mission: s.mission, epic: s.epic, plan: s.plan, drive: s.drive, bind: await h.bind.read(), session: await sessionOf(h), proc: procOf(h) })
+  if (!isCold(s)) await ctlSet(h, { board: { mission: s.mission, epic: s.epic, plan: s.plan, drive: s.drive, bind: await h.bind.read(), session: await sessionOf(h), proc: procOf(h) } })
 }
 
 // ---- who is still there (continue after exit). A /clear resets $.state and the session id, not the process: its agents keep running. A quit ends the process and its agents. ----
@@ -75,7 +74,7 @@ export async function quit(h: Host): Promise<void> {
 // the session that spawned a task's current agent (admission.launch) or last renewed its claim (admission.beat); a bare number is a record from before owners were kept
 // a task an agent may still be working on. Not the claim lease: the store drops it when a task moves to review (a reviewer at work has none), live
 export const inFlight = (t: { category?: string }) => ['active', 'review', 'blocked'].includes(t.category ?? '')
-export async function ownerOf(h: Host, taskId: string): Promise<string | undefined> { const v = (await h.store.get(await scoped(h, `hb:${taskId}`))) as { s?: string } | number | undefined; return typeof v === 'object' ? v?.s : undefined }
+export const ownerOf = async (h: Host, taskId: string): Promise<string | undefined> => (await ctlGet<{ s?: string }>(h, `hb:${taskId}`))?.s
 
 // cold board, no pointer (a fresh checkout, an eval scaffold): adopt the newest unfinished non-mission epic that has an approved (non-draft) child. Tried once per session.
 async function adopt(h: Host, b0: Snapshot) {
@@ -123,9 +122,9 @@ export async function rehydrate(h: Host): Promise<boolean> {
 async function hydrate(h: Host): Promise<boolean> {
   const b0 = await h.board.read()
   if (!isCold(b0) || b0.epic) return false
-  const p = ((await h.store.get(await pk(h))) as any) ?? (await adopt(h, b0))
+  const p = (await ctlGet<any>(h, 'board').catch(() => undefined)) ?? (await adopt(h, b0))   // no answer yet (setup writes the config before the store): adopt finds nothing either
   if (!p?.epic) return false
-  const there = await recordOf(h, p.epic); if (there === 'gone') await h.store.del(await pk(h)); if (there !== 'ok') return false   // a pointer to an epic the store does not have (another store, a deleted draft): a phantom draft on the board blocked every new plan with no dialog to answer, live 0.9.1
+  const there = await recordOf(h, p.epic); if (there === 'gone') await ctlSet(h, { board: undefined }); if (there !== 'ok') return false   // a pointer to an epic the store does not have (another store, a deleted draft): a phantom draft on the board blocked every new plan with no dialog to answer, live 0.9.1
   const store = await storeOf(h), now = await h.now(), me = await sessionOf(h), same = !!p.proc && p.proc === procOf(h)   // this process's pointer (a /clear): its agents and drive go on. Another process's: they stopped with it; /cadre continue picks them up
   await h.board.update(s => ({ ...s, mission: p.mission, epic: p.epic, plan: p.plan, drive: { ...p.drive, on: false, paused: undefined, ...(same ? {} : { stopped: undefined }) } }))
   await mirror(h, store, await registryOf(h))
@@ -178,7 +177,7 @@ export async function continueRun(h: Host): Promise<string> {
     const o = await ownerOf(h, t.id), task = await store.get(t.id).catch(() => null)
     if (!task || ((await held(h, o)) === 'other' && (o || leaseLive(task, now)))) { if (task) other.push(t.id); continue }   // a live session's task (or an unknown owner's live claim) is never taken
     for (const a of mine) await step(h, a, { type: 'end', cause: 'released', reason: 'continue' })
-    await h.store.set(await scoped(h, `hb:${t.id}`), { s: me, at: 0 })   // this session owns it now: admission's rebind no longer waits for the old claim
+    await ctlSet(h, { [`hb:${t.id}`]: { s: me, at: 0 } })   // this session owns it now: admission's rebind no longer waits for the old claim
     if (t.state === 'review') await h.board.update(x => ({ ...x, tasks: x.tasks.map(y => (y.id === t.id ? { ...y, owner: undefined } : y)) }))   // the reviewer is gone: "spawn the reviewer" again
     go.push(t.state === 'review' ? `spawn TASK-${t.id} (reviewer)` : `spawn TASK-${t.id} (it starts from its last checkpoint)`); took.push(`${t.id} ${t.step}`)
   }
@@ -217,7 +216,7 @@ export async function prune(h: Host): Promise<void> {
   const q = ((await h.store.get(await qk(h))) as Entry[] | undefined) ?? [], keep: Entry[] = []
   for (const x of q) if (await ok(x.taskId)) keep.push(x)
   if (keep.length !== q.length) await h.store.set(await qk(h), keep)
-  const p = (await h.store.get(await pk(h))) as any
+  const p = await ctlGet<any>(h, 'board')
   await pruneRuns(h, id => store.get(id).then(t => t.category !== 'done' && t.category !== 'cancelled', () => false))   // not inFlight: an epic its planner drafts is todo
   for (const [n, it] of Object.entries(await intentsOf(h))) {   // a start a session left mid-claim (it died between the claim's writes): the half-made claim goes back
     if ((await held(h, it.session)) === 'other') continue   // a live session's start in flight
@@ -225,7 +224,7 @@ export async function prune(h: Host): Promise<void> {
     if (it.role === 'claim' && t?.category === 'active' && t.assignee === actor && !Object.values(await h.bind.read()).some(b => b.taskId === it.taskId)) await store.release(it.taskId, actor, 'interrupted start').catch(() => {})
     await settleIntent(h, n)
   }
-  if (p?.bind) { const b: Record<string, Binding> = {}; for (const [a, v] of Object.entries(p.bind as Record<string, Binding>)) if (!a.startsWith('~') && (await ok(v.taskId))) b[a] = v; await h.store.set(await pk(h), { ...p, bind: b }) }
+  if (p?.bind) { const b: Record<string, Binding> = {}; for (const [a, v] of Object.entries(p.bind as Record<string, Binding>)) if (!a.startsWith('~') && (await ok(v.taskId))) b[a] = v; await ctlSet(h, { board: { ...p, bind: b } }) }
   const quk = await scoped(h, 'quarantine'), qu = ((await h.store.get(quk)) as { ts: number }[] | undefined) ?? []
   if (qu.some(x => now - x.ts > 30 * 86_400_000)) await h.store.set(quk, qu.filter(x => now - x.ts <= 30 * 86_400_000))
 }

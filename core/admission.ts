@@ -7,7 +7,7 @@ import { forcedOf } from '../config/index'
 import { StoreError, type Task, type TaskStore } from '../task-management/store'
 import { kindOf, pipeOf, type TypeRegistry } from '../task-management/registry'
 import { repoKeyOf } from '../commands/init'
-import { cfgOf, storeOf } from './dispatch'
+import { cfgOf, ctlGet, ctlSet, storeOf } from './dispatch'
 import { agentsOf, commit, leaseLive, safe, sessionOf } from './board'
 import { FOCUS, parseNumstat, riskOf, route, type Tier } from './risk'
 import { held, ownerOf, savePointer, stampAlive } from './session'
@@ -93,7 +93,7 @@ async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTa
   await lifeStep(h, r.agentId, { type: 'spawn.ok', mode: e.permissionMode, bind: { taskId: t.id, role, step, worktree: wt, sessionId: d.session, ctxTokens: 0, startedAt: await h.now(), ...(r0.effort ? { effort: r0.effort } : {}) } })
   await emit(h, 'agent.bound', { agentId: r.agentId, taskId: t.id, role, ...(rt ? { tier: rt } : {}), model: run.model, ...((run as any).ran ? { ran: (run as any).ran } : {}), effort: run.effort, setting: r0.setting, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }, { agentId: r.agentId, taskId: t.id, actor: 'mod' })
   if (task) await safe(h, 'runs', async () => { let a: unknown[] = []; try { a = JSON.parse((await d.store.get(t.id)).meta['cadre.runs'] || '[]') } catch {}; await d.store.setMeta(t.id, { 'cadre.runs': JSON.stringify([...a, run].slice(-20)) }, d.actor) })
-  await h.store.set(`cadre:${d.key}:hb:${t.id}`, { s: d.session, at: 0 })   // the owner session (core/session.ownerOf): another session judges the claim by it; at 0: the next tick renews the claim
+  await ctlSet(h, { [`hb:${t.id}`]: { s: d.session, at: 0 } })   // the owner session (core/session.ownerOf): another session judges the claim by it; at 0: the next tick renews the claim
   await safe(h, 'pointer', () => savePointer(h))   // S22: a /clear before main's next turn.complete must still find this binding (the pointer was saved only there)
   return r
 }
@@ -137,7 +137,7 @@ async function lostEpic(h: Host, s: Snapshot, t: SnapTask) {   // epic branch mi
 }
 
 // the owner before the store claim: a session that dies mid-spawn (a quit right after a turn end, ADR 0018) leaves a claim the next session can tell is gone (core/session.held)
-const owner = (h: Host, d: Deps, id: string) => h.store.set(`cadre:${d.key}:hb:${id}`, { s: d.session, at: 0 })
+const owner = (h: Host, d: Deps, id: string) => ctlSet(h, { [`hb:${id}`]: { s: d.session, at: 0 } })
 // ---- todo -> active: the claim ----
 async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapshot, t: SnapTask) {
   const spec = d.reg[t.type], pipe = stepsOf(d), first = pipe(t.type, t.lane)[0]
@@ -185,8 +185,8 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
   if (!role || (role === 'tester' && !d.view)) return deny(`${t.id}: step ${t.step || '?'} runs without an agent; wait and call TaskList`)
   if (mine.some(a => a.startsWith('~') && bind[a].role === role)) return deny(`${t.id} is already being spawned; wait`)   // another step's start may run beside it
   if (role === 'worker' && stepsOf(d)(t.type, t.lane).includes('red') && !task.meta['cadre.specCommit']) return deny(`${t.id}: its spec tests are not recorded yet; the tester step must finish first`)
-  const live = leaseLive(task, now) && (await held(h, await ownerOf(h, t.id))) === 'other'   // a claim of a gone session (quit) or of this process (/clear) does not wait for the lease to lapse
-  if (live && !mine.length) return deny(`${t.id} is being worked on from another session; leave it`)
+  const live = leaseLive(task, now)
+  if (live && !mine.length && (await held(h, await ownerOf(h, t.id))) === 'other') return deny(`${t.id} is being worked on from another session; leave it`)   // a claim of a gone session (quit) or of this process (/clear) does not wait for the lease to lapse
   if (live && mine.some(a => bind[a].role === role && !bind[a].retired)) return deny(`${t.id} is running; wait for its result (TaskList)`)   // retired (core/reuse: context or TTL over) = rebind fresh
   if (t.state === 'blocked' && task.meta['cadre.decision'] === undefined) return deny(`${t.id} is blocked; ask the human to decide (they answer it in the cadre dialog)`)
   const spike = kindOf(d.reg[t.type]) === 'spike', wt = task.meta['cadre.worktree'] ?? wtPath(d.wtRoot, d.key, t.id), branch = task.meta['cadre.branch'] ?? ''
@@ -250,9 +250,9 @@ export async function beat(h: Host, d: Deps, every = 120_000): Promise<void> {
   const [bind, now] = [await h.bind.read(), await h.now()]
   for (const [a, b] of Object.entries(bind)) {
     if (a.startsWith('~') || b.sessionId !== d.session || (await h.board.read()).tasks.find(t => t.id === b.taskId)?.state !== 'active') continue   // only a claimed (in progress) task has a lease to renew; review/blocked/done are refused every tick
-    const k = `cadre:${d.key}:hb:${b.taskId}`, v = (await h.store.get(k)) as { s?: string; at: number } | number | undefined
-    if (now - ((typeof v === 'number' ? v : v?.at) ?? 0) < every) continue
-    await d.store.heartbeat(b.taskId).catch(err => h.log(`heartbeat ${b.taskId} failed: ${err}`)); await h.store.set(k, { s: d.session, at: now })
+    const k = `hb:${b.taskId}`, v = await ctlGet<{ s?: string; at: number }>(h, k)
+    if (now - (v?.at ?? 0) < every) continue
+    await d.store.heartbeat(b.taskId).catch(err => h.log(`heartbeat ${b.taskId} failed: ${err}`)); await ctlSet(h, { [k]: { s: d.session, at: now } })
   }
 }
 

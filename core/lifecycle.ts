@@ -3,7 +3,7 @@
 import type { Binding, Host, Role, SnapTask } from '../types'
 import { emit } from './events'
 import { queueResume } from './reuse'
-import { scoped } from '../commands/init'
+import { ctlGet, ctlKeys, ctlSet } from './board'
 import { modelText } from './say'
 import { ask } from './decide'
 import { sessionOf } from './board'
@@ -24,8 +24,8 @@ export function classify(v: LifeView, agentId: string, taskId?: string): RunStat
   return r ?? (v.bind[agentId] || !t ? { state: 'ended', cause: 'lost' } : { state: 'ended', cause: t.state === 'done' || t.state === 'cancelled' || t.state === 'blocked' ? t.state : 'released' })
 }
 
-// ---- the run record: its $.state copy (ui.runs, CAS) is the only one step() writes; $.store `cadre:<repo>:run:<agentId>` mirrors it, so it survives /clear
-// (Doctor reads its log there). One writer per key: the session holding the binding. epoch = the task's spawns when it started (a wake for an older one is dropped). ----
+// ---- the run record: its $.state copy (ui.runs, CAS) is the only one step() writes; the store's control doc key `run:<agentId>` mirrors it, so it survives /clear
+// and a quit (Doctor reads its log there). One writer per key: the session holding the binding. epoch = the task's spawns when it started (a wake for an older one is dropped). ----
 export type RunEvent =
   | { type: 'spawn.ok'; bind: Binding; epoch?: number; mode?: string }   // admission: it is bound (the task's reservation goes); mode: its permission mode
   | { type: 'report.ok'; wait?: boolean }   // wait: the report parked its task for a decision (blocked, spec change, a red that cannot be made)
@@ -62,18 +62,18 @@ export function next(run: Run, e: RunEvent): { run: Run; effects: Effect[] } {
   return e.type === 'report.refused' ? go({ state: 'refused', n: n(run.state, 'refused') + 1 }) : go({ state: 'silent', n: n(run.state, 'silent') + 1 }, [wake(e)])
 }
 
-// one $.state map per kind (CAS) mirrored key by key to $.store: the mirror always sets what $.state holds after the update, never a local copy. New run keys are
-// listed under `runs`, so session start can prune them ($.store cannot list keys).
+// one $.state map per kind (CAS) mirrored key by key to the control doc: the mirror always sets what $.state holds after the update, never a local copy.
+// `quiet`: a write the mirror may skip (a tool call that changed only the repeat counter: one journal entry per call is too many; a /clear restarts that count)
 type Kind = 'runs' | 'budgets'
-const keyOf = (h: Host, k: Kind | 'index', id = '') => scoped(h, k === 'index' ? 'runs' : `${k === 'runs' ? 'run' : 'budget'}:${id}`)
+const keyOf = (k: Kind, id: string) => `${k === 'runs' ? 'run' : 'budget'}:${id}`
 const mapOf = <T>(u: Record<string, unknown>, k: Kind) => (u[k] as Record<string, T> | undefined) ?? {}
-async function load<T>(h: Host, k: Kind, id: string): Promise<T | undefined> { return mapOf<T>(await h.ui.read(), k)[id] ?? ((await h.store.get(await keyOf(h, k, id))) as T | undefined) }
-async function put<T>(h: Host, k: Kind, id: string, seed: T | undefined, f: (x: T | undefined) => T): Promise<T> {
+async function load<T>(h: Host, k: Kind, id: string): Promise<T | undefined> { return mapOf<T>(await h.ui.read(), k)[id] ?? (await ctlGet<T>(h, keyOf(k, id))) }
+async function put<T>(h: Host, k: Kind, id: string, seed: T | undefined, f: (x: T | undefined) => T, quiet?: (now: T) => boolean): Promise<T> {
   await h.ui.update(u => { const m = mapOf<T>(u, k); return { ...u, [k]: { ...m, [id]: f(m[id] ?? seed) } } })
-  const now = mapOf<T>(await h.ui.read(), k)[id], ix = ((await h.store.get(await keyOf(h, 'index'))) as string[] | undefined) ?? []
-  if (k === 'runs' && !ix.includes(id)) await h.store.set(await keyOf(h, 'index'), [...ix, id])
-  await h.store.set(await keyOf(h, k, id), now); return now
+  const now = mapOf<T>(await h.ui.read(), k)[id]
+  if (!quiet?.(now)) await ctlSet(h, { [keyOf(k, id)]: now }); return now
 }
+const runIds = (h: Host) => ctlKeys(h, 'run:')
 export const runOf = (h: Host, agentId: string) => load<Run>(h, 'runs', agentId)
 // read (the $.state copy, else the mirror after a /clear), next(), CAS-write, mirror, apply the effects. An agent with neither a binding nor a record (a
 // marker-less explorer) has no run: only a wake goes out (its ask's).
@@ -84,7 +84,7 @@ export async function step(h: Host, agentId: string, e: RunEvent): Promise<Run |
   if (!cur) return void (e.type === 'resume' && e.taskId && (await queueResume(h, { agentId, taskId: e.taskId, text: e.text })))
   if (e.type === 'spawn.ok') { e = { ...e, epoch: await charge(h, b!.taskId, 'epoch') }; await h.bind.update(({ [`~${b!.taskId}:${b!.step}`]: _r, ...t }) => ({ ...t, [agentId]: b! })) }
   let fx: Effect[] = []
-  const now = await put<Run>(h, 'runs', agentId, cur, r => { const x = next(r!, e); fx = x.effects; return x.run })
+  const now = await put<Run>(h, 'runs', agentId, cur, r => { const x = next(r!, e); fx = x.effects; return x.run }, r => e.type === 'call' && r.log === had?.log)
   for (const f of fx) {
     if (f.kind === 'unbind') { await h.bind.update(({ [agentId]: _gone, ...rest }) => rest); await emit(h, 'agent.unbound', { agentId, reason: f.reason }, { agentId, taskId: now.taskId }) }
     else if (f.kind === 'retire') await h.bind.update(t => (t[agentId] ? { ...t, [agentId]: { ...t[agentId], retired: true } } : t))
@@ -102,16 +102,14 @@ export const unreserve = (h: Host, id: string, step: string) => h.bind.update(({
 
 // ---- spawn intent (ADR 0024 §2.6 invariant 5): the spawner records {task, role} under a nonce and the prompt is the nonce alone; admission resolves it. A cadre
 // spawn whose nonce does not resolve is refused, never an explorer. The record lives until the spawn call returns, so a session that died mid-claim leaves it for
-// the next session start (core/session.prune), which releases the half-made claim. ponytail: one $.store key for all intents (read-modify-write), few at a time ----
+// the next session start (core/session.prune), which releases the half-made claim. one control-doc key per nonce ----
 export interface Intent { taskId: string; role: string; session: string; at: number }
-const intents = async (h: Host) => ((await h.store.get(await scoped(h, 'intents'))) as Record<string, Intent> | undefined) ?? {}
-const setIntents = async (h: Host, f: (m: Record<string, Intent>) => Record<string, Intent>) => h.store.set(await scoped(h, 'intents'), f(await intents(h)))
 export async function intend(h: Host, taskId: string, role: string, session: string): Promise<string> {
-  const n = `run-${h.rand(6)}`, at = await h.now(); await setIntents(h, m => ({ ...m, [n]: { taskId, role, session, at } })); return n
+  const n = `run-${h.rand(6)}`; await ctlSet(h, { [`intent:${n}`]: { taskId, role, session, at: await h.now() } }); return n
 }
-export const intentOf = async (h: Host, nonce: string): Promise<Intent | undefined> => (await intents(h))[nonce]
-export const intentsOf = intents
-export const settleIntent = (h: Host, nonce: string) => setIntents(h, ({ [nonce]: _done, ...m }) => m)
+export const intentOf = (h: Host, nonce: string) => ctlGet<Intent>(h, `intent:${nonce}`)
+export const intentsOf = async (h: Host): Promise<Record<string, Intent>> => Object.fromEntries(await Promise.all((await ctlKeys(h, 'intent:')).map(async n => [n, (await intentOf(h, n))!])))
+export const settleIntent = (h: Host, nonce: string) => ctlSet(h, { [`intent:${nonce}`]: undefined })
 // after a /clear (core/session): this process's binding comes back under the new session id when its run record survived; without one it is lost
 export async function restore(h: Host, a: string, b: Binding): Promise<boolean> {
   if (!(await runOf(h, a))) { await emit(h, 'agent.unbound', { agentId: a, reason: 'lost' }, { agentId: a, taskId: b.taskId }); return false }
@@ -126,21 +124,20 @@ export const budgetOf = async (h: Host, taskId: string): Promise<Budget> => ({ .
 export const charge = async (h: Host, taskId: string, k: keyof Budget): Promise<number> => (await put<Budget>(h, 'budgets', taskId, await budgetOf(h, taskId), b => ({ ...ZERO, ...b, [k]: (b?.[k] ?? 0) + 1 })))[k]
 // human.retry{counter}: from any session; it re-reads the mirror before its set, so the newest record wins on every other counter
 export async function retry(h: Host, taskId: string, k: keyof Budget, to = 0): Promise<void> {
-  const fresh = { ...ZERO, ...((await h.store.get(await keyOf(h, 'budgets', taskId))) as Budget | undefined) }
+  const fresh = { ...ZERO, ...(await ctlGet<Budget>(h, keyOf('budgets', taskId))) }
   await put<Budget>(h, 'budgets', taskId, fresh, b => ({ ...fresh, ...b, [k]: to }))
 }
 // the store is small (ST-15): a closed task's runs and budget go at once; at session start every ended run, or one whose task is no longer in flight, goes
 export async function prune(h: Host, taskId: string | undefined, ids: string[]): Promise<void> {
   const keep = new Set<string>(); for (const a of ids) if ((await runOf(h, a))?.deadline) keep.add(a)   // a forced exit the backstop still watches stays until its turn ends or it is stopped
   const agentIds = ids.filter(a => !keep.has(a)), drop = (k: Kind, ids: string[]) => h.ui.update(u => ({ ...u, [k]: Object.fromEntries(Object.entries(mapOf(u, k)).filter(([a]) => !ids.includes(a))) }))
-  await drop('runs', agentIds); for (const a of agentIds) await h.store.del(await keyOf(h, 'runs', a))
-  await h.store.set(await keyOf(h, 'index'), (((await h.store.get(await keyOf(h, 'index'))) as string[] | undefined) ?? []).filter(a => !agentIds.includes(a)))
-  if (taskId) { await drop('budgets', [taskId]); await h.store.del(await keyOf(h, 'budgets', taskId)) }
+  await drop('runs', agentIds); if (taskId) await drop('budgets', [taskId])
+  const gone = Object.fromEntries([...agentIds.map(a => keyOf('runs', a)), ...(taskId ? [keyOf('budgets', taskId)] : [])].map(k => [k, undefined])); if (Object.keys(gone).length) await ctlSet(h, gone)
 }
 // open: the run's task (or the epic a planner drafts) is not done or cancelled
 export async function pruneRuns(h: Host, open: (taskId: string) => Promise<boolean>): Promise<void> {
   const gone: string[] = []
-  for (const a of ((await h.store.get(await keyOf(h, 'index'))) as string[] | undefined) ?? []) { const r = await runOf(h, a); if (!r || (!r.deadline && (r.state?.state === 'ended' || !(await open(r.taskId))))) gone.push(a) }
+  for (const a of await runIds(h)) { const r = await runOf(h, a); if (!r || (!r.deadline && (r.state?.state === 'ended' || !(await open(r.taskId))))) gone.push(a) }
   if (gone.length) await prune(h, undefined, gone)
 }
 
@@ -163,7 +160,7 @@ export const settled = async (h: Host, agentId: string) => { if ((await runOf(h,
 // Only by the session that forced it (this process, core/session.held): another live session leaves the run and its deadline alone; a gone one's is ended here.
 export async function backstop(h: Host, me: string): Promise<void> {
   const now = await h.now(), bind = await h.bind.read()
-  for (const a of ((await h.store.get(await keyOf(h, 'index'))) as string[] | undefined) ?? []) {
+  for (const a of await runIds(h)) {
     const r = await runOf(h, a); if (!r?.deadline || r.deadline > now || (bind[a] && bind[a].sessionId !== me) || (r.session && (await held(h, r.session)) === 'other')) continue
     await step(h, a, { type: 'stopped' })   // first: one TaskStop and one dialog per deadline, also when this run had already ended
     const gone = await h.stopAgent?.(a).then(() => false, x => (h.log(`backstop: ${a} not stopped here (${x}): an earlier session's or already gone; ended lost`), true))

@@ -172,7 +172,7 @@ describe('replays 12-20: regressions from the log', () => {
   })
   test('#17 the owner is recorded before the store claim', async () => {
     const w = await world(), [id] = w.ids, claim = w.store.claim.bind(w.store); let seen: unknown
-    w.store.claim = async (...x: Parameters<typeof claim>) => { seen = w.kv.get(`cadre:${w.dep.key}:hb:${id}`); return claim(...x) }   // what a session killed during the claim leaves
+    w.store.claim = async (...x: Parameters<typeof claim>) => { seen = (await w.store.control()).doc[`hb:${id}`]; return claim(...x) }   // what a session killed during the claim leaves
     await arm(w.h, 'auto'); await w.turn()
     expect(seen).toEqual({ s: 's1', at: 0 })
   })

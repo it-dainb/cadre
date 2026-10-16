@@ -1,7 +1,15 @@
 // Read model (DESIGN 2.5): snapshot, model/human views, CAS helper, binding table. Snapshot types live in types/index.d.ts.
 import type { Binding, Host, Snapshot, SnapTask } from '../types'
-import type { Task } from '../task-management/store'
-import { scoped } from '../commands/init'
+import { StoreError, type Task, type TaskStore } from '../task-management/store'
+import '../commands/init'   // load order only: core/dispatch (via commands/init) must finish before the sync loop registers ROUTES.sync (a cycle the kit's loader is strict about)
+
+// store + config arrive through two optional Host members that register.ts wires (CONTRACTS)
+export const storeOf = (h: Host): Promise<TaskStore> => { const f = (h as any).taskStore; if (!f) throw new StoreError('Unavailable', 'no task store'); return f() }
+// the repo's durable keys beside the drive record (run records, budgets, spawn intents, task owners, the board pointer): the store's control doc, so any session
+// (after a quit, with $.store empty) reads them back. A write sets whole keys (shallow merge); undefined removes one.
+export const ctlGet = async <T>(h: Host, k: string): Promise<T | undefined> => (await (await storeOf(h)).control()).doc[k] as T | undefined
+export const ctlKeys = async (h: Host, prefix: string): Promise<string[]> => Object.entries((await (await storeOf(h)).control()).doc).filter(([k, v]) => k.startsWith(prefix) && v != null).map(([k]) => k.slice(prefix.length))
+export const ctlSet = async (h: Host, kv: Record<string, unknown>): Promise<void> => { await (await storeOf(h)).setControl(kv) }
 
 export const emptySnapshot = (repo = ''): Snapshot => ({
   schemaVersion: 1, seq: 0, repo, mission: null, epic: null, plan: null, tasks: [],
@@ -54,8 +62,8 @@ export async function idleOf(h: Host, s?: Snapshot): Promise<string[]> {
   s ??= await h.board.read(); const b = Object.values(await h.bind.read()), me = await sessionOf(h), out: string[] = []
   for (const t of s.tasks) {
     if (t.state !== 'active' || !['tester', 'worker', 'explorer'].includes(t.step) || b.some(x => x.taskId === t.id && !x.retired && (x.step === t.step || !x.step))) continue   // no step: a spawn in flight
-    const o = (await h.store.get(await scoped(h, `hb:${t.id}`))) as { s?: string } | number | undefined
-    if (typeof o !== 'object' || !o?.s || o.s === me) out.push(t.id)
+    const o = await ctlGet<{ s?: string }>(h, `hb:${t.id}`).catch(() => undefined)
+    if (!o?.s || o.s === me) out.push(t.id)
   }
   return out
 }

@@ -214,11 +214,11 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
       if (tc.length !== 1 || !/reason=answer/.test(tc[0] ?? '')) fail('forced', `worker turn.complete after the forced step: ${tc.length}x ${tc.map(l => l.match(/reason=\S+/)?.[0]).join(',')} (want 1x reason=answer)`)
     }
   }
-  if (o === 'underscore') {   // a repo folder and task id with `_`: the cadre spawn resolves, 0 explorer spawns (main's clarify explorer aside)
-    const ex = subs.filter(x => /Explorer brief/.test(x.brief)).length, wk = subs.filter(x => /Worker brief/.test(x.brief) && /TASK-\w*_\w*-/.test(x.brief)).length
+  if (o === 'underscore') {   // a repo folder with `_` (bd once named task ids after it; the file store's ids are c-<seq>-<n>): the cadre spawn resolves, 0 explorer spawns (main's clarify explorer aside)
+    const ex = subs.filter(x => /Explorer brief/.test(x.brief)).length, wk = subs.filter(x => /Worker brief/.test(x.brief) && /TASK-[\w-]+/.test(x.brief)).length
     Object.assign(stats, { explorers: ex, workers: wk })
     if (ex > 1) fail('underscore', `${ex} explorers (main's one allowed)`)
-    if (!wk) fail('underscore', 'no worker spawned for a task id with `_`')
+    if (!wk) fail('underscore', 'no worker spawned in a repo folder with `_`')
   }
   if (o === 'limit') {   // the band shows resetAt; the task budget unchanged; after the reset exactly one spawn
     const hit = read(join(dir, 'stubbed.jsonl')).split('\n').filter(l => l.includes('"usage_limit"')).map(l => JSON.parse(l).at)

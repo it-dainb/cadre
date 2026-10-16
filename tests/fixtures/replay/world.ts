@@ -58,7 +58,7 @@ export async function world(o: { n?: number; type?: string; ids?: string[]; mode
       await store.claim(id, dep.actor); await store.setMeta(id, { 'cadre.step': step, 'cadre.worktree': `/wt/${id}`, 'cadre.branch': `docs/${id}`, 'cadre.base': 'base000' }, dep.actor)
       await h.board.update((s: any) => ({ ...s, tasks: s.tasks.map((t: any) => (t.id === id ? { ...t, state: step === 'reviewer' ? 'review' : 'active', step, owner: dep.actor } : t)) }))
       if (step === 'reviewer') await store.move(id, 'review', dep.actor)
-      kv.set(`cadre:${dep.key}:hb:${id}`, { s: dep.session, at: 0 })
+      await store.setControl({ [`hb:${id}`]: { s: dep.session, at: 0 } })   // the owner session, as admission records it
       await lifeStep(h, agentId, { type: 'spawn.ok', bind: { taskId: id, role, step, worktree: `/wt/${id}`, sessionId: dep.session, ctxTokens: 0, startedAt: 0 } })   // as admission binds it
     },
     state: async (agentId: string, taskId?: string) => {

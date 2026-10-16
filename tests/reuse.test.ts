@@ -145,10 +145,9 @@ describe('compaction (8.3, S49) and rehydrate (8.2, 13.4)', () => {
     expect((await compact(h, { agentId: 'ag1', messages: [] }, (e: any) => e)).instructions).toContain(`task ${a}`)
     const bare = fakeHost(); expect(await compact(bare, { messages: [] }, () => 'engine')).toBe('engine')
   })
-  const cleared = async (h: any) => {   // a /clear: fresh $.state and session id, same $.store and task store
+  const cleared = async (h: any) => {   // a /clear: fresh $.state and session id, same $.store and task store (the pointer and run records live in its control doc)
     const f = fakeHost() as any; Object.assign(f, { taskStore: h.taskStore, config: h.config, usage: h.usage, submit: h.submit })
-    const runs = ((await h.store.get(`cadre:${repoKeyOf('/repo')}:runs`)) as string[] | undefined) ?? []   // the run records survive too
-    for (const k of ['board', 'resumes', 'runs', ...runs.map(x => `run:${x}`)]) f.store.set(`cadre:${repoKeyOf('/repo')}:${k}`, await h.store.get(`cadre:${repoKeyOf('/repo')}:${k}`))
+    for (const k of ['resumes']) f.store.set(`cadre:${repoKeyOf('/repo')}:${k}`, await h.store.get(`cadre:${repoKeyOf('/repo')}:${k}`))
     return f
   }
   test('after /clear: pointer + live bindings come back, card queued once, banner called; drive continues with its lease moved to the new session', async () => {
@@ -349,11 +348,11 @@ describe('round 2: effort, pruning, tester deny log', () => {
     const day = 86_400_000
     await bound(h, { ag1: B(a, 'S1'), ag2: B(b, 'S1') })
     await queueResume(h, { agentId: 'ag1', taskId: a, text: 'x' }); await queueResume(h, { agentId: 'ag2', taskId: b, text: 'y' })   // a is claimed (lease live), b is not
-    await h.store.set(`cadre:${repoKeyOf('/repo')}:board`, { epic: 'e', bind: await h.bind.read() })
+    await (await (h as any).taskStore()).setControl({ board: { epic: 'e', bind: await h.bind.read() } })
     await h.store.set(await scoped(h, 'quarantine'), [{ ts: -40 * day }, { ts: -day }])
     await prune(h)
     expect(((await h.store.get(`cadre:${repoKeyOf('/repo')}:resumes`)) as any[]).map(x => x.agentId)).toEqual(['ag1'])
-    expect(Object.keys(((await h.store.get(`cadre:${repoKeyOf('/repo')}:board`)) as any).bind)).toEqual(['ag1'])
+    expect(Object.keys(((await (await (h as any).taskStore()).control()).doc.board as any).bind)).toEqual(['ag1'])
     expect(await h.store.get(await scoped(h, 'quarantine'))).toEqual([{ ts: -day }])
   })
   test('guards: a tester call the guards deny still reaches the view call log (3.5.2)', async () => {

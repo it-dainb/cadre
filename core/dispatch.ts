@@ -2,11 +2,10 @@
 // approve/reject bound to the decision's content hash, init confirm. Also the draft<->board mirror shared with native/tasks.ts.
 import type { Host, Plan, SnapTask } from '../types'
 import type { Task, TaskStore } from '../task-management/store'
-import { StoreError } from '../task-management/store'
 import { defaults as typeDefaults, kindOf, merges, pipeOf } from '../task-management/registry'
 import type { TypeRegistry } from '../task-management/registry'
 import { cfgOf } from '../config/index'
-import { canon, fnv1a64, stamp, withConditions } from './board'
+import { canon, ctlGet, ctlKeys, ctlSet, fnv1a64, stamp, storeOf, withConditions } from './board'
 import { emit } from './events'
 import { ask, plural, settle, settleIf } from './decide'
 import { scoped } from '../commands/init'
@@ -25,7 +24,7 @@ export type Route = (h: Host, c: Command) => Promise<Out>
 export const ROUTES: Record<string, Route> = {}
 
 // store + config arrive through two optional Host members that register.ts wires (CONTRACTS)
-export const storeOf = (h: Host): Promise<TaskStore> => { const f = (h as any).taskStore; if (!f) throw new StoreError('Unavailable', 'no task store'); return f() }
+export { ctlGet, ctlKeys, ctlSet, storeOf }   // they live in core/board (no import cycle); callers keep importing them here
 export { cfgOf }   // the one config read path lives in config/index (ADR 0019)
 export const registryOf = async (h: Host): Promise<TypeRegistry> => ((await cfgOf(h)).types as TypeRegistry) ?? typeDefaults()
 

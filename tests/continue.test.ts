@@ -56,7 +56,7 @@ async function running(mode: 'auto' | 'yolo' = 'yolo') {
   expect(await arm(h1, mode)).toBe(`drive ${mode} on`)
   await step(h1, 'w1', { type: 'spawn.ok', bind: { taskId: m.a, role: 'worker', step: 'worker', worktree: `/wtx/${m.a}`, sessionId: 'S1', ctxTokens: 0, startedAt: T0 } })   // as admission binds them
   await step(h1, 'r1', { type: 'spawn.ok', bind: { taskId: m.b, role: 'reviewer', step: 'reviewer', worktree: `/wtx/${m.b}`, sessionId: 'S1', ctxTokens: 0, startedAt: T0 } })
-  for (const id of [m.a, m.b]) m.kv.set(`${K}:hb:${id}`, { s: 'S1', at: T0 })
+  for (const id of [m.a, m.b]) await m.store.setControl({ [`hb:${id}`]: { s: 'S1', at: T0 } })
   await stampAlive(h1); await savePointer(h1)
   return { ...m, h1 }
 }
@@ -98,11 +98,16 @@ describe('continue after exit', () => {
     const m = await running('auto'), sent: string[] = []; m.clock.now += 6 * 60_000
     m.h1.sendTo = async (id: string) => { sent.push(id); return { isDelivered: true } }
     await prune(m.h1)
-    expect(Object.keys(((m.kv.get(`${K}:board`)) as any).bind).sort()).toEqual(['r1', 'w1'])
+    expect(Object.keys(((await m.store.control()).doc.board as any).bind).sort()).toEqual(['r1', 'w1'])
     await queueResume(m.h1, { agentId: 'r1', taskId: m.b, text: 'review the fix' }); await drain(m.h1, { reason: 'answer' }, async () => ({}))
     expect(sent).toEqual(['r1'])
   })
 
+  test('continue from the task store alone: $.store empty (a wiped profile), the plan, the drive record and its lease come back from .cadre/state', async () => {
+    const m = await running('yolo'); m.kv.clear(); const h2 = await after(m, 40_000)
+    expect(await continueRun(h2)).toBe(`Picking up ${m.a} worker, ${m.b} reviewer · drive yolo · ${m.epic} auth 0/3 done`)
+    expect(await casDrive(h2, m.store, () => undefined)).toMatchObject({ on: true, mode: 'yolo', lease: { session: 'S2' } })
+  })
   test('continue: immediate takeover from a gone session (claim still live), drive re-armed in its mode, respawns queued for main', async () => {
     const m = await running('yolo'), h2 = await after(m, 40_000)
     expect(leaseLive(await m.store.get(m.a), m.clock.now)).toBe(true)   // no waiting for the 5-minute claim

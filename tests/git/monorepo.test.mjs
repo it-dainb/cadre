@@ -46,18 +46,18 @@ test('the checks read the repo root: config, packages and changelog pass there; 
   for (const n of ['repository', 'task store', 'build and test commands', 'changelog']) assert.equal(kit[n], false, n)
 })
 
-test('resume after /clear with the real store: a pointer to an epic it has is resumed; one it does not have is dropped; a store that does not answer keeps it', async () => {
+test('resume after /clear with the real store: a pointer (control doc) to an epic it has is resumed; one it does not have is dropped; no store under kit/ resumes nothing', async () => {
   const d = monorepo(), h0 = hostAt(d), s = await storeAt(h0, d); await s.init({ types: { feature: {}, task: {} }, journal: true })
-  const epic = await s.createEpic('Homepage', 'goal'), key = `cadre:${I.repoKeyOf(d)}:board`
+  const epic = await s.createEpic('Homepage', 'goal')
   const ptr = id => ({ mission: null, epic: id, plan: { id, slug: 'homepage', state: 'draft', epicBranch: '' }, drive: { on: false, level: 'epic', epicId: null, turns: 0, costUsd: 0, startedAt: null }, bind: {} })
-  const cleared = async id => { const h = hostAt(d); await h.store.set(key, ptr(id)); return h }
+  const cleared = async id => { await s.setControl({ board: ptr(id) }); return hostAt(d) }
 
   const gone = await cleared('frek-zzz')
-  assert.equal(await rehydrate(gone), false); assert.equal(await gone.store.get(key), undefined); assert.equal((await gone.board.read()).plan, null)
+  assert.equal(await rehydrate(gone), false); assert.equal((await s.control()).doc.board, undefined); assert.equal((await gone.board.read()).plan, null)
 
   const kept = await cleared(epic)
   assert.equal(await rehydrate(kept), true); assert.equal((await kept.board.read()).plan.id, epic)
 
-  const kit = hostAt(join(d, 'kit')), k2 = `cadre:${I.repoKeyOf(join(d, 'kit'))}:board`; await kit.store.set(k2, ptr(epic))   // no store under kit/: not a "not found", nothing is dropped
-  assert.equal(await rehydrate(kit), false); assert.equal((await kit.board.read()).plan, null); assert.equal((await kit.store.get(k2)).epic, epic)   // not resumed, kept for later
+  const kit = hostAt(join(d, 'kit'))   // main's shell folder: no store there, nothing to resume
+  assert.equal(await rehydrate(kit), false); assert.equal((await kit.board.read()).plan, null)
 })

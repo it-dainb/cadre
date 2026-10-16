@@ -22,7 +22,7 @@ describe('the task budget', () => {
   test('a Retry from another session re-reads the newest record: it resets its counter and keeps every other', async () => {
     const a = await world(), [id] = a.ids; await charge(a.h, id, 'red'); await charge(a.h, id, 'rework')
     const b = await world({ store: a.store, kv: a.kv, session: 's2' }); await retry(b.h, id, 'red')
-    expect(await budgetOf(b.h, id)).toMatchObject({ red: 0, rework: 1 }); expect(a.kv.get(`cadre:${a.dep.key}:budget:${id}`)).toMatchObject({ red: 0, rework: 1 })
+    expect(await budgetOf(b.h, id)).toMatchObject({ red: 0, rework: 1 }); expect((await a.store.control()).doc[`budget:${id}`]).toMatchObject({ red: 0, rework: 1 })
   })
   test('drive resume resets the drive bounds and keeps the task budget', async () => {
     const w = await world(), [id] = w.ids; await arm(w.h, 'auto'); await charge(w.h, id, 'rework'); await charge(w.h, id, 'silentRuns')
