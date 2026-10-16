@@ -53,6 +53,7 @@ const stepsOf = (d: Deps) => (type: string, lane?: string) => { const p = pipeOf
 export async function admitWith(h: Host, d: Deps, e: any, next: ((e: any) => any) & { origin?: { plugin: string } }): Promise<any> {
   if (e.isTeammate) return deny('agent teams are not available; use a plain Agent call')
   if (e.workflow) return deny('workflow agents are not available; use a plain Agent call')
+  if (e.resume) return next(e)   // a finished agent resumed by a message (Claude Code 2.1.299 raises agent.spawn for it, with resume.agentId): it and its run exist already; the send is judged where it is sent
   const s = await h.board.read(), mine = next.origin?.plugin === 'cadre', it = mine ? await intentOf(h, String(e.prompt ?? '').trim()) : undefined   // the spawner's own start names its intent
   if (mine && !it) { h.log(`spawn refused: no intent ${String(e.prompt ?? '').slice(0, 40)}`); return deny('this start has no task behind it, so it was not started') }   // never an explorer
   if (it && it.role !== 'planner' && !s.tasks.some(x => x.id === it.taskId)) return deny(`${it.taskId} is no longer on the board`)
