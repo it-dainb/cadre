@@ -1,6 +1,7 @@
 // The run record (core/lifecycle): the pure next() as a state × event table, step() over $.state with its $.store mirror, and the invariants it carries so far.
 import { describe, expect, test } from 'claude-code/testing'
-import { budgetOf, next, pruneRuns, restore, runOf, step, type Run, type RunEvent, type RunState } from '../core/lifecycle'
+import { backstop, budgetOf, exitStep, next, pruneRuns, restore, runOf, step, type Run, type RunEvent, type RunState } from '../core/lifecycle'
+import { scoped } from '../commands/init'
 import { queueResume } from '../core/reuse'
 import { stopped } from '../core/close'
 import { BUDGET } from './fixtures/budget.generated'
@@ -184,5 +185,26 @@ describe('review fixes: session start keeps a planner\'s run', () => {
     await step(w.h, 'pl1', { type: 'spawn.ok', bind: { taskId: e, role: 'planner', step: 'planner', worktree: '/r', sessionId: 's1', ctxTokens: 0, startedAt: 0 } })
     await w.h.ui.update(() => ({})); await start(w.h)
     expect((await runOf(w.h, 'pl1'))?.state).toEqual({ state: 'running' })
+  })
+})
+
+describe('the backstop with two sessions on one repo: only the session that forced a run stops it', () => {
+  const force = async (w: World, agentId: string) => { const g = exitStep(w.h, { agentId, turnId: 't', index: 3 }, async function* () { return {} }); while (!(await g.next()).done); }
+  test('B leaves A\'s overdue run and its deadline; A stops it; a run whose owner went quiet is ended by B', async () => {
+    const A = await world({ n: 2 }), B = await world({ kv: A.kv, store: A.store, session: 's2' }), [x, y] = A.ids, stops: string[] = []
+    Object.assign(A.h, { stopAgent: async (a: string) => { stops.push(`A ${a}`) } }); Object.assign(B.h, { stopAgent: async (a: string) => { stops.push(`B ${a}`); throw new Error('not running here') } })
+    for (const [a, id] of [['ag1', x], ['ag2', y]]) { await A.at(a, id, 'worker'); await A.rep(a, { role: 'worker', outcome: 'done', summary: 'did it' }); await force(A, a) }
+    const r = (await runOf(A.h, 'ag1'))!; expect(r.session).toBe('s1')
+    const alive = async (at: number) => B.h.store.set(await scoped(B.h, 'alive'), { s1: { p: 'A-process', at } })   // A's heartbeat (core/session.stampAlive)
+    B.clock.now = r.deadline! + 1000; await alive(B.clock.now); await backstop(B.h, 's2')
+    expect(stops).toEqual([]); expect((await runOf(B.h, 'ag1'))!.deadline).toBe(r.deadline); expect((await runOf(B.h, 'ag1'))!.state).toEqual({ state: 'idle-bound' })   // left alone
+    A.clock.now = (await runOf(A.h, 'ag2'))!.deadline! + 1000; await backstop(A.h, 's1')
+    expect(stops).toEqual(['A ag1', 'A ag2']); expect((await runOf(A.h, 'ag1'))!.state).toEqual({ state: 'ended', cause: 'lost' })
+    expect(((await A.h.board.read()).decisions ?? []).map(d => d.id)).toEqual(['stalled:ag1', 'stalled:ag2'])
+    // a third run, forced by A, then A goes quiet past the alive window: B ends it (its TaskStop fails there: ended lost, quietly)
+    await A.h.store.set(await scoped(A.h, 'run:ag3'), { ...r, deadline: B.clock.now - 1, session: 's1', state: { state: 'idle-bound' } }); await A.h.store.set(await scoped(A.h, 'runs'), ['ag1', 'ag2', 'ag3'])
+    await alive(B.clock.now - 1000); await backstop(B.h, 's2'); expect(stops).toEqual(['A ag1', 'A ag2']); expect((await runOf(B.h, 'ag3'))!.deadline).toBeDefined()   // 1 s old: still alive
+    await alive(B.clock.now - 31_000); await backstop(B.h, 's2')
+    expect(stops).toEqual(['A ag1', 'A ag2', 'B ag3']); expect((await runOf(B.h, 'ag3'))!).toMatchObject({ state: { state: 'ended', cause: 'lost' }, deadline: undefined })
   })
 })

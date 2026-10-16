@@ -6,6 +6,8 @@ import { queueResume } from './reuse'
 import { scoped } from '../commands/init'
 import { modelText } from './say'
 import { ask } from './decide'
+import { sessionOf } from './board'
+import { held } from './session'
 
 type End = 'done' | 'released' | 'blocked' | 'cancelled'
 export type RunState =
@@ -29,13 +31,13 @@ export type RunEvent =
   | { type: 'report.ok'; wait?: boolean }   // wait: the report parked its task for a decision (blocked, spec change, a red that cannot be made)
   | { type: 'report.refused' }
   | { type: 'call'; tool: string; sig: string }   // one tool call: a tool first seen is journaled (exit rule 3); REPEAT identical calls in a row spend the run (rule 4)
-  | { type: 'forced'; at: number } | { type: 'stopped' }   // cadre answered its model request (rule 5): the backstop's deadline · its turn ended
+  | { type: 'forced'; at: number; session?: string } | { type: 'stopped' }   // cadre answered its model request (rule 5): the backstop's deadline · its turn ended
   | { type: 'turn.end'; text: string }   // stopped without a report: nudged with text
   | { type: 'resume'; text: string; step?: string; taskId?: string }   // a wake (review findings, a rework, an answer); step: it goes on at that step; taskId: an ask's
   | { type: 'retire' }   // context or cache over: a fresh agent takes over
   | { type: 'end'; cause: End | 'lost'; reason: string }
 export interface Run { taskId: string; role: Role; step: string; state: RunState | null; epoch: number; log: { state: string; event: string; cause?: string }[]   // state null: a binding with no record
-  mode?: string; tools?: string[]; calls?: { sig: string; n: number }; exit?: 'loop'; deadline?: number }   // exit: its budget is spent (forced exit) · deadline: a forced exit not ended by then is stopped
+  mode?: string; tools?: string[]; calls?: { sig: string; n: number }; exit?: 'loop'; deadline?: number; session?: string }   // exit: its budget is spent (forced exit) · deadline: a forced exit not ended by then is stopped, by session's process only
 export type Effect = { kind: 'unbind'; reason: string } | { kind: 'wake'; text: string; step?: string } | { kind: 'retire' }
 // ponytail: fixed bounds; registered settings when a cell shows they need tuning
 export const REPEAT = 20, BACKSTOP = 60_000
@@ -46,7 +48,7 @@ export function next(run: Run, e: RunEvent): { run: Run; effects: Effect[] } {
   const s = run.state?.state, wake = (x: { text: string; step?: string }): Effect => ({ kind: 'wake', text: x.text, ...(x.step ? { step: x.step } : {}) })
   if (e.type === 'spawn.ok') return go({ state: 'running' }, [], { taskId: e.bind.taskId, role: e.bind.role, step: e.bind.step, epoch: e.epoch ?? run.epoch + 1, log: run.log, ...(e.mode ? { mode: e.mode } : {}), state: null })
   if (run.state === null) return go({ state: 'ended', cause: 'lost' }, [{ kind: 'unbind', reason: 'lost' }])   // a binding cadre has no record of (an older store, a lost key)
-  if (e.type === 'stopped' || e.type === 'forced') return { run: { ...run, deadline: e.type === 'forced' ? run.deadline ?? e.at + BACKSTOP : undefined }, effects: [] }
+  if (e.type === 'stopped' || e.type === 'forced') return { run: { ...run, deadline: e.type === 'forced' ? run.deadline ?? e.at + BACKSTOP : undefined, ...(e.type === 'forced' && !run.deadline ? { session: e.session } : {}) }, effects: [] }
   if (s === 'ended') return { run, effects: [] }
   if (e.type === 'end') return go({ state: 'ended', cause: e.cause }, [{ kind: 'unbind', reason: e.reason }])   // a forced exit's deadline outlives its task: only its turn's end or the backstop clears it
   if (e.type === 'call') {
@@ -148,7 +150,7 @@ const OWES = ['running', 'refused', 'silent']
 export async function* exitStep(h: Host, e: any, next: (e: any) => any): AsyncGenerator<any, any, any> {
   const r = e.agentId ? await runOf(h, e.agentId) : undefined
   if (!r?.state || (OWES.includes(r.state.state) && !r.exit)) return yield* next(e)
-  await step(h, e.agentId, { type: 'forced', at: await h.now() })
+  await step(h, e.agentId, { type: 'forced', at: await h.now(), session: await sessionOf(h) })
   const text = modelText('context', 'Done. Stopping here.'), hb = r.mode === 'auto', input = { message: text }
   yield { kind: 'text', index: 0, text }
   if (hb) { yield { kind: 'tool', index: 1, id: `toolu_${h.rand(12)}`, name: 'SubagentHandback' }; yield { kind: 'input', index: 1, json: JSON.stringify(input) } }
@@ -157,11 +159,12 @@ export async function* exitStep(h: Host, e: any, next: (e: any) => any): AsyncGe
 }
 // its turn ended: the backstop stands down
 export const settled = async (h: Host, agentId: string) => { if ((await runOf(h, agentId))?.deadline) await step(h, agentId, { type: 'stopped' }) }
-// the 5 s tick (also after a reload or /clear: the deadline is on the record): a forced exit no turn end ended by its deadline is stopped once, then ends lost with one dialog
+// the 5 s tick (also after a reload or /clear: the deadline is on the record): a forced exit no turn end ended by its deadline is stopped once, then ends lost with one dialog.
+// Only by the session that forced it (this process, core/session.held): another live session leaves the run and its deadline alone; a gone one's is ended here.
 export async function backstop(h: Host, me: string): Promise<void> {
   const now = await h.now(), bind = await h.bind.read()
   for (const a of ((await h.store.get(await keyOf(h, 'index'))) as string[] | undefined) ?? []) {
-    const r = await runOf(h, a); if (!r?.deadline || r.deadline > now || (bind[a] && bind[a].sessionId !== me)) continue
+    const r = await runOf(h, a); if (!r?.deadline || r.deadline > now || (bind[a] && bind[a].sessionId !== me) || (r.session && (await held(h, r.session)) === 'other')) continue
     await step(h, a, { type: 'stopped' })   // first: one TaskStop and one dialog per deadline, also when this run had already ended
     const gone = await h.stopAgent?.(a).then(() => false, x => (h.log(`backstop: ${a} not stopped here (${x}): an earlier session's or already gone; ended lost`), true))
     await step(h, a, { type: 'end', cause: 'lost', reason: 'stalled' }); if (gone) continue   // nothing of this process kept running: no dialog

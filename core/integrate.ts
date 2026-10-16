@@ -174,46 +174,59 @@ const inFlight = new Set<string>()   // ponytail: per process; two sessions on o
 // HEAD is b and b is the base: a fast-forward moves ref, index and files together (it refuses on conflicting local edits). Checked out nowhere: it lands by CAS.
 // A failed re-integration (a real conflict or red checks on the user's commits) is held under its inputs {pending, base, the user's tip} with its reason: the tick
 // does not try it again until one of them moves, or the user presses Land; it re-asks the held dialog when it is gone. Anything else (git busy, a failed merge
-// step) throws: the next tick retries. The suites run outside the git lock, one re-integration per branch at a time, each in its own tmp.
+// step) throws and backs off (backoff): the tick skips it until its time, and a Land click tries now. The suites run outside the git lock, one re-integration
+// per branch at a time, each in its own tmp.
 export async function landPending(h: Host, b: string, click = false): Promise<string | null> {
-  const root = await h.cwd(), cfg = await cfgOf(h), P = pendingRef(b), K = await scoped(h, `land:${b}`)
-  for (let round = 0; round < 3; round++) {
-    if (!(await exists(h.run, root, P))) return null
-    const [sha, base, cur] = [await tip(h.run, root, P), await tip(h.run, root, baseRef(b)), await tip(h.run, root, b)], key = `${sha} ${base} ${cur}`
-    if (sha === cur) return clean(h, b)   // nothing left to land (a rolled-back release)
-    if (round === 2) break
-    if (cur !== base) {
-      const held = click ? undefined : ((await h.store.get(K)) as { key: string; why: string } | undefined)
-      if (held?.key === key) { if (!(await asked(h, b))) await ask1(h, b, held.why); return 'held' }
-      const F = `${root} ${b}`; if (inFlight.has(F)) return 'busy'
-      const tmp = wtPath(await wtRootOf(h, cfg), repoKeyOf(root), `land-${b.replace(/\W/g, '-')}-${Math.random().toString(36).slice(2, 8)}`)
-      inFlight.add(F)
-      let why: string | null = null
-      try {
-        const c = await trial(h, root, cur, sha)
-        if (c?.length) why = `your commits on ${b} conflict with the landing in ${c.join(', ')}: resolve them on ${b}, then Land.`
-        else {
-          const next = await op(h, async () => { await git(h.run, root, ['worktree', 'add', '--detach', tmp, cur]); await git(h.run, tmp, ['merge', '--no-ff', '--no-verify', '-m', `merge the landing into your ${b}`, sha]); return tip(h.run, tmp, 'HEAD') })
-          const red = await runSuites(h, cfg, tmp, (await git(h.run, tmp, ['diff', '--name-only', `${cur}..${next}`])).split('\n').filter(Boolean), '')
-          if (red) why = `the landing does not pass its checks on your ${b}: ${red.slice(0, 200)}`
-          else await op(h, async () => (await casRef(h.run, root, P, next, sha)) && casRef(h.run, root, baseRef(b), cur, base))   // pending and its base move together, each by CAS
-        }
-      } finally { inFlight.delete(F); await worktreeRemove(h.run, root, tmp).catch(() => {}) }   // no ref moves: outside the lock, so a busy lock never leaves it behind
-      if (why) { await h.store.set(K, { key, why }); await ask1(h, b, why); return 'held' }
-      continue
+  const root = await h.cwd(), cfg = await cfgOf(h), P = pendingRef(b), K = await scoped(h, `land:${b}`), W = await scoped(h, `landwait:${b}`)
+  let key = '', tmp = ''
+  try {
+    for (let round = 0; round < 3; round++) {
+      if (!(await exists(h.run, root, P))) return null
+      const [sha, base, cur] = [await tip(h.run, root, P), await tip(h.run, root, baseRef(b)), await tip(h.run, root, b)]; key = `${sha} ${base} ${cur}`
+      if (sha === cur) return clean(h, b)   // nothing left to land (a rolled-back release)
+      if (round === 2) break
+      const w = click ? undefined : ((await h.store.get(W)) as Wait | undefined); if (w?.key === key && (await h.now()) < w.next) return 'wait'
+      if (cur !== base) {
+        const held = click ? undefined : ((await h.store.get(K)) as { key: string; why: string } | undefined)
+        if (held?.key === key) { if (!(await asked(h, b))) await ask1(h, b, held.why); return 'held' }
+        const F = `${root} ${b}`; if (inFlight.has(F)) return 'busy'
+        tmp = wtPath(await wtRootOf(h, cfg), repoKeyOf(root), `land-${b.replace(/\W/g, '-')}-${Math.random().toString(36).slice(2, 8)}`)
+        inFlight.add(F)
+        let why: string | null = null
+        try {
+          const c = await trial(h, root, cur, sha)
+          if (c?.length) why = `your commits on ${b} conflict with the landing in ${c.join(', ')}: resolve them on ${b}, then Land.`
+          else {
+            const next = await op(h, async () => { await git(h.run, root, ['worktree', 'add', '--detach', tmp, cur]); await git(h.run, tmp, ['merge', '--no-ff', '--no-verify', '-m', `merge the landing into your ${b}`, sha]); return tip(h.run, tmp, 'HEAD') })
+            const red = await runSuites(h, cfg, tmp, (await git(h.run, tmp, ['diff', '--name-only', `${cur}..${next}`])).split('\n').filter(Boolean), '')
+            if (red) why = `the landing does not pass its checks on your ${b}: ${red.slice(0, 200)}`
+            else await op(h, async () => (await casRef(h.run, root, P, next, sha)) && casRef(h.run, root, baseRef(b), cur, base))   // pending and its base move together, each by CAS
+          }
+        } finally { inFlight.delete(F); await worktreeRemove(h.run, root, tmp).catch(() => {}) }   // no ref moves: outside the lock, so a busy lock never leaves it behind
+        if (why) { await h.store.set(K, { key, why }); await ask1(h, b, why); return 'held' }
+        continue
+      }
+      const wt = await checkedOut(h, b)
+      if (!wt) { if (await op(h, () => casRef(h.run, root, `refs/heads/${b}`, sha, cur))) return clean(h, b); continue }   // checked out nowhere: it lands by itself
+      if (!click) { if (!(await asked(h, b))) await offer(h, b); return 'waits' }
+      const r = await op(h, async () => (await h.run(['git', '-C', wt, 'symbolic-ref', '-q', 'HEAD'])).stdout.trim() !== `refs/heads/${b}` || (await tip(h.run, wt, 'HEAD')) !== cur ? null : h.run(['git', '-C', wt, 'merge', '--ff-only', sha]))   // the worktree still has b at the base, checked under the lock
+      if (!r) continue
+      if (r.exitCode) { await ask1(h, b, `your uncommitted edits touch the same files as the landing: commit or stash them, then Land. ${r.stderr.trim().slice(0, 120)}`); return 'edits' }
+      return clean(h, b)
     }
-    const wt = await checkedOut(h, b)
-    if (!wt) { if (await op(h, () => casRef(h.run, root, `refs/heads/${b}`, sha, cur))) return clean(h, b); continue }   // checked out nowhere: it lands by itself
-    if (!click) { if (!(await asked(h, b))) await offer(h, b); return 'waits' }
-    const r = await op(h, async () => (await h.run(['git', '-C', wt, 'symbolic-ref', '-q', 'HEAD'])).stdout.trim() !== `refs/heads/${b}` || (await tip(h.run, wt, 'HEAD')) !== cur ? null : h.run(['git', '-C', wt, 'merge', '--ff-only', sha]))   // the worktree still has b at the base, checked under the lock
-    if (!r) continue
-    if (r.exitCode) { await ask1(h, b, `your uncommitted edits touch the same files as the landing: commit or stash them, then Land. ${r.stderr.trim().slice(0, 120)}`); return 'edits' }
-    return clean(h, b)
-  }
+  } catch (e) { const m = (e as Error).message ?? String(e); if (!click && m !== 'git busy') await backoff(h, b, W, key, tmp ? m.split(tmp).join('its tmp') : m); throw e }   // a busy lock is not a failure
   await ask1(h, b, `${b} kept moving while it landed: Land again.`); return 'moved'
 }
+// F1: a machine failure (worktree add, the merge step) under one key backs off from 5 s, doubling to 10 min; the third repeat of the same error asks once, naming
+// it. A moved key starts over; clean() drops the record with land:<b>.
+type Wait = { key: string; err: string; n: number; next: number }
+async function backoff(h: Host, b: string, W: string, key: string, err: string) {
+  const w = (await h.store.get(W)) as Wait | undefined, n = w?.key === key && w.err === err ? w.n + 1 : 1
+  await h.store.set(W, { key, err, n, next: (await h.now()) + Math.min(5000 * 2 ** (n - 1), 600000) })
+  if (n === 3) await ask1(h, b, `could not land ${b}, the same error three times: ${err.slice(0, 200)}. Land tries again now.`)
+}
 async function clean(h: Host, b: string) {
-  const root = await h.cwd(), cfg = await cfgOf(h); for (const r of [pendingRef(b), baseRef(b)]) await git(h.run, root, ['update-ref', '-d', r]); await h.store.del(await scoped(h, `land:${b}`)); await settleIf(h, `pending:${b}`)
+  const root = await h.cwd(), cfg = await cfgOf(h); for (const r of [pendingRef(b), baseRef(b)]) await git(h.run, root, ['update-ref', '-d', r]); for (const k of [`land:${b}`, `landwait:${b}`]) await h.store.del(await scoped(h, k)); await settleIf(h, `pending:${b}`)
   if (b === cfg.branches.dev && (await h.board.read()).plan?.state === 'done-on-dev' && cfg.release.onEpicDone === 'propose') await propose(h, root, b)
   return null
 }
