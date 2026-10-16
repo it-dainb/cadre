@@ -56,6 +56,13 @@ describe('step(): the run record', () => {
     await w.h.ui.update(() => ({}))   // /clear
     expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'idle-bound' })
   })
+  test('spawn.ok binds first: the agent\'s first model request, already under way, finds the effort admission routed', async () => {
+    const w = await world(), [id] = w.ids, seen: boolean[] = []
+    const peek = (o: any, k: string) => { const f = o[k]; o[k] = async (...a: any[]) => { seen.push(!!(await w.h.bind.read()).ag1); return f.apply(o, a) } }
+    peek(w.h.ui, 'read'); peek(w.h.ui, 'update'); peek(w.h.store, 'get'); peek(w.h.store, 'set')
+    await step(w.h, 'ag1', { type: 'spawn.ok', bind: { taskId: id, role: 'worker', step: 'worker', worktree: '/wt', sessionId: 's1', ctxTokens: 0, startedAt: 0, effort: 'high' } })
+    expect(seen.length > 0 && seen.every(Boolean)).toBe(true)
+  })
   test('a blocked report parks the run for a decision; its turn end then nudges nothing', async () => {
     const w = await world(), [id] = w.ids; await w.at('ag1', id, 'worker')
     expect(await w.rep('ag1', { role: 'worker', outcome: 'blocked', summary: 'stuck', reason: 'which format?' })).toContain('blocked recorded')

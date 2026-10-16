@@ -76,11 +76,13 @@ export const runOf = (h: Host, agentId: string) => load<Run>(h, 'runs', agentId)
 // read (the $.state copy, else the mirror after a /clear), next(), CAS-write, mirror, apply the effects. An agent with neither a binding nor a record (a
 // marker-less explorer) has no run: only a wake goes out (its ask's).
 export async function step(h: Host, agentId: string, e: RunEvent): Promise<Run | undefined> {
+  // spawn.ok binds before anything else is awaited: the agent's first model request is already under way and reads its routed effort off the binding (core/reuse.meter)
+  if (e.type === 'spawn.ok') { const x = e.bind; await h.bind.update(({ [`~${x.taskId}:${x.step}`]: _r, ...t }) => ({ ...t, [agentId]: x })) }
   const b = e.type === 'spawn.ok' ? e.bind : (await h.bind.read())[agentId], had = await runOf(h, agentId)
   const cur: Run | undefined = had ?? (b && { taskId: b.taskId, role: b.role, step: b.step, state: null, epoch: 0, log: [] })
   if (!had && ['call', 'forced', 'stopped'].includes(e.type)) return undefined   // observation: never a reason to end a run
   if (!cur) return void (e.type === 'resume' && e.taskId && (await queueResume(h, { agentId, taskId: e.taskId, text: e.text })))
-  if (e.type === 'spawn.ok') { e = { ...e, epoch: await charge(h, b!.taskId, 'epoch') }; await h.bind.update(({ [`~${b!.taskId}:${b!.step}`]: _r, ...t }) => ({ ...t, [agentId]: b! })) }
+  if (e.type === 'spawn.ok') e = { ...e, epoch: await charge(h, b!.taskId, 'epoch') }
   let fx: Effect[] = []
   const now = await put<Run>(h, 'runs', agentId, cur, r => { const x = next(r!, e); fx = x.effects; return x.run })
   for (const f of fx) {
