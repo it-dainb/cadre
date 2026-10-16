@@ -9,13 +9,13 @@
 H=$(cd "$(dirname "$0")" && pwd); TIER=${1:-quick}; shift; J=3; DRY=
 while [ $# -gt 0 ]; do case $1 in -j) J=$2; shift;; -n) DRY=1;; esac; shift; done
 quick() { cat <<'EOF'
-user1-mono-clear-cd-retype|monorepo leftover|user1|MODEL=haiku CC_VERSION=2.1.296
-user2-nogit-lazy-interrupt|nogit|goal|MODEL=haiku CC_VERSION=2.1.296 LAZY=1 FAULT=interrupt
-leftover-pointer|single ready leftover|goal|MODEL=haiku CC_VERSION=2.1.296
-continue-after-quit|single ready|continue|MODEL=haiku CC_VERSION=2.1.296 LANDED=1 BUDGET=1800 PROXY=1
+user1-mono-clear-cd-retype|monorepo leftover|user1|MODEL=haiku CC_VERSION=2.1.299
+user2-nogit-lazy-interrupt|nogit|goal|MODEL=haiku CC_VERSION=2.1.299 LAZY=1 FAULT=interrupt
+leftover-pointer|single ready leftover|goal|MODEL=haiku CC_VERSION=2.1.299
+continue-after-quit|single ready|continue|MODEL=haiku CC_VERSION=2.1.299 LANDED=1 BUDGET=1800 PROXY=1
 single-295|single|goal|MODEL=haiku CC_VERSION=2.1.295
-single-via-ccr|single|goal|MODEL=haiku CC_VERSION=2.1.296 VIA=ccr
-kill-mid-setup|nogit|kill|MODEL=haiku CC_VERSION=2.1.296 FAULT=kill
+single-via-ccr|single|goal|MODEL=haiku CC_VERSION=2.1.299 VIA=ccr
+kill-mid-setup|nogit|kill|MODEL=haiku CC_VERSION=2.1.299 FAULT=kill
 EOF
 }
 milestone() { cat <<'EOF'
@@ -23,10 +23,10 @@ milestone-planners|single ready|milestone|MODEL=haiku CC_VERSION=2.1.295 LANDED=
 EOF
 }
 clarify() { cat <<'EOF'
-clarify-vague|single ready landing|vague|MODEL=haiku CC_VERSION=2.1.296 CLARIFY=ask BUDGET=300
-clarify-yolo|single ready landing|vague-yolo|MODEL=haiku CC_VERSION=2.1.296 CLARIFY=assumed BUDGET=300
-clarify-deep|single ready landing|deep|MODEL=haiku CC_VERSION=2.1.296 CLARIFY=deep ORACLE_DIALOGS=10 ORACLE_TURNS=20 BUDGET=420
-clarify-clear|single ready|goal|MODEL=haiku CC_VERSION=2.1.296 CLARIFY=none BUDGET=300
+clarify-vague|single ready landing|vague|MODEL=haiku CC_VERSION=2.1.299 CLARIFY=ask BUDGET=300
+clarify-yolo|single ready landing|vague-yolo|MODEL=haiku CC_VERSION=2.1.299 CLARIFY=assumed BUDGET=300
+clarify-deep|single ready landing|deep|MODEL=haiku CC_VERSION=2.1.299 CLARIFY=deep ORACLE_DIALOGS=10 ORACLE_TURNS=20 BUDGET=420
+clarify-clear|single ready|goal|MODEL=haiku CC_VERSION=2.1.299 CLARIFY=none BUDGET=300
 EOF
 }
 # the 0.14 cells (plan §3.1 "Cells (0.14)"): S every commit (tier scripted = the S cells only), L once per Claude Code version (needs the user's OK)
