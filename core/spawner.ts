@@ -44,7 +44,7 @@ const picking = <T>(f: () => Promise<T>): Promise<T> => { const r = gate.then(f,
 // the spawner's step at a turn end or /cadre: start every agent the board wants, within maxParallel, counted against the drive bounds
 export async function spawnStep(h: Host, event: string): Promise<void> {
   if (!FRAMES.includes(event) || !h.spawnAgent) throw new Error(`spawn refused: ${event} is not a frame an agent's events stay under`)
-  await explores(h)
+  await explores(h).catch((e: Error) => h.log(`explorers: ${e.message}`))   // never the tick's task spawns
   await syncMode(h)
   if (!modOn(await h.board.read()) || !(await ready(h))) return
   const t = await h.now(); await h.ui.update(u => ({ ...u, idleAt: t }))   // a sign of life: the watchdog's window starts over
@@ -90,8 +90,9 @@ export const told = (h: Host, line: string) => h.ui.update(u => ({ ...u, digest:
 async function explores(h: Host) {
   const q = ((await h.ui.read()).explore as string[] | undefined) ?? []; if (!q.length || life.ending) return
   await h.ui.update(u => ({ ...u, explore: undefined }))
-  for (const x of q) {
-    const n = await intend(h, x, 'explore', await sessionOf(h))
+  for (const [i, x] of q.entries()) {
+    let n: string
+    try { n = await intend(h, x, 'explore', await sessionOf(h)) } catch (e) { h.log(`explorer not started: ${e}`); return void await h.ui.update(u => ({ ...u, explore: [...q.slice(i), ...((u.explore as string[] | undefined) ?? [])] })) }   // not started: it and the rest wait for the next tick
     try { const r = await h.spawnAgent!({ prompt: modelText('agent-brief', n), description: 'explore' }); if (r?.deny) h.log(`explorer not started: ${r.deny}`) } catch (e) { h.log(`explorer not started: ${e}`) } finally { await settleIntent(h, n) }
   }
 }

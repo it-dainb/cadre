@@ -216,3 +216,8 @@ test('a quit under way starts nothing; the owner is recorded before the spawn, s
   await w.turn(); assert.deepEqual(seen, { s: 's1', at: 0 })
   life.ending = true; try { w.h.spawnAgent = async () => assert.fail('spawned while quitting'); await w.turn() } finally { life.ending = false }
 })
+test('an explorer that cannot start keeps its questions for the next tick, and the tick still starts its tasks', async () => {
+  const w = await world(1); await arm(w.h, 'auto'); await w.h.ui.update(u => ({ ...u, explore: ['where is auth?', 'who calls f?'] }))
+  const rand = w.h.rand; let once = true; w.h.rand = n => { if (once) { once = false; throw new Error('store busy') } return rand(n) }
+  await w.turn(); assert.equal(w.spawned.length, 1); assert.deepEqual((await w.h.ui.read()).explore, ['where is auth?', 'who calls f?'])
+})
