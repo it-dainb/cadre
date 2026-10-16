@@ -203,7 +203,9 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     return { f, brief, t: Date.parse(u?.timestamp ?? '') || 0, uses: ls.filter(d => d.type === 'assistant').flatMap(d => (Array.isArray(d.message?.content) ? d.message.content : []).filter(b => b.type === 'tool_use')) }
   })
   const sorted = v => (v && typeof v === 'object' ? (Array.isArray(v) ? v.map(sorted) : Object.fromEntries(Object.keys(v).sort().map(k => [k, sorted(v[k])]))) : v)
-  const others = drv.filter(e => e.kind === 'dialog' && !/^release /.test(e.text)).length   // dialogs besides the plan's and the release proposal every landing ends with
+  // dialogs besides the plan's and the release proposal every landing ends with; main's one clarify call (its tabs, ADR 0020) is not one of cadre's
+  const qs = new Set(went.filter(b => b.name === 'AskUserQuestion').flatMap(b => (b.input?.questions ?? []).map(q => String(q.question ?? '').replace(/\s+/g, ' ').trim().slice(0, 40))))
+  const others = drv.filter(e => e.kind === 'dialog' && !/^release /.test(e.text) && !qs.has(e.text.replace(/\s+/g, ' ').trim().slice(0, 40))).length
   const o = process.env.ORACLE
   if (o && !snaps.length && o !== 'underscore') fail(o, 'no store snapshots (scenarios/_lib.sh snapshots)')
   if (o === 'every') {   // every role in auto mode reaches a terminal run state; 0 ended{lost}; <= 1 dialog; no tool call repeated >= N in a row
