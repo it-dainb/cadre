@@ -56,7 +56,7 @@ describe('refusals name the field and say how to retry; nothing is stored', () =
     expect(err(await tool(w, 'task', { title: 'x', description: 'y', interface: { symbols: Array(51).fill({ name: 'a' }) } }))).toContain('error: interface.symbols: at most 50 items')
     expect(err(await tool(w, 'plan', { title: 'x', description: 'y', lane: 'full', reason: 'r', notes: [{ text: 't', who: 'me' }] }))).toContain('error: notes')
     expect(err(await tool(w, 'plan', { title: 'x', description: 'y', paths: ['a.ts'] }))).toContain('error: paths: unknown field')
-    expect(MAIN.find(t => t.name === 'plan')!.description).not.toContain('enum')
+    expect(MAIN.find(t => t.name === 'plan')!.description).toContain('how big the work is')
     expect((await w.store.list({})).length).toBe(before)
   })
   test('field rules: a malformed scenario names its index; no plan yet names the tool to call', async () => {

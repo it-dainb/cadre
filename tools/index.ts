@@ -35,7 +35,7 @@ const INTERFACE = { type: 'object', properties: { symbols: { type: 'array', maxI
 const TASK = { type: L(40), package: L(200), scope: L(80), breaking: B, scenarios: LIST(20, 500), changelog: CHANGELOG, interface: INTERFACE, paths: LIST(20, 200), core: B, repro: B }
 const { paths: _p, core: _c, ...ONE } = TASK   // a one-step plan's task fields: paths and core belong to plans of 2+ tasks
 export const MAIN_SPECS = [
-  { name: 'plan', isDeferred: false, description: 'Start a plan (a draft the user approves): title, description, lane (how big the work is), reason (one line). A one-step plan carries its task\'s fields here. Answer: {id, plan, revision}.',
+  { name: 'plan', isDeferred: false, description: 'Start a plan (a draft the user approves): title, description, how big the work is (pick the value that fits), reason (one line). A one-step plan carries its task\'s fields here. Answer: {id, plan, revision}.',
     inputSchema: { type: 'object', additionalProperties: false, required: ['title', 'description'], properties: { kind: { type: 'string', enum: ['plan', 'mission'] }, title: L(200), description: L(8000), lane: { type: 'string', enum: ['ask', 'lite', 'full', 'milestone'] }, reason: L(300), mission: L(1000), notes: {}, assumed: LIST(5, 200), ...ONE } } },
   { name: 'task', isDeferred: false, description: 'Add a task to the draft plan: title, description, type, package, scenarios ["S1: Given … When … Then …"], changelog, interface, paths; after: ids it waits for; epic: its epic in a milestone. Answer: {id, plan, revision}.',
     inputSchema: { type: 'object', additionalProperties: false, required: ['title', 'description'], properties: { title: L(200), description: L(8000), ...TASK, epic: L(64), after: IDS } } },
