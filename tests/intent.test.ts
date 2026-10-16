@@ -27,6 +27,13 @@ describe('the nonce', () => {
     }
     expect(asked).toBe(0); expect(w.h.logs.filter(l => l.startsWith('spawn refused: no intent'))).toHaveLength(3)
   })
+  // quick tier user1 on 6665614 (2.1.299): the explorer stopped without report; cadre's nudge resumes it with $.session.send, which now raises agent.spawn
+  // (prompt = the nudge, resume.agentId) under cadre's origin. The intent check refused it, so the answer never came and main waited for good.
+  test('a resume passes untouched: no intent, no rewrite', async () => {
+    const w = await world(), seen: any[] = []
+    const r = await admitWith(w.h, w.dep, { prompt: 'You stopped without calling report. Call report now.', background: true, resume: { agentId: 'agE' } }, Object.assign(async (e: any) => (seen.push(e), { agentId: 'agE' }), { origin: { plugin: 'cadre' } }))
+    expect(r.agentId).toBe('agE'); expect(seen[0].prompt).toBe('You stopped without calling report. Call report now.'); expect(w.h.logs.some(l => l.startsWith('spawn refused'))).toBe(false)
+  })
   test('main\'s own Agent call keeps the id lookup (main mode): the task\'s worker; a question is an explorer', async () => {
     const w = await world({ ids: ['my_proj-4.1'], mode: 'main' }), seen: string[] = [], main = Object.assign(async (e: any) => (seen.push(e.subagentType), { agentId: `ag${seen.length}` }), { origin: { plugin: 'engine' } })
     await admitWith(w.h, w.dep, { prompt: 'TASK-my_proj-4.1 write it', background: true }, main); await admitWith(w.h, w.dep, { prompt: 'where is the parser?', background: true }, main)
