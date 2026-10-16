@@ -85,7 +85,7 @@ landed() { while [ "$(left)" -gt 0 ]; do git -C "$D/work" log --oneline dev 2>/d
 
 . "$H/scenarios/$SCEN.sh"
 [ -n "$LANDED" ] && landed
-sleep 4; kill $W 2>/dev/null; wait $W 2>/dev/null; log "end"
+pause1; sleep 7; kill $W 2>/dev/null; wait $W 2>/dev/null; log "end"   # no press in the last 7 s: a press before it gets its 5 s to bring a dialog up
 
 # ---- evidence (harness/out is gitignored), then the verdict ----
 cp "$D"/out/debug*.log "$O/" 2>/dev/null; mkdir -p "$O/jsonl"; find "$D/projects" -name '*.jsonl' -exec cp --parents {} "$O/jsonl" \; 2>/dev/null
