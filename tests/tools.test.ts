@@ -133,6 +133,7 @@ describe('approval: an edit revokes it, an open question blocks it', () => {
     expect(d.result).toMatchObject({ id: a, revision: r.result.revision + 1 })
     const t = await w.store.get(a); expect(t.category).not.toBe('draft')
     expect(JSON.parse(t.meta['cadre.amendments']).map((x: any) => x.criterion)).toEqual(['description', 'removed'])
+    expect((await w.h.board.read()).decisions ?? []).toEqual([])   // review r3 N11: no approve card left for a plan with nothing to approve
   })
   test('an open question keeps the plan from approval until main records the user\'s answer', async () => {
     const w = await world(); const { plan } = await planned(w)

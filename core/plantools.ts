@@ -12,7 +12,7 @@ import { pipeOf } from '../task-management/registry'
 import { canon, modelView } from './board'
 import { apply } from './machine'
 import { settleIf, yoloOn } from './decide'
-import { DRIVE, cfgOf, draftsOf, mirror, registryOf, storeOf } from './dispatch'
+import { DRIVE, cfgOf, draftsOf, mirror, registryOf, storeOf, touched } from './dispatch'
 import { repoSplit } from './specview'
 import { scoped } from '../commands/init'
 import { retouch, roadmapRules } from './lanes'
@@ -238,7 +238,9 @@ async function amend(h: Host, i: In): Promise<Out> {
   const log = () => store.setMeta(id, { 'cadre.amendments': JSON.stringify([...ledgerOf(t!), ...cs.map(c => ({ ...c, reason, evidence, at }))]) }, 'main')
   if (remove) {   // an approved task is never deleted: one an earlier amend sent back to draft is approved again first, then closed as deleted; the ledger first
     if (approved) { await log(); if (t!.category === 'draft') { await store.approve([id]); await store.setMeta(id, { 'cadre.amended': '' }, 'main') } }
-    const r = await life(h, store, reg, id, 'deleted', undefined, reason); if (typeof r.result === 'string') return r; return wrote(h, store, s.plan!.id, id, r.context, cur + 1)
+    const r = await life(h, store, reg, id, 'deleted', undefined, reason); if (typeof r.result === 'string') return r
+    if (approved) { if ((await draftsOf(store, s.epic)).length) await touched(h, store, reg); else { await h.board.update(b => ({ ...b, approval: { planId: null, missing: [] }, sheet: [] }) as typeof b); await settleIf(h, 'plan:') } }   // its approve card goes with it; other amended drafts re-ask
+    return wrote(h, store, s.plan!.id, id, r.context, cur + 1)
   }
   const r = await edit(h, store, reg, id, { ...m, after })
   if ('error' in r) {   // refused before it wrote anything: give the revision back (a CAS on our own bump), so main's retry needs no new revision
