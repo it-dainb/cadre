@@ -303,7 +303,7 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     }
   }
   if (o === 'surface') {   // under the task-tool gate: the report tool and TodoWrite listed, no task-list tool; main's Agent refused; the spawned agent ends
-    const l = dlines.find(l => /SCRIPTED tools \[/.test(l)), names = l ? JSON.parse(l.slice(l.indexOf('['))) : null
+    const l = dlines.find(l => /SCRIPTED tools \[/.test(l)), names = l ? JSON.parse(l.slice(l.indexOf('SCRIPTED tools ') + 15)) : null
     const sp = dlines.find(l => /SCRIPTED spawned tools -> /.test(l))?.match(/"agentId":"([^"]+)"/)?.[1], ag = mine.filter(b => b.name === 'Agent')
     Object.assign(stats, { tools: names, agent: sp ?? null, mainAgent: ag.map(b => (b.ok ? 'ran' : 'refused')).join(','), taskStop: clip(dlines.find(l => /SCRIPTED TaskStop /.test(l))?.split('SCRIPTED ')[1] ?? '') })
     if (!names) fail(o, 'no tool list logged (/s0 tools)')
