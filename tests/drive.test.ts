@@ -293,6 +293,15 @@ test('two sessions CAS the drive record: the one that loses the revision race re
   expect(await casDrive(h, store, take('A'))).toMatchObject({ lease: { session: 'A' } })   // the holder renews
 })
 
+// review r2 N6: the CAS is on the `drive` key alone; a whole-doc revision CAS would lose every try to the heartbeat keys
+test('another key of the control doc moving between every read and write does not stop a drive write', async () => {
+  const store = new MemoryStore(), h = fakeHost(); await store.init({ types: {} as any, journal: false })
+  const real = store.setControl.bind(store); let n = 0
+  store.setControl = async (patch, rev) => { await real({ [`hb:t${++n}`]: n }); return real(patch, rev) }   // a heartbeat lands before each drive write
+  expect(await casDrive(h, store, take('A'))).toMatchObject({ lease: { session: 'A' } }); expect(n).toBe(1)
+  expect((await store.control()).doc.drive).toMatchObject({ sess: 'A' })
+})
+
 test('the record survives a new session: read back from the control doc, not from $.store', async () => {
   const store = new MemoryStore(); await store.init({ types: {} as any, journal: false })
   await casDrive(fakeHost(), store, take('A'))
