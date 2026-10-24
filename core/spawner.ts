@@ -55,9 +55,9 @@ export async function spawnStep(h: Host, event: string): Promise<void> {
   await sendQueued(h)   // a rework a close queued (a conflict on the plan tip): its worker is resumed now
   const cfg = await cfgOf(h), usd = (await h.usage?.().catch(() => undefined))?.cost?.usd
   const go = await picking(async () => {   // one frame of this process at a time: read the board, pick within the slots, count them on the drive (a CAS three frames would contend on)
-    const s = await h.board.read()
     const need = await pending(h)   // a requester waits for its helper's answer, so no agent takes its step; a request no helper runs gets one, at the head (the requester's slot is lent to it)
-    const cands = [...spawnable(modelView(s), await h.bind.read()).filter(x => !need.hold.includes(x.id)), ...need.start.map(id => ({ id, role: 'helper' }))].filter(x => !Q.has(x.id, x.role)).map((x): Q.Want => ({ ...x, head: x.role !== 'claim' }))
+    const s = await h.board.read()
+    const cands = [...spawnable(modelView(s), await h.bind.read()).filter(x => !need.hold.includes(x.id)), ...need.start.map(id => ({ id, role: 'helper' }))].filter(x => !Q.has(x.id, x.role) && !(x.role !== 'claim' && Q.has(x.id, 'claim'))).map((x): Q.Want => ({ ...x, head: x.role !== 'claim' }))
     const keyed = Object.keys(cfg.concurrency.models).length + Object.keys(cfg.concurrency.providers).length > 0, capped = ((cfg.units ?? []) as { concurrency?: number }[]).some(u => u.concurrency)
     const d = keyed || capped ? await resolveDeps(h) : undefined, units: Record<string, string> = {}   // routing and units are read only when a limit asks for them
     const unitOf = async (id: string) => pkgOf(d!, await d!.store.get(id))?.root ?? '.'
