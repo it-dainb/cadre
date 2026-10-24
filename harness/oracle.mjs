@@ -383,6 +383,7 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     else if (!(reqs[0].max_tokens >= 800 && reqs[0].max_tokens <= 800 + 2048) ||   // the engine adds a 2048-token thinking allowance to the 800 asked (measured: 2848)
        !/haiku/.test(reqs[0].model ?? '')) fail(o, `the request was ${reqs[0].model} max_tokens ${reqs[0].max_tokens} (want haiku, 800 + the engine's 2048)`)
     else if (!after.length || after.some(x => !LESSON.test(x.brief))) fail(o, `${after.length} brief(s) after the pass, ${carry.length} carry the lesson (want every one)`)
+  }
   if (o === 'planner-probe') {   // a milestone's epic planner asks the probe helper: it waits, the probe answers once from a tree of its own, the SAME planner resumes and drafts; no probe tree or branch is left; no dialog about it
     const all = Object.assign({}, ...snaps.map(x => runs(x.s)), ...hist.map(runs)), needs = Object.assign({}, ...snaps.map(x => pick(x.s, 'need')), ...hist.map(h => pick(h, 'need')))
     const ps = Object.entries(all).filter(([, r]) => r.role === 'planner'), hs = Object.entries(all).filter(([, r]) => r.role === 'explorer' && needs[r.taskId]), st = r => (r.log ?? []).map(x => x.state), pl = subs.filter(x => /# PLAN-/.test(x.brief))
