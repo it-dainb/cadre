@@ -9,6 +9,7 @@ import { budgetOf } from '../core/lifecycle'
 import { continueRun } from '../core/session'
 import '../core/close'
 import { ROLES_DEFAULT } from '../core/roles'
+import { drop, hold } from '../core/queue'
 import { world, type World } from './fixtures/replay/world'
 
 const WAIT: RunState = { state: 'waiting', on: 'need', needId: 'n1' }, run = (state: RunState | null): Run => ({ taskId: 't1', role: 'worker', step: 'worker', state, epoch: 3, log: [] })
@@ -91,6 +92,32 @@ describe('every helper ends and answers exactly once', () => {
   })
 })
 
+describe('review fixes', () => {
+  test('a planner asks explore: its helper reports (its task is an epic), and the planner is resumed', async () => {
+    const { w } = await start(); const e = w.epic
+    await step(w.h, 'pl1', { type: 'spawn.ok', bind: { taskId: e, role: 'planner', step: 'planner', worktree: '/r', sessionId: 's1', ctxTokens: 0, startedAt: 0 } })
+    expect(await w.rep('pl1', { role: 'planner', outcome: 'request', request: { helper: 'explore', ask: 'where is X?', why: 'to plan' } })).toMatch(/^request recorded/)
+    await w.turn(); const h = w.spawned.findIndex(x => x[2] === 'cadre:explorer'); expect(h).toBeGreaterThan(0)
+    expect(await w.rep(`ag${h + 1}`, ANSWER)).toBe('answer recorded. Stop.')
+    await w.stop(`ag${h + 1}`); expect(w.sent.some(x => x[0] === 'pl1' && x[1].includes('in src/parse.ts'))).toBe(true); expect((await runOf(w.h, 'pl1'))?.state).toEqual({ state: 'running' })
+  })
+  test('a helper that reported but never ends its turn is stopped past the minutes cap, with no new answer', async () => {
+    const { w, stops } = await asked(); await w.rep('ag2', ANSWER); w.cfg.limits.helpers.minutes = 1; w.clock.now += 70_000; await overdue(w.h, 's1')
+    expect(stops).toEqual(['ag2']); expect(await w.state('ag2')).toEqual({ state: 'ended', cause: 'done' }); expect(await events(w, 'help.done')).toHaveLength(1)
+  })
+  test('a requester that reports while waiting is refused until the answer comes', async () => {
+    const { w } = await asked(); expect(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' })).toContain('wait for the answer to your request')
+    expect((await runOf(w.h, 'ag1'))?.state).toMatchObject({ state: 'waiting' })
+  })
+  test('a task whose claim is still starting is not offered its step by a second frame', async () => {
+    const w = await world(), [id] = w.ids; await arm(w.h, 'auto'); await w.store.claim(id, w.dep.actor); await w.store.setMeta(id, { 'cadre.step': 'worker', 'cadre.worktree': `/wt/${id}`, 'cadre.branch': `docs/${id}`, 'cadre.base': 'base000' }, w.dep.actor)
+    await w.h.board.update((s: any) => ({ ...s, tasks: s.tasks.map((t: any) => ({ ...t, state: 'active', step: 'worker', owner: w.dep.actor })) }))
+    const sa = w.h.spawnAgent, tried: string[] = []; w.h.spawnAgent = (x: any) => (tried.push(x.description), sa(x))   // an attempt is a pick, whatever admission answers
+    hold({ id, role: 'claim' }); try { await w.turn(); expect(tried).toEqual([]) } finally { drop(id, 'claim') }
+    await w.turn(); expect(tried).toEqual([`worker ${id}`])   // the claim is done: the step is offered
+  })
+})
+
 describe('one settle per request', () => {
   test('a report and the minutes failure at once: one answer, one help.done, no respawn, no dialog; and the other way round', async () => {
     for (const reportFirst of [true, false]) {
@@ -102,7 +129,7 @@ describe('one settle per request', () => {
     }
   })
   test('a failure after the answer is a no-op, and an answer after the second failure is dropped', async () => {
-    const { w, id, stops } = await asked(); await w.rep('ag2', ANSWER); w.cfg.limits.helpers.minutes = 1; w.clock.now += 70_000; await overdue(w.h, 's1'); expect(stops).toEqual([]); expect(await events(w, 'help.done')).toHaveLength(1)
+    const { w, id, stops } = await asked(); await w.rep('ag2', ANSWER); w.cfg.limits.helpers.minutes = 1; w.clock.now += 70_000; await overdue(w.h, 's1'); expect(stops).toEqual(['ag2']); expect(await events(w, 'help.done')).toHaveLength(1)   // it only ends: no new answer
     expect((await needOf(w.h, id))?.ok).toBe(true)
   })
 })

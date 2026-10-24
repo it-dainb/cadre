@@ -75,6 +75,7 @@ async function onReport(h: Host, d: Deps, agentId: string | undefined, r: any): 
     await charge(h, (await runOf(h, agentId))!.taskId, 'refusals'); return bad(tried(m, s.n, key))
   }
   const env = validateReport(r); if (env) return no(env)
+  if ((await runOf(h, agentId))?.state?.state === 'waiting' && (await runOf(h, agentId))!.state!.on === 'need') return bad('wait for the answer to your request: it arrives as a message. Stop and wait.')   // a requester has nothing to report until then
   if (!(await h.bind.read())[agentId] && (await askOf(h, agentId))) return r.role === 'explorer' ? askAnswer(h, agentId, r) : bad('role: you are an explorer; report role "explorer" with answer and citations')
   if ((await h.bind.read())[agentId]?.role === 'planner' && !(await h.bind.read())[agentId].parent) return r.role === 'planner' ? r.outcome === 'request' ? request(h, agentId, (await h.bind.read())[agentId], r) : planned(h, d, agentId, r).then(async t => (await step(h, agentId, { type: t.startsWith('error') ? 'report.refused' : 'report.ok' }), t)) : bad('role: you are the planner; report role "planner" with tasks')   // a ready epic's planner (core/planner)
   const b = (await h.bind.read())[agentId], ok = async () => step(h, agentId, { type: 'report.ok', wait: (await h.board.read()).tasks.find(t => t.id === b?.taskId)?.state === 'blocked' })

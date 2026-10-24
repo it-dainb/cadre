@@ -74,7 +74,9 @@ export async function overdue(h: Host, me: string): Promise<void> {
   const now = await h.now(), max = (await cfgOf(h)).limits.helpers.minutes * 60_000
   for (const [a, b] of Object.entries(await h.bind.read())) {
     if (!b.parent || b.sessionId !== me || now - b.startedAt < max) continue
-    const n = await needOf(h, b.taskId); if (n && n.needId === b.needId && n.answer === undefined) await failed(h, a, n, `it ran past ${max / 60_000} minutes`)
+    const n = await needOf(h, b.taskId); if (!n || n.needId !== b.needId) continue
+    if (n.answer === undefined) await failed(h, a, n, `it ran past ${max / 60_000} minutes`)
+    else { await h.stopAgent?.(a).catch(() => {}); await step(h, a, { type: 'end', cause: 'done', reason: 'stalled' }) }   // it reported but never ended its turn: stopped, no new answer
   }
 }
 export const running = (bind: Record<string, Binding>, n: Need) => Object.values(bind).some(b => b.taskId === n.task && b.needId === n.needId)   // a helper of this request is bound (its record is never rewritten by the helper's start: a late write lost its answer)
