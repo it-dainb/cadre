@@ -26,7 +26,7 @@ export function modelIssues(c: Config): string[] {
 const unknownModel = (cell: string, m: string) => `${cell}: unknown model "${m}" (an alias, a claude-… id or a models.allow entry)`
 // a well-formed name the engine refuses at the spawn: the same line as the load gate, and the drive stops at once (core/spawner)
 export class ModelRefused extends Error {}
-export const modelRefusal = (e: unknown, cell: string, m: string) => (/model/i.test(String(e)) && /not found|invalid|unknown|not exist|not available|issue with the selected|no access/i.test(String(e)) ? new ModelRefused(unknownModel(cell, m)) : e)
+export const modelRefusal = (e: unknown, cell: string, m: string) => (/issue with the selected model|\bmodel\b.{0,80}\b(?:not exist|invalid|unknown|not found|have access)\b/i.test(String(e)) ? new ModelRefused(unknownModel(cell, m)) : e)   // the engine's wording; a transient "overloaded" or "not available" is retryable, so it is not here
 
 export const providerOf = (env: Record<string, string | undefined>) => (env.CLAUDE_CODE_USE_BEDROCK ? 'bedrock' : env.CLAUDE_CODE_USE_VERTEX ? 'vertex' : 'anthropic')
 const aliasOf = (m: string) => m.replace(/\[1m\]$|@\d{8}$/, '')

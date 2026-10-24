@@ -41,6 +41,14 @@ describe('the task budget', () => {
     w.h.spawnAgent = (x: any) => admitWith(w.h, w.dep, { ...x, background: true }, Object.assign(async () => { throw new Error('There\'s an issue with the selected model (haiku-9). It may not exist or you may not have access to it.') }, { origin: { plugin: 'cadre' } }))
     await w.turn(); expect((await w.h.board.read()).drive.stopped).toBe('roles.worker.byRisk.light.model: unknown model "haiku" (an alias, a claude-… id or a models.allow entry)')
   })
+  test('a "not found" or "overloaded" error that is not about the model never stops the run at once', async () => {
+    const w = await world(), [id] = w.ids; await arm(w.h, 'auto')
+    for (const m of ['ENOENT: /x/models/a.json: not found', 'The model is overloaded; not available right now']) {
+      w.h.spawnAgent = (x: any) => admitWith(w.h, w.dep, { ...x, background: true }, Object.assign(async () => { throw new Error(m) }, { origin: { plugin: 'cadre' } }))
+      await w.turn(); expect((await w.h.board.read()).drive.stopped).toBeUndefined()
+    }
+    expect((await budgetOf(w.h, id)).startFails).toBe(2)
+  })
   test('settings: limits.startFails 2 stops the run at the 2nd failed start of one task', async () => {
     const w = await world(), [id] = w.ids; w.cfg.limits.startFails = 2; await arm(w.h, 'auto')
     w.h.spawnAgent = (x: any) => admitWith(w.h, w.dep, { ...x, background: true }, Object.assign(async () => { throw new Error('engine down') }, { origin: { plugin: 'cadre' } }))

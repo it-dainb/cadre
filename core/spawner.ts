@@ -43,7 +43,7 @@ DRIVE.sync = syncMode
 // the picks in flight are core/queue's `held`: two turn ends at once never start one task's step twice (admission's CAS holds across sessions)
 let gate: Promise<unknown> = Promise.resolve()
 const picking = <T>(f: () => Promise<T>): Promise<T> => { const r = gate.then(f, f); gate = r.catch(() => {}); return r }   // ponytail: one process-wide queue; across sessions the drive CAS still decides
-// the spawner's step at a turn end or /cadre: start every agent the board wants, within maxParallel, counted against the drive bounds
+// the spawner's step at a turn end or /cadre: start every agent the board wants, within the slots (core/queue), counted against the drive bounds
 export async function spawnStep(h: Host, event: string): Promise<void> {
   if (!FRAMES.includes(event) || !h.spawnAgent) throw new Error(`spawn refused: ${event} is not a frame an agent's events stay under`)
   await explores(h).catch((e: Error) => h.log(`explorers: ${e.message}`))   // never the tick's task spawns
@@ -53,7 +53,7 @@ export async function spawnStep(h: Host, event: string): Promise<void> {
   if (await land(h) && !(await ready(h))) return   // what landed may finish the run
   await sendQueued(h)   // a rework a close queued (a conflict on the plan tip): its worker is resumed now
   const cfg = await cfgOf(h), usd = (await h.usage?.().catch(() => undefined))?.cost?.usd
-  const go = await picking(async () => {   // one frame of this process at a time: read the board, pick within maxParallel, count them on the drive (a CAS three frames would contend on)
+  const go = await picking(async () => {   // one frame of this process at a time: read the board, pick within the slots, count them on the drive (a CAS three frames would contend on)
     const s = await h.board.read()
     const cands = spawnable(modelView(s), await h.bind.read()).filter(x => !Q.has(x.id, x.role)).map((x): Q.Want => ({ ...x, head: x.role !== 'claim' }))
     const keyed = Object.keys(cfg.concurrency.models).length + Object.keys(cfg.concurrency.providers).length > 0, capped = ((cfg.units ?? []) as { concurrency?: number }[]).some(u => u.concurrency)
@@ -69,7 +69,10 @@ export async function spawnStep(h: Host, event: string): Promise<void> {
     let ok = false; try { ok = go.length > 0 && (await tally(h, cfg, usd, go.length)) } finally { if (!ok) for (const x of go) Q.drop(x.id, x.role) }   // refused or thrown: the picks go back
     return ok ? go : []
   })
-  for (const x of go) await one(h, x.id, x.role).catch((e: Error) => h.log(`${x.id} not started: ${e.message}`))   // one pick's throw never leaks the picks after it
+  for (const [i, x] of go.entries()) {   // one pick's throw never leaks the picks after it
+    await one(h, x.id, x.role).catch((e: Error) => h.log(`${x.id} not started: ${e.message}`))
+    if ((await h.board.read()).drive.stopped) { for (const y of go.slice(i + 1)) Q.drop(y.id, y.role); break }   // a stopped drive starts nothing more
+  }
   if (go.length && (await h.ui.read()).goal === IDLE) await h.ui.update(u => ({ ...u, goal: undefined }))   // the idle fallback is not needed: agents run
   if (event === 'turn.complete') await drive(h, cfg, usd, true)   // what is main's own, if anything: one turn (a command frame may not submit)
 }

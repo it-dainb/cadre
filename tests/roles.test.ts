@@ -26,7 +26,7 @@ async function host() {
 const input = (tool: string, p: string) => (tool === 'NotebookEdit' ? { notebook_path: p } : tool === 'Glob' ? { pattern: p, path: p } : tool === 'Grep' ? { path: p } : { file_path: p })
 
 describe('roles as data: zero behaviour change', () => {
-  test('differential: live fence() = the frozen v0.15.0 fence() on every reachable call', async () => {
+  test('differential: live fence() = the frozen v0.15.0 fence() on every reachable call', { timeoutMs: 60_000 }, async () => {   // ~5 s idle: a loaded machine must not flake it
     const h = await host(); let n = 0
     for (const locks of [undefined, { 'bd-a1': ['/x/bd-a1/src/a.ts'] }]) for (const core of [undefined, { 'bd-a1': ['/x/bd-a1/src/b.ts'] }]) for (const home of [undefined, '/hm/u'])
       for (const state of ['active', 'blocked', 'review']) for (const step of ['worker', 'tester', 'green']) for (const kind of [undefined, 'init', 'setup']) for (const guide of [undefined, '/x/repo/.cadre/guide.md']) {
