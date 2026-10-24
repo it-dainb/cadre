@@ -4,6 +4,8 @@
 // limits.helpers.minutes) a failure: the first respawns it, the second answers "failed" and gives the human one dialog. The wake key is (agent, run epoch, needId).
 import type { Binding, Host } from '../types'
 import { ctlGet, ctlKeys, ctlSet } from './board'
+import { StoreError } from '../task-management/store'
+import { storeOf } from './dispatch'
 import { emit } from './events'
 import { ask } from './decide'
 import { cfgOf } from './dispatch'
@@ -33,12 +35,19 @@ export async function request(h: Host, agentId: string, b: Binding, r: { request
   return 'request recorded; a helper looks into it and you are resumed with its answer. Stop and wait.'
 }
 
-// the one answer: stored, then the requester's wake (dropped by its run epoch and needId when that run is no longer the one that asked)
-async function answer(h: Host, n: Need, text: string | null): Promise<void> {
-  if (n.answer !== undefined) return
-  const x = { ...n, answer: text ?? FAILED, ok: text !== null }
-  await put(h, x); await emit(h, 'help.done', { taskId: n.task, helper: n.helper, ok: x.ok }, { taskId: n.task })
-  await step(h, n.requester, { type: 'answered', needId: n.needId, epoch: n.epoch, text: reply(x) })
+// the one settle of a request: a compare-and-set on its key (as drive.casDrive), so the first writer wins, a report or a failure; the loser changes nothing and does nothing
+async function cas(h: Host, task: string, f: (n: Need) => Need | undefined): Promise<Need | undefined> {
+  const store = await storeOf(h), k = `need:${task}`
+  for (let i = 0; i < 5; i++) {
+    const n = (await store.control()).doc[k] as Need | undefined, x = n && f(n); if (!x) return undefined
+    try { await store.setControl({ [k]: x }, { [k]: n }); return x } catch (e) { if (!(e instanceof StoreError && e.code === 'GuardMismatch')) throw e }
+  }
+}
+// the answer is stored (text null: failed), then the requester's wake (dropped by its run epoch and needId when that run is no longer the one that asked)
+async function answer(h: Host, n: Need, text: string | null, fail = false): Promise<boolean> {
+  const x = await cas(h, n.task, c => (c.needId === n.needId && c.answer === undefined && (!fail || c.fails >= 1) ? { ...c, answer: text ?? FAILED, ok: text !== null } : undefined)); if (!x) return false
+  await emit(h, 'help.done', { taskId: x.task, helper: x.helper, ok: x.ok }, { taskId: x.task })
+  await step(h, x.requester, { type: 'answered', needId: x.needId, epoch: x.epoch, text: reply(x) }); return true
 }
 // a helper's report (core/close.report): its answer is the requester's wake
 export async function helperDone(h: Host, b: Binding, r: { role: string; answer?: string; citations?: { path?: string; line?: number }[] }): Promise<string> {
@@ -47,11 +56,11 @@ export async function helperDone(h: Host, b: Binding, r: { role: string; answer?
   await answer(h, n, [String(r.answer), ...(r.citations ?? []).slice(0, 10).map(c => `${c.path}:${c.line ?? ''}`)].join('\n').slice(0, 2500))
   return 'answer recorded. Stop.'
 }
-// a failed helper is stopped like the backstop's (it never runs beside its respawn), ended lost; the first failure leaves the request for the spawner, the second ends it
+// a failed helper is stopped like the backstop's (it never runs beside its respawn), ended lost; the first failure leaves the request for the spawner, the second answers failed
 async function failed(h: Host, a: string, n: Need, why: string): Promise<void> {
+  if ((await needOf(h, n.task))?.answer !== undefined) return   // it answered first
   await h.stopAgent?.(a).catch(() => {}); await step(h, a, { type: 'end', cause: 'lost', reason: why })
-  if (n.fails < 1) return put(h, { ...n, fails: 1 })
-  await answer(h, n, null)
+  if (!(await answer(h, n, null, true))) return void (await cas(h, n.task, c => (c.needId === n.needId && c.answer === undefined && c.fails < 1 ? { ...c, fails: 1 } : undefined)))   // the first failure: once
   await ask(h, { id: `help:${n.task}:${n.needId}`, kind: 'flag', title: `${n.task}: a helper could not answer`, hash: n.needId, tab: 'epic', sel: n.task, lines: [`The helper asked to look into "${n.ask.slice(0, 120)}" failed twice (${why}). Its task goes on without the answer.`], options: [{ key: 'k', label: 'OK', verb: 'keep' }] })
 }
 // the helper's turn ended (core/close.stopped): after its report it just ends; without one it failed, a usage limit aside (the drive waits, the spawner starts it again)

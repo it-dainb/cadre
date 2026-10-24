@@ -91,6 +91,22 @@ describe('every helper ends and answers exactly once', () => {
   })
 })
 
+describe('one settle per request', () => {
+  test('a report and the minutes failure at once: one answer, one help.done, no respawn, no dialog; and the other way round', async () => {
+    for (const reportFirst of [true, false]) {
+      const { w, id, stops } = await asked(); w.cfg.limits.helpers.minutes = 1; w.clock.now += 70_000
+      const rep = () => w.rep('ag2', ANSWER), tick = () => overdue(w.h, 's1'), both = reportFirst ? [rep(), tick()] : [tick(), rep()]; await Promise.all(both)
+      await w.stop('ag2'); await w.turn()
+      const n = await needOf(w.h, id); expect(await events(w, 'help.done')).toHaveLength(1); expect(n?.answer).toBeDefined(); expect(types(w)).toEqual(['cadre:worker', 'cadre:explorer']); expect(w.sent).toHaveLength(1)
+      expect((await w.h.board.read()).decisions ?? []).toEqual([]); expect(n?.ok).toBe(true); void stops
+    }
+  })
+  test('a failure after the answer is a no-op, and an answer after the second failure is dropped', async () => {
+    const { w, id, stops } = await asked(); await w.rep('ag2', ANSWER); w.cfg.limits.helpers.minutes = 1; w.clock.now += 70_000; await overdue(w.h, 's1'); expect(stops).toEqual([]); expect(await events(w, 'help.done')).toHaveLength(1)
+    expect((await needOf(w.h, id))?.ok).toBe(true)
+  })
+})
+
 describe('refused requests', () => {
   test('a helper outside the role\'s canRequest, one that is not available, over the cap (settings: limits.helpers.perTask), and a session where Claude starts the agents', async () => {
     const { w, id } = await start(); const ask = (helper: string) => w.rep('ag1', { ...REQ, request: { ...REQ.request, helper } })
