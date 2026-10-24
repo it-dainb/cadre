@@ -7,7 +7,7 @@ snapshots() {
   # one docker exec per round (it is the costly part under load): the store file, which also tells the container is gone; the control doc is read from the work dir on the host
   ( prev=; while :; do
       cur=$(docker exec "cadre-tui-$N" sh -c 'cat /cchome/.claude/plugins/store/cadre_*.json 2>/dev/null; true' 2>/dev/null) || { docker ps -q -f "name=^cadre-tui-$N\$" | grep -q . && { sleep 1; continue; }; break; }   # an exec that failed to start is tried again
-      st=$(cd "$D/work" && for f in .cadre/state/d/_control.* */.cadre/state/d/_control.* .cadre/state/j/[0-9]* */.cadre/state/j/[0-9]*; do [ -f "$f" ] && printf "%s\t%s\n" "${f#*/.cadre/state/}" "$(cat "$f")"; done; true)
+      st=$(cd "$D/work" && for f in ./.cadre/state/d/_control.* ./*/.cadre/state/d/_control.* ./.cadre/state/j/[0-9]* ./*/.cadre/state/j/[0-9]*; do [ -f "$f" ] && printf "%s\t%s\n" "${f#*/.cadre/state/}" "$(cat "$f")"; done; true)
       [ -n "$cur" ] && [ "$cur$st" != "$prev" ] && { t=$(date +%s%3N); printf '%s' "$cur" >"$O/store/$t.json"; printf '%s' "$st" >"$O/store/$t.state"; prev=$cur$st; }
       cp "$D/out/stubbed.jsonl" "$O/" 2>/dev/null; sleep 2
     done ) &
