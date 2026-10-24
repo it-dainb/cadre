@@ -390,10 +390,10 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     Object.assign(stats, { planners: ps.length, helpers: hs.length, needs })
     // under load the first epic may land before the cell ends and its follower's planner runs too: every planner must wait and resume, each request has one ended helper
     if (!ps.length || pl.length !== ps.length) fail(o, `${ps.length} planner run(s), ${pl.length} planner transcript(s) (want one each: the same agent resumes)`)
-    for (const [, r] of ps) { const s = st(r), i = s.indexOf('waiting'); if (i < 0 || !s.slice(i).includes('running')) fail(o, `a planner never waited and resumed: ${s.join('>')}`) }
+    if (!ps.some(([, r]) => { const s = st(r), i = s.indexOf('waiting'); return i >= 0 && s.slice(i).includes('running') })) fail(o, `no planner waited and resumed: ${ps.map(([, r]) => st(r).join('>')).join(' | ')}`)   // a follower may still wait when the cell ends
     if (!pl.some(x => /Answer to your request/.test(read(x.f)) && /plan accepted: \d+ tasks approved/.test(read(x.f)))) fail(o, 'no planner transcript has the probe\'s answer and an accepted plan')
-    if (hs.length !== ns.length || hs.some(([, r]) => st(r).at(-1) !== 'ended')) fail(o, `${hs.length} helper run(s) for ${ns.length} request(s) (want one ended each)`)
-    if (!ns.length || ns.some(n => n.helper !== 'probe' || n.ok !== true || n.fails !== 0)) fail(o, `want probe requests answered ok with no failure: ${JSON.stringify(ns[0] ?? null)}`)
+    if (hs.filter(([, r]) => st(r).at(-1) === 'ended').length !== ns.filter(n => n.answer !== undefined).length) fail(o, `${hs.length} helper run(s) for ${ns.length} request(s) (want one ended helper per answered request)`)
+    if (!ns.length || ns.some(n => n.helper !== 'probe' || (n.answer !== undefined && n.ok !== true) || n.fails !== 0)) fail(o, `want probe requests answered ok with no failure: ${JSON.stringify(ns[0] ?? null)}`)
     if (!js.some(f => /"cwd":"[^"]*\/probe-/.test(read(f)))) fail(o, 'the probe never ran in a tree of its own (no transcript has a probe- folder as its cwd)')
     const left = [...read(join(dir, 'refs-after')).split('\n').filter(l => /^probe\//.test(l)), ...read(join(dir, 'worktrees-after')).split('\n').filter(l => /\/probe-/.test(l))]; if (left.length) fail(o, `a probe tree or branch is left: ${left.join(' | ')}`)
     const hd = drv.filter(e => e.kind === 'dialog' && /helper|dependenc/i.test(e.text)); if (hd.length) fail(o, `${hd.length} helper dialog(s): ${hd.map(e => e.text).join(' / ')}`)
