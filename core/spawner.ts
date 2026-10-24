@@ -113,7 +113,8 @@ async function one(h: Host, id: string, role: string) {
     const r = await h.spawnAgent!({ prompt: modelText('agent-brief', n), description: `${role === 'claim' ? 'start' : role} ${id}` })   // PLAN-<epic>: admission starts its planner
     if (r?.agentId) await h.ui.update(u => ({ ...u, own: [...((u.own as string[]) ?? []), r.agentId!].slice(-100) }))   // its task-notification never reaches main (core/reuse.submit)
     if (r?.deny) h.log(`${id} not started: ${r.deny}`)   // a deny is admission's answer (a gate, a lease): the gate or the next turn end deals with it
-  } catch (x) {   // admission undid the claim and rethrew: the task budget's startFails; at limits.startFails the run stops for the human
+  } catch (x) {   // admission undid the claim and rethrew: a refused model stops the run at once; else the task budget's startFails, at limits.startFails the run stops for the human
+    if (x instanceof Q.ModelRefused) return void (await stop(h, x.message))
     const n = await charge(h, id, 'startFails'), max = (await cfgOf(h)).limits.startFails
     h.log(`${id} could not start (${n}/${max}): ${x}`); if (n >= max) await stop(h, `${id} could not start ${n} times: ${String(x).slice(0, 120)}`)
   } finally { Q.drop(id, role); await settleIntent(h, n) }

@@ -21,8 +21,12 @@ export function modelIssues(c: Config): string[] {
     for (const [k, x] of Object.entries(v?.byRisk ?? {}) as [string, any][]) cells.push([`roles.${r}.byRisk.${k}.model`, x.model], [`roles.${r}.byRisk.${k}.escalate.model`, x.escalate?.model])
   }
   for (const u of [...(c.units ?? []), ...(c.packages ?? [])] as any[]) for (const [r, x] of Object.entries(u?.routing ?? {}) as [string, any][]) cells.push([`units ${u.root}: routing.${r}.model`, x?.model])
-  return cells.filter(([, m]) => typeof m === 'string' && !MODEL_OK.test(m) && !c.models.allow.includes(m)).map(([k, m]) => `${k}: unknown model "${m}" (an alias, a claude-… id or a models.allow entry)`)
+  return cells.filter(([, m]) => typeof m === 'string' && !MODEL_OK.test(m) && !c.models.allow.includes(m)).map(([k, m]) => unknownModel(k, String(m)))
 }
+const unknownModel = (cell: string, m: string) => `${cell}: unknown model "${m}" (an alias, a claude-… id or a models.allow entry)`
+// a well-formed name the engine refuses at the spawn: the same line as the load gate, and the drive stops at once (core/spawner)
+export class ModelRefused extends Error {}
+export const modelRefusal = (e: unknown, cell: string, m: string) => (/model/i.test(String(e)) && /not found|invalid|unknown|not exist|not available|issue with the selected|no access/i.test(String(e)) ? new ModelRefused(unknownModel(cell, m)) : e)
 
 export const providerOf = (env: Record<string, string | undefined>) => (env.CLAUDE_CODE_USE_BEDROCK ? 'bedrock' : env.CLAUDE_CODE_USE_VERTEX ? 'vertex' : 'anthropic')
 const aliasOf = (m: string) => m.replace(/\[1m\]$|@\d{8}$/, '')

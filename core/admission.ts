@@ -26,7 +26,7 @@ import { lockCore, watch } from './rebase'
 import { notesOf, pathsOf, sliceNotes, specTestsOf, untested } from './validate'
 import { branchOf, epicOf } from './milestone'
 import { plannerBrief } from './planner'
-import { tasksFull } from './queue'
+import { modelRefusal, tasksFull } from './queue'
 import { budgetOf, intentOf, reserve, step as lifeStep, unreserve } from './lifecycle'
 
 export interface Deps {
@@ -97,7 +97,7 @@ async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTa
   const fo = forcedOf(env), forced = fo.model || fo.effort ? `${fo.model ?? ''}/${fo.effort ?? ''}` : undefined
   const run = { role, model: fo.model || r0.model, effort: fo.effort || r0.effort || 'default', risk, setting: r0.setting, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }
   let r: any
-  try { r = await next({ ...e, subagentType: `cadre:${role}`, prompt: modelText('agent-brief', prompt), model: r0.model, cwd }) } catch (err) { await undo(); throw err }
+  try { r = await next({ ...e, subagentType: `cadre:${role}`, prompt: modelText('agent-brief', prompt), model: r0.model, cwd }) } catch (err) { await undo(); throw modelRefusal(err, `${r0.setting}.model`, r0.model) }
   if (r?.deny) { await undo(); return r }
   if (!r?.agentId) { await unreserve(h, t.id, step); return r }
   if (typeof r.model === 'string' && r.model !== run.model) Object.assign(run, { ran: r.model })   // the id Claude Code resolved the alias to (its agent.spawn result)

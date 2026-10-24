@@ -36,6 +36,11 @@ describe('the task budget', () => {
     await stopped(w.h, w.dep, { agentId: 'ag1', reason: 'error', answer: 'API Error' })
     expect((await w.h.board.read()).tasks[0].state).toBe('todo'); const { epoch: _spawns, ...charged } = await budgetOf(w.h, id); expect(Object.values(charged).every(v => v === 0)).toBe(true)
   })
+  test('a model the engine refuses at the spawn stops the run at once and names the cell', async () => {
+    const w = await world(); await arm(w.h, 'auto')
+    w.h.spawnAgent = (x: any) => admitWith(w.h, w.dep, { ...x, background: true }, Object.assign(async () => { throw new Error('There\'s an issue with the selected model (haiku-9). It may not exist or you may not have access to it.') }, { origin: { plugin: 'cadre' } }))
+    await w.turn(); expect((await w.h.board.read()).drive.stopped).toBe('roles.worker.byRisk.light.model: unknown model "haiku" (an alias, a claude-… id or a models.allow entry)')
+  })
   test('settings: limits.startFails 2 stops the run at the 2nd failed start of one task', async () => {
     const w = await world(), [id] = w.ids; w.cfg.limits.startFails = 2; await arm(w.h, 'auto')
     w.h.spawnAgent = (x: any) => admitWith(w.h, w.dep, { ...x, background: true }, Object.assign(async () => { throw new Error('engine down') }, { origin: { plugin: 'cadre' } }))
