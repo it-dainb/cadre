@@ -8,7 +8,7 @@
 //   limit: lite, the first worker's first step goes to the proxy, which answers a usage limit (stub-proxy.mjs); slow: lite, the worker waits 45 s first;
 //   silent: lite, the worker writes its files and stops without a report, every time (the report-less end);
 //   multi: full lane, two tasks (kebabCase after titleCase), an amend on a stale revision refused then retried (plan-tools-full);
-//   sub: lite, the task in the `lib` submodule unit (submodule-unit); cont: lite, the reviewer waits 45 s first (continue-after-quit-s kills before or during it).
+//   sub: lite, the task in the `lib` submodule unit (submodule-unit); cont: lite, the reviewer waits 20 s first (continue-after-quit-s kills before or during it).
 import type { Register } from 'claude-code'
 
 type Row = { role: 'user' | 'assistant'; text: string; toolUses?: { tool: string; input?: any }[]; toolResults?: { text?: string; isError?: boolean }[] }
@@ -83,7 +83,7 @@ ${TEST(f)}EOF`
 const TASKS = FNS.map(f => ({ title: `${f.name}(s) with node:test tests`, description: `Create src/${f.name}.mjs exporting ${f.name}: ${f.what}.`, type: 'feature', package: '.',
   paths: [`src/${f.name}.mjs`, `test/${f.name}.test.mjs`], scenarios: [`S1: Given '${f.input}' When ${f.name} is called Then it returns '${f.out}'`],
   changelog: { category: 'Added', entry: `${f.name}(s): ${f.what}` }, interface: { symbols: [{ name: f.name, kind: 'function', params: ['s: string'], returns: 'string', status: 'new' }] } }))
-const taskOf = (brief: string) => brief.match(/TASK-([\w-]+\.\d+)/)?.[1] ?? brief.match(/\b([a-z][\w]*-[a-z0-9]+\.\d+)\b/)?.[1]
+const taskOf = (brief: string) => brief.match(/TASK-([a-z][\w-]*\w)/)?.[1]   // ids are c-6-1, m-2: a letter first, a word char last
 const WAIT = { tool: 'Bash', input: { command: 'node -e "setTimeout(() => {}, 45000)"', description: 'Wait' } }
 const ROLES: Record<string, (k: number, brief: string, cwd: string) => Act> = {
   worker: (k, b) => { const f = fnOf(b), w = { tool: 'Bash', input: { command: FILES(f), description: `Write ${f.name} and its test` } }
@@ -91,8 +91,8 @@ const ROLES: Record<string, (k: number, brief: string, cwd: string) => Act> = {
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: `Added ${f.name}(s) in src/${f.name}.mjs with a node:test test; npm test passes.`, risks: [] } }])[k] ?? { text: END } },
   tester: (k, b, cwd) => { const f = fnOf(b); return [{ tool: 'Write', input: { file_path: `${cwd}/test/${f.name}.test.mjs`, content: TEST(f) } },
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'tester', outcome: 'done', summary: `One test per scenario in test/${f.name}.test.mjs.`, tests: [{ path: `test/${f.name}.test.mjs`, name: f.title, scenario: 'S1' }], run: { command: ['node', '--test', `test/${f.name}.test.mjs`] } } }][k] ?? { text: END } },
-  reviewer: (k, b) => { const f = fnOf(b), full = script === 'full' || script === 'multi'; return (script === 'cont' ? [WAIT] : []).concat([{ tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
-    { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'reviewer', verdict: 'pass', summary: `The commit adds ${f.name} and its test only; npm test passes.`, findings: [], coverage: full ? [{ scenario: 'S1', test: f.title, ok: true }] : [], contractStatus: full ? [{ name: f.name, ok: true }] : [] } }])[k] ?? { text: END } },
+  reviewer: (k, b) => { const f = fnOf(b), full = script === 'full' || script === 'multi'; return [{ tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
+    { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'reviewer', verdict: 'pass', summary: `The commit adds ${f.name} and its test only; npm test passes.`, findings: [], coverage: full ? [{ scenario: 'S1', test: f.title, ok: true }] : [], contractStatus: full ? [{ name: f.name, ok: true }] : [] } }][k] ?? { text: END } },
   explorer: k => [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'explorer', answer: 'One string helper, slug, in src/slug.mjs as a named ESM export; tests in test/ use node:test; npm test runs node --test.', citations: [{ path: 'src/slug.mjs', line: 1 }, { path: 'package.json', line: 1 }] } }][k] ?? { text: END },
 }
 function agent(rows: Row[], cwd: string): [string, Act] {
@@ -126,6 +126,9 @@ export const register: Register = (on) => {
     const [who, a] = e.agentId ? agent(rows, cwds[e.agentId] ?? '/work/run') : ['main', main(rows)]
     if (script === 'limit' && who === 'worker' && !injected) { injected = true; await L($, `step agent=${e.agentId} who=worker index=${e.index} -> next (usage limit from the proxy)`); return yield* next(e) }
     await L($, `step agent=${e.agentId ?? 'main'} who=${who} index=${e.index} msgs=${e.messageCount} effort=${e.effort ?? '-'} -> ${a.tool ? `${a.text ? 'text+' : ''}tool ${a.tool}` : 'text end_turn'}`)
+    // cont: the reviewer's first step waits 20 s. The reviewer has no Bash, so the wait is a sleep here: with none, the reviewer ends within a second of the worker and the
+    // cell's SIGKILL (polled every 2 s, later under load) lands after it, leaving no reviewer to run after the restart
+    if (script === 'cont' && who === 'reviewer' && e.index === 0) await new Promise(r => setTimeout(r, 20000))
     return yield* answer(e, a)
   })
   on('turn.complete', async ($: any, e: any, next) => { await L($, `turn.complete agent=${e.agentId ?? 'main'} reason=${e.reason} usage=${e.usage?.model ?? '-'}`); return next(e) })

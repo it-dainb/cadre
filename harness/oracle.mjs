@@ -321,7 +321,7 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     else if (!dlines.some(l => l.includes(`SCRIPTED turn.complete agent=${sp} `))) fail(o, `the spawned agent ${sp} never ended`)
   }
   if (o === 'continue') {   // a kill between the worker and the reviewer, then /cadre continue: the same task goes on; no worker after the kill; one reviewer after it
-    const k = drv.find(e => e.kind === 'fault' && /^kill/.test(e.text))?.t, task = b => b.match(/TASK-([\w-]+\.\d+)/)?.[1] ?? b.match(/\b([a-z][\w]*-[a-z0-9]+\.\d+)\b/)?.[1]
+    const k = drv.find(e => e.kind === 'fault' && /^kill/.test(e.text))?.t, task = b => b.match(/TASK-([a-z][\w-]*\w)/)?.[1]
     const ws = subs.filter(x => /Worker brief/.test(x.brief)), rv = subs.filter(x => /Reviewer brief/.test(x.brief) && x.t > k)
     Object.assign(stats, { workers: ws.length, reviewersAfter: rv.length, tasks: [...new Set([...ws, ...rv].map(x => task(x.brief)))] })
     if (!k) fail(o, 'the kill never happened (the worker never ended)')
