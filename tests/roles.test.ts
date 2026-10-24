@@ -109,6 +109,12 @@ describe('custom roles: the load checks', () => {
     for (const n of ['worker', 'reviewer', 'explore']) expect(customIssue(n, AUD)).toContain('built-in')
     expect(customIssue('x', { ...AUD, disallowedTools: ['StructuredOutput'] })).toContain('StructuredOutput'); expect(customIssue('x', { ...AUD, tools: [...AUD.tools, 'SubagentHandback'] })).toContain('StructuredOutput')
   })
+  test('a description over 300 bytes is refused; Bash needs network on and write **', async () => {
+    expect(U({ ...AUD, description: 'd'.repeat(301) }).diagnostics.join()).toContain('description is over 300 bytes'); expect(U({ ...AUD, description: 'd'.repeat(300) }).diagnostics).toEqual([])
+    const B = { ...AUD, tools: [...AUD.tools, 'Bash'] }
+    for (const c of [{}, { network: 'on' }, { network: 'on', write: ['src/**'] }, { write: ['**'] }]) expect(U({ ...B, ...c }).diagnostics.join()).toContain('Bash can reach the network and write anywhere')
+    expect(U({ ...B, network: 'on', write: ['**'] }).diagnostics).toEqual([])
+  })
   test('repo layer: Write, Bash, network, a write glob, a wider canRequest or a leaky prompt is refused; read-only passes', async () => {
     for (const c of [{ tools: [...AUD.tools, 'Write'] }, { tools: [...AUD.tools, 'Bash'] }, { network: 'on' }, { write: ['src/**'] }, { canRequest: ['explore'] }, { prompt: 'Run the hook and report.' }]) { const r = R({ ...AUD, ...c }); expect(r.config.roles.custom).toEqual({}); expect(r.diagnostics.join()).toContain('roles.custom.x') }
     expect(R({ ...AUD, write: [], network: 'off' }).diagnostics).toEqual([])
@@ -149,6 +155,11 @@ describe('custom roles: registration and spawn', () => {
     const { regs, spawned, spawn } = await boot($, on, 99)
     expect(regs.length).toBe(1); await $.turn.start({ turnId: 't1' }); expect(regs.length).toBe(2); await $.turn.start({ turnId: 't2' }); expect(regs.length).toBe(2)
     expect((await spawn()).deny).toContain('not available'); expect(spawned).toEqual([])
+  })
+  test('a ledger left by an earlier session is cleared at start: the role registers again, and no same-turn spawn follows', ENGINE, async ($, on) => {
+    const { regs, spawn } = await boot($, on, 0)
+    await $.turn.start({ turnId: 't1' }); expect((await spawn()).deny).toBeUndefined()
+    await $.session.start(START); expect(regs.length).toBe(2); expect((await spawn()).deny).toContain('next turn')
   })
   test('a register fulfilled by the retry is spawned only from the turn after it', ENGINE, async ($, on) => {
     const { regs, spawn } = await boot($, on, 1)

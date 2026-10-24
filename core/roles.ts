@@ -25,7 +25,7 @@ export const fixedRules = (): [string, string, string][] => [['fixed.exitTools',
   ['fixed.writeScope', (Object.keys(ROLES_DEFAULT) as Role[]).map(r => `${r} ${ROLES_DEFAULT[r].write.join(' ') || 'none'}`).join(', '), 'where each agent role may write (inside its own working directory, never the protected paths)']]
 
 // ---- custom roles (roles.custom): a spec is checked at load; the user layer may name any known tool, the repo layer only read-only ones ----
-export const PROMPT_CAP = 2048   // bytes (A2), both layers
+export const PROMPT_CAP = 2048, DESC_CAP = 300   // bytes (A2), both layers
 const FIELDS = ['description', 'prompt', 'tools', 'disallowedTools', 'model', 'effort', 'maxTurns', 'write', 'network', 'canRequest']   // never permissionMode, hooks, mcpServers, isolation, memory, skills, background
 const KNOWN = ['Read', 'Write', 'Edit', 'NotebookEdit', 'Grep', 'Glob', 'Bash', 'PowerShell', 'Monitor', 'TodoWrite', 'WebFetch', 'WebSearch', R, C, I], HELPERS = ['explore', 'setup', 'probe']
 const strs = (v: unknown) => v === undefined || (Array.isArray(v) && v.every(x => typeof x === 'string'))
@@ -38,6 +38,7 @@ export function customIssue(name: string, s: any, repo?: { canRequest?: readonly
   if (bad) return `${bad}: not a role field`
   if (!s.description || typeof s.description !== 'string' || !s.prompt || typeof s.prompt !== 'string') return 'a role needs a description and a prompt, both text'
   if (!strs(s.tools) || !strs(s.disallowedTools) || !strs(s.write) || !strs(s.canRequest)) return 'tools, disallowedTools, write and canRequest: expected lists of text'
+  if (new TextEncoder().encode(s.description).length > DESC_CAP) return `the description is over ${DESC_CAP} bytes`
   if (new TextEncoder().encode(s.prompt).length > PROMPT_CAP) return `the prompt is over ${PROMPT_CAP} bytes`
   if (leaks('agent-file', `${s.description}\n${s.prompt}`).length) return 'the description and the prompt must say what the agent does, not how the tool works inside'
   const unk = t.find(x => !KNOWN.includes(x) && !EXIT.includes(x) && !x.startsWith('mcp__cadre__'))
@@ -49,6 +50,7 @@ export function customIssue(name: string, s: any, repo?: { canRequest?: readonly
   if (s.maxTurns !== undefined && !(Number.isInteger(s.maxTurns) && s.maxTurns >= 1 && s.maxTurns <= 100)) return 'maxTurns: a whole number from 1 to 100'
   if (s.model !== undefined && typeof s.model !== 'string') return 'model: expected text'
   if (s.canRequest?.some((x: string) => !(repo ? repo.canRequest ?? [] : HELPERS).includes(x))) return repo ? 'canRequest: the repo file may only narrow the user file\'s' : `canRequest: ${HELPERS.join(', ')}`
+  if (t.includes('Bash') && (s.network !== 'on' || !s.write?.includes('**'))) return 'Bash can reach the network and write anywhere: drop Bash, or set network on and write ["**"]'
   if (s.network !== 'on' && t.some(x => x === 'WebFetch' || x === 'WebSearch')) return 'tools: the web tools need network "on"'
   if (repo && (s.write?.length || s.network === 'on' || t.some(x => ![ 'Read', I, R].includes(x)))) return 'the repo file may only define read-only roles: write [], network off, tools Read, inspect, report'
   return exitIssue(s)
