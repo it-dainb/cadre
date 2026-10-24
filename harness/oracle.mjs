@@ -380,7 +380,8 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     const briefs = subs.filter(x => /(Worker|Tester|Reviewer) brief/.test(x.brief)).sort((a, b) => a.t - b.t), after = briefs.filter(x => x.t > (reqs[0]?.at ?? Infinity)), carry = briefs.filter(x => LESSON.test(x.brief))
     Object.assign(stats, { requests: reqs.length, briefs: briefs.length, briefsAfter: after.length, briefsWithLesson: carry.length, model: reqs[0]?.model, maxTokens: reqs[0]?.max_tokens })
     if (reqs.length !== 1) fail(o, `${reqs.length} lesson request(s) (want 1)`)
-    else if (reqs[0].max_tokens !== 800 || !/haiku/.test(reqs[0].model ?? '')) fail(o, `the request was ${reqs[0].model} max_tokens ${reqs[0].max_tokens} (want haiku, 800)`)
+    else if (!(reqs[0].max_tokens >= 800 && reqs[0].max_tokens <= 800 + 2048) ||   // the engine adds a 2048-token thinking allowance to the 800 asked (measured: 2848)
+       !/haiku/.test(reqs[0].model ?? '')) fail(o, `the request was ${reqs[0].model} max_tokens ${reqs[0].max_tokens} (want haiku, 800 + the engine's 2048)`)
     else if (!after.length || after.some(x => !LESSON.test(x.brief))) fail(o, `${after.length} brief(s) after the pass, ${carry.length} carry the lesson (want every one)`)
   }
   if (o === 'submodule') {   // the task landed in lib's own dev, and the parent's dev records that commit
