@@ -87,11 +87,11 @@ async function main(argv) {
     let bad = 0, n = 0
     const modes = [{}, { ascii: true }, { docked: true }, { theme: 'light' }]   // the sweep: Unicode, ASCII, the docked band width (24), the light palette
     const jobs = names().flatMap(name => modes.flatMap(m => WIDTHS.flatMap(w => ALLTABS.map(tab => ({ name, w, tab, ...m })))))
-    for (let i = 0; i < jobs.length; i += 8) await Promise.all(jobs.slice(i, i + 8).map(async j => {   // 8 child processes at a time
-      const r = await run({ ...j, v1: V1, rows: st.rows }); n++
+    for (const j of jobs) {   // in this process: modules load once (a child per frame spent minutes re-transforming them)
+      const r = await child({ ...j, v1: V1, rows: st.rows }).catch(e => ({ error: String(e?.stack ?? e) })); n++
       if (r.error) { bad++; console.error(`FAIL ${j.name} ${j.tab} ${j.w} ${JSON.stringify(j.ascii ?? j.docked ?? j.theme ?? '')}\n${r.error}`) }
       else if (r.over.length) { bad++; console.error(`OVERFLOW ${j.name} ${j.tab} ${j.w} ${JSON.stringify(j.ascii ?? j.docked ?? j.theme ?? '')}\n  ${r.over.join('\n  ')}`) }
-    }))
+    }
     console.log(bad ? `${bad} of ${n} frames failed` : `ok: ${n} frames (${names().length} scenarios)`); process.exit(bad ? 1 : 0)
   }
   if (!existsSync(join(ROOT, 'scenarios', `${st.name}.ts`))) { console.error(`no scenario "${st.name}". have: ${names().join(', ')}`); process.exit(2) }
