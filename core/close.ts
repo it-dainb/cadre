@@ -25,6 +25,7 @@ import { capAsk, coreLanded, refresh, rework, trial } from './rebase'
 import { branchOf, epicOf, goOn } from './milestone'
 import { planStopped } from './planner'
 import { REPEAT, charge, prune, retry, runOf, settled, step } from './lifecycle'
+import { drop as dropNeed, helperDone, helperStopped, request } from './needs'
 // the worker's report kept for the reviewer and the merge: the report contract caps its fields (validate.REPORTS), so it is kept whole
 export const reportMeta = (r: any) => JSON.stringify({ summary: String(r.summary ?? ''), risks: r.risks ?? [], questions: r.questions ?? [] })
 export const reportOf = (m?: string): { summary?: string } => { try { return m ? JSON.parse(m) : {} } catch { return { summary: m?.slice(0, 800) } } }   // reports stored by older versions may be cut mid-string
@@ -42,7 +43,7 @@ export const clear = async (h: Host, id: string, pre: string) => {
   await patch(h, id, t => ({ ...t, flags: t.flags.filter(f => !f.startsWith(pre)) }))
   for (const f of had) await emit(h, 'flag.resolved', { taskId: id, flag: f }, { taskId: id })
 }
-const end = (h: Host, agentId: string, reason: string, cause: 'done' | 'released' | 'blocked' | 'cancelled') => step(h, agentId, { type: 'end', cause, reason })
+const end = (h: Host, agentId: string, reason: string, cause: 'done' | 'released' | 'blocked' | 'cancelled' | 'retry') => step(h, agentId, { type: 'end', cause, reason })
 async function record(h: Host, d: Deps, id: string, kind: string, actor: string, computed: Record<string, unknown>, claimed: Record<string, unknown> = {}) {   // 6.5: the record rides the task's meta
   const text = comment({ schemaVersion: 1, kind, taskId: id, at: await h.now(), actor, computed, claimed } as Rec)
   await d.store.setMeta(id, { [`cadre.rec.${kind}`]: text.slice(0, 1800) }, d.actor)
@@ -185,6 +186,8 @@ async function explorerDone(h: Host, d: Deps, t: SnapTask, agentId: string, r: a
 export async function report(h: Host, d: Deps, agentId: string | undefined, r: any, o: { lax?: boolean } = {}): Promise<string> {
   const b = agentId ? (await h.bind.read())[agentId] : undefined, s = await h.board.read(), t = b && s.tasks.find(x => x.id === b.taskId)
   if (!b || !t) throw new Error('no task is bound to this agent; only a spawned owner reports')
+  if (b.parent) return helperDone(h, b, r)   // a helper answers its requester, before the step gate and the role dispatch
+  if (r.outcome === 'request') return request(h, agentId!, b, r)   // the requester waits on its helper
   if (r.role !== b.role) throw new Error(`role: this agent is bound as ${b.role}, got ${r.role}`)
   if (!(t.step === b.step && STEP_CAT[b.step] === t.state)) throw new Error(`${t.id} is ${t.state}·${t.step}: nothing to report at your step`)
   if (r.role === 'tester') {
@@ -202,7 +205,6 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
   if (r.role === 'explorer') return explorerDone(h, d, t, agentId!, r)
   if (r.role === 'reviewer') { const err = o.lax ? null : await semantic(h, await d.store.get(t.id), b.worktree, r, d.cfg.review.coverage.enforce); if (err) throw new Error(err); return verdict(h, d, t, b, agentId!, r) }
   if (r.outcome === 'done') return workerDone(h, d, t, b, r)
-  if (r.outcome === 'needs') { await blockTask(h, d, t, `needs: ${r.needs}`, 'needs', { summary: r.summary, needs: r.needs }); return 'need recorded; the user is asked. Stop and wait.' }   // recorded with one dialog; waiting on it in place comes later
   const spec = r.outcome === 'spec_change', why = String(r.reason ?? r.summary ?? '').slice(0, 400)
   if (spec) { await specChange(h, d, t.id, why); await record(h, d, t.id, 'blocked', t.step, { why }, { summary: r.summary, reason: r.reason }); await raise(h, t.id, 'spec_change') }
   else { await d.store.setMeta(t.id, { 'cadre.question': why }, d.actor); await blockTask(h, d, t, why, 'blocked', { summary: r.summary, reason: r.reason, questions: r.questions }) }   // yolo: main answers it from this (core/drive)
@@ -225,6 +227,8 @@ async function release(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
 }
 export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
   const b = (await h.bind.read())[e.agentId], t = b && (await h.board.read()).tasks.find(x => x.id === b.taskId)
+  if (b && (await runOf(h, e.agentId))?.state?.state === 'waiting') return   // a parked run (a decision, a rework, a need): no nudge, charge or card
+  if (b?.parent) return helperStopped(h, b, e)   // a helper ends and answers exactly once (core/needs), whatever its role's step is
   if (b?.role === 'planner') return planStopped(h, d, e)   // an epic's planner (core/planner)
   if (b && t && (await runOf(h, e.agentId))?.exit) { await end(h, e.agentId, 'loop', 'blocked'); return blockTask(h, d, t, `its agent made the same call ${REPEAT} times in a row`, 'loop', {}) }   // the breaker spent it (exit rule 4): one dialog
   if (!b || !t || !(t.step === b.step && STEP_CAT[b.step] === t.state)) return   // no binding, or it reported/moved on
@@ -254,6 +258,7 @@ export const observe: Hook = async (h, e, next) => observeWith(h, await resolveD
 
 // ---- close (3.4, 3.8): review✓ -> squash into the epic -> done -> cleanup ----
 async function cleanup(h: Host, d: Deps, id: string, task: Task, keep?: string) {
+  await dropNeed(h, id)
   const gone = agentsOf(await h.bind.read(), id); for (const a of gone) await end(h, a, 'answer', keep ? 'cancelled' : 'done')
   await prune(h, id, gone)   // the ended records and the budget of a closed task go
   const wt = task.meta['cadre.worktree'], br = task.meta['cadre.branch']; d = inRepo(d, pkgOf(d, task))
@@ -320,7 +325,7 @@ async function releaseTask(h: Host, d: Deps, id: string): Promise<string | null>
   const t = (await h.board.read()).tasks.find(x => x.id === id), task = await d.store.get(id), wt = task.meta['cadre.worktree']
   if (!t) return `no task ${id}`
   if (!['active', 'review', 'blocked'].includes(t.state)) return `${id} is ${t.state}: nothing to release`
-  for (const a of agentsOf(await h.bind.read(), id)) await end(h, a, 'stopped', 'released')
+  await dropNeed(h, id); for (const a of agentsOf(await h.bind.read(), id)) await end(h, a, 'stopped', 'released')
   if (wt && (await h.stat(wt))) await checkpoint(h, d.store, d.actor, id, wt).catch(() => {})
   const m = await apply(h, { kind: 'release', id, at: await h.now(), actor: 'main' }, pipe(d)); if (!m.ok) return m.error
   await d.store.release(id, d.actor, 'released by main'); return null
@@ -407,7 +412,7 @@ ROUTES.resolve = async (h, c) => {
   if (t && b === 'retry' && t.flags.includes('red')) {   // the red dialog's Retry (redAsk): back to the tester step, rounds reset
     const r = await apply(h, { kind: 'rewind', id: a, at: await h.now(), actor: 'human', on: 'tester' }, pipe(d)); if (!r.ok) return { text: r.error }
     await d.store.resume(a, d.actor); await d.store.setMeta(a, { 'cadre.blocked': '' }, d.actor); await retry(h, a, 'red'); await clear(h, a, 'red')   // human.retry{red}: its stop lifts
-    for (const x of agentsOf(await h.bind.read(), a)) await end(h, x, 'retry', 'released')   // the tester that waited on it is done: a new one writes the tests
+    await dropNeed(h, a); for (const x of agentsOf(await h.bind.read(), a)) await end(h, x, 'retry', 'retry')   // the tester that waited on it is done: a new one writes the tests
     const b = await h.board.read(), lifted = b.drive.cause?.taskId === a && !!b.drive.cause.flag?.startsWith('red')   // this answer lifts the stop it caused: the run goes on, so the mode counts as it will be
     return { text: `${a}: back to the tester${spawnIt(lifted ? { drive: { ...b.drive, stopped: undefined } } : b, 'spawn it')}` }
   }

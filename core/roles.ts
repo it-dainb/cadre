@@ -1,15 +1,15 @@
 // One RoleSpec per role (ADR 0024 §3): tools (the L1 allowlist and the agent file's list), the write scope, the cache TTL. agents/index and policy/guards derive from it.
 import type { Role } from '../types'
 
-export interface RoleSpec { description: string; tools: readonly string[]; mcpAllow?: boolean; write: readonly string[]; ttl: '5m' | '1h'; effort?: string; disallowedTools?: readonly string[] }
+export interface RoleSpec { description: string; tools: readonly string[]; mcpAllow?: boolean; write: readonly string[]; ttl: '5m' | '1h'; effort?: string; disallowedTools?: readonly string[]; canRequest?: readonly string[] }   // canRequest: the helpers its run may ask for (core/needs)
 const R = 'mcp__cadre__report', C = 'mcp__cadre__run_check', I = 'mcp__cadre__inspect'
 // write: globs under the role's tree; [] = read-only. The tester's tree is its view; fence() subtracts the PROTECTED paths it already refuses (git.PROTECTED) after this match.
 export const ROLES_DEFAULT: Record<Role, RoleSpec> = {
-  worker: { description: 'implements one approved task in its own folder', tools: ['Read', 'Edit', 'Write', 'NotebookEdit', 'Bash', 'PowerShell', 'Monitor', 'TodoWrite', R, C], mcpAllow: true, write: ['**'], ttl: '1h' },
-  tester: { description: 'writes black-box tests for one task from its scenarios', tools: ['Read', 'Write', 'Edit', R], write: ['**'], ttl: '1h' },
+  worker: { description: 'implements one approved task in its own folder', tools: ['Read', 'Edit', 'Write', 'NotebookEdit', 'Bash', 'PowerShell', 'Monitor', 'TodoWrite', R, C], mcpAllow: true, write: ['**'], ttl: '1h', canRequest: ['explore', 'setup'] },
+  tester: { description: 'writes black-box tests for one task from its scenarios', tools: ['Read', 'Write', 'Edit', R], write: ['**'], ttl: '1h', canRequest: ['explore', 'setup'] },
   reviewer: { description: 'reviews one task commit against its scenarios', tools: ['Read', I, C, R], write: [], ttl: '1h' },
   explorer: { description: 'read-only recon, discovery and spikes', tools: ['Read', I, R], write: [], ttl: '5m', effort: 'low' },
-  planner: { description: 'drafts the task plan of one epic, read-only', tools: ['Read', I, R], write: [], ttl: '1h', effort: 'high' },
+  planner: { description: 'drafts the task plan of one epic, read-only', tools: ['Read', I, R], write: [], ttl: '1h', effort: 'high', canRequest: ['explore', 'probe'] },
 }
 // Exit rule 1 and 6: the engine's exit tools are never refused; no spec may disallow them or list some of them and not all (an allowlist that drops one)
 export const EXIT = ['SubagentHandback', 'StructuredOutput']

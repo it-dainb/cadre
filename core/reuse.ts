@@ -15,6 +15,7 @@ import { resolveDeps } from './admission'
 import { checkpoint } from './effect'
 import { type Entry, cardOf, inFlight, qk, savePointer, warm } from './session'
 import { drive, goalSeen } from './drive'
+import { delivered } from './needs'
 
 const counted = (h: Host, q: Entry[], me: string) => h.board.update(s => ({ ...s, resumesQueued: q.filter(x => x.sessionId === me).length }))
 
@@ -45,14 +46,14 @@ async function sendMine(h: Host, store: TaskStore | undefined, cfg: any) {
   for (const r of mine) {
     const b = bind[r.agentId]
     const ask = r.taskId.startsWith('ask-') && (await askOf(h, r.agentId))   // a marker-less explorer's nudge (core/asks): no task, no lease
-    if (!ask && store && !inFlight(await store.get(r.taskId))) continue   // the task closed or went back to todo: nothing to resume (entries of another session are never this session's to send)
+    if (!ask && store && b?.role !== 'planner' && !inFlight(await store.get(r.taskId))) continue   // the task closed or went back to todo: nothing to resume (entries of another session are never this session's to send)
     if (!ask && (!b || b.retired || (r.epoch ?? Infinity) < ((await runOf(h, r.agentId))?.epoch ?? 0))) continue   // unbound, retired, or a wake for an older run
     if (ask) { const res = await h.sendTo!(r.agentId, modelText('nudge', r.text)); if (!res.isDelivered) h.log(`${ask.id} could not be resumed: ${res.reason ?? 'not delivered'}`); continue }
     if (stale(b, now, cfg) && (await retire(h, r.agentId, b))) continue
     const delta = await drainDelta(h, r.agentId)
     await h.ui.update(u => ({ ...u, drainTo: r.agentId }))   // marks cadre's own send so policy/guards.send does not isolate it (reviewer findings quote other ids)
     const res = await h.sendTo!(r.agentId, modelText('nudge', delta ? `${r.text}\n\n${delta}` : r.text)).finally(() => h.ui.update(u => ({ ...u, drainTo: undefined })))
-    if (!res.isDelivered) await retire(h, r.agentId, b)
+    if (!res.isDelivered) await retire(h, r.agentId, b); else await delivered(h, r.taskId, r.agentId)   // a helper's answer reached its requester: never put in a brief again
   }
 }
 

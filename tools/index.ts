@@ -7,6 +7,7 @@ import { raise, report, runCheck } from '../core/close'
 import { warm } from '../core/session'
 import { askAnswer, askOf } from '../core/asks'
 import { planned } from '../core/planner'
+import { request } from '../core/needs'
 import { checkInput, refuse, tried, validateReport } from '../core/validate'
 import * as G from '../core/git'
 import { charge, runOf, step } from '../core/lifecycle'
@@ -17,8 +18,8 @@ export const TOOLS = ['report', 'inspect', 'run_check'] as const
 const S = { type: 'string' }, ARR = { type: 'array' }
 const V = { type: 'integer', enum: [1] }
 export const SPECS = [
-  { name: 'report', isDeferred: false, description: 'Finish your step. Worker: {schemaVersion:1,role:"worker",outcome:"done"|"blocked"|"spec_change"|"needs",summary,reason (blocked, spec_change),needs (what you need: needs),risks?,questions?}. Tester: role "tester", outcome "done", summary, tests[{path,name,scenario}], run{command[],junit?,cwd?} (the argument list that runs only your tests). Reviewer: role "reviewer", verdict "pass"|"changes", summary, findings[{severity,file,line?,issue,fix?}], coverage[{scenario,test?,ok}], contractStatus[{name,ok}]. Explorer: role "explorer", answer, citations[{path,line}]. Planner: role "planner", summary, tasks[{subject,description,metadata,after?}]. Call it once, then stop.',
-    inputSchema: { type: 'object', additionalProperties: false, required: ['schemaVersion', 'role'], properties: { schemaVersion: V, role: { type: 'string', enum: ['worker', 'tester', 'reviewer', 'explorer', 'planner'] }, outcome: { type: 'string', enum: ['done', 'blocked', 'spec_change', 'needs'] }, summary: S, reason: S, needs: S, risks: ARR, questions: ARR, tests: ARR, run: { type: 'object' }, followups: ARR, verdict: { type: 'string', enum: ['pass', 'changes'] }, findings: ARR, coverage: ARR, contractStatus: ARR, answer: S, citations: ARR, tasks: ARR } } },
+  { name: 'report', isDeferred: false, description: 'Finish your step. Worker: {schemaVersion:1,role:"worker",outcome:"done"|"blocked"|"spec_change"|"request",summary,reason (blocked, spec_change),request (outcome request, to look something up in the code: {helper:"explore",ask,why,paths?}; you are resumed with the answer),risks?,questions?}. Tester: role "tester", outcome "done"|"request", summary, tests[{path,name,scenario}], run{command[],junit?,cwd?} (the argument list that runs only your tests). Reviewer: role "reviewer", verdict "pass"|"changes", summary, findings[{severity,file,line?,issue,fix?}], coverage[{scenario,test?,ok}], contractStatus[{name,ok}]. Explorer: role "explorer", answer, citations[{path,line}]. Planner: role "planner", summary, tasks[{subject,description,metadata,after?}] (or outcome "request"). Call it once, then stop.',
+    inputSchema: { type: 'object', additionalProperties: false, required: ['schemaVersion', 'role'], properties: { schemaVersion: V, role: { type: 'string', enum: ['worker', 'tester', 'reviewer', 'explorer', 'planner'] }, outcome: { type: 'string', enum: ['done', 'blocked', 'spec_change', 'request'] }, summary: S, reason: S, request: { type: 'object' }, risks: ARR, questions: ARR, tests: ARR, run: { type: 'object' }, followups: ARR, verdict: { type: 'string', enum: ['pass', 'changes'] }, findings: ARR, coverage: ARR, contractStatus: ARR, answer: S, citations: ARR, tasks: ARR } } },
   { name: 'inspect', isDeferred: false, description: 'Read git facts of your task tree. what: status | files | log | diff | show. rev and path are optional; show needs a path. Output: exit, seconds, truncated, capped body.',
     inputSchema: { type: 'object', additionalProperties: false, required: ['what'], properties: { schemaVersion: V, what: { type: 'string', enum: ['status', 'files', 'log', 'diff', 'show'] }, task: S, rev: S, path: S } } },
   { name: 'run_check', isDeferred: false, description: 'Run a named check of your task package on your tree. Output: exit, seconds, truncated, capped body.',
@@ -75,7 +76,7 @@ async function onReport(h: Host, d: Deps, agentId: string | undefined, r: any): 
   }
   const env = validateReport(r); if (env) return no(env)
   if (!(await h.bind.read())[agentId] && (await askOf(h, agentId))) return r.role === 'explorer' ? askAnswer(h, agentId, r) : bad('role: you are an explorer; report role "explorer" with answer and citations')
-  if ((await h.bind.read())[agentId]?.role === 'planner') return r.role === 'planner' ? planned(h, d, agentId, r).then(async t => (await step(h, agentId, { type: t.startsWith('error') ? 'report.refused' : 'report.ok' }), t)) : bad('role: you are the planner; report role "planner" with tasks')   // a ready epic's planner (core/planner)
+  if ((await h.bind.read())[agentId]?.role === 'planner' && !(await h.bind.read())[agentId].parent) return r.role === 'planner' ? r.outcome === 'request' ? request(h, agentId, (await h.bind.read())[agentId], r) : planned(h, d, agentId, r).then(async t => (await step(h, agentId, { type: t.startsWith('error') ? 'report.refused' : 'report.ok' }), t)) : bad('role: you are the planner; report role "planner" with tasks')   // a ready epic's planner (core/planner)
   const b = (await h.bind.read())[agentId], ok = async () => step(h, agentId, { type: 'report.ok', wait: (await h.board.read()).tasks.find(t => t.id === b?.taskId)?.state === 'blocked' })
   try {
     const text = await report(h, d, agentId, r); await ok(); return text

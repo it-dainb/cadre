@@ -58,7 +58,7 @@ export interface Snapshot {
 export type EventType =
   | 'task.transitioned' | 'task.phase_changed' | 'task.skipped' | 'agent.bound' | 'agent.unbound'
   | 'check.ran' | 'flag.raised' | 'flag.resolved' | 'approval.pending' | 'sync.state_changed'
-  | 'drive.status' | 'drive.decided' | 'cost.updated' | 'init.stage' | 'plan.landed' | 'plan.released' | 'release.proposed'
+  | 'drive.status' | 'drive.decided' | 'cost.updated' | 'init.stage' | 'plan.landed' | 'plan.released' | 'release.proposed' | 'help.asked' | 'help.done'
 export interface CadreEvent {
   schemaVersion: 1; seq: number; at: number; type: EventType; taskId?: string; agentId?: string
   actor: Actor; severity: Severity; needsHuman: boolean; data: Record<string, unknown>
@@ -79,6 +79,7 @@ export interface Secret {
 export interface Binding {
   taskId: string; role: Role; step: string; worktree: string; sessionId: string
   lastReviewedCommit?: string; ctxTokens: number; startedAt: number
+  parent?: string; needId?: string                                      // a helper: the agent that asked and the request it answers (core/needs)
   lastAt?: number; retired?: boolean; effort?: string                   // last turn.step (idle clock, core/reuse); retired = needs a fresh spawn (admission rebinds it)
 }
 export interface GitState {

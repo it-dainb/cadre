@@ -25,6 +25,8 @@ export const TABLE: Record<EventType, Row> = {
   'plan.landed': ['mod', 'info', false, ['planId', 'sha']],
   'plan.released': ['mod', 'info', false, ['version', 'sha']],
   'release.proposed': ['mod', 'info', true, ['version']],
+  'help.asked': ['mod', 'info', false, ['taskId', 'helper']],   // a run asked a helper (core/needs) and waits
+  'help.done': ['mod', 'info', false, ['taskId', 'helper', 'ok']],   // its one answer: ok false = the helper failed
 }
 const SECRET_KEYS = ['code8', 'code', 'nonce', 'token', 'initConfirm']   // D7: no event ever carries a code
 

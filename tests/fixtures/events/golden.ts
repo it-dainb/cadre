@@ -19,6 +19,8 @@ export const GOLDEN: Record<EventType, { actor: Actor; severity: Severity; needs
   'plan.landed': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['planId', 'sha'] },
   'plan.released': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['version', 'sha'] },
   'release.proposed': { actor: 'mod', severity: 'info', needsHuman: true, keys: ['version'] },
+  'help.asked': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['taskId', 'helper'] },
+  'help.done': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['taskId', 'helper', 'ok'] },
 }
 export const SAMPLE: Record<EventType, Record<string, unknown>> = {
   'task.transitioned': { taskId: 't1', from: 'todo', to: 'active' },
@@ -38,4 +40,6 @@ export const SAMPLE: Record<EventType, Record<string, unknown>> = {
   'plan.landed': { planId: 'p3', sha: 'abc1234' },
   'plan.released': { version: '0.2.0', sha: 'abc1234' },
   'release.proposed': { version: '0.2.0' },
+  'help.asked': { taskId: 't1', helper: 'explore' },
+  'help.done': { taskId: 't1', helper: 'explore', ok: true },
 }

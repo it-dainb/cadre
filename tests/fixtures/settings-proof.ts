@@ -17,4 +17,5 @@ export const ELSEWHERE: Record<string, [string, string]> = {
   'landing.mode': ['tests/git/landing-pr.test.mjs', "cfg.landing = { mode: 'pr'"], 'landing.review': ['tests/git/landing-pr.test.mjs', "review: !!o.review"], 'landing.remote': ['tests/git/landing-pr.test.mjs', "remote: 'origin' }"],
   adapters: ['tests/protocol/protocol.test.mjs', 'const config = { ...cfgDefaults(), adapters, sync }'], sync: ['tests/protocol/protocol.test.mjs', 'const config = { ...cfgDefaults(), adapters, sync }'],
   'roles.custom': ['tests/roles.test.ts', 'refused at load: roles.custom'],
+  'limits.helpers.perTask': ['tests/needs.test.ts', 'settings: limits.helpers.perTask'], 'limits.helpers.minutes': ['tests/needs.test.ts', 'settings: limits.helpers.minutes'],
 }

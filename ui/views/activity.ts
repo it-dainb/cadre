@@ -34,6 +34,8 @@ export function say(e: CadreEvent, v: View): Say | undefined {
         : to === 'armed' ? { text: 'drive on' } : to === 'resumed' ? { text: 'drive resumed' } : to === 'mode' ? { text: String(d.reason) } : undefined
     }
     case 'drive.decided': return { text: String(d.text) }
+    case 'help.asked': return { text: `${id} asked a helper` }
+    case 'help.done': return d.ok ? { text: `${id} got its helper's answer` } : { text: `${id}'s helper could not answer`, k: 'fail' }
     default: return undefined
   }
 }

@@ -13,16 +13,19 @@ const R = (role: string, o: object) => validateReport({ schemaVersion: 1, role, 
 describe('report contracts: role × outcome', () => {
   test('each role has its contract; a good report of each passes', () => {
     expect(Object.keys(REPORTS)).toEqual(['worker', 'tester', 'reviewer', 'explorer', 'planner'])
-    expect(R('worker', { outcome: 'done', summary: 's' })).toBeNull(); expect(R('worker', { outcome: 'needs', summary: 's', needs: 'a running database' })).toBeNull()
+    expect(R('worker', { outcome: 'done', summary: 's' })).toBeNull(); expect(R('worker', { outcome: 'request', summary: 's', request: { helper: 'explore', ask: 'where is X?', why: 'I change it' } })).toBeNull()
     expect(R('tester', { outcome: 'done', summary: 's', tests: [{ path: 't', name: 'S1', scenario: 'S1' }] })).toBeNull()
     expect(R('reviewer', { verdict: 'pass', summary: 's', findings: [], coverage: [], contractStatus: [] })).toBeNull()
     expect(R('explorer', { answer: 'a', citations: [] })).toBeNull(); expect(R('planner', { tasks: [] })).toBeNull()
   })
   test('outcomes need their field; a field of another role is refused', () => {
     for (const o of ['blocked', 'spec_change']) expect(R('worker', { outcome: o, summary: 's' })).toBe(`reason: required with outcome ${o}; say what is in the way, then report again`)
-    expect(R('worker', { outcome: 'needs', summary: 's' })).toBe('needs: required with outcome needs; say what is in the way, then report again')
+    expect(R('worker', { outcome: 'request', summary: 's' })).toContain('request: required with outcome request')
+    expect(R('worker', { outcome: 'request', summary: 's', request: { helper: 'explore', ask: 'a' } })).toBe('request.why: required; add it and report again')
+    expect(R('worker', { outcome: 'request', summary: 's', request: { helper: 'explore', ask: 'a'.repeat(2001), why: 'w' } })).toBe('request.ask: at most 2000 characters, got 2001; shorten it and report again')
+    expect(R('tester', { outcome: 'done', summary: 's' })).toBe('tests: required; add it and report again')
     expect(R('worker', { outcome: 'done', summary: 's', verdict: 'pass' })).toContain('verdict: unknown field (allowed: schemaVersion, role, outcome')
-    expect(R('tester', { outcome: 'blocked', summary: 's', tests: [] })).toBe('outcome: expected one of "done", got "blocked"; fix it and report again')
+    expect(R('tester', { outcome: 'blocked', summary: 's', tests: [] })).toBe('outcome: expected one of "done", "request", got "blocked"; fix it and report again')
   })
   test('caps reject, never truncate', () => {
     expect(R('worker', { outcome: 'done', summary: 's', risks: Array(6).fill('r') })).toBe('risks: at most 5 items, got 6; split the work and report again')
@@ -36,14 +39,8 @@ describe('report contracts: role × outcome', () => {
   })
   test('a live call: the arguments sit flat beside the envelope; only the arguments are checked', async () => {
     const w = await replay({ type: 'docs' }), [id] = w.ids; await w.at('ag1', id, 'worker')
-    const r = await handleWith(w.h, w.dep, { tool: 'mcp__cadre__report', tool_use_id: 'u9', agentId: 'ag1', requestMeta: {}, schemaVersion: 1, role: 'worker', outcome: 'needs', summary: 's', needs: 'a database' })
-    expect(r.result).toBe('need recorded; the user is asked. Stop and wait.')
-  })
-  test('needs: recorded, the task waits with one dialog', async () => {
-    const w = await replay({ type: 'docs' }), [id] = w.ids; await w.at('ag1', id, 'worker')
-    expect(await w.rep('ag1', { role: 'worker', outcome: 'needs', summary: 's', needs: 'a running database' })).toBe('need recorded; the user is asked. Stop and wait.')
-    expect((await w.h.board.read()).tasks.find(t => t.id === id)).toMatchObject({ state: 'blocked', flags: ['needs'] })
-    expect(((await w.h.board.read()).decisions ?? []).filter(d => d.id === `flag:${id}:needs`)).toHaveLength(1)
+    const r = await handleWith(w.h, w.dep, { tool: 'mcp__cadre__report', tool_use_id: 'u9', agentId: 'ag1', requestMeta: {}, schemaVersion: 1, role: 'worker', outcome: 'blocked', summary: 's', reason: 'a database' })
+    expect(r.result).toBe('blocked recorded; you are resumed with the answer. Stop and wait.')
   })
 })
 

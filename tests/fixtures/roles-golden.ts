@@ -1143,7 +1143,11 @@ export default {
      "startFails": 3,
      "limitWaitMinutes": 15,
      "rebaseRounds": 2,
-     "testerRounds": 3
+     "testerRounds": 3,
+     "helpers": {
+      "perTask": 3,
+      "minutes": 10
+     }
     },
     "lanes": {
      "fullAt": 3,
@@ -1180,12 +1184,12 @@ export default {
      "escalateAfterMs": 120000
     },
     "concurrency": {
-      "default": 3,
-      "models": {},
-      "providers": {}
+     "default": 3,
+     "models": {},
+     "providers": {}
     },
     "models": {
-      "allow": []
+     "allow": []
     },
     "milestone": {
      "maxEpics": 2,
@@ -1513,7 +1517,11 @@ export default {
      "startFails": 3,
      "limitWaitMinutes": 15,
      "rebaseRounds": 2,
-     "testerRounds": 3
+     "testerRounds": 3,
+     "helpers": {
+      "perTask": 3,
+      "minutes": 10
+     }
     },
     "lanes": {
      "fullAt": 3,
@@ -1550,12 +1558,12 @@ export default {
      "escalateAfterMs": 120000
     },
     "concurrency": {
-      "default": 2,
-      "models": {},
-      "providers": {}
+     "default": 2,
+     "models": {},
+     "providers": {}
     },
     "models": {
-      "allow": []
+     "allow": []
     },
     "milestone": {
      "maxEpics": 2,
@@ -1890,7 +1898,11 @@ export default {
      "startFails": 3,
      "limitWaitMinutes": 15,
      "rebaseRounds": 2,
-     "testerRounds": 3
+     "testerRounds": 3,
+     "helpers": {
+      "perTask": 3,
+      "minutes": 10
+     }
     },
     "lanes": {
      "fullAt": 3,
@@ -1927,12 +1939,12 @@ export default {
      "escalateAfterMs": 120000
     },
     "concurrency": {
-      "default": 3,
-      "models": {},
-      "providers": {}
+     "default": 3,
+     "models": {},
+     "providers": {}
     },
     "models": {
-      "allow": []
+     "allow": []
     },
     "milestone": {
      "maxEpics": 2,
@@ -2044,7 +2056,7 @@ export default {
       "done",
       "blocked",
       "spec_change",
-      "needs"
+      "request"
      ]
     },
     "summary": {
@@ -2055,9 +2067,35 @@ export default {
      "type": "string",
      "maxLength": 400
     },
-    "needs": {
-     "type": "string",
-     "maxLength": 400
+    "request": {
+     "type": "object",
+     "required": [
+      "helper",
+      "ask",
+      "why"
+     ],
+     "properties": {
+      "helper": {
+       "type": "string",
+       "maxLength": 40
+      },
+      "ask": {
+       "type": "string",
+       "maxLength": 2000
+      },
+      "why": {
+       "type": "string",
+       "maxLength": 500
+      },
+      "paths": {
+       "type": "array",
+       "maxItems": 20,
+       "items": {
+        "type": "string",
+        "maxLength": 200
+       }
+      }
+     }
     },
     "risks": {
      "type": "array",
@@ -2088,8 +2126,7 @@ export default {
    "type": "object",
    "required": [
     "outcome",
-    "summary",
-    "tests"
+    "summary"
    ],
    "properties": {
     "schemaVersion": {},
@@ -2097,7 +2134,8 @@ export default {
     "outcome": {
      "type": "string",
      "enum": [
-      "done"
+      "done",
+      "request"
      ]
     },
     "summary": {
@@ -2113,6 +2151,36 @@ export default {
     },
     "run": {
      "type": "object"
+    },
+    "request": {
+     "type": "object",
+     "required": [
+      "helper",
+      "ask",
+      "why"
+     ],
+     "properties": {
+      "helper": {
+       "type": "string",
+       "maxLength": 40
+      },
+      "ask": {
+       "type": "string",
+       "maxLength": 2000
+      },
+      "why": {
+       "type": "string",
+       "maxLength": 500
+      },
+      "paths": {
+       "type": "array",
+       "maxItems": 20,
+       "items": {
+        "type": "string",
+        "maxLength": 200
+       }
+      }
+     }
     }
    }
   },
@@ -2185,12 +2253,15 @@ export default {
   },
   "planner": {
    "type": "object",
-   "required": [
-    "tasks"
-   ],
    "properties": {
     "schemaVersion": {},
     "role": {},
+    "outcome": {
+     "type": "string",
+     "enum": [
+      "request"
+     ]
+    },
     "summary": {
      "type": "string",
      "maxLength": 1500
@@ -2200,6 +2271,36 @@ export default {
      "maxItems": 20,
      "items": {
       "type": "object"
+     }
+    },
+    "request": {
+     "type": "object",
+     "required": [
+      "helper",
+      "ask",
+      "why"
+     ],
+     "properties": {
+      "helper": {
+       "type": "string",
+       "maxLength": 40
+      },
+      "ask": {
+       "type": "string",
+       "maxLength": 2000
+      },
+      "why": {
+       "type": "string",
+       "maxLength": 500
+      },
+      "paths": {
+       "type": "array",
+       "maxItems": 20,
+       "items": {
+        "type": "string",
+        "maxLength": 200
+       }
+      }
      }
     }
    }

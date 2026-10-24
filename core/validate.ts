@@ -144,21 +144,26 @@ export function runShape(run: any): string | null {
 }
 // Per-role/outcome report contracts (strict, checkInput): an unknown field, a wrong type or an over-cap value is refused before anything is stored; caps reject, never truncate
 const RS = (n: number) => ({ type: 'string', maxLength: n }), RA = (n: number, items: Sch = { type: 'object' }) => ({ type: 'array', maxItems: n, items })
+const REQ = { type: 'object', required: ['helper', 'ask', 'why'], properties: { helper: RS(40), ask: RS(2000), why: RS(500), paths: RA(20, RS(200)) } }   // an outcome "request": the helper to ask, what, and why
 const V1 = { schemaVersion: {}, role: {} }
 export const REPORTS: Record<string, Sch> = {
-  worker: { type: 'object', required: ['outcome', 'summary'], properties: { ...V1, outcome: { type: 'string', enum: ['done', 'blocked', 'spec_change', 'needs'] }, summary: RS(800), reason: RS(400), needs: RS(400), risks: RA(5, RS(120)), questions: RA(5, RS(120)), followups: RA(5) } },
-  tester: { type: 'object', required: ['outcome', 'summary', 'tests'], properties: { ...V1, outcome: { type: 'string', enum: ['done'] }, summary: RS(800), tests: RA(50), run: { type: 'object' } } },
+  worker: { type: 'object', required: ['outcome', 'summary'], properties: { ...V1, outcome: { type: 'string', enum: ['done', 'blocked', 'spec_change', 'request'] }, summary: RS(800), reason: RS(400), request: REQ, risks: RA(5, RS(120)), questions: RA(5, RS(120)), followups: RA(5) } },
+  tester: { type: 'object', required: ['outcome', 'summary'], properties: { ...V1, outcome: { type: 'string', enum: ['done', 'request'] }, summary: RS(800), tests: RA(50), run: { type: 'object' }, request: REQ } },
   reviewer: { type: 'object', required: ['verdict', 'summary', 'findings', 'coverage', 'contractStatus'], properties: { ...V1, verdict: { type: 'string', enum: ['pass', 'changes'] }, summary: RS(1500), findings: RA(50), coverage: RA(50), contractStatus: RA(100) } },
   explorer: { type: 'object', required: ['answer'], properties: { ...V1, answer: RS(2000), citations: RA(30) } },
-  planner: { type: 'object', required: ['tasks'], properties: { ...V1, summary: RS(1500), tasks: RA(20) } },
+  planner: { type: 'object', properties: { ...V1, outcome: { type: 'string', enum: ['request'] }, summary: RS(1500), tasks: RA(20), request: REQ } },
 }
-const WHY: Record<string, string> = { blocked: 'reason', spec_change: 'reason', needs: 'needs' }   // the field an outcome cannot go without
+const WHY: Record<string, string> = { blocked: 'reason', spec_change: 'reason' }   // the field an outcome cannot go without
 export function validateReport(r: any): string | null {
   if (!r || typeof r !== 'object') return bad('report', '{"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"}', r)
   if (r.schemaVersion !== 1) return bad('schemaVersion', '1', r.schemaVersion)
   if (!(r.role in REPORTS)) return bad('role', 'worker|tester|reviewer|explorer|planner', r.role)
   const e = checkInput(REPORTS[r.role], r); if (e) return e.replace('call again', 'report again')
   const k = WHY[r.outcome]; if (k && !str(r[k])) return `${k}: required with outcome ${r.outcome}; say what is in the way, then report again`
+  if (r.request && r.outcome !== 'request') return 'request: only with outcome request; drop it or change the outcome, then report again'
+  if (r.outcome === 'request' && !r.request) return 'request: required with outcome request, e.g. {"helper":"explore","ask":"where is X handled?","why":"I must change it"}; add it and report again'
+  if (r.role === 'tester' && r.outcome !== 'request' && r.tests === undefined) return 'tests: required; add it and report again'
+  if (r.role === 'planner' && r.outcome !== 'request' && r.tasks === undefined) return 'tasks: required; add it and report again'
   if (r.role === 'explorer' && !str(r.answer)) return 'answer: required for role explorer'
   if (r.role === 'tester' && r.run !== undefined) { const x = runShape(r.run); if (x) return x }
   return null

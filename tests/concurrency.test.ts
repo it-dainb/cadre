@@ -3,6 +3,8 @@ import { describe, expect, test } from 'claude-code/testing'
 import { defaults } from '../config/index'
 import { clamped, drop, grant, hold, limitOf, providerOf, running, unitCap, type Want } from '../core/queue'
 import { fakeHost } from './support'
+import { arm } from '../core/drive'
+import { world } from './fixtures/replay/world'
 
 const cfg = (c: Partial<ReturnType<typeof defaults>['concurrency']> = {}, units: unknown[] = []) => { const d = defaults(); d.concurrency = { ...d.concurrency, ...c }; d.units = units as any; return d }
 const claim = (id: string, model: string, unit?: string): Want => ({ id, role: 'claim', model, unit })
@@ -47,5 +49,15 @@ describe('queue', () => {
     expect([unitCap(c.concurrency, u[0]), unitCap(c.concurrency, u[1]), unitCap(cfg({ default: 0 }).concurrency, u[0])]).toEqual([2, 1, 5])
     expect(clamped(c)).toEqual(['unit a: concurrency 5 is held to 2 (concurrency.default)'])
     expect(ids(grant(c, 'anthropic', { tasks: [{ id: 'x', state: 'active' }] }, [], [claim('p', 'haiku', 'b'), claim('q', 'haiku', 'a')], { x: 'b' }))).toEqual(['q'])   // b is at its cap of 1
+  })
+  const REQ = { role: 'worker', outcome: 'request', summary: 'need a look', request: { helper: 'explore', ask: 'where is the parser?', why: 'I change it' } }
+  test('default=1: worker -> needs explore -> helper -> resume -> lands on the one slot, also with models.haiku=1 and a haiku helper (a waiting run is not counted)', async () => {
+    for (const models of [{}, { haiku: 1 }]) {
+      const w = await world(); w.cfg.concurrency = { default: 1, models, providers: {} }; w.cfg.roles.worker.byRisk = Object.fromEntries(Object.entries(w.cfg.roles.worker.byRisk).map(([k, v]) => [k, { ...v, model: 'haiku' }])) as any
+      await arm(w.h, 'auto'); await w.turn(); await w.rep('ag1', REQ); await w.turn(); expect(w.spawned.map(x => x[2])).toEqual(['cadre:worker', 'cadre:explorer'])
+      await w.rep('ag2', { role: 'explorer', answer: 'in src/parse.ts', citations: [] }); await w.stop('ag2'); expect(w.sent.map(x => x[0])).toEqual(['ag1'])
+      await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' }); await w.turn(); await w.rep('ag3', { role: 'reviewer', verdict: 'pass', summary: 'ok', findings: [], coverage: [{ scenario: 'S1', test: 'test/a.test.js', ok: true }], contractStatus: [] }); await w.turn()
+      expect((await w.h.board.read()).tasks[0].state).toBe('done')   // it lands
+    }
   })
 })

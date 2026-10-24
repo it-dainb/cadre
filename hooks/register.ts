@@ -17,6 +17,7 @@ import { admit, tick as heartbeat } from '../core/admission'
 import { contain, heal } from '../policy/containment'
 import { check, guard, send, judge, judgeSpawn, configSet, settingsOnly, EXIT, exitCall } from '../policy/guards'
 import { backstop, exitStep } from '../core/lifecycle'
+import { overdue } from '../core/needs'
 import { autoLand } from '../core/integrate'
 import { TASK_TOOLS, mainAgent } from '../core/plantools'
 import { mainTurn } from '../core/dispatch'
@@ -185,7 +186,7 @@ export const register: Register = (on, opts) => {
       for (const t of set) await $.tool.register(t).catch(() => { refused.push(t.name) }); const listed = ((await $.tool.list().catch(() => [])) as { name: string }[]).map(t => t.name)
       await update($, secret, x => ({ ...x, tools: { on: set.map(t => t.name), refused, task: TASK_TOOLS.filter(n => listed.includes(n)) } })) }   // task: the task tools this session still shows (Doctor: the repo's settings lack the gate)   // refused (managed allowedMcpServers, --bare): Doctor says so
     { const h = host($); if (await wake(h).catch(() => false)) { await nudge(h).catch(() => {}); await autoLand(h).catch(x => $.ui.log(`land: ${x}`)) } }   // a landing that waited for the user's checkout   // active repos only: no setup stamp for this Claude Code build -> one toast
-    $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void watch(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}); void watchdog(h).catch(() => {}); void h.secret.read().then(s => backstop(h, s.session ?? '')).catch(() => {}); void autoLand(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
+    $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void watch(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}); void watchdog(h).catch(() => {}); void h.secret.read().then(s => Promise.all([backstop(h, s.session ?? ''), overdue(h, s.session ?? '')])).catch(() => {}); void autoLand(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
     $.clock.every(30_000, () => { const h = host($); void wake(h).then(act => act && tickUi(h)).catch(() => {}) })   // live timeline cursor (blit, no re-render)
     return next(e)
   })
