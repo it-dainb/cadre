@@ -408,7 +408,7 @@ ROUTES.resolve = async (h, c) => {
     const r = await apply(h, { kind: 'rewind', id: a, at: await h.now(), actor: 'human', on: 'tester' }, pipe(d)); if (!r.ok) return { text: r.error }
     await d.store.resume(a, d.actor); await d.store.setMeta(a, { 'cadre.blocked': '' }, d.actor); await retry(h, a, 'red'); await clear(h, a, 'red')   // human.retry{red}: its stop lifts
     for (const x of agentsOf(await h.bind.read(), a)) await end(h, x, 'retry', 'released')   // the tester that waited on it is done: a new one writes the tests
-    const b = await h.board.read(), lifted = b.drive.cause?.taskId === a   // this answer lifts the stop it caused: the run goes on, so the mode counts as it will be
+    const b = await h.board.read(), lifted = b.drive.cause?.taskId === a && !!b.drive.cause.flag?.startsWith('red')   // this answer lifts the stop it caused: the run goes on, so the mode counts as it will be
     return { text: `${a}: back to the tester${spawnIt(lifted ? { drive: { ...b.drive, stopped: undefined } } : b, 'spawn it')}` }
   }
   if (!t || !['keep', 'accept', 'reject', 'cancel'].includes(b)) return { text: 'usage: /cadre resolve <taskId> keep|accept|reject|cancel · /cadre resolve git keep|restore' }
