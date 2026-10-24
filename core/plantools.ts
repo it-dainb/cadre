@@ -297,6 +297,6 @@ export const PLAN_TOOLS: Record<string, (h: Host, i: In) => Promise<Out>> = { pl
 // admission: a session where Claude starts the agents (headless) still runs. The task tools of a repo whose settings still show them: refused the same way.
 // An agent's own calls carry agentId and pass.
 export const TASK_TOOLS = ['TaskCreate', 'TaskGet', 'TaskList', 'TaskUpdate']
-export const mainAgent = (e: { tool?: string; agentId?: string; prompt?: string }, ids: string[], origin?: { plugin?: string }) => (e.agentId || (origin?.plugin && origin.plugin !== 'engine') ? undefined   // a plugin's own call (cadre's spawner starting an explorer or a task) passes
-  : e.tool === 'Agent' && !idsIn(String(e.prompt ?? ''), ids).length ? { deny: modelText('deny', 'plan the work with plan and task; to learn about the code or ask a critic, call explore with your question') }
+export const mainAgent = (e: { tool?: string; agentId?: string; prompt?: string; subagent_type?: string }, ids: string[], origin?: { plugin?: string }) => (e.agentId || (origin?.plugin && origin.plugin !== 'engine') ? undefined   // a plugin's own call (cadre's spawner starting an explorer or a task) passes
+  : e.tool === 'Agent' && !idsIn(String(e.prompt ?? ''), ids).length && !/^cadre:(?!(worker|tester|reviewer|explorer|planner)$)[\w-]+$/.test(String(e.subagent_type ?? '')) ? { deny: modelText('deny', 'plan the work with plan and task; to learn about the code or ask a critic, call explore with your question') }
   : TASK_TOOLS.includes(String(e.tool)) ? { deny: modelText('deny', 'plan with the plan tools instead: plan, task, epic, amend; status reads the plan and moves a task on') } : undefined)

@@ -51,6 +51,7 @@ concurrency-fifo|single ready scripted/fifo|fifo|MODEL=haiku CC_VERSION=2.1.295 
 continue-after-quit-s|single ready scripted/cont|contkill|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=600 ORACLE=continue
 # the 0.16 cells
 needs-explore|single ready scripted/needs|needs|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=60 ORACLE=needs-explore
+custom-role|single ready scripted/custom-role|custom-role|MODEL=haiku CC_VERSION=2.1.295 S=1 BUDGET=60 ORACLE=custom-role
 EOF
 }
 scripted() { cells | grep -E '(^|[| ])S=1( |$)'; }

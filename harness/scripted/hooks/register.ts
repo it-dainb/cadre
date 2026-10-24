@@ -28,6 +28,11 @@ const cwds: Record<string, string> = {}   // agentId -> the folder cadre spawned
 // ---- fixtures: titleCase(s) on the `single` repo, lite lane ----
 const GOAL = /Goal from the user/
 function main(rows: Row[]): Act {
+  // custom-role: main calls the user's read-only role once (an Agent of type cadre:auditor), then ends; the answer is that Agent's result
+  if (script === 'custom-role') {
+    const m = rows.map(r => isText(r) && /S0-AUDIT/.test(r.text)).lastIndexOf(true); if (m < 0) return { text: 'OK.' }
+    return rows.slice(m + 1).some(r => r.role === 'assistant' && r.toolUses?.some(c => c.tool === 'Agent')) ? { text: END } : { tool: 'Agent', input: { description: 'audit the slug helper', subagent_type: 'cadre:auditor', prompt: 'List the risks of src/slug.mjs, one line each.' } }
+  }
   // the tool-surface probe (probes/0.15): main asks for Agent once; under a settings deny the call comes back refused
   const m = rows.map(r => isText(r) && /S0-PROBE main-agent/.test(r.text)).lastIndexOf(true), g = rows.map(r => isText(r) && GOAL.test(r.text)).lastIndexOf(true)
   if (m > g) return rows.slice(m + 1).some(r => r.role === 'assistant') ? { text: END } : { tool: 'Agent', input: { description: 's0 main agent', subagent_type: 'general-purpose', prompt: 'S0-PROBE tag=end. Do the task you are given.' } }

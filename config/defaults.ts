@@ -1,7 +1,7 @@
 // Config defaults + the settings registry (DESIGN 12, ADR 0019). defaults() holds every default value (and the Config type); REG holds every key's metadata.
 // tests/config.test.ts pins REG to the leaves of defaults() 1:1, so neither can drift. Layer class: S = safety (repo may only tighten), U = user-level only, O = ordinary (committed).
 import { defaults as typeDefaults } from '../task-management/registry'
-import { exitIssue } from '../core/roles'
+import { customIssue } from '../core/roles'
 
 export type Cls = 'S' | 'U' | 'O'
 // one routing cell: the model alias and effort for a role at a risk, and the escalation after `after` failed rounds (0 = never)
@@ -65,9 +65,9 @@ const roleRows = (r: string): Record<string, Meta> => Object.fromEntries(RISK.fl
     [`${at}.escalate.effort`, m(M, `${w}: effort after escalation`, { opts: EFFORT })]]
 }))
 const list = (v: unknown) => v === undefined || (Array.isArray(v) && v.every(x => typeof x === 'string'))
-const specs = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.entries(v).map(([n, s]) => ((e) => e && `${n}: ${e}`)(!s || typeof s !== 'object' || Array.isArray(s) ? 'expected a role spec object' : !list((s as any).tools) || !list((s as any).disallowedTools) ? 'tools and disallowedTools: expected lists of text' : exitIssue(s as any))).find(Boolean) || null : 'expected an object of role specs')
+const specs = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.entries(v).map(([n, s]) => ((e) => e && `${n}: ${e}`)(customIssue(n, s))).find(Boolean) || null : 'expected an object of role specs')
 export const REG: Record<string, Meta> = {
-  'roles.custom': m(M, 'your own agent roles: name -> {description, tools, write, ...}; a spec that drops an exit tool is refused', { cls: 'U', open: true, ok: specs }),
+  'roles.custom': m(M, 'your own agent roles: name -> {description, tools, write, ...}; a spec that drops an exit tool, names a built-in role or has a prompt over 2 KB is refused; the repo file may add read-only roles', { open: true, ok: specs }),
   'drive.mode': m(D, 'yolo: no questions after approval; auto asks at the gates', { cls: 'S', opts: ['yolo', 'auto'], tighten: 'enum' }),
   'drive.maxTurns': m(D, 'a drive stops after this many main turns', { cls: 'U', ...N(1, 10_000) }), 'drive.maxCostUsd': m(D, 'a drive stops at this spend ($)', { cls: 'U', ...N(1, 10_000) }),
   'drive.spawn': m(D, "mod: cadre starts, closes and lands the plan's tasks itself while drive runs; main: Claude spawns each step. Env CADRE_SPAWN beats it; a non-interactive session runs main", { cls: 'U', opts: ['mod', 'main'] }),

@@ -28,6 +28,7 @@ import { branchOf, epicOf } from './milestone'
 import { plannerBrief } from './planner'
 import { modelRefusal, tasksFull } from './queue'
 import { budgetOf, intentOf, reserve, step as lifeStep, unreserve } from './lifecycle'
+import { ROLES_DEFAULT } from './roles'
 import { needOf, question, running, undelivered, delivered } from './needs'
 
 export interface Deps {
@@ -76,6 +77,7 @@ export async function admitWith(h: Host, d: Deps, e: any, next: ((e: any) => any
   if (it && it.role !== 'planner' && !s.tasks.some(x => x.id === it.taskId)) return deny(`${it.taskId} is no longer on the board`)
   if (it?.role === 'planner') return epicOf(s, it.taskId) ? planner(h, d, e, next, s, it.taskId) : deny(`${it.taskId} has no plan to draft now`)   // a ready epic's planner (ADR 0021)
   if (it) e = { ...e, prompt: modelText('agent-brief', '') }   // the brief's notes are main's words only
+  const cr = !it && /^cadre:([\w-]+)$/.exec(String(e.subagentType ?? ''))?.[1]; if (cr && !(cr in ROLES_DEFAULT)) return custom(h, e, next, cr)   // main's call of a custom role (roles.custom)
   const ids = it ? [it.taskId] : idsIn(e.prompt ?? '', s.tasks.map(t => t.id))
   if (ids.length > 1) return deny(`one agent takes one task, but the prompt names ${ids.join(', ')}; spawn one agent per task`)
   if (ids.length && s.drive.on && !s.drive.stopped && s.drive.spawn === 'mod' && next.origin?.plugin !== 'cadre') return deny(`${ids[0]} starts by itself; do not spawn agents for the plan's tasks. An Agent without a task id (to explore or ask) is fine`)   // mod mode (ADR 0018): only the spawner's own call, never main's
@@ -90,6 +92,15 @@ export async function admitWith(h: Host, d: Deps, e: any, next: ((e: any) => any
   if (t.state === 'active' || t.state === 'blocked') return rebind(h, d, e, next, s, t)
   if (t.state === 'review') return review(h, d, e, next, s, t)
   return deny(`${t.id} is ${t.state}; nothing to spawn`)
+}
+
+// a custom role is spawned by main like an ask, only once the engine took its register and from a later turn than that register's (it dispatches from the next turn)
+async function custom(h: Host, e: any, next: (e: any) => any, name: string) {
+  const sec = await h.secret.read(), at = sec.roles?.done.find(x => x.name === name)
+  if (!at) return deny(`${name} is not available; to look into the code, call explore`)
+  if (at.turn >= (sec.turn ?? 0)) return deny(`${name} is ready from your next turn; ask again then`)
+  const r = await next({ ...e, prompt: modelText('agent-brief', brief('explorer', { id: '', title: '', type: '', question: e.prompt })) })
+  if (r?.agentId) await asked(h, r.agentId, e); return r
 }
 
 // ---- shared tail: retype, model, cwd, next(), bind. A rejected or thrown spawn runs `undo` (release) and rethrows. ----

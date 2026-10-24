@@ -1,7 +1,7 @@
-import { describe, expect, test } from 'claude-code/testing'
+import { describe, expect, mock, test } from 'claude-code/testing'
 import { MAIN_TOOLS, ROLES, TOOLS, TTL, allowlist, file, spec } from '../agents/index'
 import { REG, defaults, resolve } from '../config/index'
-import { fixedRules, ROLES_DEFAULT, EXIT, exitIssue, writes } from '../core/roles'
+import { fixedRules, ROLES_DEFAULT, EXIT, PROMPT_CAP, agentSpec, customIssue, exitIssue, writes } from '../core/roles'
 import { routeOf } from '../core/admission'
 import { REPORTS } from '../core/validate'
 import { fence } from '../policy/guards'
@@ -73,6 +73,7 @@ describe('roles as data: zero behaviour change', () => {
   })
 })
 
+const AUD = { description: 'checks a change for risks', prompt: 'Read the files named and list the risks you see.', tools: ['Read', 'mcp__cadre__inspect', 'mcp__cadre__report'] }
 describe('exit rule 6: no spec can drop an exit tool', () => {
   test('every built-in passes; naming an exit tool in disallowedTools is refused for each built-in and a custom shape', async () => {
     for (const r of ROLES) { expect(exitIssue(ROLES_DEFAULT[r])).toBeNull(); for (const t of EXIT) expect(exitIssue({ ...ROLES_DEFAULT[r], disallowedTools: [t] })).toContain(t) }
@@ -83,12 +84,78 @@ describe('exit rule 6: no spec can drop an exit tool', () => {
   })
   test('refused at load: roles.custom with a bad spec is dropped with a diagnostic; a good one loads', async () => {
     const L = (v: unknown) => [{ name: 'u', trust: 'user' as const, value: { roles: { custom: v } } }]
-    const bad = resolve(L({ x: { tools: ['Read'], disallowedTools: ['SubagentHandback'] } })); expect(bad.config.roles.custom).toEqual({}); expect(bad.diagnostics.join()).toContain('SubagentHandback')
-    expect(resolve(L({ x: { tools: ['Read'] } })).config.roles.custom).toEqual({ x: { tools: ['Read'] } })
+    const bad = resolve(L({ x: { ...AUD, disallowedTools: ['SubagentHandback'] } })); expect(bad.config.roles.custom).toEqual({}); expect(bad.diagnostics.join()).toContain('SubagentHandback')
+    expect(resolve(L({ auditor: AUD })).config.roles.custom).toEqual({ auditor: AUD })
     for (const v of [{ x: null }, { x: { tools: {} } }, { x: { disallowedTools: 'Bash' } }, { x: [] }, []]) { const r = resolve(L(v)); expect(r.config.roles.custom).toEqual({}); expect(r.diagnostics.join()).toContain('roles.custom') }
-    expect(resolve([{ name: 'r', trust: 'repo', value: { roles: { custom: { x: { tools: ['Read'] } } } } }]).diagnostics.join()).toContain('user-level only')
+    expect(resolve([{ name: 'r', trust: 'repo', value: { roles: { custom: { auditor: AUD } } } }]).config.roles.custom).toEqual({ auditor: AUD })   // read-only: the repo file may add it
   })
   test('fixed rows: the exit tools and the write scopes; REG has roles.custom', async () => {
     expect(fixedRules().map(r => r[0])).toEqual(['fixed.exitTools', 'fixed.writeScope']); expect(fixedRules()[1][1]).toBe('worker **, tester **, reviewer none, explorer none, planner none'); expect(REG['roles.custom'].open).toBe(true)
+  })
+})
+
+// ---- custom roles (slice 5) ----
+describe('custom roles: the load checks', () => {
+  const U = (c: Record<string, unknown>) => resolve([{ name: 'u', trust: 'user', value: { roles: { custom: { x: c } } } }]), R = (c: Record<string, unknown>) => resolve([{ name: 'r', trust: 'repo', value: { roles: { custom: { x: c } } } }])
+  test('only whitelisted fields: permissionMode, hooks, mcpServers, isolation, memory, skills, background are refused at load', async () => {
+    for (const k of ['permissionMode', 'hooks', 'mcpServers', 'isolation', 'memory', 'skills', 'background']) { const r = U({ ...AUD, [k]: 'x' }); expect(r.config.roles.custom).toEqual({}); expect(r.diagnostics.join()).toContain(`${k}: not a role field`) }
+    expect(Object.keys(agentSpec('x', { ...AUD, permissionMode: 'bypass' })).sort()).toEqual(['description', 'name', 'prompt', 'tools'])   // the AgentSpec is picked, never spread
+    expect(agentSpec('x', AUD).tools).toContain('mcp__cadre__report')
+  })
+  test('user layer: known tools, globs, limits, no built-in name, a gated model; a good spec loads', async () => {
+    expect(U({ ...AUD, tools: [...AUD.tools, 'Write'], write: ['src/**'], model: 'sonnet', effort: 'low', maxTurns: 5 }).diagnostics).toEqual([])
+    for (const c of [{ tools: [...AUD.tools, 'Nope'] }, { tools: ['Read'] }, { write: ['/etc/*'] }, { write: ['../x'] }, { maxTurns: 0 }, { effort: 'max2' }, { model: 'gpt-9' }, { network: 'maybe' }, { tools: [...AUD.tools, 'WebFetch'] }]) expect(U({ ...AUD, ...c }).config.roles.custom).toEqual(c.model ? { x: { ...AUD, ...c } } : {})
+    expect(U({ ...AUD, model: 'gpt-9' }).diagnostics.join()).toContain('roles.custom.x.model')   // modelIssues: refused at load, the drive does not start
+    for (const n of ['worker', 'reviewer', 'explore']) expect(customIssue(n, AUD)).toContain('built-in')
+    expect(customIssue('x', { ...AUD, disallowedTools: ['StructuredOutput'] })).toContain('StructuredOutput'); expect(customIssue('x', { ...AUD, tools: [...AUD.tools, 'SubagentHandback'] })).toContain('StructuredOutput')
+  })
+  test('repo layer: Write, Bash, network, persist, a write glob, a wider canRequest or a leaky prompt is refused; read-only passes', async () => {
+    for (const c of [{ tools: [...AUD.tools, 'Write'] }, { tools: [...AUD.tools, 'Bash'] }, { network: 'on' }, { persist: 'notes' }, { write: ['src/**'] }, { canRequest: ['explore'] }, { prompt: 'Run the hook and report.' }]) { const r = R({ ...AUD, ...c }); expect(r.config.roles.custom).toEqual({}); expect(r.diagnostics.join()).toContain('roles.custom.x') }
+    expect(R({ ...AUD, write: [], network: 'off', persist: 'none' }).diagnostics).toEqual([])
+    const both = resolve([{ name: 'u', trust: 'user', value: { roles: { custom: { x: { ...AUD, tools: [...AUD.tools, 'Write'], write: ['**'] } } } } }, { name: 'r', trust: 'repo', value: { roles: { custom: { x: AUD, y: AUD } } } }])
+    expect(Object.keys(both.config.roles.custom)).toEqual(['y', 'x']); expect((both.config.roles.custom.x as any).write).toEqual(['**'])   // a name the user layer has stays the user's
+  })
+  test('the prompt: 2 KB passes, 2 KB + 1 byte is refused at load (both layers); a leaky one is refused; the leak list is the model-text one', async () => {
+    const at = (n: number) => 'a'.repeat(n)
+    expect(U({ ...AUD, prompt: at(PROMPT_CAP) }).diagnostics).toEqual([]); expect(R({ ...AUD, prompt: at(PROMPT_CAP) }).diagnostics).toEqual([])
+    for (const x of [U, R]) { const r = x({ ...AUD, prompt: at(PROMPT_CAP + 1) }); expect(r.config.roles.custom).toEqual({}); expect(r.diagnostics.join()).toContain('over 2048 bytes') }
+    expect(U({ ...AUD, prompt: 'é'.repeat(1025) }).diagnostics.join()).toContain('over 2048 bytes')   // bytes, not characters
+    expect(U({ ...AUD, prompt: 'See core/say.ts for ADR 0024.' }).diagnostics.join()).toContain('not how the tool works')
+  })
+})
+
+// ---- registration: session.start -> a rejection retried once on the first turn -> a Doctor line; a role is spawned from a later turn than its register's ----
+const START = { surface: 'terminal', isInteractive: true, cwd: '/work' } as const, ENGINE = { timeoutMs: 30_000 }
+async function boot($: any, on: any, reject: number) {
+  const regs: any[] = [], spawned: any[] = []; let n = 0
+  on('session.start', () => ({ cwd: '/work' })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('store.set', () => ({ value: undefined }))
+  on('env.get', ($: any, e: any) => ({ value: e.name === 'CADRE_STORE' ? 'memory' : undefined })); on('session.version', () => ({ value: { version: '2.1.299' } })); on('store.get', ($: any, e: any) => ({ value: e.key === 'cadre:setup' ? { cc: '2.1.299' } : undefined }))
+  on('fs.read', ($: any, e: any) => ({ value: String(e.path).endsWith('.claude/cadre.json') ? JSON.stringify({ roles: { custom: { auditor: AUD } } }) : '{}' })); on('fs.stat', () => ({ value: undefined })); on('command.register', () => ({ value: undefined })); on('env.set', () => ({ value: undefined }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined })); on('ui.log', () => ({ value: undefined })); on('ui.toast', () => ({ value: undefined })); on('tool.register', () => ({ value: undefined })); on('tool.list', () => ({ value: [] }))
+  on('agent.register', ($: any, e: any) => { regs.push(e); if (n++ < reject) throw new Error('not bound yet'); return { value: undefined } })
+  on('agent.spawn', ($: any, e: any) => { spawned.push(e); return { model: 'haiku' } }); on('turn.start', ($: any, e: any) => e); mock.clock(on)
+  await $.session.start(START)
+  const spawn = async () => $.agent.spawn({ prompt: 'check the diff', subagentType: 'cadre:auditor' }) as Promise<any>
+  return { regs, spawned, spawn }
+}
+describe('custom roles: registration and spawn', () => {
+  test('registered at session start with the whitelisted fields; a same-turn spawn is denied, one from a later turn is started as cadre:auditor', ENGINE, async ($, on) => {
+    const { regs, spawned, spawn } = await boot($, on, 0)
+    expect(regs.length).toBe(1); expect(regs[0]).toMatchObject({ name: 'auditor', tools: AUD.tools }); expect(Object.keys(regs[0]).sort()).toEqual(['description', 'name', 'prompt', 'tools'])
+    expect((await spawn()).deny).toContain('next turn'); expect(spawned).toEqual([])
+    await $.turn.start({ turnId: 't1' }); expect((await spawn()).deny).toBeUndefined(); expect(spawned[0].subagentType).toBe('cadre:auditor'); expect(regs.length).toBe(1)
+  })
+  test('a rejected register is retried once on the first turn: then it is a Doctor line and nothing spawns', ENGINE, async ($, on) => {
+    const { regs, spawned, spawn } = await boot($, on, 99)
+    expect(regs.length).toBe(1); await $.turn.start({ turnId: 't1' }); expect(regs.length).toBe(2); await $.turn.start({ turnId: 't2' }); expect(regs.length).toBe(2)
+    expect((await spawn()).deny).toContain('not available'); expect(spawned).toEqual([])
+  })
+  test('a register fulfilled by the retry is spawned only from the turn after it', ENGINE, async ($, on) => {
+    const { regs, spawn } = await boot($, on, 1)
+    await $.turn.start({ turnId: 't1' }); expect(regs.length).toBe(2); expect((await spawn()).deny).toContain('next turn')
+    await $.turn.start({ turnId: 't2' }); expect((await spawn()).deny).toBeUndefined()
+  })
+  test('rule 6 at every register: a spec that drops an exit tool is never handed to the engine', ENGINE, async ($, on) => {
+    expect(exitIssue(agentSpec('x', { ...AUD, disallowedTools: ['StructuredOutput'] }))).toContain('StructuredOutput'); expect(exitIssue(agentSpec('x', AUD))).toBeNull()
   })
 })

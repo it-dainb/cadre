@@ -20,6 +20,7 @@ import { backstop, exitStep } from '../core/lifecycle'
 import { overdue } from '../core/needs'
 import { autoLand } from '../core/integrate'
 import { TASK_TOOLS, mainAgent } from '../core/plantools'
+import { agentSpec, exitIssue } from '../core/roles'
 import { mainTurn } from '../core/dispatch'
 import { wrap } from '../core/effect'
 import { handle, MAIN_SPECS, PREFS_SPEC, SPECS } from '../tools/index'
@@ -155,6 +156,19 @@ async function seed($) {
   await update($, secret, x => ({ ...s.sec, root: (x as any).root })); await update($, ui, () => ({ ...s.ui, cfg: { ...(s.ui as any)?.cfg, ...s.c } }))
 }
 
+// custom roles (roles.custom): one $.agent.register each at session.start in an active repo; the engine rejects until the session binds, so a rejection is retried once on the
+// first main turn.start or /cadre, then it is a Doctor line. Rule 6 (exit tools) holds at every register. A fulfilled register is recorded with main's turn: the role is spawned from a later turn
+async function roles($, retry = false): Promise<void> {
+  const s = (await read($, secret)).roles ?? { done: [], failed: {} }, todo = (n: string) => !s.done.some(x => x.name === n) && (retry ? s.failed[n]?.n === 1 : !s.failed[n])
+  if (retry && !Object.keys(s.failed).some(n => s.failed[n].n === 1)) return
+  const h = host($), cfg = await h.config!(), turn = (await read($, secret)).turn ?? 0
+  for (const [name, sp] of Object.entries(cfg.roles.custom).filter(([n]) => todo(n)) as [string, any][]) {
+    const spec = agentSpec(name, sp), bad = exitIssue(spec)
+    const why = bad ?? await $.agent.register(spec).then(() => null, (x: any) => String(x?.message ?? x))
+    await update($, secret, x => ({ ...x, roles: { done: why ? x.roles?.done ?? [] : [...(x.roles?.done ?? []), { name, turn }], failed: why ? { ...x.roles?.failed, [name]: { why, n: bad ? 2 : (x.roles?.failed[name]?.n ?? 0) + 1 } } : x.roles?.failed ?? {} } }))
+  }
+}
+
 // main's tools for a repo that turned on in this session (/cadre init after start): registered at main's next turn start; Agent and the task tools are refused
 // only once they are listed (the model sees a registered tool from its next prompt on), so main always has a way to plan
 async function arm($): Promise<void> {
@@ -186,6 +200,7 @@ export const register: Register = (on, opts) => {
       for (const t of set) await $.tool.register(t).catch(() => { refused.push(t.name) }); const listed = ((await $.tool.list().catch(() => [])) as { name: string }[]).map(t => t.name)
       await update($, secret, x => ({ ...x, tools: { on: set.map(t => t.name), refused, task: TASK_TOOLS.filter(n => listed.includes(n)) } })) }   // task: the task tools this session still shows (Doctor: the repo's settings lack the gate)   // refused (managed allowedMcpServers, --bare): Doctor says so
     { const h = host($); if (await wake(h).catch(() => false)) { await nudge(h).catch(() => {}); await autoLand(h).catch(x => $.ui.log(`land: ${x}`)) } }   // a landing that waited for the user's checkout   // active repos only: no setup stamp for this Claude Code build -> one toast
+    if (await wake(host($)).catch(() => false)) await roles($).catch(x => $.ui.log(`roles: ${x}`))   // active repos only; a repo turned on later gets them next session
     $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void watch(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}); void watchdog(h).catch(() => {}); void h.secret.read().then(s => Promise.all([backstop(h, s.session ?? ''), overdue(h, s.session ?? '')])).catch(() => {}); void autoLand(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
     $.clock.every(30_000, () => { const h = host($); void wake(h).then(act => act && tickUi(h)).catch(() => {}) })   // live timeline cursor (blit, no re-render)
     return next(e)
@@ -211,7 +226,7 @@ export const register: Register = (on, opts) => {
   on('tool.call', { tool: /./ }, async ($, e, next) => { const h = host($); if (!e.agentId) await seen(h, { name: e.tool, ask: e.question !== undefined }).catch(() => {}); const r = await next(e); if (e.agentId) return r; await seen(h, { tool: true }).catch(() => {}); const t = r?.result !== undefined ? await redNote(h).catch(() => null) : null; return t ? { ...r, context: [...(r.context ?? []), modelText('context', t)] } : r }).catch(passOn)   // a note only: on failure the result goes through as it is
   on('tool.call', { tool: /^mcp__cadre__/ }, ($, e, next) => handle(host($), e, next)).catch(denyCall)
   on('classic.Stop', async ($, e, next) => { const r = await next(e); const t = await stopCheck(host($), e).catch(() => null); return t ? { ...r, block: modelText('nudge', t) } : r }).catch(passOn)
-  on('turn.start', async ($, e, next) => { await arm($).catch(() => {}); const r = await next(e); await seen(host($), { start: true }).catch(() => {}); await mainTurn(host($), true).catch(() => {}); return r })   // only main raises turn.start: its plan card waits for its turn end (core/dispatch.mainTurn)
+  on('turn.start', async ($, e, next) => { await update($, secret, x => ({ ...x, turn: (x.turn ?? 0) + 1 })); await roles($, true).catch(() => {}); await arm($).catch(() => {}); const r = await next(e); await seen(host($), { start: true }).catch(() => {}); await mainTurn(host($), true).catch(() => {}); return r })   // only main raises turn.start: its plan card waits for its turn end (core/dispatch.mainTurn)
   // 7. session.send
   on('session.send', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return send(host($), e, next) }).catch(denySend)
   // 8. prompt.submit, prompt.attachment, turn.step, session.compact, command.run, config.set
@@ -219,7 +234,7 @@ export const register: Register = (on, opts) => {
   on('prompt.attachment', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return attachment(host($), e, next) })
   on('turn.step', async function* ($, e, next) { const h = host($); if (!(await wake(h))) return yield* next(e); return yield* meter(h, e, e2 => exitStep(h, e2, next)) })   // the cost meter sees cadre's own zero-token answers too
   on('session.compact', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return compact(host($), e, next) }).catch(passOn)
-  on('command.run', { command: 'cadre' }, async ($, e, next) => { const old = (await read($, secret)).old; if (old) return { text: oldLine(old) }; const h = spawner($, next); await ack(h).catch(() => {}); const r = await run(h, e, next); if (await wake(h).catch(() => false)) await spawnStep(h, next.event).catch(x => $.ui.log(`spawner: ${x}`)); return r }).catch(denyCmd)   // a typed /cadre (continue) is a frame to start agents from (core/spawner)
+  on('command.run', { command: 'cadre' }, async ($, e, next) => { await roles($, true).catch(() => {}); const old = (await read($, secret)).old; if (old) return { text: oldLine(old) }; const h = spawner($, next); await ack(h).catch(() => {}); const r = await run(h, e, next); if (await wake(h).catch(() => false)) await spawnStep(h, next.event).catch(x => $.ui.log(`spawner: ${x}`)); return r }).catch(denyCmd)   // a typed /cadre (continue) is a frame to start agents from (core/spawner)
   on('command.run', { command: 'goal' }, ($, e, next) => goal(host($), e, next)).catch(passOn)   // observer only: pass-through, never rewritten (9)
   on('config.set', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return configSet(host($), e, next) }).catch(denySpawn)
   // ui (UI-DESIGN): every ui.render hook names its component (U7); render is pure, state is written from handlers only
