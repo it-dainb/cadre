@@ -49,6 +49,8 @@ submodule-unit|single ready scripted/submodule|submodule|MODEL=haiku CC_VERSION=
 model-gate|single ready scripted/gate|gate|MODEL=haiku CC_VERSION=2.1.295 S=1 BUDGET=40 ORACLE=gate
 concurrency-fifo|single ready scripted/fifo|fifo|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=60 ORACLE=fifo
 continue-after-quit-s|single ready scripted/cont|contkill|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=600 ORACLE=continue
+# the 0.16 cells
+needs-explore|single ready scripted/needs|needs|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=60 ORACLE=needs-explore
 EOF
 }
 scripted() { cells | grep -E '(^|[| ])S=1( |$)'; }

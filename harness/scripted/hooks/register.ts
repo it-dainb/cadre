@@ -8,6 +8,7 @@
 //   limit: lite, the first worker's first step goes to the proxy, which answers a usage limit (stub-proxy.mjs); slow: lite, the worker waits 12 s first;
 //   silent: lite, the worker writes its files and stops without a report, every time (the report-less end);
 //   pair: full lane, two independent tasks (concurrency-fifo, with concurrency.default 1 in the repo's config);
+//   needs: lite, the worker first asks the explore helper (report outcome request), and writes its files once it is answered (needs-explore);
 //   multi: full lane, two tasks (kebabCase after titleCase), an amend on a stale revision refused then retried (plan-tools-full);
 //   sub: lite, the task in the `lib` submodule unit (submodule-unit); cont: lite, the reviewer waits 14 s first (continue-after-quit-s kills before or during it).
 import type { Register } from 'claude-code'
@@ -91,8 +92,9 @@ const TASKS = FNS.map(f => ({ title: `${f.name}(s) with node:test tests`, descri
   changelog: { category: 'Added', entry: `${f.name}(s): ${f.what}` }, interface: { symbols: [{ name: f.name, kind: 'function', params: ['s: string'], returns: 'string', status: 'new' }] } }))
 const taskOf = (brief: string) => brief.match(/TASK-([a-z][\w-]*\w)/)?.[1]   // ids are c-6-1, m-2: a letter first, a word char last
 const WAIT = { tool: 'Bash', input: { command: 'node -e "setTimeout(() => {}, 12000)"', description: 'Wait' } }
-const ROLES: Record<string, (k: number, brief: string, cwd: string) => Act> = {
-  worker: (k, b) => { const f = fnOf(b), w = { tool: 'Bash', input: { command: FILES(f), description: `Write ${f.name} and its test` } }
+const ROLES: Record<string, (k: number, brief: string, cwd: string, rows: Row[]) => Act> = {
+  worker: (k, b, _c, rows) => { const f = fnOf(b), w = { tool: 'Bash', input: { command: FILES(f), description: `Write ${f.name} and its test` } }
+    if (script === 'needs' && !rows.some(r => isText(r) && /Answer to your request/.test(r.text))) return [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'request', summary: 'I need to know where string helpers live.', request: { helper: 'explore', ask: 'Where do the string helpers live and how are they exported?', why: `I add ${f.name} next to them`, paths: ['src/'] } } }][k] ?? { text: END }   // the answer comes back as a message of its own: after it the worker goes on
     return script === 'silent' ? [w][k] ?? { text: END } : script === 'loop' ? { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } } : (script === 'slow' ? [WAIT] : []).concat([w, { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: `Added ${f.name}(s) in src/${f.name}.mjs with a node:test test; npm test passes.`, risks: [] } }])[k] ?? { text: END } },
   tester: (k, b, cwd) => { const f = fnOf(b); return [{ tool: 'Write', input: { file_path: `${cwd}/test/${f.name}.test.mjs`, content: TEST(f) } },
@@ -109,7 +111,7 @@ function agent(rows: Row[], cwd: string): [string, Act] {
   if (probe === 'hb') return [probe, /No such tool available: SubagentHandback/.test(JSON.stringify(rows.at(-1))) ? { text: END } : { text: END, tool: 'SubagentHandback', input: { message: END } }]   // the tool exists in auto mode only
   if (probe === 'wedge' || probe === 'tools') return [probe, k === 0 ? { tool: 'Bash', input: { command: 'node -e "setTimeout(() => {}, 600000)"', description: 'Wait' } } : { text: END }]
   const role = brief.match(/\b(Worker|Reviewer|Explorer|Tester|Planner) brief/)?.[1]?.toLowerCase() ?? 'unknown'
-  return [role, ROLES[role]?.(k, brief, cwd) ?? { text: END }]
+  return [role, ROLES[role]?.(k, brief, cwd, rows) ?? { text: END }]
 }
 
 async function* answer(e: any, a: Act): AsyncGenerator<any, any, any> {

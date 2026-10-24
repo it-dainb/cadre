@@ -347,6 +347,23 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     else if (ws.join() !== [...ws].sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).join()) fail(o, `workers started in the order ${ws.join(', ')} (want the admit order)`)
     if (two) fail(o, `two tasks ran at once in the snapshot at ${two.t}`)
   }
+  if (o === 'needs-explore') {   // a worker asks the explore helper: it waits (no nudge, no card), the helper answers once, the SAME worker resumes with the answer and the task lands; no dialog
+    const all = Object.assign({}, ...snaps.map(x => runs(x.s)), ...hist.map(runs)), needs = Object.assign({}, ...snaps.map(x => pick(x.s, 'need')), ...hist.map(h => pick(h, 'need'))), budgets = Object.assign({}, ...snaps.map(x => pick(x.s, 'budget')), ...hist.map(h => pick(h, 'budget')))
+    const ws = Object.entries(all).filter(([, r]) => r.role === 'worker'), hs = Object.entries(all).filter(([, r]) => r.role === 'explorer'), st = r => (r.log ?? []).map(x => x.state), wk = subs.filter(x => /Worker brief/.test(x.brief))
+    Object.assign(stats, { workers: ws.length, helpers: hs.length, runs: Object.fromEntries(Object.entries(all).map(([a, r]) => [a, `${r.role}:${st(r).join('>')}`])), needs })
+    if (ws.length !== 1 || wk.length !== 1) fail('needs-explore', `${ws.length} worker run(s), ${wk.length} worker transcript(s) (want 1: the same agent resumes)`)
+    else {
+      const s = st(ws[0][1]), i = s.indexOf('waiting')
+      if (i < 0 || !s.slice(i).includes('running')) fail('needs-explore', `the worker never waited and resumed: ${s.join('>')}`)
+      if (!/Answer to your request/.test(read(wk[0].f))) fail('needs-explore', 'the worker transcript holds no answer to its request')
+      if ((ws[0][1].log ?? []).some(x => x.event === 'turn.end')) fail('needs-explore', `the waiting worker was nudged: ${s.join('>')}`)
+    }
+    if (hs.length !== 1 || hs.some(([, r]) => st(r).at(-1) !== 'ended')) fail('needs-explore', `${hs.length} helper run(s) (want 1, ended): ${hs.map(([a, r]) => `${a} ${st(r).join('>')}`).join(' ')}`)
+    const ns = Object.values(needs); if (ns.length !== 1 || ns[0].ok !== true || ns[0].fails !== 0) fail('needs-explore', `${ns.length} need record(s), want one answered ok with no failure: ${JSON.stringify(ns[0] ?? null)}`)
+    if (Object.values(budgets).some(b => b.nudges || b.silentRuns)) fail('needs-explore', `a nudge or a silent run was charged: ${JSON.stringify(Object.values(budgets)[0])}`)
+    if (others > 0) fail('needs-explore', `${others} dialog(s) besides the plan's: ${drv.filter(e => e.kind === 'dialog').map(e => e.text).join(' / ')}`)
+    if (!wantLanded) fail('needs-explore', 'run it with LANDED=1: the task must land')
+  }
   if (o === 'submodule') {   // the task landed in lib's own dev, and the parent's dev records that commit
     const d = existsSync(join(dir, 'submodule.json')) ? JSON.parse(read(join(dir, 'submodule.json'))) : null
     if (!d) fail(o, 'no submodule.json (the scenario never got past the landing)')
