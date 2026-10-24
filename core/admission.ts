@@ -28,7 +28,7 @@ import { branchOf, epicOf } from './milestone'
 import { plannerBrief } from './planner'
 import { modelRefusal, tasksFull } from './queue'
 import { budgetOf, intentOf, reserve, step as lifeStep, unreserve } from './lifecycle'
-import { bound, needOf, question, undelivered, delivered } from './needs'
+import { needOf, question, running, undelivered, delivered } from './needs'
 
 export interface Deps {
   store: TaskStore; cfg: Config; reg: TypeRegistry; root: string; home: string; wtRoot: string; key: string; actor: string; session: string
@@ -260,10 +260,9 @@ async function planner(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snaps
 // ---- a requester's helper: a read-only explorer on the requester's task and tree, bound to its request; its report answers it (core/needs) ----
 async function helper(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapshot, id: string) {
   const n = await needOf(h, id), t = s.tasks.find(x => x.id === id) ?? ({ id } as SnapTask), task = await d.store.get(id).catch(() => null)
-  if (!n || (n.hid && (await h.bind.read())[n.hid]) || n.answer !== undefined || !task) return deny(`${id} has no request to help with now`)
-  const wt = task.meta['cadre.worktree'] || d.root, r = await launch(h, d, e, next, t, 'explorer', brief('explorer', { id: '', title: '', type: '', question: question(n) }), wt, 'helper', wt, async () => {}, undefined, undefined, { parent: n.requester, needId: n.needId })
-  if (r?.agentId) await bound(h, id, r.agentId)
-  return r
+  if (!n || running(await h.bind.read(), n) || n.answer !== undefined || !task) return deny(`${id} has no request to help with now`)
+  const wt = task.meta['cadre.worktree'] || d.root
+  return launch(h, d, e, next, t, 'explorer', brief('explorer', { id: '', title: '', type: '', question: question(n) }), wt, 'helper', wt, async () => {}, undefined, undefined, { parent: n.requester, needId: n.needId })
 }
 
 // ---- lease heartbeat (8.4): the tick calls this; the store only, no hooks needed. Beats each of THIS session's bound tasks every `every` ms. ----

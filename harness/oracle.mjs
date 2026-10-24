@@ -349,7 +349,7 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
   }
   if (o === 'needs-explore') {   // a worker asks the explore helper: it waits (no nudge, no card), the helper answers once, the SAME worker resumes with the answer and the task lands; no dialog
     const all = Object.assign({}, ...snaps.map(x => runs(x.s)), ...hist.map(runs)), needs = Object.assign({}, ...snaps.map(x => pick(x.s, 'need')), ...hist.map(h => pick(h, 'need'))), budgets = Object.assign({}, ...snaps.map(x => pick(x.s, 'budget')), ...hist.map(h => pick(h, 'budget')))
-    const ws = Object.entries(all).filter(([, r]) => r.role === 'worker'), hs = Object.entries(all).filter(([, r]) => r.role === 'explorer'), st = r => (r.log ?? []).map(x => x.state), wk = subs.filter(x => /Worker brief/.test(x.brief))
+    const ws = Object.entries(all).filter(([, r]) => r.role === 'worker'), hs = Object.entries(all).filter(([, r]) => r.role === 'explorer' && needs[r.taskId]), st = r => (r.log ?? []).map(x => x.state), wk = subs.filter(x => /Worker brief/.test(x.brief))
     Object.assign(stats, { workers: ws.length, helpers: hs.length, runs: Object.fromEntries(Object.entries(all).map(([a, r]) => [a, `${r.role}:${st(r).join('>')}`])), needs })
     if (ws.length !== 1 || wk.length !== 1) fail('needs-explore', `${ws.length} worker run(s), ${wk.length} worker transcript(s) (want 1: the same agent resumes)`)
     else {

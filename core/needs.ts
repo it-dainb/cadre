@@ -11,7 +11,7 @@ import { limited } from './drive'
 import { runOf, step } from './lifecycle'
 import { ROLES_DEFAULT } from './roles'
 
-export interface Need { task: string; needId: string; n: number; requester: string; epoch: number; helper: string; ask: string; why: string; paths?: string[]; fails: number; hid?: string; answer?: string; ok?: boolean; delivered?: boolean }
+export interface Need { task: string; needId: string; n: number; requester: string; epoch: number; helper: string; ask: string; why: string; paths?: string[]; fails: number; answer?: string; ok?: boolean; delivered?: boolean }
 export const needOf = (h: Host, task: string) => ctlGet<Need>(h, `need:${task}`)
 const put = (h: Host, n: Need) => ctlSet(h, { [`need:${n.task}`]: n })
 const HELPERS = ['explore']
@@ -50,14 +50,14 @@ export async function helperDone(h: Host, b: Binding, r: { role: string; answer?
 // a failed helper is stopped like the backstop's (it never runs beside its respawn), ended lost; the first failure leaves the request for the spawner, the second ends it
 async function failed(h: Host, a: string, n: Need, why: string): Promise<void> {
   await h.stopAgent?.(a).catch(() => {}); await step(h, a, { type: 'end', cause: 'lost', reason: why })
-  if (n.fails < 1) return put(h, { ...n, fails: 1, hid: undefined })
+  if (n.fails < 1) return put(h, { ...n, fails: 1 })
   await answer(h, n, null)
   await ask(h, { id: `help:${n.task}:${n.needId}`, kind: 'flag', title: `${n.task}: a helper could not answer`, hash: n.needId, tab: 'epic', sel: n.task, lines: [`The helper asked to look into "${n.ask.slice(0, 120)}" failed twice (${why}). Its task goes on without the answer.`], options: [{ key: 'k', label: 'OK', verb: 'keep' }] })
 }
 // the helper's turn ended (core/close.stopped): after its report it just ends; without one it failed, a usage limit aside (the drive waits, the spawner starts it again)
 export async function helperStopped(h: Host, b: Binding, e: { agentId: string; reason?: string }): Promise<void> {
   const n = await needOf(h, b.taskId); if (!n || n.needId !== b.needId || n.answer !== undefined) return void (await step(h, e.agentId, { type: 'end', cause: 'done', reason: 'answer' }))
-  if (await limited(h, e)) { await step(h, e.agentId, { type: 'end', cause: 'released', reason: 'usage limit' }); return put(h, { ...n, hid: undefined }) }
+  if (await limited(h, e)) { return void (await step(h, e.agentId, { type: 'end', cause: 'released', reason: 'usage limit' })) }
   await failed(h, e.agentId, n, (await runOf(h, e.agentId))?.exit ? 'it repeated one call' : 'it stopped without an answer')
 }
 // the 5 s tick: a helper still running past limits.helpers.minutes failed (only by the session that holds it)
@@ -68,16 +68,16 @@ export async function overdue(h: Host, me: string): Promise<void> {
     const n = await needOf(h, b.taskId); if (n && n.needId === b.needId && n.answer === undefined) await failed(h, a, n, `it ran past ${max / 60_000} minutes`)
   }
 }
+export const running = (bind: Record<string, Binding>, n: Need) => Object.values(bind).some(b => b.taskId === n.task && b.needId === n.needId)   // a helper of this request is bound (its record is never rewritten by the helper's start: a late write lost its answer)
 // the spawner's view: the tasks with a request no helper runs (a respawn after a failure or a process death), and those whose requester waits for one
 export async function pending(h: Host): Promise<{ start: string[]; hold: string[] }> {
   const bind = await h.bind.read(), start: string[] = [], hold: string[] = []
-  for (const t of await ctlKeys(h, 'need:')) { const n = await needOf(h, t); if (n && n.answer === undefined) { hold.push(t); if (!n.hid || !bind[n.hid]) start.push(t) } }
+  for (const t of await ctlKeys(h, 'need:')) { const n = await needOf(h, t); if (n && n.answer === undefined) { hold.push(t); if (!running(bind, n)) start.push(t) } }
   return { start, hold }
 }
 // admission's rebind: an answer the requester never got goes into the fresh agent's brief, once
 export async function undelivered(h: Host, task: string): Promise<string | undefined> { const n = await needOf(h, task); return n && n.answer !== undefined && !n.delivered ? reply(n) : undefined }
 export async function delivered(h: Host, task: string, agentId?: string): Promise<void> { const n = await needOf(h, task); if (n && n.answer !== undefined && (!agentId || n.requester === agentId)) await put(h, { ...n, delivered: true }) }
-export async function bound(h: Host, task: string, hid: string): Promise<void> { const n = await needOf(h, task); if (n) await put(h, { ...n, hid }) }
 // the task goes (closed, cancelled, released) or is retried: its helpers are stopped with no answer and no respawn, the wait ends, the record goes
 export async function drop(h: Host, task: string): Promise<void> {
   const n = await needOf(h, task); if (!n) return

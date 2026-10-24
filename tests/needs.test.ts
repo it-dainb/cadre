@@ -87,7 +87,7 @@ describe('every helper ends and answers exactly once', () => {
   })
   test('a report after the helper was answered failed is not an answer; a usage limit is not a failure', async () => {
     const { w, id } = await asked(); Object.assign(w.h, { usage: async () => ({ cost: { usd: 0 }, rateLimits: [{ kind: 'five_hour', percentUsed: 100, resetsAt: new Date(w.clock.now + 3_600_000).toISOString() }] }) })
-    await w.stop('ag2', 'error', 'API Error'); expect((await needOf(w.h, id))).toMatchObject({ fails: 0, hid: undefined }); expect(await events(w, 'help.done')).toHaveLength(0)
+    await w.stop('ag2', 'error', 'API Error'); expect((await needOf(w.h, id))).toMatchObject({ fails: 0 }); expect(await events(w, 'help.done')).toHaveLength(0); await w.turn(); expect(types(w)).toEqual(['cadre:worker', 'cadre:explorer', 'cadre:explorer'])   // started again
   })
 })
 
@@ -126,7 +126,7 @@ describe('process death between the answer and its delivery', () => {
   })
   test('the helper had not answered: it starts again and the requester waits for it', async () => {
     const { w, id } = await asked(); await die(w); expect((await pending(w.h)).start).toEqual([id])
-    await continueRun(w.h); w.spawned.length = 0; await w.turn(); expect(types(w)).toEqual(['cadre:explorer']); expect((await needOf(w.h, id))).toMatchObject({ hid: 'ag3', fails: 0 })
+    await continueRun(w.h); w.spawned.length = 0; await w.turn(); expect(types(w)).toEqual(['cadre:explorer']); expect((await needOf(w.h, id))).toMatchObject({ fails: 0 }); expect((await w.h.bind.read()).ag3).toMatchObject({ parent: 'ag1', needId: 'n1' })
   })
 })
 
