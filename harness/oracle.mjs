@@ -343,7 +343,7 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     const id = b => b.match(/TASK-([a-z][\w-]*\w)/)?.[1], ws = subs.filter(x => /Worker brief/.test(x.brief) && id(x.brief)).sort((a, b) => a.t - b.t).map(x => id(x.brief))
     const two = snaps.find(x => new Set(Object.values(runs(x.s)).filter(r => ['running', 'refused', 'silent'].includes(r.state?.state)).map(r => r.taskId)).size > 1)
     Object.assign(stats, { workerOrder: ws })
-    if (ws.length !== 3) fail(o, `${ws.length} worker runs (want 3, one per task)`)
+    if (ws.length !== 2) fail(o, `${ws.length} worker runs (want 2, one per task)`)
     else if (ws.join() !== [...ws].sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).join()) fail(o, `workers started in the order ${ws.join(', ')} (want the admit order)`)
     if (two) fail(o, `two tasks ran at once in the snapshot at ${two.t}`)
   }
