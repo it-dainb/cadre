@@ -110,8 +110,8 @@ const mine = (() => {
 // 6. the goal reaches the plan dialog within the turn and dialog budget
 //    main's question call is one dialog however many tabs the watcher logged (one per question), and its one clarify round (ADR 0020: at most
 //    maxQuestions in ONE call) earns its dialog on top of set up, safety settings and the plan: on haiku a clear goal may still score unclear
-//    (main's judgement; the clarify tier's CLARIFY=none judges that, not this budget)
-{
+//    (main's judgement; the clarify tier's CLARIFY=none judges that, not this budget). custom-role has no goal: main's one Agent call is the whole cell
+if (process.env.ORACLE !== 'custom-role') {
   const plan = drv.find(e => e.kind === 'plan'), until = plan?.t ?? tEnd
   // a fault the cell injected (FAULT=interrupt|kill) earns the setup's one recovery dialog ("… stopped …")
   const faulted = drv.some(e => e.kind === 'fault'); let budget = DIALOGS + (faulted && drv.some(e => e.kind === 'dialog' && /stopped/.test(e.text)) ? 1 : 0)
@@ -331,6 +331,17 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
       else if (ws.length && task(rv[0].brief) !== task(ws[0].brief)) fail(o, `the reviewer after the restart works on ${task(rv[0].brief)}, the worker did ${task(ws[0].brief)}`)
       if (!drv.some(e => e.kind === 'send' && e.t > k && /\/cadre continue/.test(e.text))) fail(o, 'no /cadre continue after the restart')
     }
+  }
+  if (o === 'custom-role') {   // the user's read-only auditor: ONE register before the spawn, spawned as cadre:auditor from a later turn, it answers by report, one terminal state
+    const at = re => dlines.findIndex(l => re.test(l)), reg = dlines.filter(l => /\$\.agent\.register \(cadre\): cadre:auditor/.test(l)), sp = dlines.filter(l => /agent\.spawn cadre:auditor/.test(l))
+    const done = dlines.filter(l => /\[Stall\] agent_completion .*agentType=cadre:auditor/.test(l)), id = done[0]?.match(/agentId=(\w+)/)?.[1] ?? '', rep = dlines.filter(l => id && l.includes(`SCRIPTED step agent=${id} `) && /tool mcp__cadre__report/.test(l))
+    Object.assign(stats, { registers: reg.length, spawns: sp.length, completions: done.length, reports: rep.length })
+    if (reg.length !== 1) fail(o, `${reg.length} agent.register of auditor (want 1)`)
+    else if (sp.length !== 1) fail(o, `${sp.length} spawn(s) as cadre:auditor (want 1)`)
+    else if (at(/\$\.agent\.register \(cadre\): cadre:auditor/) > at(/agent\.spawn cadre:auditor/)) fail(o, 'the spawn came before the register')
+    else if (done.length !== 1 || !/exitPath=completed/.test(done[0])) fail(o, `${done.length} terminal state(s) of the auditor: ${done.join(' | ').slice(0, 200)} (want 1, completed)`)
+    else if (rep.length !== 1) fail(o, `the auditor called report ${rep.length}x (want 1)`)
+    if (dlines.some(l => /\bspawn refused|hook failed|ended\{lost\}/.test(l))) fail(o, `a refusal or failure line: ${dlines.find(l => /\bspawn refused|hook failed/.test(l))}`)
   }
   if (o === 'gate') {   // a model the gate refuses: the drive never starts, so no task agent runs and no model request follows; Doctor names the cell once
     const agents = subs.filter(x => /(Worker|Tester|Reviewer) brief/.test(x.brief)), steps = dlines.filter(l => /SCRIPTED step agent=\S+ who=(worker|tester|reviewer)/.test(l)).length
