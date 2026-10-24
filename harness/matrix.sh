@@ -79,7 +79,7 @@ RUN=$H/out/matrix/$TIER-$(date +%Y%m%d-%H%M%S); mkdir -p "$RUN"; echo "evidence:
 export H RUN
 # each cell: its own container (tui name = cell name + run stamp), env from the 4th column
 xargs -P "$J" -d '\n' -I{} bash -c 'IFS="|" read -r name fix scen envs <<<"$1"; echo "$envs" >"$RUN/$name.env"
-  case " $envs " in *" S=1 "*) export PROXY=1 PROXY_JS=harness/scripted/stub-proxy.mjs CLAUDE_ARGS="--plugin-dir /work/spike/harness/scripted" EXTRA_ENV="-e CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false -e ENABLE_CLAUDEAI_MCP_SERVERS=false -e DISABLE_TELEMETRY=1";; esac
+  case " $envs " in *" S=1 "*) export PROXY=1 PROXY_JS=harness/scripted/stub-proxy.mjs CLAUDE_ARGS="--plugin-dir /work/spike/harness/scripted" EXTRA_ENV="-e CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false";; esac
   env $envs OUT_DIR="$RUN/$name" "$H/cell.sh" "m$$-$name" "$fix" "$scen" >"$RUN/$name.line" 2>"$RUN/$name.err"; cat "$RUN/$name.line"' _ {} <<<"$CELLS"
 echo; node "$H/table.mjs" "$RUN" | tee "$RUN/table.txt"
 ! grep -q 'FAIL\|NO VERDICT' "$RUN/table.txt"
