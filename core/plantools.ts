@@ -11,6 +11,7 @@ import type { TypeRegistry } from '../task-management/registry'
 import { pipeOf } from '../task-management/registry'
 import { canon, modelView } from './board'
 import { apply } from './machine'
+import { emit } from './events'
 import { settleIf, yoloOn } from './decide'
 import { DRIVE, cfgOf, draftsOf, mirror, registryOf, storeOf, touched } from './dispatch'
 import { repoSplit } from './specview'
@@ -235,7 +236,7 @@ async function amend(h: Host, i: In): Promise<Out> {
   const twice = cs.find(c => ledgerOf(t!).some(x => x.criterion === c.criterion)); if (twice) return no(`${twice.criterion}: changed once already; a second change to it is the user's: ask them`)
   // the revision is taken with one compare-and-set on the plan before the write: a write that landed after the check above refuses this one
   let took: Task; try { took = await store.setMeta(s.plan!.id, { 'cadre.rev': String(cur + 1) }, 'main', p.revision) } catch (x) { if (x instanceof StoreError && x.code === 'GuardMismatch') return no('expectedRevision: the plan changed while you wrote; read it with status and call again with its new revision'); throw x }
-  const log = () => store.setMeta(id, { 'cadre.amendments': JSON.stringify([...ledgerOf(t!), ...cs.map(c => ({ ...c, reason, evidence, at }))]) }, 'main')
+  const log = async () => { await store.setMeta(id, { 'cadre.amendments': JSON.stringify([...ledgerOf(t!), ...cs.map(c => ({ ...c, reason, evidence, at }))]) }, 'main'); await emit(h, 'amend.recorded', { taskId: id, reason: String(reason).slice(0, 200) }, { taskId: id }) }
   if (remove) {   // an approved task is never deleted: one an earlier amend sent back to draft is approved again first, then closed as deleted; the ledger first
     if (approved) { await log(); if (t!.category === 'draft') { await store.approve([id]); await store.setMeta(id, { 'cadre.amended': '' }, 'main') } }
     const r = await life(h, store, reg, id, 'deleted', undefined, reason); if (typeof r.result === 'string') return r

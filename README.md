@@ -61,6 +61,8 @@ plan → your approval → tester (test goes red) → worker (goes green)
 
 More: [the loop in detail](docs/commands.md#the-loop-in-detail).
 
+**Lessons.** cadre learns on its own: after a plan lands, a short side-model pass (`lessons.model`, `lessons.passesPerDay`; 0 turns it off) turns what went wrong, and what you changed, into short lessons that later task briefs carry by path (at most 1.5 KB). One that repeats or is critical moves to your user scope. The Lessons tab shows them; `x` prunes one for good.
+
 ## Commands
 
 | Type this | What it does |

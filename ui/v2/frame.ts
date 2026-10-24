@@ -7,6 +7,7 @@ import { doctor } from '../views/doctor'
 import { graph } from '../views/graph'
 import { milestone } from '../views/milestone'
 import { settings } from '../views/settings'
+import { lessons } from '../views/lessons'
 import { timeline } from '../views/timeline'
 import { type Renderer, type VOut, keyLine } from '../views/types'
 import { needsFull, needsOne, boardView } from './board'
@@ -17,9 +18,9 @@ export type Raster = NonNullable<VOut['raster']>
 export type P2 = { before: Line[]; raster?: Raster; after: Line[] }
 const TABS: [id: string, hk: string, long: string, short: string, one: string, view: Renderer][] = [
   ['board', '1', 'Board', 'Brd', 'B', boardView], ['graph', '2', 'Graph', 'Gph', 'G', graph], ['timeline', '3', 'Timeline', 'Tml', 'T', timeline],
-  ['activity', '4', 'Activity', 'Act', 'A', activity], ['milestone', '5', 'Milestone', 'Mst', 'M', milestone], ['doctor', '8', 'Doctor', 'Doc', 'D', doctor], ['settings', '9', 'Settings', 'Set', 'S', settings],
+  ['activity', '4', 'Activity', 'Act', 'A', activity], ['milestone', '5', 'Milestone', 'Mst', 'M', milestone], ['lessons', '6', 'Lessons', 'Les', 'L', lessons], ['doctor', '8', 'Doctor', 'Doc', 'D', doctor], ['settings', '9', 'Settings', 'Set', 'S', settings],
 ]
-const tabsOf = (v: View) => TABS.filter(x => x[0] !== 'milestone' || v.b.plan?.lane === 'milestone')   // tab 5 only while a milestone is the plan
+const tabsOf = (v: View) => TABS.filter(x => (x[0] !== 'milestone' || v.b.plan?.lane === 'milestone') && (x[0] !== 'lessons' || !!(v.ui['lessons.rows'] as unknown[] | undefined)?.length))   // tab 5 only while a milestone is the plan; tab 6 once there are lessons
 export const tabOf = (v: View): string => { const t = v.ui.tab as string | undefined; return tabsOf(v).some(x => x[0] === t) ? t! : 'board' }   // v1 names (epic, plan) land on the Board
 
 function tabRow(v: View, w: number, a: Acts, cur: string, owed: boolean): Line {

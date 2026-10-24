@@ -27,6 +27,11 @@ export const TABLE: Record<EventType, Row> = {
   'release.proposed': ['mod', 'info', true, ['version']],
   'help.asked': ['mod', 'info', false, ['taskId', 'helper']],   // a run asked a helper (core/needs) and waits
   'help.done': ['mod', 'info', false, ['taskId', 'helper', 'ok']],   // its one answer: ok false = the helper failed
+  'decision.answered': ['human', 'info', false, ['choice'], ['id']],   // the human's answer in the dialog (core/dispatch.answer): an input of the lessons pass
+  'config.changed': ['human', 'info', false, ['key', 'from', 'to']],   // a setting the human saved (config/route)
+  'task.retried': ['human', 'info', false, ['taskId']],   // the human's Retry
+  'task.cancelled': ['mod', 'info', false, ['taskId']],
+  'amend.recorded': ['main', 'info', false, ['taskId'], ['reason']],   // an approved task changed through amend
 }
 const SECRET_KEYS = ['code8', 'code', 'nonce', 'token', 'initConfirm']   // D7: no event ever carries a code
 

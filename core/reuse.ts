@@ -15,6 +15,7 @@ import { resolveDeps } from './admission'
 import { checkpoint } from './effect'
 import { type Entry, cardOf, inFlight, qk, savePointer, warm } from './session'
 import { drive, goalSeen } from './drive'
+import { pass } from './lessons'
 import { delivered } from './needs'
 
 const counted = (h: Host, q: Entry[], me: string) => h.board.update(s => ({ ...s, resumesQueued: q.filter(x => x.sessionId === me).length }))
@@ -159,6 +160,7 @@ export const drain: Hook = async (h, e, next) => {
     if (s.plan?.landed && ui.clr !== s.plan.id) { await h.ui.update(x => ({ ...x, clr: s.plan!.id })); if ((pct ?? 0) > cfg.cost.clearHintPct) h.toast(`cadre: epic ${s.plan.id} landed · /clear for a fresh main`) }   // 7: never automatic
     if (pct !== undefined && pct > cfg.cost.compactPct && s.plan?.state === 'approved' && !(await h.ui.read()).cmp) { await h.ui.update(x => ({ ...x, cmp: true })); h.toast(`cadre: context ${pct}% · /compact now`) }   // S49: compact() is headless-unavailable: hint, not automatic
     await drive(h, cfg, u?.cost?.usd)
+    await pass(h, !s.tasks.some(t => t.state === 'active' || t.state === 'review'))   // lessons: a side-model pass after a landed plan, or when nothing runs (core/lessons)
   })
   return r
 }

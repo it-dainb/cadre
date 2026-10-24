@@ -23,6 +23,7 @@ import { warm } from './session'
 import { buildView, inRepo, pkgOf, rootOf } from './specview'
 import { realRoot } from '../policy/guards'
 import { lockCore, watch } from './rebase'
+import { feed } from './lessons'
 import { notesOf, pathsOf, sliceNotes, specTestsOf, untested } from './validate'
 import { branchOf, epicOf } from './milestone'
 import { plannerBrief } from './planner'
@@ -133,10 +134,10 @@ const briefOf = (s: Snapshot, t: SnapTask, task: Task, e: any, d: Deps, role: Ro
 
 // what the plan shares with every task brief (ADR 0014 G, 0022): the plan block (mission, the landed core's interface, the notes without paths) is the same
 // for every task; the notes on this task's paths and the paths other running tasks declared go in its task block
-async function plan(d: Deps, s: Snapshot, t: SnapTask, task: Task): Promise<Partial<BriefIn>> {
+async function plan(h: Host, d: Deps, s: Snapshot, t: SnapTask, task: Task): Promise<Partial<BriefIn>> {
   const ep = s.epic ? await d.store.get(s.epic).catch(() => null) : null, run = s.tasks.filter(x => x.id !== t.id && (x.state === 'active' || x.state === 'review'))
   const n = sliceNotes(notesOf(ep?.meta['cadre.notes']), pathsOf(task), d.cfg.notes.slice)
-  return { mission: s.mission ?? undefined, core: ep?.meta['cadre.coreContract'] || undefined, shared: n.shared, slice: n.slice,
+  return { mission: s.mission ?? undefined, core: ep?.meta['cadre.coreContract'] || undefined, shared: n.shared, slice: n.slice, lessons: await feed(h, t.id, pathsOf(task)).catch(() => ''),
     others: (await Promise.all(run.map(async x => { const p = pathsOf(await d.store.get(x.id).catch(() => undefined)); return p.length ? `- ${x.id}: ${p.join(', ')}` : '' }))).filter(Boolean) }
 }
 export async function setup(h: Host, d: Deps, task: Task, wt: string) {   // `setup` runs in the writable jail (network on)
@@ -194,7 +195,7 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
       meta = { ...meta, 'cadre.base': task.meta['cadre.base'] ?? base, 'cadre.branch': branch, 'cadre.worktree': wt }
     }
     await d.store.setMeta(t.id, meta, d.actor); if (!spike) await lockCore(h, d, t.id)   // a core that already landed is locked for this task
-    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, await plan(d, s, t, task))), cwd, step, spike ? '' : cwd, undo, undefined, task)
+    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, await plan(h, d, s, t, task))), cwd, step, spike ? '' : cwd, undo, undefined, task)
   } catch (err) {
     await undo()
     if (err instanceof StoreError) return deny(`${err.code}: ${err.message}`)
@@ -237,7 +238,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
       handoff = handoffOf(task.meta, cp, await G.diffStat(h.run, wt, `${hb}..${cp}`), await G.diffPatch(h.run, wt, `${hb}..${cp}`))
     }
     const cwd = spike ? d.root : viewed(d, role) ? await d.view!(h, d, task, wt) : wt
-    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, { ...(await plan(d, s, t, task)), handoff, decisions: [task.meta['cadre.decision'], await undelivered(h, t.id)].filter(Boolean) as string[] })), cwd, t.step, spike ? '' : cwd, undo, undefined, task).then(async r => { if (r?.agentId) await delivered(h, t.id); return r })   // an answer its requester never got goes in once
+    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, { ...(await plan(h, d, s, t, task)), handoff, decisions: [task.meta['cadre.decision'], await undelivered(h, t.id)].filter(Boolean) as string[] })), cwd, t.step, spike ? '' : cwd, undo, undefined, task).then(async r => { if (r?.agentId) await delivered(h, t.id); return r })   // an answer its requester never got goes in once
   } catch (err) { await undo(); throw err }
 }
 
@@ -253,7 +254,7 @@ async function review(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
     const epicMeta = s.epic ? (await d.store.get(s.epic).catch(() => null))?.meta['cadre.corePaths'] : undefined, core: string[] = (() => { try { return JSON.parse(epicMeta ?? '[]') } catch { return [] } })()
     const rt = riskOf(d.cfg.review, { ...parseNumstat(await G.git(h.run, wt, ['diff', '--numstat', `${base}..${src}`])), labels: task.labels, coreTask: task.meta['cadre.core'] === 'true', corePaths: core })
     await d.store.setMeta(t.id, { 'cadre.reviewTier': rt }, d.actor)
-    const r = await launch(h, d, e, next, t, 'reviewer', brief('reviewer', briefOf(s, t, task, e, d, 'reviewer', { ...(await plan(d, s, t, task)), uncovered: d.cfg.review.coverage.enforce ? untested(task.acceptance, specTestsOf(task)) : undefined, sourceCommit: src, diffStat, diff, report: task.meta['cadre.report'], flags: t.flags, focus: FOCUS[rt] })), wt, 'reviewer', wt, undo, rt, task)
+    const r = await launch(h, d, e, next, t, 'reviewer', brief('reviewer', briefOf(s, t, task, e, d, 'reviewer', { ...(await plan(h, d, s, t, task)), uncovered: d.cfg.review.coverage.enforce ? untested(task.acceptance, specTestsOf(task)) : undefined, sourceCommit: src, diffStat, diff, report: task.meta['cadre.report'], flags: t.flags, focus: FOCUS[rt] })), wt, 'reviewer', wt, undo, rt, task)
     if (r?.agentId) await commit(h, b => ({ ...b, tasks: b.tasks.map(x => (x.id === t.id ? { ...x, owner: d.actor } : x)) }))   // the reviewer runs the step now (close clears it at the worker's report); no agent bound: nobody would ever clear it
     return r
   } catch (err) { await undo(); throw err }

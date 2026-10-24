@@ -135,6 +135,7 @@ export const charge = async (h: Host, taskId: string, k: keyof Budget): Promise<
 export async function retry(h: Host, taskId: string, k: keyof Budget, to = 0): Promise<void> {
   const fresh = { ...ZERO, ...(await ctlGet<Budget>(h, keyOf('budgets', taskId))) }
   await put<Budget>(h, 'budgets', taskId, fresh, b => ({ ...fresh, ...b, [k]: to }))
+  await emit(h, 'task.retried', { taskId }, { taskId })
 }
 // the store is small (ST-15): a closed task's runs and budget go at once; at session start every ended run, or one whose task is no longer in flight, goes
 export async function prune(h: Host, taskId: string | undefined, ids: string[]): Promise<void> {

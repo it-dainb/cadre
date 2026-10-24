@@ -61,8 +61,8 @@ describe('roles as data: zero behaviour change', () => {
     const sets: Record<string, any[]> = { none: [], user: [L('u', 'user', { mcpAllow: ['mcp__a__b'], concurrency: { default: 2 }, roles: { worker: { byRisk: { light: { model: 'sonnet' } } } } })],
       both: [L('u', 'user', { mcpAllow: ['mcp__a__b'], units: [{ root: 'a', knownRed: ['x', 'y'] }] }), L('r', 'repo', { strictness: 'strict', roles: { tester: { byRisk: { core: { effort: 'low' } } } }, units: [{ root: 'a', knownRed: ['x', 'z'] }], bogus: 1 })] }
     for (const [n, s] of Object.entries(sets)) {
-      const r = resolve(s), { custom, ...roles } = r.config.roles
-      expect(custom).toEqual({}); expect(JSON.parse(JSON.stringify({ config: { ...r.config, roles }, diagnostics: r.diagnostics }))).toEqual(GOLD.resolved[n])
+      const r = resolve(s), { custom, ...roles } = r.config.roles, { lessons, ...rest } = r.config
+      expect(custom).toEqual({}); expect(lessons.passesPerDay).toBe(4); expect(JSON.parse(JSON.stringify({ config: { ...rest, roles }, diagnostics: r.diagnostics }))).toEqual(GOLD.resolved[n])
     }
   })
   test('write scope: globs under the tree; built-ins are ** or none', async () => {

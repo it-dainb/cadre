@@ -20,6 +20,7 @@ export function modelIssues(c: Config): string[] {
     if (v?.model !== undefined) cells.push([`roles.${r}.model`, v.model])
     for (const [k, x] of Object.entries(v?.byRisk ?? {}) as [string, any][]) cells.push([`roles.${r}.byRisk.${k}.model`, x.model], [`roles.${r}.byRisk.${k}.escalate.model`, x.escalate?.model])
   }
+  cells.push(['lessons.model', c.lessons?.model])
   for (const [n, s] of Object.entries(c.roles.custom) as [string, any][]) cells.push([`roles.custom.${n}.model`, s?.model])   // a custom role's model is gated like any other
   for (const u of c.units ?? [] as any[]) for (const [r, x] of Object.entries(u?.routing ?? {}) as [string, any][]) cells.push([`units ${u.root}: routing.${r}.model`, x?.model])
   return cells.filter(([, m]) => typeof m === 'string' && !MODEL_OK.test(m) && !c.models.allow.includes(m)).map(([k, m]) => unknownModel(k, String(m)))

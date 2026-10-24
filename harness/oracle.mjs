@@ -375,6 +375,14 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     const hd = drv.filter(e => e.kind === 'dialog' && /helper/i.test(e.text)); if (hd.length || others > 1) fail('needs-explore', `${hd.length} helper dialog(s), ${others} dialog(s) besides the plan's and the release's: ${drv.filter(e => e.kind === 'dialog').map(e => e.text).join(' / ')}`)   // the landing's own dialog on a checked-out main is the one other every cell shows
     if (!wantLanded) fail('needs-explore', 'run it with LANDED=1: the task must land')
   }
+  if (o === 'lessons') {   // the side-model pass: ONE request (haiku, 800 tokens) answered by the stub, one lesson with evidence, and every brief after it carries the lesson
+    const reqs = read(join(dir, 'stubbed.jsonl')).split('\n').filter(l => l.includes('"lessons_pass"')).map(l => JSON.parse(l)), LESSON = /Run the project's tests before you report\./
+    const briefs = subs.filter(x => /(Worker|Tester|Reviewer) brief/.test(x.brief)).sort((a, b) => a.t - b.t), after = briefs.filter(x => x.t > (reqs[0]?.at ?? Infinity)), carry = briefs.filter(x => LESSON.test(x.brief))
+    Object.assign(stats, { requests: reqs.length, briefs: briefs.length, briefsAfter: after.length, briefsWithLesson: carry.length, model: reqs[0]?.model, maxTokens: reqs[0]?.max_tokens })
+    if (reqs.length !== 1) fail(o, `${reqs.length} lesson request(s) (want 1)`)
+    else if (reqs[0].max_tokens !== 800 || !/haiku/.test(reqs[0].model ?? '')) fail(o, `the request was ${reqs[0].model} max_tokens ${reqs[0].max_tokens} (want haiku, 800)`)
+    else if (!after.length || after.some(x => !LESSON.test(x.brief))) fail(o, `${after.length} brief(s) after the pass, ${carry.length} carry the lesson (want every one)`)
+  }
   if (o === 'submodule') {   // the task landed in lib's own dev, and the parent's dev records that commit
     const d = existsSync(join(dir, 'submodule.json')) ? JSON.parse(read(join(dir, 'submodule.json'))) : null
     if (!d) fail(o, 'no submodule.json (the scenario never got past the landing)')

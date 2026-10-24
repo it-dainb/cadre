@@ -19,10 +19,16 @@ import { dirname, join } from 'node:path'
 const log = process.argv[2], stubbed = join(dirname(log), 'stubbed.jsonl'), flag = join(dirname(log), 'limit')
 let resetAt = 0   // epoch s; a limit window is open while now < resetAt
 const KINDS = { quota_check: b => b.max_tokens === 1 && b.messages?.length === 1 && b.messages[0].content === 'quota', auto_mode_classifier: b => !b.stream && /^<transcript>/.test(b.messages?.[0]?.content?.[0]?.text ?? ''),
+  lessons_pass: (b, raw) => raw.includes('records of one repository'),   // core/lessons: its one side-model request
   agent_summary: (b, raw) => raw.includes('Describe your most recent action'), session_title: (b, raw) => raw.includes('<session>') && raw.includes('"title"') }
 // a refused request names which of these phrases its body holds (never the body): enough to name a new kind
 const MARKS = ['Describe your most recent action', '<transcript>', '<session>', 'quota', 'away_summary', 'You are an agent for Claude Code', 'compact', 'summar']
 const TEXT = { quota_check: ['.', 'max_tokens', null], auto_mode_classifier: ['<block>no</block><severity>0</severity>', 'end_turn', null], agent_summary: ['Working on the task', 'end_turn', null], session_title: ['{"title":"Scripted session"}', 'end_turn', null] }
+// lessons_pass: one lesson citing the first record key of the request's prompt (core/lessons drops a lesson whose evidence is not in the batch it sent)
+const lessonOf = body => {
+  const b = JSON.parse(body.toString()), txt = (b.messages ?? []).map(m => (typeof m.content === 'string' ? m.content : (m.content ?? []).map(x => x.text ?? '').join(''))).join('\n')
+  return JSON.stringify({ lessons: [{ text: "Run the project's tests before you report.", evidence: [/^- ([a-z]+:\S+:\d+) \|/m.exec(txt)?.[1]] }] })
+}
 // a stubbed answer, whole or streamed as the request asked
 function reply(res, b, [text, stop_reason, stop_sequence]) {
   const msg = { id: 'msg_s0stub', type: 'message', role: 'assistant', model: b.model, content: [{ type: 'text', text }], stop_reason, stop_sequence, usage: { input_tokens: 1, output_tokens: 1 } }
@@ -42,7 +48,7 @@ http.createServer((req, res) => {
     const kind = path === '/v1/messages' ? Object.keys(KINDS).find(k => KINDS[k](b, body.toString())) : undefined
     if (kind) {
       appendFileSync(stubbed, line(b, path, kind) + '\n')
-      return reply(res, b, TEXT[kind])
+      return reply(res, b, kind === 'lessons_pass' ? [lessonOf(body), 'end_turn', null] : TEXT[kind])
     }
     if (path.startsWith('/v1/messages') && existsSync(flag)) { resetAt = Math.floor(Date.now() / 1000) + (+readFileSync(flag, 'utf8') || 90); rmSync(flag) }
     if (path.startsWith('/v1/messages') && Date.now() / 1000 < resetAt) {

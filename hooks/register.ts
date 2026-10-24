@@ -125,6 +125,7 @@ function host($): Host {
   h.version = async () => String((await $.session.version()).version)
   h.theme = async () => { const v = String(((await $.config.list().catch(() => [])) as { key: string; value?: unknown }[]).find(r => r.key === 'theme')?.value ?? ''); return /^light/.test(v) ? 'light' : /^dark/.test(v) ? 'dark' : 'unknown' }
   h.root = async () => $.plugin.root
+  h.model = { complete: a => $.model.complete(a) as any }
   h.shell = async () => String(await $.session.cwd())
   h.stopAgent = async agentId => { const r: any = await $.tool.call({ tool: 'TaskStop', task_id: agentId }); if (r?.deny || r?.isError) throw new Error(r.deny ?? r.text) }   // from a timer frame: no hook of ours sees it (G6), no dialog in auto or yolo; an agent not running here (S0: "is not running") is an error result
   return h

@@ -3,6 +3,8 @@
 //   edit <key> -> a Decision with one field (asked in the dialog) · cancel <key> · sel <+1|-1> · refresh. Every write: .bak of the old bytes, write, re-read.
 import { DRIVE, ROUTES, dispatch, isHuman } from '../core/dispatch'
 import { ask, settle } from '../core/decide'
+import { emit } from '../core/events'
+import { prune as pruneLesson, rows as lessonRows } from '../core/lessons'
 import { start } from '../core/session'
 import { repoKeyOf } from '../commands/init'
 import { HEADLESS, REG, check, headlessMain, layersOf, resolve, rows, tighten } from './index'
@@ -46,6 +48,7 @@ export async function doctorRows(h: any): Promise<['ok' | 'warn', string, string
     ...rs.filter(r => r.src !== 'default' && r.src !== 'fixed').map(line), ...rs.filter(r => r.src === 'default' || r.src === 'fixed').map(line)]
 }
 // the pane cannot read files: its rows ride in the ui atom (like the doctor rows)
+export const refreshLessons = async (h: any): Promise<void> => { const r = await lessonRows(h).catch(() => []); await h.ui.update((u: any) => ({ ...u, 'lessons.rows': r })) }
 export const refreshSettings = async (h: any): Promise<void> => { const r = await settingsRows(h); await h.ui.update((u: any) => ({ ...u, 'settings.rows': r })) }
 
 function coerce(row: Row, raw: string): unknown | Error {
@@ -109,13 +112,19 @@ async function save(h: any, scope: 'user' | 'repo', key: string, raw: string): P
   if (old !== null && old !== text) await h.write(`${path}.bak`, old)
   if (DRIVE.humanWrite) await DRIVE.humanWrite(h, () => h.write(path, text)); else await h.write(path, text)   // the human's own change: a running drive takes it as its new baseline
   if ((await h.readText(path)) !== text) return no('the file could not be written')
-  await start(h); await refreshSettings(h)
+  await emit(h, 'config.changed', { key, from: row.value, to: val }); await start(h); await refreshSettings(h)
   if (((await h.board.read()).decisions ?? []).some((d: any) => d.id === ID(key))) await back(h, key)
   return { text: `${key} = ${JSON.stringify(val)} · saved ${scope === 'repo' ? 'to the repo' : 'for you'}` }
 }
 
 ROUTES.config = async (h, c) => {
   const [sub, key, ...v] = c.args
+  if (sub === 'lessons' || sub === 'lprune' || sub === 'lsel') {   // the Lessons tab (ui/views/lessons): refresh, x prunes the row named, n/p move
+    const why = sub === 'lessons' ? null : isHuman(c.origin); if (why) return { text: `refused: ${why}` }
+    const t = sub === 'lprune' ? await pruneLesson(h, key ?? '') : ''
+    if (sub === 'lsel') await h.ui.update((u: any) => ({ ...u, lsel: Math.max(0, Number(u.lsel ?? 0) + Number(key)) }))
+    await refreshLessons(h); return { text: t }
+  }
   if (sub === 'refresh') { await refreshSettings(h); return { text: 'settings refreshed' } }
   if (!['set', 'repo', 'edit', 'cancel', 'sel'].includes(sub ?? '') || !key) return { text: 'usage: press 9 in the pane (Settings)' }
   const why = isHuman(c.origin); if (why) return { text: `refused: ${why}` }

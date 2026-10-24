@@ -9,7 +9,7 @@ import { queueBrief } from '../core/lanes'
 import { ROUTES, dispatch } from '../core/dispatch'
 import { color, glyph, glyphRole, readCfg } from './tokens'
 import { strictOf } from '../config/index'
-import { configPress, refreshSettings } from '../config/route'
+import { configPress, refreshLessons, refreshSettings } from '../config/route'
 import { type Acts, S, at, cols, cut, decisions, draw, kindOf, read, t0 } from './model'
 
 export { ack, syncStatus } from './notify'
@@ -26,6 +26,7 @@ async function syncTheme(h: Host): Promise<void> {
 }
 export async function openPane(h: Host, tab: string, o: { focus?: boolean; quiet?: boolean; pre?: ReturnType<NonNullable<Host['ops']>['open']> } = {}): Promise<void> {
   if (tab === 'settings') await refreshSettings(h)
+  if (tab === 'lessons') await refreshLessons(h)
   await syncTheme(h)
   const opened = o.pre ?? h.ops!.open({ ...OPEN, ...(o.focus === false ? {} : { focus: true as const }) })   // `focus: false` is refused by the engine: leave it out
   const v = await read(h)

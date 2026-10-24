@@ -39,6 +39,7 @@ export const defaults = () => ({
   ui: { glyphs: 'unicode', flash: true, density: 'normal', notify: 'on', escalateAfterMs: 120_000 },
   concurrency: { default: 3, models: {} as Record<string, number>, providers: {} as Record<string, number> }, models: { allow: [] as string[] },   // default counts tasks (0 = no cadre cap); a model or provider key counts running runs (core/queue)
   milestone: { maxEpics: 2, epicPlanner: 'agent' as 'agent' | 'main' }, planner: { maxRounds: 3 },
+  lessons: { model: 'haiku', passesPerDay: 4, repeats: 3, repos: 2, decayDays: 30, maxAgeDays: 90, perBrief: 5 },   // ADR 0028: the side-model pass (0 passes = off), promotion, decay, the feed
   notes: { slice: true },   // ADR 0022
   reuse: { maxContextPct: 60, cacheTtlMs: 3_600_000 },   // 1h: roles ship as agent files with experimental.cacheTtl 1h (A28, ADR 0001 S44)
   disable: false,
@@ -87,6 +88,9 @@ export const REG: Record<string, Meta> = {
   'review.tiers.thorough.files': m(R, 'more files than this: thorough review', { tighten: 'min', ...N(0) }), 'review.tiers.thorough.lines': m(R, 'more lines than this: thorough review', { tighten: 'min', ...N(0) }),
   'review.tiers.light.paths': m(R, 'at claim, a task declaring at most this many paths is light risk', { tighten: 'min', ...N(0, 100) }),
   'review.coverage.enforce': m(R, "every scenario needs a spec test named after it, and the reviewer's coverage must be ok for each; off: the reviewer's word decides"),
+  'lessons.model': m(M, 'the side model that turns records into lessons (no agent, one short request per pass)', { cls: 'U', ok: mdl }), 'lessons.passesPerDay': m(M, 'lesson passes per day, counted in the store (0 = lessons off)', { cls: 'U', ...N(0, 100) }),
+  'lessons.repeats': m(PL, 'a lesson reinforced this many times in a repo moves to your user scope', N(1, 20)), 'lessons.repos': m(PL, 'a lesson seen in this many repos moves to your user scope', N(2, 20)),
+  'lessons.decayDays': m(PL, 'a lesson unused this long is dropped', N(1, 365)), 'lessons.maxAgeDays': m(PL, 'a lesson older than this is dropped, used or not', N(1, 3650)), 'lessons.perBrief': m(PL, 'lessons one task brief carries (its text stays within 1.5 KB)', N(0, 20)),
   'notes.slice': m(PL, "each task's brief carries only the plan notes on its paths (notes without paths go to every task); off: every note goes to every task"),
   'review.coreTask': m(R, 'the risk of a task in the core epic', { opts: RISK }), 'review.coreDiff': m(R, "the risk of a change that touches the landed core's paths", { opts: RISK }),
   'review.tiers.risky': m(R, 'paths whose change always gets the thorough review', { tighten: 'grow', ok: strs }),
