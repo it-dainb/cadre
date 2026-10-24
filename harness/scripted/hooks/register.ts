@@ -75,7 +75,7 @@ const FNS: Fn[] = [
   { name: 'kebabCase', title: 'S1: kebabCase joins the words with dashes', input: 'Hello Big World', out: 'hello-big-world', impl: String.raw`s => s.trim().toLowerCase().split(/\s+/).join('-')`, what: 'lowercase the words and join them with dashes' },
   { name: 'snakeCase', title: 'S1: snakeCase joins the words with underscores', input: 'Hello Big World', out: 'hello_big_world', impl: String.raw`s => s.trim().toLowerCase().split(/\s+/).join('_')`, what: 'lowercase the words and join them with underscores' },
 ]
-const fnOf = (brief: string) => FNS.map(f => ({ f, i: brief.indexOf(`${f.name}(s) with`) })).filter(x => x.i >= 0).sort((a, b) => a.i - b.i)[0]?.f ?? (/kebabCase/.test(brief) ? FNS[1] : FNS[0])   // the task's own title; a later brief also names the landed ones
+const fnOf = (brief: string) => FNS.map(f => ({ f, i: brief.indexOf(f.name) })).filter(x => x.i >= 0).sort((a, b) => a.i - b.i)[0]?.f ?? (/kebabCase/.test(brief) ? FNS[1] : FNS[0])   // the task's own title; a later brief also names the landed ones
 const TEST = (f: Fn) => `import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ${f.name} } from '../src/${f.name}.mjs'
