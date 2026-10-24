@@ -75,8 +75,8 @@ n=$(wc -l <<<"$CELLS")
 # live runs are haiku only (H0): a cell naming any other model is refused; tui.sh also forces every subagent and pins every cadre route to haiku
 bad=$(grep -vE 'MODEL=haiku( |$)' <<<"$CELLS") && { echo "not haiku:"; echo "$bad"; exit 2; }
 # estimate: US$ and minutes per cell, from the measured quick tier (README); a landed cell runs the whole plan (x4)
-est() { awk -F'|' -v j="$J" '{ k = $4 ~ /LANDED/ ? 4 : 1; usd += ($4 ~ /(^| )S=1( |$)/ ? 0 : k * 0.4); min += k * 8 }
-  END { printf "%d cells · about US$%.0f · about %d min with -j %d (%d min serial)\n", NR, usd, min / j + 8, j, min }' <<<"$CELLS"; }
+est() { awk -F'|' -v j="$J" '{ s = $4 ~ /(^| )S=1( |$)/; k = s ? 1 : $4 ~ /LANDED/ ? 4 : 1; usd += (s ? 0 : k * 0.4); min += s ? 1 : k * 8; ns += s }   # an S cell costs no model and runs ~1 min (measured 24-49 s)
+  END { printf "%d cells · about US$%.0f · about %d min with -j %d (%d min serial)\n", NR, usd, ns == NR ? (min + j - 1) / j : min / j + 8, j, min }' <<<"$CELLS"; }
 echo "tier $TIER · plugin ${SPIKE:-$(dirname "$H")} @ $(git -C "${SPIKE:-$(dirname "$H")}" rev-parse --short HEAD)"; est
 [ -n "$DRY" ] && { echo "models: main --model haiku · subagents CLAUDE_CODE_SUBAGENT_MODEL=haiku (FORCE=1) · cadre routes (pins, ~/.claude/cadre.json): $("$H/tui.sh" pins | node -e 'const o=JSON.parse(require("fs").readFileSync(0)),m=new Set,w=x=>x&&typeof x=="object"&&(x.model&&m.add(x.model),Object.values(x).forEach(w));w(o);console.log([...m].join(",")+" ("+JSON.stringify(o).length+" B, "+(JSON.stringify(o).match(/\"model\"/g)||[]).length+" keys)")') · reviewer: forced by env (its keys refuse haiku)"; cut -d'|' -f1,2,3,4 <<<"$CELLS" | column -t -s'|'; exit 0; }
 RUN=$H/out/matrix/$TIER-$(date +%Y%m%d-%H%M%S); mkdir -p "$RUN"; echo "evidence: $RUN"
