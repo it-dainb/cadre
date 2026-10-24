@@ -79,7 +79,7 @@ send() { local i t; log "send $*"; tui send "$N" "$*"; sleep 2; t=${*//[ $'\302\
   for i in 1 2 3 4 5; do [ -n "$t" ] && [[ "$(comp "$(tui capture "$N")")" == "${t:0:20}"* ]] || return 0; log "enter again"; key Enter; sleep 2; done; }
 # the user types a goal; a line typed while Claude Code still starts up can vanish without a trace: when no command ran within 20 s, type it again (<= 3 times)
 goal() { local i n; for i in 1 2 3; do n=$(cat "$D"/out/debug*.log 2>/dev/null | grep -ac 'answered command\.run'); send "/cadre $*"
-  for _ in $(seq 20); do [ "$(cat "$D"/out/debug*.log 2>/dev/null | grep -ac 'answered command\.run')" -gt "$n" ] && return 0; sleep 1; done; log "goal not taken"; done; }
+  for _ in $(seq 20); do [ "$(cat "$D"/out/debug*.log 2>/dev/null | grep -ac 'answered command\.run')" -gt "$n" ] && return 0; sleep 1; done; busy && { log "goal working"; return 0; }; log "goal not taken"; done; }   # working or asking = it was taken (a late log line must not retype it)
 clear_() { send "/clear"; sleep 3; }                            # /clear (a name of its own: `clear` is the shell's)
 shell_cd() { send "Run exactly this one Bash command and nothing else: cd $1 && pwd"; idle 120; }   # main's shell moves (a Bash cd)
 hold() { echo "$1" >"$O/dialog_wait"; log "hold dialogs ${1}s"; }   # the human looks away: dialogs stay unanswered that long
@@ -93,7 +93,7 @@ landed() { while [ "$(left)" -gt 0 ]; do git -C "$D/work" log --oneline dev 2>/d
 
 . "$H/scenarios/$SCEN.sh"
 [ -n "$LANDED" ] && landed
-pause1; sleep 4; kill $W 2>/dev/null; wait $W 2>/dev/null; log "end"   # no press in the last 7 s: a press before it gets its 5 s to bring a dialog up
+pause1; sleep 7; kill $W 2>/dev/null; wait $W 2>/dev/null; log "end"   # no press in the last 7 s: a press before it gets its 5 s to bring a dialog up
 
 # ---- evidence (harness/out is gitignored), then the verdict ----
 cp "$D"/out/debug*.log "$O/" 2>/dev/null; mkdir -p "$O/jsonl"; find "$D/projects" -name '*.jsonl' -exec cp --parents {} "$O/jsonl" \; 2>/dev/null
