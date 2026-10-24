@@ -51,12 +51,15 @@ test('every listed form is refused; the plain forms are allowed with scripts off
     ['npm', 'i', '--target', '/x', 'p'], [`${W}/.venv/bin/pip`, 'install', '--target', '/x', 'p'], [`${W}/.venv/bin/pip`, 'install', '-e', '.'], [`${W}/.venv/bin/pip`, 'install', '-r', 'req.txt'], ['npm', 'i', '--prefix', '/x', 'p'], ['npm', 'i', '--userconfig', '/x', 'p'], ['pnpm', 'add', '--global-folder', '/x', 'p'],
     ['uv', 'add', '--directory', '/x', 'p'], ['uv', 'add', '--project', '/x', 'p'], ['uv', 'add', '--index-url', 'http://evil/', 'p'], ['cargo', 'add', '--path', '../x'], ['cargo', 'add', '--git', 'http://evil/x'], ['cargo', 'add', '--registry', 'evil', 'x'],
     ['npm', 'i', 'file:/etc'], ['npm', 'i', 'git+ssh://git@evil/x.git'], ['npm', 'i', 'https://evil/x.tgz'], ['npm', 'i', 'x@file:../y'], ['npm', 'i', 'npm:x@1'], ['npm', 'i', 'github:a/b'], ['npm', 'i', '--', 'x'], ['npm', 'i', './x'], ['npm', 'i', '../x'], ['npm', 'i', '/x'], ['npm', 'i', '~/x'], ['npm', 'i', '.'],
-    ['go', 'get', './x'], ['go', 'get', 'file:///x'], ['cargo', 'add', '../x'], ['uv', 'add', 'git+http://evil/x'], [`${W}/.venv/bin/pip`, 'install', 'x @ http://evil/x.whl']]
+    ['go', 'get', './x'], ['go', 'get', 'file:///x'], ['cargo', 'add', '../x'], ['uv', 'add', 'git+http://evil/x'], [`${W}/.venv/bin/pip`, 'install', 'x @ http://evil/x.whl'],
+    [`${W}/.venv/bin/pip`, 'install', 'evil.tar.gz'], [`${W}/.venv/bin/pip`, 'install', 'evil.tgz'], ['uv', 'pip', 'install', 'evil.zip'], ['uv', 'pip', 'install', 'x.whl'], ['uv', 'add', 'evil.tar.gz'], ['npm', 'i', 'evil.tgz'], ['npm', 'i', 'x.tar'], ['cargo', 'add', 'x.crate'],
+    [`${W}/.venv/bin/pip`, 'install', 'a..b'], [`${W}/.venv/bin/pip`, 'install', '.hidden'], ['uv', 'add', '--group', '-x', 'p'], ['uv', 'add', '--optional', '--evil', 'p']]
   for (const a of bad) assert.equal(typeof P.vet(a, W), 'string', `refused: ${JSON.stringify(a)}`)
   assert.equal(typeof P.vet('npm install x', W), 'string'); assert.match(P.vet(['poetry', 'add', 'x'], W), /poetry cannot be run here: it cannot refuse source builds/)
   const ok = (a) => { const v = P.vet(a, W); assert.equal(typeof v, 'object', `allowed: ${JSON.stringify(a)}`); return v }
-  assert.deepEqual(ok(['npm', 'install', '-D', '--no-audit', 'x@>=1', '@scope/y@^2', 'z@latest']), { argv: ['npm', 'install', '-D', '--no-audit', 'x@>=1', '@scope/y@^2', 'z@latest'], env: { npm_config_ignore_scripts: 'true', YARN_ENABLE_SCRIPTS: 'false' } })
-  assert.deepEqual(ok(['pnpm', 'add', 'x']).argv, ['pnpm', 'add', 'x', '--ignore-pnpmfile']); assert.equal(ok(['yarn', 'add', '--dev', 'x']).env.YARN_ENABLE_SCRIPTS, 'false')
+  assert.deepEqual(ok(['npm', 'install', '-D', '--no-audit', 'x@>=1', '@scope/y@^2', 'z@latest']), { argv: ['npm', 'install', '-D', '--no-audit', 'x@>=1', '@scope/y@^2', 'z@latest'], env: { npm_config_ignore_scripts: 'true', YARN_ENABLE_SCRIPTS: 'false', YARN_IGNORE_PATH: '1' } })
+  assert.deepEqual(ok(['pnpm', 'add', 'x']).argv, ['pnpm', 'add', 'x', '--ignore-pnpmfile']); assert.equal(ok(['yarn', 'add', '--dev', 'x']).env.YARN_ENABLE_SCRIPTS, 'false'); assert.equal(ok(['yarn', 'add', 'x']).env.YARN_IGNORE_PATH, '1')
+  assert.ok(ok([`${W}/.venv/bin/pip`, 'install', 'x']).empty && ok(['uv', 'pip', 'install', 'x']).empty && !ok(['uv', 'add', 'x']).empty && !ok(['npm', 'i', 'x']).empty, 'the pip forms run from an empty folder'); assert.equal(ok(['uv', 'pip', 'install', 'x']).env.VIRTUAL_ENV, `${W}/.venv`)
   assert.deepEqual(ok(['uv', 'add', '--group', 'dev', 'pytest==8.0.1']).argv.slice(-1), ['--no-build']); assert.deepEqual(ok(['uv', 'pip', 'install', 'x>=1,<2']).argv.slice(-1), ['--only-binary=:all:'])
   assert.deepEqual(ok([`${W}/.venv/bin/pip`, 'install', 'x[extra]==1.0']).argv.slice(-1), ['--only-binary=:all:']); assert.equal(ok(['go', 'get', 'github.com/a/b@v1.2.3']).env.GOTOOLCHAIN, 'local'); ok(['cargo', 'add', '--dev', '-F', 'derive', 'serde@1'])
 })
@@ -100,19 +103,24 @@ test('no jail gives one dialog and nothing runs; deps.auto false gives one dialo
 test('the jail: no host environment variable and nothing of the real home is visible to the install', async () => {
   process.env.GITHUB_TOKEN = 'ghp_fake_token'; process.env.NPM_TOKEN = 'npm_fake'
   const f = await fix(); let seen; try {
-    f.h.run = jailed(`env > /tmp/envdump; cat ${f.home}/secret.txt > /tmp/secret 2>&1; ls -A ${f.home} > /tmp/lshome 2>&1; echo ok > /tmp/ran`)
-    const orig = f.h.run; f.h.run = async (a, o) => { const r = await orig(a, o); if (a[0] === 'bwrap' && a.includes('--clearenv') && !a.includes('--unshare-net')) { const sc = join(f.d, 'scratch'); seen = Object.fromEntries(['envdump', 'secret', 'lshome', 'ran'].map(n => [n, existsSync(join(sc, n)) ? readFileSync(join(sc, n), 'utf8') : null])) } return r }
+    f.h.run = jailed(`env > /tmp/envdump; cat ${f.home}/secret.txt > /tmp/secret 2>&1; ls -A ${f.home} > /tmp/lshome 2>&1; (ls -A /run; ls -A /var/run) > /tmp/lsrun 2>&1; [ -e /run/user ] && echo yes > /tmp/runuser; ls /proc | grep -c '^[0-9]' > /tmp/pids; [ -e /proc/${process.pid} ] && echo yes > /tmp/hostpid; echo ok > /tmp/ran`)
+    const orig = f.h.run; f.h.run = async (a, o) => { const r = await orig(a, o); if (a[0] === 'bwrap' && a.includes('--clearenv') && !a.includes('--unshare-net')) { const sc = join(f.d, 'scratch'); seen = Object.fromEntries(['envdump', 'secret', 'lshome', 'ran', 'lsrun', 'runuser', 'pids', 'hostpid'].map(n => [n, existsSync(join(sc, n)) ? readFileSync(join(sc, n), 'utf8') : null])) } return r }
     await P.setup(f.h, f.inp({ argv: ['npm', 'install', 'local-dep'] }))
     assert.equal(seen.ran?.trim(), 'ok', 'the stand-in ran inside the jail'); assert.ok(!/ghp_fake_token|npm_fake/.test(seen.envdump), 'no host variable'); assert.match(seen.envdump, new RegExp(`HOME=${f.d}/scratch/home`)); assert.match(seen.envdump, /npm_config_ignore_scripts=true/)
+    assert.equal(seen.lsrun?.trim(), '', 'nothing in /run and /var/run: no docker.sock, user bus or agent socket'); assert.equal(seen.runuser, null); assert.ok(Number(seen.pids) < 10 && seen.hostpid === null, `the host's processes are not visible (${seen.pids?.trim()} pids)`)
     assert.ok(!/real-home-secret/.test(seen.secret) && /No such file/.test(seen.secret), 'the real home is hidden'); assert.ok(!/secret\.txt|\.claude/.test(seen.lshome), seen.lshome)
   } finally { delete process.env.GITHUB_TOKEN; delete process.env.NPM_TOKEN; f.done() }
 })
 
 test('changed .npmrc/.pnpmfile.cjs/.yarnrc*/pip.conf/uv.toml/.cargo/config.toml against the base: no install; unchanged ones (the repo\'s own .npmrc) do not matter', async () => {
   const f = await fix(); try {
-    for (const p of ['.pnpmfile.cjs', '.yarnrc.yml', 'sub/pip.conf', '.cargo/config.toml', 'uv.toml', '.npmrc']) {
+    for (const p of ['.pnpmfile.cjs', '.yarnrc.yml', 'sub/pip.conf', 'pip.ini', '.cargo/config.toml', '.cargo/config', 'uv.toml', '.npmrc', 'pnpm-workspace.yaml', '.yarn/releases/yarn-4.cjs', '.yarn/plugins/p.cjs']) {
       await sh(f.wt, 'git', 'reset', '-q', '--hard', 'main'); mkdirSync(join(f.wt, p, '..'), { recursive: true }); writeFileSync(join(f.wt, p), `changed ${p}\n`)   // an uncommitted change is checkpointed first, then judged against the base
-      const r = await P.setup(f.h, f.inp()); assert.match(r.text, new RegExp(`^The install was not run: ${p.replace('.', '\\.')} changed in this task`), p); assert.ok(!existsSync(join(f.wt, 'node_modules')))
+      const r = await P.setup(f.h, f.inp()); assert.match(r.text, new RegExp(`^The install was not run: ${p.replaceAll('.', '\\.')} changed in this task`), p); assert.ok(!existsSync(join(f.wt, 'node_modules')))
+    }
+    for (const [body, refused] of [['[project]\nname = "x"\n', false], ['[[tool.uv.index]]\nurl = "http://evil/simple"\n', true], ['[tool.uv.sources]\nx = { path = "../x" }\n', true], ['[tool.pip]\nextra-index-url = "http://evil"\n', true], ['[tool.uv]\nfind-links = ["x"]\n', true]]) {
+      await sh(f.wt, 'git', 'reset', '-q', '--hard', 'main'); writeFileSync(join(f.wt, 'pyproject.toml'), body); const r = await P.setup(f.h, f.inp())
+      assert.equal(/^The install was not run: pyproject\.toml changed/.test(r.text), refused, `${body} -> ${r.text}`)
     }
     await sh(f.wt, 'git', 'reset', '-q', '--hard', 'main'); assert.match((await P.setup(f.h, f.inp())).text, /^Installed/)
   } finally { f.done() }
@@ -129,5 +137,31 @@ test('only manifests of the repo root or a unit root are committed; a failed run
     await sh(f.wt, 'git', 'reset', '-q', '--hard', 'main'); rmSync(join(f.wt, 'node_modules'), { recursive: true, force: true }); rmSync(join(f.wt, 'sub'), { recursive: true, force: true })
     f.h.run = jailed(`${writes}; exit 3`); const bad = await P.setup(f.h, f.inp({ argv: ['npm', 'install', 'x'] }))
     assert.match(bad.text, /^The install changed nothing: it failed/); assert.ok(!existsSync(join(f.wt, 'node_modules')), 'the ignored paths a failed run made are gone'); assert.equal(await sh(f.wt, 'git', 'status', '--porcelain'), '')
+  } finally { f.done() }
+})
+
+test('pip runs from an empty folder: a planted archive of the repository is not found by its bare name, and no setup.py runs', async () => {
+  const f = await fix(); let seen; try {
+    writeFileSync(join(f.wt, 'evil.tar.gz'), 'not a real archive'); writeFileSync(join(f.wt, 'setup.py'), `open('${f.d}/MARKER', 'w').write('ran')\n`); mkdirSync(join(f.wt, 'x')); writeFileSync(join(f.wt, 'x/setup.py'), `open('${f.d}/MARKER', 'w').write('ran')\n`)
+    assert.match((await P.setup(f.h, f.inp({ argv: [`${f.wt}/.venv/bin/pip`, 'install', 'evil.tar.gz'] }))).text, /^The install was refused/); assert.ok(!existsSync(join(f.d, 'MARKER')))
+    const orig = jailed('ls -A . > /tmp/lscwd; pwd > /tmp/pwd'); f.h.run = async (a, o) => { const r = await orig(a, o); if (a[0] === 'bwrap' && a.includes('--clearenv') && !a.includes('--unshare-net')) { const sc = join(f.d, 'scratch'); seen = { cwd: readFileSync(join(sc, 'lscwd'), 'utf8'), pwd: readFileSync(join(sc, 'pwd'), 'utf8') } } return r }
+    await P.setup(f.h, f.inp({ argv: [`${f.wt}/.venv/bin/pip`, 'install', 'x'] }))   // a bare name that is also a folder of the repository
+    assert.equal(seen.pwd.trim(), '/tmp/cwd'); assert.equal(seen.cwd.trim(), '', 'the folder pip starts in is empty'); assert.ok(!existsSync(join(f.d, 'MARKER')))
+  } finally { f.done() }
+})
+
+test('the jail binds back only real folders strictly inside the home, never the whole home', () => {
+  const j = G.setupJail({ wt: '/h/w', scratch: '/h/s', pkgRoot: '/h/w', argv: ['x'], scratchHome: '/h/s/home', home: '/h', path: '/h:/h/.nvm/versions/node/v1/bin:/h/.cargo/bin:/usr/bin', tools: ['/h', '/h/.nvm/versions/node/v1/bin', '/h/.cargo/bin', '/usr/bin'] })
+  const ro = j.flatMap((x, i) => (x === '--ro-bind' && j[i + 1] !== '/' ? [j[i + 1]] : [])); assert.deepEqual(ro, ['/h/.nvm/versions/node/v1', '/h/.cargo/bin'])
+  for (const f of ['--clearenv', '--unshare-pid', '--unshare-ipc', '--die-with-parent']) assert.ok(j.includes(f), f); assert.deepEqual(j.slice(j.indexOf('--tmpfs'), j.indexOf('--tmpfs') + 2), ['--tmpfs', '/run'])
+})
+
+test('a failed run removes what it wrote into an ignored folder that was already there, and keeps what was there', async () => {
+  const f = await fix(); try {
+    mkdirSync(join(f.wt, 'node_modules/old'), { recursive: true }); writeFileSync(join(f.wt, 'node_modules/old/keep.js'), 'k'); writeFileSync(join(f.wt, 'node_modules/loose.js'), 'l')
+    f.h.run = jailed(`mkdir -p ${f.wt}/node_modules/old ${f.wt}/node_modules/newpkg/lib; echo n > ${f.wt}/node_modules/old/new.js; echo n > ${f.wt}/node_modules/newpkg/lib/a.js; echo n > ${f.wt}/node_modules/created.js; exit 2`)
+    assert.match((await P.setup(f.h, f.inp({ argv: ['npm', 'install', 'x'] }))).text, /^The install changed nothing: it failed/)
+    assert.ok(existsSync(join(f.wt, 'node_modules/old/keep.js')) && existsSync(join(f.wt, 'node_modules/loose.js')), 'what was there stays')
+    for (const p of ['node_modules/old/new.js', 'node_modules/newpkg', 'node_modules/created.js']) assert.ok(!existsSync(join(f.wt, p)), `${p} is gone`)
   } finally { f.done() }
 })
