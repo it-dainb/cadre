@@ -7,7 +7,8 @@ import { logCall } from '../core/specview'
 import { PROTECTED } from '../core/git'
 import { EXIT, ROLES_DEFAULT, writes } from '../core/roles'
 import { idsIn } from '../core/briefs'
-import { strictOf } from '../config/index'
+import { cfgOf, strictOf } from '../config/index'
+import { askOf } from '../core/asks'
 import { runOf, step } from '../core/lifecycle'
 import { canon } from '../core/board'
 
@@ -61,7 +62,8 @@ async function placed(h: Host, p: string): Promise<string | undefined> {
 async function who(h: Host, agentId?: string) {
   const b: Binding | undefined = agentId ? (await h.bind.read())[agentId] : undefined
   const task = b && (await h.board.read()).tasks.find(t => t.id === b.taskId)
-  return { b, task, main: !agentId, role: b?.role ?? 'explorer' as const, owner: !!b && task?.state === 'active' }
+  const a = !b && agentId ? await askOf(h, agentId) : undefined, spec = a?.role ? (await cfgOf(h)).roles.custom[a.role] as { tools: string[]; write?: string[]; network?: string } | undefined : undefined   // a custom role's agent runs under its own spec (roles.custom)
+  return { b, task, main: !agentId, role: b?.role ?? 'explorer' as const, owner: !!b && task?.state === 'active', spec }
 }
 
 const strict = async (h: Host) => (await strictOf(h)) !== 'advisory'
@@ -87,6 +89,7 @@ export async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: s
   const real = p === undefined ? undefined : await placed(h, join(cwd, p))
   if (FENCED.includes(tool) && (SETTINGS.test(p ?? '') || SETTINGS.test(real ?? ''))) return SETTINGS_DENY
   if (real === undefined) return 'that path cannot be used; give a plain path inside your working directory'
+  if (w.spec) return under(real, pol.repo) && writes({ write: w.spec.write ?? [] } as any, rel(real, pol.repo!)) && !modOwned(real, pol.home, pol.changelog) ? 'allow' : 'write only the files your role allows, inside the project folder'   // the same writes() the built-in roles use
   if (tester) return under(real, w.b!.worktree) && can(real) ? 'allow' : 'write only inside your working directory'
   if (w.main && guide !== undefined && (tool === 'Read' ? under(real, guide.slice(0, guide.lastIndexOf('/'))) : leased(real, pol, kind))) return 'allow'
   if (w.main && FENCED.includes(tool) && pol.repo && real === `${pol.repo}/.cadre/config.json`) return 'the project settings are changed by the user in the cadre pane (Settings, key 9); do not edit that file'
@@ -135,10 +138,10 @@ export const guard: Hook = async (h, e, next) => {
   const deny = async (): Promise<string | undefined> => {
     const bad = escape(e); if (bad) return bad
     const w = await who(h, e.agentId), pol = await policyOf(h), run = w.main ? await leaseOf(h) : undefined   // main during a setup/init run: Bash plus the lease's files
-    const list = w.main ? (run ? [...MAIN_TOOLS, 'Bash'] : MAIN_TOOLS) : allowlist(w.role, pol.mcpAllow)
+    const list = w.main ? (run ? [...MAIN_TOOLS, 'Bash'] : MAIN_TOOLS) : w.spec ? w.spec.tools.filter(t => w.spec!.network === 'on' || !/^Web(Fetch|Search)$/.test(t)) : allowlist(w.role, pol.mcpAllow)
     const loop = w.main ? undefined : await watchCall(h, e, w.role); if (loop) return loop
     if (!list.includes(e.tool)) return `${e.tool} is not available to ${w.main ? 'main' : `the ${w.role}`}; use another tool`
-    if (SHELL.includes(e.tool) && !run && !(w.role === 'worker' && w.owner && w.task?.step === 'worker')) return 'shell is available only while you implement your task; use run_check or inspect'
+    if (SHELL.includes(e.tool) && !run && !w.spec && !(w.role === 'worker' && w.owner && w.task?.step === 'worker')) return 'shell is available only while you implement your task; use run_check or inspect'
     const f = await fence(h, w, e.tool, e, pol, run?.guide, run?.kind)
     return f === 'allow' || f === 'tmp' ? undefined : f
   }
@@ -155,6 +158,7 @@ export const check: Hook = async (h, e, next) => {
   const tool = e.tool as string
   if (!e.agentId || !FILE.includes(tool)) return next(e)
   const w = await who(h, e.agentId)
+  if (w.spec && FENCED.includes(tool)) return (await fence(h, w, tool, e.input, await policyOf(h))) === 'allow' ? { decision: 'allow', reason: modelText('deny', 'inside its own tree') } : next(e)   // a custom role's writes in its scope
   if (!w.b) return next(e)
   const pol = await policyOf(h)
   if (tool === 'Read' && w.role !== 'tester' && w.b.worktree) {   // S26: Read needs the allow too (outside the session cwd it prompts), only inside its own tree

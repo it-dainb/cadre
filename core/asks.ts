@@ -6,7 +6,7 @@ import type { Host } from '../types'
 import { step } from './lifecycle'
 import { cfgOf } from './dispatch'
 
-export interface Ask { id: string; q: string; tu?: string; k: number; answer?: string; cites?: number; auto?: boolean; told?: boolean }
+export interface Ask { id: string; role?: string; q: string; tu?: string; k: number; answer?: string; cites?: number; auto?: boolean; told?: boolean }
 const all = async (h: Host) => ((await h.ui.read()).asks ?? {}) as Record<string, Ask>
 const put = (h: Host, a: string, f: (x: Ask) => Ask) => h.ui.update(u => { const m = (u.asks ?? {}) as Record<string, Ask>; return m[a] ? { ...u, asks: { ...m, [a]: f(m[a]) } } : u })
 export const askOf = async (h: Host, agentId?: string) => (agentId ? (await all(h))[agentId] : undefined)
@@ -15,8 +15,8 @@ export const askById = async (h: Host, id: string) => Object.values(await all(h)
 const one = (s: string, n: number) => { const t = s.replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t }
 
 // admission: the spawn started (next answered its agentId)
-export async function asked(h: Host, agentId: string, e: { prompt?: string; tool_use_id?: string }, told?: false): Promise<void> {   // told false: no card shows it, its answer is sent to main (askStopped)
-  await h.ui.update(u => ({ ...u, asks: { ...(u.asks as object), [agentId]: { id: `ask-${agentId.slice(-6)}`, q: one(String(e.prompt ?? ''), 80), tu: e.tool_use_id, k: 0, ...(told === false ? { told } : {}) } } }))
+export async function asked(h: Host, agentId: string, e: { prompt?: string; tool_use_id?: string }, told?: false, role?: string): Promise<void> {   // role: a custom role's name (core/admission.custom): its tools and write scope are the guard's   // told false: no card shows it, its answer is sent to main (askStopped)
+  await h.ui.update(u => ({ ...u, asks: { ...(u.asks as object), [agentId]: { id: `ask-${agentId.slice(-6)}`, ...(role ? { role } : {}), q: one(String(e.prompt ?? ''), 80), tu: e.tool_use_id, k: 0, ...(told === false ? { told } : {}) } } }))
 }
 // the card main sees instead of the agent's text: role, status, one line of the answer (<= 200), where the rest is
 export const askCard = (a: Ask): string => [`EXPLORER ${a.id} "${a.q}"`, a.answer === undefined ? 'explorer → finishing its answer' : `explorer → answered (${a.cites ?? 0} citations)`,

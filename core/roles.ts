@@ -26,7 +26,7 @@ export const fixedRules = (): [string, string, string][] => [['fixed.exitTools',
 
 // ---- custom roles (roles.custom): a spec is checked at load; the user layer may name any known tool, the repo layer only read-only ones ----
 export const PROMPT_CAP = 2048   // bytes (A2), both layers
-const FIELDS = ['description', 'prompt', 'tools', 'disallowedTools', 'model', 'effort', 'maxTurns', 'write', 'network', 'persist', 'canRequest']   // never permissionMode, hooks, mcpServers, isolation, memory, skills, background
+const FIELDS = ['description', 'prompt', 'tools', 'disallowedTools', 'model', 'effort', 'maxTurns', 'write', 'network', 'canRequest']   // never permissionMode, hooks, mcpServers, isolation, memory, skills, background
 const KNOWN = ['Read', 'Write', 'Edit', 'NotebookEdit', 'Grep', 'Glob', 'Bash', 'PowerShell', 'Monitor', 'TodoWrite', 'WebFetch', 'WebSearch', R, C, I], HELPERS = ['explore', 'setup', 'probe']
 const strs = (v: unknown) => v === undefined || (Array.isArray(v) && v.every(x => typeof x === 'string'))
 // null = fine, else why. `repo`: the spec comes from the repo file; its canRequest may only narrow the user layer's spec of the same name
@@ -44,13 +44,13 @@ export function customIssue(name: string, s: any, repo?: { canRequest?: readonly
   if (!t.includes(R)) return `tools: must name ${R}`
   if (unk) return `tools: ${unk} is not a known tool`
   if (s.write?.some((g: string) => !/^[\w.*/-]+$/.test(g) || g.startsWith('/') || g.includes('..'))) return 'write: globs under the role\'s folder'
-  if (![undefined, 'on', 'off'].includes(s.network) || ![undefined, 'none', 'notes'].includes(s.persist)) return 'network is on or off; persist is none or notes'
+  if (![undefined, 'on', 'off'].includes(s.network)) return 'network is on or off'
   if (s.effort !== undefined && !['low', 'medium', 'high', 'xhigh', 'max'].includes(s.effort)) return 'effort: low, medium, high, xhigh or max'
   if (s.maxTurns !== undefined && !(Number.isInteger(s.maxTurns) && s.maxTurns >= 1 && s.maxTurns <= 100)) return 'maxTurns: a whole number from 1 to 100'
   if (s.model !== undefined && typeof s.model !== 'string') return 'model: expected text'
   if (s.canRequest?.some((x: string) => !(repo ? repo.canRequest ?? [] : HELPERS).includes(x))) return repo ? 'canRequest: the repo file may only narrow the user file\'s' : `canRequest: ${HELPERS.join(', ')}`
   if (s.network !== 'on' && t.some(x => x === 'WebFetch' || x === 'WebSearch')) return 'tools: the web tools need network "on"'
-  if (repo && (s.write?.length || s.network === 'on' || (s.persist ?? 'none') !== 'none' || t.some(x => ![ 'Read', I, R].includes(x)))) return 'the repo file may only define read-only roles: write [], network off, persist none, tools Read, inspect, report'
+  if (repo && (s.write?.length || s.network === 'on' || t.some(x => ![ 'Read', I, R].includes(x)))) return 'the repo file may only define read-only roles: write [], network off, tools Read, inspect, report'
   return exitIssue(s)
 }
 // the AgentSpec handed to the engine: the whitelisted fields only, and the report format for a role that answers like an explorer

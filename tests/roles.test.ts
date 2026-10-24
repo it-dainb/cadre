@@ -4,7 +4,7 @@ import { REG, defaults, resolve } from '../config/index'
 import { fixedRules, ROLES_DEFAULT, EXIT, PROMPT_CAP, agentSpec, customIssue, exitIssue, writes } from '../core/roles'
 import { routeOf } from '../core/admission'
 import { REPORTS } from '../core/validate'
-import { fence } from '../policy/guards'
+import { fence, guard, setPolicy } from '../policy/guards'
 import { fence as frozen } from './fixtures/fence-v0.15.0'
 import GOLD from './fixtures/roles-golden'
 import { fakeHost, task } from './support'
@@ -109,9 +109,9 @@ describe('custom roles: the load checks', () => {
     for (const n of ['worker', 'reviewer', 'explore']) expect(customIssue(n, AUD)).toContain('built-in')
     expect(customIssue('x', { ...AUD, disallowedTools: ['StructuredOutput'] })).toContain('StructuredOutput'); expect(customIssue('x', { ...AUD, tools: [...AUD.tools, 'SubagentHandback'] })).toContain('StructuredOutput')
   })
-  test('repo layer: Write, Bash, network, persist, a write glob, a wider canRequest or a leaky prompt is refused; read-only passes', async () => {
-    for (const c of [{ tools: [...AUD.tools, 'Write'] }, { tools: [...AUD.tools, 'Bash'] }, { network: 'on' }, { persist: 'notes' }, { write: ['src/**'] }, { canRequest: ['explore'] }, { prompt: 'Run the hook and report.' }]) { const r = R({ ...AUD, ...c }); expect(r.config.roles.custom).toEqual({}); expect(r.diagnostics.join()).toContain('roles.custom.x') }
-    expect(R({ ...AUD, write: [], network: 'off', persist: 'none' }).diagnostics).toEqual([])
+  test('repo layer: Write, Bash, network, a write glob, a wider canRequest or a leaky prompt is refused; read-only passes', async () => {
+    for (const c of [{ tools: [...AUD.tools, 'Write'] }, { tools: [...AUD.tools, 'Bash'] }, { network: 'on' }, { write: ['src/**'] }, { canRequest: ['explore'] }, { prompt: 'Run the hook and report.' }]) { const r = R({ ...AUD, ...c }); expect(r.config.roles.custom).toEqual({}); expect(r.diagnostics.join()).toContain('roles.custom.x') }
+    expect(R({ ...AUD, write: [], network: 'off' }).diagnostics).toEqual([])
     const both = resolve([{ name: 'u', trust: 'user', value: { roles: { custom: { x: { ...AUD, tools: [...AUD.tools, 'Write'], write: ['**'] } } } } }, { name: 'r', trust: 'repo', value: { roles: { custom: { x: AUD, y: AUD } } } }])
     expect(Object.keys(both.config.roles.custom)).toEqual(['y', 'x']); expect((both.config.roles.custom.x as any).write).toEqual(['**'])   // a name the user layer has stays the user's
   })
@@ -157,5 +157,32 @@ describe('custom roles: registration and spawn', () => {
   })
   test('rule 6 at every register: a spec that drops an exit tool is never handed to the engine', ENGINE, async ($, on) => {
     expect(exitIssue(agentSpec('x', { ...AUD, disallowedTools: ['StructuredOutput'] }))).toContain('StructuredOutput'); expect(exitIssue(agentSpec('x', AUD))).toBeNull()
+  })
+})
+
+// ---- a spawned custom role runs under its own spec: its tools are the allowlist, its write globs go through writes() ----
+describe('custom roles: the guard enforces the role\'s own spec', () => {
+  const EDITOR = { description: 'edits the sources', prompt: 'Fix what the request names, inside src.', tools: ['Read', 'Edit', 'mcp__cadre__report'], write: ['src/**'] }
+  const WEB = { ...AUD, tools: [...AUD.tools, 'WebFetch'], network: 'on' }
+  async function mk(spec: any) {
+    const h: any = fakeHost(), E = ['/', '/x', '/x/repo', '/x/repo/src', '/x/repo/docs', '/x/repo/src/a.ts', '/x/repo/docs/a.md', '/x/repo/.git']
+    h.stat = async (p: string, o: any) => (E.includes(norm(p)) ? { kind: 'file', realPath: o?.resolve ? norm(p) : undefined } : undefined)
+    h.config = async () => ({ strictness: 'strict', roles: { custom: { r: spec } } })
+    await setPolicy(h, { repo: '/x/repo', wtRoot: '/x', home: '/hm/u' }); await h.ui.update((u: any) => ({ ...u, asks: { ag: { id: 'ask-1', role: 'r', q: 'q', k: 0 } } }))
+    return (e: any) => guard(h, { agentId: 'ag', ...e }, (x: any) => ({ ok: x.tool })) as Promise<any>
+  }
+  test('Edit inside write globs is allowed, outside refused; a tool the role lacks (Bash) is refused; its own report passes', async () => {
+    const call = await mk(EDITOR)
+    expect(await call({ tool: 'Edit', file_path: '/x/repo/src/a.ts' })).toEqual({ ok: 'Edit' })
+    expect((await call({ tool: 'Edit', file_path: '/x/repo/docs/a.md' })).deny).toContain('your role allows')
+    expect((await call({ tool: 'Edit', file_path: '/x/repo/.git/x' })).deny).toBeDefined()
+    expect((await call({ tool: 'Bash', command: 'ls' })).deny).toContain('not available')
+    expect(await call({ tool: 'mcp__cadre__report' })).toEqual({ ok: 'mcp__cadre__report' })
+    expect((await call({ tool: 'Write', file_path: '/x/repo/src/a.ts' })).deny).toContain('not available')
+  })
+  test('a read-only role is refused Write; network off refuses WebFetch, network on allows it', async () => {
+    const ro = await mk(AUD); expect((await ro({ tool: 'Write', file_path: '/x/repo/src/a.ts' })).deny).toContain('not available'); expect((await ro({ tool: 'WebFetch' })).deny).toContain('not available')
+    expect(await (await mk(WEB))({ tool: 'WebFetch' })).toEqual({ ok: 'WebFetch' })
+    expect((await (await mk({ ...WEB, network: 'off' }))({ tool: 'WebFetch' })).deny).toContain('not available')   // a spec that slipped past load is still refused
   })
 })

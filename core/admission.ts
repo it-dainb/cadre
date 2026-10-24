@@ -100,7 +100,7 @@ async function custom(h: Host, e: any, next: (e: any) => any, name: string) {
   if (!at) return deny(`${name} is not available; to look into the code, call explore`)
   if (at.turn >= (sec.turn ?? 0)) return deny(`${name} is ready from your next turn; ask again then`)
   const r = await next({ ...e, prompt: modelText('agent-brief', brief('explorer', { id: '', title: '', type: '', question: e.prompt })) })
-  if (r?.agentId) await asked(h, r.agentId, e); return r
+  if (r?.agentId) await asked(h, r.agentId, e, undefined, name); return r
 }
 
 // ---- shared tail: retype, model, cwd, next(), bind. A rejected or thrown spawn runs `undo` (release) and rethrows. ----
