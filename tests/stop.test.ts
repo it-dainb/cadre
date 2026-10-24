@@ -2,7 +2,9 @@
 // goes on by the one path: kick -> queueBrief -> main's turn end -> the spawner. No dialog answer, press or timer starts an agent itself.
 import { describe, expect, test } from 'claude-code/testing'
 import { world, type World } from './fixtures/replay/world'
-import { arm, kick, stop, watchdog } from '../core/drive'
+import { arm, kick, stop, tally, watchdog } from '../core/drive'
+import { emit } from '../core/events'
+import { defaults } from '../config/index'
 import { stopped } from '../core/close'
 import { decide } from '../commands/cadre'
 import { ROUTES } from '../core/dispatch'
@@ -91,5 +93,15 @@ describe('review fixes: one cause, one stop', () => {
     await stop(w.h, `${id} is blocked with no question to answer`, { taskId: id } as any); await kick(w.h); await kick(w.h)
     expect((await w.h.board.read()).drive.stopped).toBe(`${id} is blocked with no question to answer`)
     expect(Object.values((await w.h.events.read()).epics).flat().filter(e => e.type === 'drive.status' && e.data.state === 'resumed')).toEqual([])
+  })
+})
+
+describe('the no-progress count', () => {
+  test('progress seen by a tally that charges no turn still resets it: the next turn is not the third idle one', async () => {
+    const w = await world(); await arm(w.h, 'auto'); const cfg = defaults(), [id] = w.ids
+    for (let i = 0; i < 3; i++) await tally(w.h, cfg, undefined, 1)   // turn 1 (fresh) + two idle ones: count 2 of 3
+    await emit(w.h, 'task.transitioned', { taskId: id, from: 'active', to: 'blocked' }, { taskId: id })
+    await tally(w.h, cfg, undefined, 0)   // progress, no turn charged (a spawner pass with nothing to start)
+    expect(await tally(w.h, cfg, undefined, 1)).toBe(true); expect((await w.h.board.read()).drive.stopped).toBeUndefined()
   })
 })
