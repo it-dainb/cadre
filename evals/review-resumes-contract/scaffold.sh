@@ -6,7 +6,7 @@ FIX="$(cd "$(dirname "$0")/../fixtures/ts" && pwd)"
 cp -a "$FIX"/. .
 mkdir -p .cadre
 cat > .cadre/config.json <<'JSON'
-{ "packages": [{"root":".","setup":["node","--version"],"checks":{"test":["npm","test"]},"tdd":{"paths":["test/**"]}}] }
+{ "units": [{"root":".","setup":["node","--version"],"checks":{"test":["npm","test"]},"tdd":{"paths":["test/**"]}}] }
 JSON
 cat > CHANGELOG.md <<'MD'
 # Changelog

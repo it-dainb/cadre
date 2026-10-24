@@ -6,7 +6,7 @@ FIX="$(cd "$(dirname "$0")/../fixtures/rust" && pwd)"
 cp -a "$FIX"/. .
 mkdir -p .cadre
 cat > .cadre/config.json <<'JSON'
-{ "packages": [{"root":".","setup":["cargo","--version"],"checks":{"test":["cargo","test","--offline"]},"tdd":{"paths":["tests/**"]},"viewInclude":["Cargo.toml"]}] }
+{ "units": [{"root":".","setup":["cargo","--version"],"checks":{"test":["cargo","test","--offline"]},"tdd":{"paths":["tests/**"]},"viewInclude":["Cargo.toml"]}] }
 JSON
 cat > CHANGELOG.md <<'MD'
 # Changelog

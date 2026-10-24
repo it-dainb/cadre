@@ -31,7 +31,7 @@ Write the result into `.cadre/config.json` as `"units"` (keep `branches`):
 ```
 - One entry per unit (a package, service, app or submodule); `root` is relative to the project (`.` for a single one).
 - `setup` is one command as an argument list (no shell string), asked per unit; `[]` when there is none.
-- `runner` is `"junit"` when the test command can write a JUnit report, else `"text"` (its output is read). `concurrency` (optional) caps the tasks of this unit at once.
+- `runner` is `"junit"` when the test command can write a JUnit report, else `"text"` (its output is read: red then means any failing exit plus the test names found in the output, not a failure per spec test). `concurrency` (optional) caps the tasks of this unit at once.
 - `checks` maps a name to one command each. Keep only checks that pass offline after `setup`; leave out anything that downloads at test time.
 - `tdd.paths` are the globs of the test files.
 - Services, apps or git submodules in one repository: add `"kind"` (`"package"`, `"service"`, `"app"` or `"submodule"`) to the entry, and `"ownGit": true` for a git submodule.

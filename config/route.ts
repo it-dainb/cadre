@@ -33,7 +33,8 @@ const FIXED = (): Row[] => [fx('fixed.setupLease', 'Safety and containment', `${
   ...fixedRules().map(([k, v, d]) => fx(k, 'Safety and containment', v, d))]
 export const settingsRows = async (h: any): Promise<Row[]> => {
   const env = await h.env(), hl = !!(await h.ui?.read?.())?.headless, ls = await layersOf(h, await ctx(h))
-  const r = [...unitRows(resolve(ls).config.units as any[]), ...rows(ls, env).map(x => (x.key === 'drive.spawn' && headlessMain(String(x.value), env, hl) ? { ...x, value: 'main', src: 'forced' as const, warn: HEADLESS } : x)), ...FIXED()]
+  const rf = await h.readText(`${(await ctx(h)).root}/.cadre/config.json`).then((t: string | null) => JSON.parse(t ?? '{}').units, () => undefined)   // the units editor edits the repo file's own list: its indexes are that file's
+  const r = [...unitRows(Array.isArray(rf) ? rf : []), ...rows(ls, env).map(x => (x.key === 'drive.spawn' && headlessMain(String(x.value), env, hl) ? { ...x, value: 'main', src: 'forced' as const, warn: HEADLESS } : x)), ...FIXED()]
   return r.sort((a, b) => CATS.indexOf(a.cat) - CATS.indexOf(b.cat))
 }
 // doctor's settings section (ADR 0019): refused values, env overrides (one row per variable), then the full effective table, non-default first

@@ -6,7 +6,7 @@ FIX="$(cd "$(dirname "$0")/../fixtures/py" && pwd)"
 cp -a "$FIX"/. .
 mkdir -p .cadre
 cat > .cadre/config.json <<'JSON'
-{ "packages": [{"root":".","setup":["python3","--version"],"checks":{"test":["python3","-m","unittest","discover","-s","tests","-t","."]},"tdd":{"paths":["tests/**"]}}] }
+{ "units": [{"root":".","setup":["python3","--version"],"checks":{"test":["python3","-m","unittest","discover","-s","tests","-t","."]},"tdd":{"paths":["tests/**"]}}] }
 JSON
 cat > CHANGELOG.md <<'MD'
 # Changelog
