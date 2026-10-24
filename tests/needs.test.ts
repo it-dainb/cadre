@@ -87,7 +87,7 @@ describe('every helper ends and answers exactly once', () => {
   })
   test('a report after the helper was answered failed is not an answer; a usage limit is not a failure', async () => {
     const { w, id } = await asked(); Object.assign(w.h, { usage: async () => ({ cost: { usd: 0 }, rateLimits: [{ kind: 'five_hour', percentUsed: 100, resetsAt: new Date(w.clock.now + 3_600_000).toISOString() }] }) })
-    await w.stop('ag2', 'error', 'API Error'); expect((await needOf(w.h, id))).toMatchObject({ fails: 0 }); expect(await events(w, 'help.done')).toHaveLength(0); await w.turn(); expect(types(w)).toEqual(['cadre:worker', 'cadre:explorer', 'cadre:explorer'])   // started again
+    await w.stop('ag2', 'error', 'API Error'); expect((await needOf(w.h, id))).toMatchObject({ fails: 0 }); expect(await events(w, 'help.done')).toHaveLength(0); expect((await pending(w.h)).start).toEqual([id])   // it starts again when the drive goes on
   })
 })
 

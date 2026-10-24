@@ -361,7 +361,7 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (hs.length !== 1 || hs.some(([, r]) => st(r).at(-1) !== 'ended')) fail('needs-explore', `${hs.length} helper run(s) (want 1, ended): ${hs.map(([a, r]) => `${a} ${st(r).join('>')}`).join(' ')}`)
     const ns = Object.values(needs); if (ns.length !== 1 || ns[0].ok !== true || ns[0].fails !== 0) fail('needs-explore', `${ns.length} need record(s), want one answered ok with no failure: ${JSON.stringify(ns[0] ?? null)}`)
     if (Object.values(budgets).some(b => b.nudges || b.silentRuns)) fail('needs-explore', `a nudge or a silent run was charged: ${JSON.stringify(Object.values(budgets)[0])}`)
-    if (others > 0) fail('needs-explore', `${others} dialog(s) besides the plan's: ${drv.filter(e => e.kind === 'dialog').map(e => e.text).join(' / ')}`)
+    const hd = drv.filter(e => e.kind === 'dialog' && /helper/i.test(e.text)); if (hd.length || others > 1) fail('needs-explore', `${hd.length} helper dialog(s), ${others} dialog(s) besides the plan's and the release's: ${drv.filter(e => e.kind === 'dialog').map(e => e.text).join(' / ')}`)   // the landing's own dialog on a checked-out main is the one other every cell shows
     if (!wantLanded) fail('needs-explore', 'run it with LANDED=1: the task must land')
   }
   if (o === 'submodule') {   // the task landed in lib's own dev, and the parent's dev records that commit
