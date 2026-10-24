@@ -166,6 +166,13 @@ describe('T6.3 gate policy', () => {
     const d = (await w.board()).decisions![0]; await decide(w.h, d.id, 'x', d.hash)   // the human rejects in the dialog: the worker is resumed and main, idle, is told
     expect((await w.board()).resumesQueued).toBe(1); expect((await w.h.ui.read()).goal).toBe(`Continue: ${w.t}: rejected; the worker is resumed to conform to the locked tests`)
   })
+  test('auto, cadre spawns: a rejected spec change with no worker bound never tells main to spawn it', async () => {
+    const w = await go('auto'); await bindWorker(w)
+    await report(w.h, await resolveDeps(w.h), 'ag1', { role: 'worker', outcome: 'spec_change', reason: 'pages start at 1' })
+    await w.h.bind.update(() => ({})); await w.h.board.update((s: any) => ({ ...s, drive: { ...s.drive, spawn: 'mod' } })); await w.h.ui.update(({ goal: _g, ...u }) => u)
+    const d = (await w.board()).decisions![0]; await decide(w.h, d.id, 'x', d.hash)
+    expect((await w.h.ui.read()).goal).toBe(`Continue: ${w.t}: rejected`)
+  })
   // quick tier continue-after-quit (2.1.299): a lite task's worker asked for a spec change; the card's first option, Accept, was refused (no tester step to
   // rewind to) and the card came back after every answer until the budget ran out
   test('a spec change on a task with no tester step offers only answers that apply; the first one settles it', async () => {

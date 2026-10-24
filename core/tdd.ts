@@ -1,5 +1,6 @@
 // Spec-first TDD gates (DESIGN 3.5): copy-in by path, red (JUnit + the <error> rule), lock, green (skipped != passed, knownRed never gates), spec_change.
 // Entry points for core/close: testerDone (tester report), green (worker report), specChange (owner report), lockedViolations (close), resolveSpec (/cadre resolve).
+import { spawnIt } from './render'
 import type { Host } from '../types'
 import type { Task } from '../task-management/store'
 import { pipeOf } from '../task-management/registry'
@@ -282,7 +283,7 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
   const d = await resolveDeps(h), t = (await h.board.read()).tasks.find(x => x.id === id), task = t && (await d.store.get(id))
   if (!t || t.state !== 'blocked' || task?.meta['cadre.blocked'] !== 'spec_change') return { text: `${id} is not waiting on a spec change` }
   if (how !== 'accept' && how !== 'reject') return { text: `/cadre resolve ${id} accept|reject` }
-  const pipe = pipeOf(d.reg), acc = how === 'accept'
+  const pipe = pipeOf(d.reg), acc = how === 'accept', sp = (x: string) => spawnIt(snap, x), snap = await h.board.read()
   if (acc && !pipe(t.type, t.lane).includes('tester')) return { text: `${id}: type ${t.type} has no tester step; reject instead` }
   const r = await apply(h, acc ? { kind: 'rewind', id, at: await h.now(), actor: by, on: 'tester' } : { kind: 'unblock', id, at: await h.now(), actor: by }, pipe)
   if (!r.ok) return { text: r.error }
@@ -291,5 +292,5 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
   await d.store.setMeta(id, { 'cadre.blocked': '', 'cadre.decision': note.slice(0, 1500) }, d.actor)
   const bind = await h.bind.read(), w = acc ? undefined : Object.keys(bind).find(a => !a.startsWith('~') && bind[a].taskId === id && bind[a].role === 'worker')
   if (w) await step(h, w, { type: 'resume', text: 'The spec change was rejected: the locked tests stay. Make them pass, then report done.' })   // as unblock does: the worker that asked is waiting
-  return { text: acc ? `${id}: accepted; spawn it for the tester to amend the spec (new red, amended specCommit)` : w ? `${id}: rejected; the worker is resumed to conform to the locked tests` : `${id}: rejected; spawn it to resume the worker` }
+  return { text: acc ? `${id}: accepted${sp('spawn it for the tester to amend')}; the tester amends the spec (new red, amended specCommit)` : w ? `${id}: rejected; the worker is resumed to conform to the locked tests` : `${id}: rejected${sp('spawn it to resume the worker')}` }
 }

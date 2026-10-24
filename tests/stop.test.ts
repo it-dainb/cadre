@@ -112,4 +112,14 @@ describe('a step back: the store and the words', () => {
     const st = await w.h.taskStore!(); await st.setMeta(id, { 'cadre.step': 'worker' }, 'x')   // what an earlier pass left in the store (a tester's done advanced it)
     await retry(w, id); expect((await st.get(id)).meta['cadre.step']).toBe('tester')
   })
+  test('where cadre starts the agents, the answer and the next-step texts never tell main to spawn', async () => {
+    const w = await redStopped(), [id] = w.ids
+    expect(await retry(w, id)).toBe(`${id}: back to the tester`)
+  })
+  test('where main starts them, the text still says so', async () => {
+    const w = await world({ n: 1, type: 'feature', pkg: RED_PKG, drive: 'yolo', mode: 'main' }); await arm(w.h, 'yolo'); const [id] = w.ids
+    await w.at('ag1', id, 'tester'); await w.rep('ag1', { role: 'tester', outcome: 'done', summary: 's', tests: TESTS }); await w.turn()
+    await w.h.board.update((s: any) => ({ ...s, drive: { ...s.drive, spawn: undefined } }))
+    expect(await retry(w, id)).toBe(`${id}: back to the tester; spawn it`)
+  })
 })

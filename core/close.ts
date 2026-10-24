@@ -11,7 +11,7 @@ import { coverageGaps, specTestsOf } from './validate'
 import { agentsOf, fnv1a64, patchBinding } from './board'
 import { apply, STEP_CAT, transition } from './machine'
 import { emit } from './events'
-import { card, comment, commitMessage, noReportCard, startNew, type Rec } from './render'
+import { card, comment, spawnIt, commitMessage, noReportCard, startNew, type Rec } from './render'
 import { checkpoint, resolveGit, sweep } from './effect'
 import { policyOf } from '../policy/guards'
 import { integrateEpic } from './integrate'
@@ -408,7 +408,7 @@ ROUTES.resolve = async (h, c) => {
     const r = await apply(h, { kind: 'rewind', id: a, at: await h.now(), actor: 'human', on: 'tester' }, pipe(d)); if (!r.ok) return { text: r.error }
     await d.store.resume(a, d.actor); await d.store.setMeta(a, { 'cadre.blocked': '' }, d.actor); await retry(h, a, 'red'); await clear(h, a, 'red')   // human.retry{red}: its stop lifts
     for (const x of agentsOf(await h.bind.read(), a)) await end(h, x, 'retry', 'released')   // the tester that waited on it is done: a new one writes the tests
-    return { text: `${a}: back to the tester; spawn it` }
+    return { text: `${a}: back to the tester${spawnIt(await h.board.read(), 'spawn it')}` }
   }
   if (!t || !['keep', 'accept', 'reject', 'cancel'].includes(b)) return { text: 'usage: /cadre resolve <taskId> keep|accept|reject|cancel · /cadre resolve git keep|restore' }
   const out = async (e: Promise<string | null>) => ({ text: (await e) ?? `${a}: ${b} done` })

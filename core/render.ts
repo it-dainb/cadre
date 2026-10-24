@@ -87,6 +87,8 @@ export function spawnable(s: Omit<Snapshot, 'seq' | 'cost'>, bind?: Record<strin
     ...(s.drive?.planner === 'agent' ? es.filter(e => (e.state === 'ready' || e.state === 'planning') && !Object.values(bind ?? {}).some(b => b.taskId === e.id)).map(e => ({ id: e.id, role: 'planner' })) : [])]   // milestone.epicPlanner agent (ADR 0021): a ready epic's planner
 }
 // mod mode (ADR 0018): what main hears when the plan's steps are all cadre's (spawn, complete a task or an epic)
+// the instruction to spawn a step goes only to a main that spawns: where cadre starts the agents (drive.spawn mod) it is dropped, or main tries and is refused
+export const spawnIt = (s: Pick<Snapshot, 'drive'>, what: string) => (s.drive.spawn === 'mod' ? '' : `; ${what}`)
 export const RUNS = 'wait: the tasks run by themselves and you hear when each lands, so talk with the user or plan what is next'
 export function nextAction(s: Omit<Snapshot, 'seq' | 'cost'>, idle: string[] = [], mod = false): string {
   const ts = s.tasks as SnapTask[], a: string[] = []
