@@ -28,3 +28,10 @@ test('the row passes only if every run passes; US$ and min sum', () => {
   const ok = table([true, true]); assert.match(ok, /^cell +\| PASS/m); assert.match(ok, /1\/1 pass/); assert.match(ok, /\| 1 +\| 4 /)
   const bad = table([true, false]); assert.match(bad, /^cell +\| FAIL +\| inv1/m); assert.match(bad, /0\/1 pass/)
 })
+
+test('a real failing run outranks a known one, so the exit code sees it', () => {
+  const run = mkdtempSync(join(tmpdir(), 'mx-'))
+  const put = (n, inv) => { mkdirSync(join(run, n)); writeFileSync(join(run, `${n}.line`), ''); writeFileSync(join(run, `${n}.env`), 'KNOWN=s1'); writeFileSync(join(run, n, 'verdict.json'), JSON.stringify({ pass: false, fails: [{ invariant: inv, evidence: 'e' }], stats: { dialogs: 0, turns: 1, usd: 0.5, secs: 60 } })) }
+  put('cell.r1', 'not-landed'); put('cell.r2', 'errors')
+  assert.match(execFileSync('node', ['harness/table.mjs', run], { encoding: 'utf8' }), /^cell +\| FAIL +\| errors/m)
+})

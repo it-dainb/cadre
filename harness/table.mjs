@@ -8,7 +8,7 @@ for (const c of fs.readdirSync(run)) { if (!fs.existsSync(`${run}/${c}.line`)) c
   runs.push([c, v.pass ? "PASS" : known ? `known:${known}` : "FAIL", v.pass ? "" : [...new Set(v.fails.map(f => f.invariant))].join(","), s.secsToPlan ?? "-", s.dialogs, s.turns, s.usd, Math.round(s.secs / 60), v.pass ? "" : v.fails[0].evidence.slice(0, 90)]) }
 const rows = [], by = new Map()
 for (const r of runs) { const k = r[0].replace(/\.r\d+$/, ""); by.set(k, [...(by.get(k) ?? []), r]) }
-for (const [k, g] of by) { const bad = g.find(r => r[1] !== "PASS"); const r = [...(bad ?? g[0])]; r[0] = k; r[6] = +g.reduce((a, x) => a + (+x[6] || 0), 0).toFixed(2); r[7] = g.reduce((a, x) => a + (+x[7] || 0), 0); rows.push(r) }
+for (const [k, g] of by) { const bad = g.find(r => r[1] === "FAIL" || r[2] === "NO VERDICT") ?? g.find(r => r[1] !== "PASS"); const r = [...(bad ?? g[0])]; r[0] = k; if (g.length > 1) { r[6] = +g.reduce((a, x) => a + (+x[6] || 0), 0).toFixed(2); r[7] = g.reduce((a, x) => a + (+x[7] || 0), 0) } rows.push(r) }   // a real failure outranks a known one, so the exit code sees it
 const head = ["cell", "verdict", "failing invariant", "s to plan", "dialogs", "turns", "US$", "min", "evidence"]
 const w = head.map((h, i) => Math.max(h.length, ...rows.map(r => String(r[i] ?? "").length)))
 for (const r of [head, ...rows]) console.log(r.map((x, i) => String(x ?? "").padEnd(w[i])).join(" | "))
