@@ -62,7 +62,8 @@ const roleRows = (r: string): Record<string, Meta> => Object.fromEntries(RISK.fl
     [`${at}.escalate.after`, m(M, `${w}: failed rounds before it escalates (0 = never)`, N(0, 20))], [`${at}.escalate.model`, m(M, `${w}: model after escalation`, { opts: mo })],
     [`${at}.escalate.effort`, m(M, `${w}: effort after escalation`, { opts: EFFORT })]]
 }))
-const specs = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.entries(v).map(([n, s]) => ((e) => e && `${n}: ${e}`)(exitIssue(s as any))).find(Boolean) || null : 'expected an object of role specs')
+const list = (v: unknown) => v === undefined || (Array.isArray(v) && v.every(x => typeof x === 'string'))
+const specs = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.entries(v).map(([n, s]) => ((e) => e && `${n}: ${e}`)(!s || typeof s !== 'object' || Array.isArray(s) ? 'expected a role spec object' : !list((s as any).tools) || !list((s as any).disallowedTools) ? 'tools and disallowedTools: expected lists of text' : exitIssue(s as any))).find(Boolean) || null : 'expected an object of role specs')
 export const REG: Record<string, Meta> = {
   'roles.custom': m(M, 'your own agent roles: name -> {description, tools, write, ...}; a spec that drops an exit tool is refused', { cls: 'U', open: true, ok: specs }),
   'drive.mode': m(D, 'yolo: no questions after approval; auto asks at the gates', { cls: 'S', opts: ['yolo', 'auto'], tighten: 'enum' }),

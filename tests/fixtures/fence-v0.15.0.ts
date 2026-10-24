@@ -1,7 +1,6 @@
 // FROZEN: policy/guards.ts fence() exactly as shipped in v0.15.0 (98d15df). tests/roles.test.ts runs it against the live fence(); never edit it to match.
 import type { Host } from '../../types'
-import { PROTECTED } from '../../core/git'
-import { inputPath } from '../../policy/guards'
+const PROTECTED = ['.git/', '.cadre/', '.claude/', '.mcp.json', 'CHANGELOG.md']   // frozen copy of core/git.PROTECTED at v0.15.0
 type Policy = any
 const FILE = ['Read', 'Grep', 'Glob', 'Write', 'Edit', 'NotebookEdit'], FENCED = ['Edit', 'Write', 'NotebookEdit']
 const MOD_DIRS = PROTECTED.filter(p => p.endsWith('/')).map(p => p.slice(0, -1)), MOD_FILES = PROTECTED.filter(p => !p.endsWith('/'))
@@ -10,6 +9,19 @@ const join = (cwd: string, p: string) => (p.startsWith('/') ? p : `${cwd.replace
 const modOwned = (real: string, home?: string, changelog?: string) => {
   const seg = real.split('/')
   return (!!changelog && (real === changelog || real.endsWith(`/${changelog}`))) || seg.some(s => MOD_DIRS.includes(s)) || MOD_FILES.includes(seg[seg.length - 1]) || (!!home && /^cadre\.json$|^settings.*\.json$/.test(seg[seg.length - 1]) && under(real, home + '/.claude')) || (!!home && real === `${home}/.claude.json`)   // the engine's own file: its project mcpServers/allowedTools widen what runs
+}
+
+// Step 0 of the fence: the path a file tool will touch, per tool (input fields). Glob with an absolute pattern: its non-glob base dir.
+export function inputPath(tool: string, i: any, cwd: string): string | undefined {
+  const v = (x: unknown) => (typeof x === 'string' && x ? x : undefined)
+  if (tool === 'Read' || tool === 'Write' || tool === 'Edit') return v(i?.file_path)
+  if (tool === 'NotebookEdit') return v(i?.notebook_path)
+  if (tool === 'Grep') return v(i?.path) ?? cwd
+  if (tool === 'Glob') {
+    const pat = v(i?.pattern)
+    if (pat?.startsWith('/')) { const seg = pat.split('/'), k = seg.findIndex(s => /[*?[{]/.test(s)); const base = (k < 0 ? seg.slice(0, -1) : seg.slice(0, k)).join('/'); return base || '/' }
+    return v(i?.path) ?? cwd
+  }
 }
 
 // Step 1: where the path lands; a new file resolves its folder (SA-04). undefined = cannot place it.

@@ -85,6 +85,7 @@ describe('exit rule 6: no spec can drop an exit tool', () => {
     const L = (v: unknown) => [{ name: 'u', trust: 'user' as const, value: { roles: { custom: v } } }]
     const bad = resolve(L({ x: { tools: ['Read'], disallowedTools: ['SubagentHandback'] } })); expect(bad.config.roles.custom).toEqual({}); expect(bad.diagnostics.join()).toContain('SubagentHandback')
     expect(resolve(L({ x: { tools: ['Read'] } })).config.roles.custom).toEqual({ x: { tools: ['Read'] } })
+    for (const v of [{ x: null }, { x: { tools: {} } }, { x: { disallowedTools: 'Bash' } }, { x: [] }, []]) { const r = resolve(L(v)); expect(r.config.roles.custom).toEqual({}); expect(r.diagnostics.join()).toContain('roles.custom') }
     expect(resolve([{ name: 'r', trust: 'repo', value: { roles: { custom: { x: { tools: ['Read'] } } } } }]).diagnostics.join()).toContain('user-level only')
   })
   test('fixed rows: the exit tools and the write scopes; REG has roles.custom', async () => {
