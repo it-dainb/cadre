@@ -20,12 +20,15 @@ console.log(JSON.stringify(o))' --input-type=module "$R"; fi
 c=$1; n=$2; shift 2; C=cadre-tui-$n; D=$T/$n
 tm() { docker exec "$C" tmux "$@"; }
 ready() {   # deterministic dialog handling: Enter on any known first-run prompt until the composer shows
-  for i in $(seq 60); do
+  for i in $(seq 120); do
     p=$(tm capture-pane -t q -p)
-    if grep -q 'bypass permissions on\|auto mode on\|? for shortcuts\|esc to interrupt' <<<"$p"; then echo ready; return 0; fi
+    if grep -q 'bypass permissions on\|auto mode on\|? for shortcuts\|esc to interrupt' <<<"$p"; then
+      # the composer is drawn before the plugins' hook modules load (a line typed in between is lost): wait for them (<= 30 s)
+      for j in $(seq 60); do grep -qaE 'hooks module \S+@(inline|cadre) loaded' "$(ls -t "$D"/out/debug*.log 2>/dev/null | head -1)" 2>/dev/null && break; sleep 0.5; done
+      echo ready; return 0; fi
     if grep -qi 'Bypass Permissions mode' <<<"$p"; then tm send-keys -t q Down Enter
     elif grep -qi 'trust\|Choose the text style\|Press Enter\|Yes, I accept\|Do you want to use this API key' <<<"$p"; then tm send-keys -t q Enter; fi
-    sleep 1
+    sleep 0.5
   done; echo "not ready:"; tm capture-pane -t q -p; return 1
 }
 case $c in

@@ -7,7 +7,7 @@
 #   RUNS=N: the cell runs N times (evidence <name>.rK); its row is PASS only if every run passes; US$ and min are summed.
 #   KNOWN=<slice>: the cell checks a slice that has not landed; a FAIL of its own oracle (ORACLE=…, not-landed) shows as known:<slice> and does not
 #   fail the run; any other invariant (zero-quota, errors, …) still fails it.
-H=$(cd "$(dirname "$0")" && pwd); TIER=${1:-quick}; shift; J=7; [ "$TIER" = scripted ] && J=6; DRY=   # scripted cells cost nothing: run them all at once
+H=$(cd "$(dirname "$0")" && pwd); TIER=${1:-quick}; shift; J=7; [ "$TIER" = scripted ] && J=99; DRY=   # scripted cells cost nothing: run them all at once
 while [ $# -gt 0 ]; do case $1 in -j) J=$2; shift;; -n) DRY=1;; esac; shift; done
 quick() { cat <<'EOF'
 user1-mono-clear-cd-retype|monorepo leftover|user1|MODEL=haiku CC_VERSION=2.1.299

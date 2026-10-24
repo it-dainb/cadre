@@ -5,7 +5,7 @@
 // Every line it logs starts with SCRIPTED (debug log). `/s0 <end|hb|wedge>` is the forced-exit / TaskStop probe (RESULTS.md (c), (d)).
 // The script is chosen per cell by the repo's `.git/scripted.json` ({"script": …}, written by a harness/fixtures/scripted overlay), default `lite`:
 //   lite: main plans one lite task; full: a full-lane task (tester, worker, reviewer); loop: lite, the worker calls the same tool forever (the repeat-call breaker, then forced exit);
-//   limit: lite, the first worker's first step goes to the proxy, which answers a usage limit (stub-proxy.mjs); slow: lite, the worker waits 45 s first;
+//   limit: lite, the first worker's first step goes to the proxy, which answers a usage limit (stub-proxy.mjs); slow: lite, the worker waits 12 s first;
 //   silent: lite, the worker writes its files and stops without a report, every time (the report-less end);
 //   pair: full lane, two independent tasks (concurrency-fifo, with concurrency.default 1 in the repo's config);
 //   multi: full lane, two tasks (kebabCase after titleCase), an amend on a stale revision refused then retried (plan-tools-full);
@@ -90,7 +90,7 @@ const TASKS = FNS.map(f => ({ title: `${f.name}(s) with node:test tests`, descri
   paths: [`src/${f.name}.mjs`, `test/${f.name}.test.mjs`], scenarios: [`S1: Given '${f.input}' When ${f.name} is called Then it returns '${f.out}'`],
   changelog: { category: 'Added', entry: `${f.name}(s): ${f.what}` }, interface: { symbols: [{ name: f.name, kind: 'function', params: ['s: string'], returns: 'string', status: 'new' }] } }))
 const taskOf = (brief: string) => brief.match(/TASK-([a-z][\w-]*\w)/)?.[1]   // ids are c-6-1, m-2: a letter first, a word char last
-const WAIT = { tool: 'Bash', input: { command: 'node -e "setTimeout(() => {}, 45000)"', description: 'Wait' } }
+const WAIT = { tool: 'Bash', input: { command: 'node -e "setTimeout(() => {}, 12000)"', description: 'Wait' } }
 const ROLES: Record<string, (k: number, brief: string, cwd: string) => Act> = {
   worker: (k, b) => { const f = fnOf(b), w = { tool: 'Bash', input: { command: FILES(f), description: `Write ${f.name} and its test` } }
     return script === 'silent' ? [w][k] ?? { text: END } : script === 'loop' ? { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } } : (script === 'slow' ? [WAIT] : []).concat([w, { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
@@ -148,7 +148,7 @@ export const register: Register = (on) => {
     }
     let r: any; try { r = await $.agent.spawn({ prompt: `S0-PROBE tag=${tag}. Do the task you are given.`, description: `s0 ${tag}`, subagentType: 'general-purpose' }) } catch (x) { r = { threw: String(x) } }
     await L($, `spawned ${tag} -> ${JSON.stringify(r)}`)
-    if ((tag === 'wedge' || tag === 'tools') && r?.agentId) $.clock.after(20_000, async () => {   // a timer frame, as the backstop's: no hook is calling
+    if ((tag === 'wedge' || tag === 'tools') && r?.agentId) $.clock.after(6_000, async () => {   // a timer frame, as the backstop's: no hook is calling
       try { await L($, `TaskStop ${r.agentId} -> ${JSON.stringify(await $.tool.call({ tool: 'TaskStop', task_id: r.agentId }))}`) } catch (x) { await L($, `TaskStop ${r.agentId} threw ${x}`) }
     })
     return { text: `s0 ${tag} spawned` }
