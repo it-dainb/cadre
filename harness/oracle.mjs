@@ -339,7 +339,7 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (agents.length || steps) fail(o, `${agents.length} task agent(s) ran, ${steps} model step(s) (want 0)`)
     if (n !== 1) fail(o, `Doctor names the cell ${n}x (want 1)`)
   }
-  if (o === 'fifo') {   // concurrency.default 1, three tasks: the workers start in the order the tasks were admitted (ids ascend), and no snapshot shows two tasks running
+  if (o === 'fifo') {   // concurrency.default 1, two tasks: the workers start in the order the tasks were admitted (ids ascend), and no snapshot shows two tasks running
     const id = b => b.match(/TASK-([a-z][\w-]*\w)/)?.[1], ws = subs.filter(x => /Worker brief/.test(x.brief) && id(x.brief)).sort((a, b) => a.t - b.t).map(x => id(x.brief))
     const two = snaps.find(x => new Set(Object.values(runs(x.s)).filter(r => ['running', 'refused', 'silent'].includes(r.state?.state)).map(r => r.taskId)).size > 1)
     Object.assign(stats, { workerOrder: ws })
