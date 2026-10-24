@@ -36,6 +36,7 @@ exit-every-role|single ready scripted/full|every|MODEL=haiku CC_VERSION=2.1.295 
 exit-every-role-live|single ready|every|MODEL=haiku CC_VERSION=2.1.295 PERM=auto LANDED=1 BUDGET=1800 PROXY=1 ORACLE=every ORACLE_ROLES=worker,reviewer
 forced-exit|single ready scripted/loop|forced|MODEL=haiku CC_VERSION=2.1.295 S=1 BUDGET=420 ORACLE=forced
 underscore-id|scripted/underscore|underscore|MODEL=haiku CC_VERSION=2.1.295 S=1 CWD=my_lib REPO=my_lib LANDED=1 BUDGET=600 ORACLE=underscore
+# usage-limit is the one scripted cell over 60 s (~100 s): limits.limitWaitMinutes has a product floor of 1 min and a reported reset can only raise it
 usage-limit|single ready scripted/limit|limit|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=600 ORACLE=limit
 report-less-end|single ready scripted/silent|silent|MODEL=haiku CC_VERSION=2.1.295 S=1 BUDGET=420 ORACLE=noreport
 dev-moved|single ready scripted/slow|devmoved|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=600 ORACLE=devmoved
