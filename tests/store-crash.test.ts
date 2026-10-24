@@ -167,6 +167,11 @@ describe('file store crash safety', () => {
     expect(await new FileStore(hostOf(fs), D, 'S').get(id).then(() => 'ok', (e: any) => e.message)).toContain(`the task store file .cadre/state/d/${base(doc)} is damaged`)   // review r3 N13: relative to the repo, never a host path
   })
 
+  test('a failing store tool names the store relative to the repo, never by its host path', async () => {
+    const h = hostOf(new Map(), { run: argv => kind(argv) === 'probe' ? { exitCode: 1, stdout: '', stderr: `ln: failed to create hard link '${D}/j/1'` } : undefined })
+    expect((await new FileStore(h, D, 'P').probe()).detail).toBe("hard links or sync fail in .cadre/state: ln: failed to create hard link '.cadre/state/j/1'")   // review r4: stderr too
+  })
+
   test('one store per directory and session: a retry after a Timeout through another hook reuses the op id; each view runs on its own Host; warm reads scan only the tail', async () => {
     const { fs, id } = await seeded(), dir = `${D}/of`; for (const [p, f] of [...fs]) if (p.startsWith(`${D}/`)) fs.set(p.replace(D, dir), f)
     let late: (() => unknown) | undefined; const scans: string[] = []

@@ -65,7 +65,7 @@ export class FileStore implements TaskStore {
   private async sync(full = this.seen < 0, tries = 0, nap = ''): Promise<void> {
     const again = (why: string) => { if (tries > 2) throw new StoreError('Unavailable', why); return this.sync(true, tries + 1) }
     const r = await this.h.run(sh('scan', this.dir, String(full ? 0 : this.seen), full ? '1' : '0', nap), { timeoutMs: TIMEOUT })
-    if (r.exitCode) throw new StoreError('Unavailable', `store scan: ${r.stderr.slice(0, 200)}`)
+    if (r.exitCode) throw new StoreError('Unavailable', `store scan: ${this.rel(r.stderr).slice(0, 200)}`)
     const docs: [string, number, unknown][] = [], es = new Map<number, any>(), mk: string[] = []; let snap = { n: 0, ev: 0 }, hd = -1, torn = false, bad = ''
     for (const l of r.stdout.split('\n')) {
       const [k, a, ...rest] = l.split(' ')
@@ -148,15 +148,16 @@ export class FileStore implements TaskStore {
     }
     const st = `${this.dir}/tmp/${this.sid}.snap.${this.h.rand(4)}`; await this.h.write(st, JSON.stringify({ n, ev: at.e0 + at.ev.length }))
     const r = await this.h.run(sh('compact', this.dir, String(n), st, ...pairs, '--', ...this.stale), { timeoutMs: TIMEOUT })
-    if (r.exitCode) throw new StoreError('Unavailable', `store compaction: ${r.stderr.slice(0, 200)}`)
+    if (r.exitCode) throw new StoreError('Unavailable', `store compaction: ${this.rel(r.stderr).slice(0, 200)}`)
     await this.sync(true); return n
   }
 
   get initialized() { return this.seen < 0 || !!this.mem.tasks }   // false once a scan found the store wiped: the caller re-probes and re-inits
+  private rel(t: string) { return t.split(this.dir).join('.cadre/state') }   // a tool's stderr names the store by its host path
   probe() { return this.serial(() => this.probeNow()) }
   private async probeNow() {
     const r = await this.h.run(sh('probe', this.dir, this.h.rand(4)), { timeoutMs: TIMEOUT }).catch(e => ({ exitCode: 1, stderr: String(e) }))
-    if (r.exitCode) return { ok: false, journal: false, version: 'file', detail: `hard links or sync fail in .cadre/state: ${r.stderr.slice(0, 120)}` }
+    if (r.exitCode) return { ok: false, journal: false, version: 'file', detail: `hard links or sync fail in .cadre/state: ${this.rel(r.stderr).slice(0, 120)}` }
     await this.sync(); return { ok: true, journal: this.mem.journal, version: 'file', detail: this.mem.tasks ? 'initialized' : 'not initialized' }
   }
   events(since?: string, limit = 500) { return this.serial(() => this.eventsNow(since, limit)) }
