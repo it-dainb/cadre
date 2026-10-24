@@ -105,3 +105,11 @@ describe('the no-progress count', () => {
     expect(await tally(w.h, cfg, undefined, 1)).toBe(true); expect((await w.h.board.read()).drive.stopped).toBeUndefined()
   })
 })
+
+describe('a step back: the store and the words', () => {
+  test('the red Retry leaves the store at the tester step: a rebuilt board does not start the worker', async () => {
+    const w = await redStopped(), [id] = w.ids
+    const st = await w.h.taskStore!(); await st.setMeta(id, { 'cadre.step': 'worker' }, 'x')   // what an earlier pass left in the store (a tester's done advanced it)
+    await retry(w, id); expect((await st.get(id)).meta['cadre.step']).toBe('tester')
+  })
+})
