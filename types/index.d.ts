@@ -59,7 +59,7 @@ export type EventType =
   | 'task.transitioned' | 'task.phase_changed' | 'task.skipped' | 'agent.bound' | 'agent.unbound'
   | 'check.ran' | 'flag.raised' | 'flag.resolved' | 'approval.pending' | 'sync.state_changed'
   | 'drive.status' | 'drive.decided' | 'cost.updated' | 'init.stage' | 'plan.landed' | 'plan.released' | 'release.proposed' | 'help.asked' | 'help.done'
-  | 'decision.answered' | 'config.changed' | 'task.retried' | 'task.cancelled' | 'amend.recorded'
+  | 'decision.answered' | 'config.changed' | 'task.retried' | 'task.cancelled' | 'amend.recorded' | 'lesson.pass' | 'lesson.added'
 export interface CadreEvent {
   schemaVersion: 1; seq: number; at: number; type: EventType; taskId?: string; agentId?: string
   actor: Actor; severity: Severity; needsHuman: boolean; data: Record<string, unknown>

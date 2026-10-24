@@ -15,7 +15,7 @@ import { resolveDeps } from './admission'
 import { checkpoint } from './effect'
 import { type Entry, cardOf, inFlight, qk, savePointer, warm } from './session'
 import { drive, goalSeen } from './drive'
-import { pass } from './lessons'
+import { kick, spentOf } from './lessons'
 import { delivered } from './needs'
 
 const counted = (h: Host, q: Entry[], me: string) => h.board.update(s => ({ ...s, resumesQueued: q.filter(x => x.sessionId === me).length }))
@@ -153,14 +153,15 @@ export const drain: Hook = async (h, e, next) => {
       return void (await safe(h, 'cost ledger', () => ledger(h, store, d.actor, cfg, e.agentId, b.taskId)))
     }
     const u = await h.usage?.(), all = ((await h.store.get(await scoped(h, 'cost:all'))) as U) ?? zero(), pct = u?.context?.percent
-    await h.board.update(s => ({ ...s, cost: { tokens: tokensOf(all), cachePct: cacheOf(all), ...(u?.cost ? { usd: u.cost.usd } : {}) } }))
+    const side = await spentOf(h)   // the lessons pass's dollars (the engine's usage does not hold them)
+    await h.board.update(s => ({ ...s, cost: { tokens: tokensOf(all), cachePct: cacheOf(all), ...(u?.cost ? { usd: u.cost.usd + side } : {}) } }))
     if (pct !== undefined) await h.ui.update(x => ({ ...x, ctx: pct }))
     await savePointer(h)
     const s = await h.board.read(), ui = await h.ui.read()
     if (s.plan?.landed && ui.clr !== s.plan.id) { await h.ui.update(x => ({ ...x, clr: s.plan!.id })); if ((pct ?? 0) > cfg.cost.clearHintPct) h.toast(`cadre: epic ${s.plan.id} landed · /clear for a fresh main`) }   // 7: never automatic
     if (pct !== undefined && pct > cfg.cost.compactPct && s.plan?.state === 'approved' && !(await h.ui.read()).cmp) { await h.ui.update(x => ({ ...x, cmp: true })); h.toast(`cadre: context ${pct}% · /compact now`) }   // S49: compact() is headless-unavailable: hint, not automatic
     await drive(h, cfg, u?.cost?.usd)
-    await pass(h, !s.tasks.some(t => t.state === 'active' || t.state === 'review'))   // lessons: a side-model pass after a landed plan, or when nothing runs (core/lessons)
+    kick(h, !s.tasks.some(t => t.state === 'active' || t.state === 'review'))   // lessons: a side-model pass after a landed plan, or when nothing runs (core/lessons)
   })
   return r
 }

@@ -21,6 +21,8 @@ export const GOLDEN: Record<EventType, { actor: Actor; severity: Severity; needs
   'release.proposed': { actor: 'mod', severity: 'info', needsHuman: true, keys: ['version'] },
   'help.asked': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['taskId', 'helper'] },
   'help.done': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['taskId', 'helper', 'ok'] },
+  'lesson.pass': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['n', 'ok'] },
+  'lesson.added': { actor: 'mod', severity: 'info', needsHuman: false, keys: ['id', 'ev'] },
   'decision.answered': { actor: 'human', severity: 'info', needsHuman: false, keys: ['choice'] },
   'config.changed': { actor: 'human', severity: 'info', needsHuman: false, keys: ['key', 'from', 'to'] },
   'task.retried': { actor: 'human', severity: 'info', needsHuman: false, keys: ['taskId'] },
@@ -47,5 +49,5 @@ export const SAMPLE: Record<EventType, Record<string, unknown>> = {
   'release.proposed': { version: '0.2.0' },
   'help.asked': { taskId: 't1', helper: 'explore' },
   'help.done': { taskId: 't1', helper: 'explore', ok: true },
-  'decision.answered': { choice: 'accept' }, 'config.changed': { key: 'review.maxRework', from: 3, to: 5 }, 'task.retried': { taskId: 't1' }, 'task.cancelled': { taskId: 't1' }, 'amend.recorded': { taskId: 't1' },
+  'lesson.pass': { n: 1, ok: true }, 'lesson.added': { id: 'lab12', ev: ['flag:t1:5'] }, 'decision.answered': { choice: 'accept' }, 'config.changed': { key: 'review.maxRework', from: 3, to: 5 }, 'task.retried': { taskId: 't1' }, 'task.cancelled': { taskId: 't1' }, 'amend.recorded': { taskId: 't1' },
 }

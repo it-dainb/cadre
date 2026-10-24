@@ -61,7 +61,7 @@ export async function hardStop(h: Host, rec?: DriveRec): Promise<string | null> 
 // a milestone's bounds cover all of it: the plan bounds times its epics (ADR 0015)
 const scaled = (dc: any, s: Snapshot) => { const k = s.plan?.epics?.length || 1; return k > 1 ? { ...dc, maxTurns: dc.maxTurns * k, maxCostUsd: dc.maxCostUsd * k, maxWallMinutes: dc.maxWallMinutes * k } : dc }
 export const boundOf = (r: DriveRec, dc: any, cost: number, idle: number, now: number): string | null =>
-  r.turns >= dc.maxTurns ? `max turns ${dc.maxTurns}` : cost + (r.side ?? 0) >= dc.maxCostUsd ? `cost $${cost} ≥ $${dc.maxCostUsd}` : now - r.startedAt > dc.maxWallMinutes * 60_000 ? `max ${dc.maxWallMinutes} min` : idle >= dc.noProgressTurns ? `no progress in ${idle} turns` : null
+  r.turns >= dc.maxTurns ? `max turns ${dc.maxTurns}` : cost + (r.side ?? 0) >= dc.maxCostUsd ? `cost $${+(cost + (r.side ?? 0)).toFixed(4)} ≥ $${dc.maxCostUsd}` : now - r.startedAt > dc.maxWallMinutes * 60_000 ? `max ${dc.maxWallMinutes} min` : idle >= dc.noProgressTurns ? `no progress in ${idle} turns` : null
 
 // a decision drive (or main under yolo) took without the human: a decision record linked to the plan + `drive.decided` for Activity and Doctor
 export async function decided(h: Host, kind: 'spec' | 'question' | 'rework' | 'integration' | 'flag' | 'rebase' | 'resolve' | 'plan', text: string, taskId?: string): Promise<void> {
@@ -152,7 +152,7 @@ export async function ready(h: Host): Promise<DriveRec | null> {
 export async function tally(h: Host, cfg: any, usd: number | undefined, go: number): Promise<boolean> {
   const s = await h.board.read(), d = s.drive, store = await storeOf(h), me = await sessionOf(h), now = await h.now(), dc = scaled(cfg.drive, s)
   const evs = (await h.events.read()).epics[s.epic ?? ''] ?? [], seq = evs.filter(x => x.type === 'task.transitioned').reduce((m, x) => Math.max(m, x.seq), 0)
-  const o = { bound: null as string | null, go: false, cost: d.costUsd, turns: d.turns, idle: [] as string[] }   // what the CAS attempt that stood decided
+  const o = { bound: null as string | null, go: false, side: 0, cost: d.costUsd, turns: d.turns, idle: [] as string[] }   // what the CAS attempt that stood decided
   const tx = (id: string) => evs.filter(x => x.type === 'task.transitioned' && s.tasks.find(t => t.id === x.taskId)?.epic === id).reduce((m, x) => Math.max(m, x.seq), 0)
   const free = !tasksFull(cfg, s)
   const quiet = (s.plan?.epics ?? []).filter(e => free && e.state === 'running' && !s.tasks.some(t => t.epic === e.id && ['active', 'review', 'blocked'].includes(t.state))).map(e => [e.id, tx(e.id)] as const)   // per-epic no progress: a slot is free, yet nothing of it moves, runs or waits on the user
@@ -160,7 +160,7 @@ export async function tally(h: Host, cfg: any, usd: number | undefined, go: numb
     if (!r?.on || r.epicId !== s.epic || held(r, me, now) || r.stopped) return undefined
     const moved = seq > r.lastSeq || !r.turns, idle = moved ? 0 : r.idle + 1
     const last = r.last ?? usd ?? 0, delta = usd === undefined || r.sess !== me ? 0 : usd >= last ? usd - last : usd   // a new session starts at its own baseline; a usage that went down was reset: count it from 0
-    o.cost = +((r.cost ?? 0) + delta).toFixed(2)
+    o.cost = +((r.cost ?? 0) + delta).toFixed(2); o.side = r.side ?? 0
     o.bound = boundOf(r, dc, o.cost, idle, now)
     o.go = !o.bound && go > 0; o.turns = r.turns + (o.go ? go : 0)
     const ei = Object.fromEntries(quiet.map(([id, q]) => { const [ls, n] = r.ei?.[id] ?? [0, 0]; return [id, q > ls ? [q, 0] : [ls, n + (o.go ? 1 : 0)]] })) as Record<string, [number, number]>
@@ -168,10 +168,10 @@ export async function tally(h: Host, cfg: any, usd: number | undefined, go: numb
     // lastSeq moves with every call, so progress seen with no turn charged must reset the count here: kept stale, the next turn read it as one more idle turn
     return { ...r, ei, cost: o.cost, last: usd ?? last, sess: me, turns: o.turns, lastSeq: seq, idle: o.go || moved ? idle : r.idle, lease: { session: me, until: now + LEASE } }
   })
-  await h.board.update(x => ({ ...x, drive: { ...x.drive, turns: o.turns, costUsd: o.cost, costUnknown: usd === undefined || undefined, heldBy: undefined } }))   // no usage from the engine: the cost bound cannot fire; say so (turns and wall clock still hold)
+  await h.board.update(x => ({ ...x, drive: { ...x.drive, turns: o.turns, costUsd: +(o.cost + o.side).toFixed(4), costUnknown: usd === undefined || undefined, heldBy: undefined } }))   // no usage from the engine: the cost bound cannot fire; say so (turns and wall clock still hold)
   if (o.bound) return void (await stop(h, o.bound)), false
   for (const id of o.idle) await stopEpic(h, id, `no progress in ${dc.noProgressTurns} turns`)
-  if (dc.maxCostUsd && o.cost >= 0.8 * dc.maxCostUsd && d.costUsd < 0.8 * dc.maxCostUsd) await emit(h, 'cost.updated', { tokens: (await h.board.read()).cost.tokens, threshold: 80 })
+  if (dc.maxCostUsd && o.cost + o.side >= 0.8 * dc.maxCostUsd && d.costUsd < 0.8 * dc.maxCostUsd) await emit(h, 'cost.updated', { tokens: (await h.board.read()).cost.tokens, threshold: 80 })
   return o.go
 }
 // quiet: from the spawner at an agent's turn end (mod mode): only what is main's own (plan the next epic; yolo: a blocked task's question), never the same text twice
@@ -250,7 +250,7 @@ export async function resume(h: Host): Promise<string> {
   const store = await storeOf(h), me = await sessionOf(h), now = await h.now(), usd = (await h.usage?.().catch(() => undefined))?.cost?.usd ?? 0, set = await settingsHash(h)
   const old = await casDrive(h, store, () => undefined), keep = old?.mode === 'yolo'   // yolo keeps the baseline taken at approval: a resume never blesses a changed setting or a broken sandbox
   const hard = keep ? await hardStop(h, old) : null; if (hard) return `drive could not resume: ${hard}; undo it first, or finish the plan yourself`
-  const r = await casDrive(h, store, x => (x?.on && x.epicId === s.epic && x.stopped && !held(x, me, now) ? { ...x, stopped: undefined, cause: undefined, turns: 0, idle: 0, cost: 0, last: usd, sess: me, startedAt: now, set: keep ? x.set : set, cont: keep ? x.cont : s.containment.state, lease: { session: me, until: now + LEASE } } : undefined))
+  const r = await casDrive(h, store, x => (x?.on && x.epicId === s.epic && x.stopped && !held(x, me, now) ? { ...x, stopped: undefined, cause: undefined, turns: 0, idle: 0, cost: 0, side: 0, last: usd, sess: me, startedAt: now, set: keep ? x.set : set, cont: keep ? x.cont : s.containment.state, lease: { session: me, until: now + LEASE } } : undefined))
   if (!r || r.stopped) return 'drive could not resume: another session holds it'
   await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: undefined, cause: undefined, paused: undefined, turns: 0, costUsd: 0, startedAt: now } }))   // a resume is a fresh budget: the human chose to go on
   await driveEvent(h, 'resumed'); await kick(h, true); return 'drive resumed'
