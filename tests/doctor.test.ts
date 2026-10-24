@@ -45,7 +45,7 @@ function mk(o: { shadow?: string; foreign?: boolean; npmFails?: boolean; tools?:
 const rowsOf = async (h: Host) => (await machine(h, defaults() as any)).rows, lvl = (rs: any[], re: RegExp) => rs.find(r => re.test(r[1]))
 
 describe('machine checks', () => {
-  test('a healthy machine is all ok', async () => { expect((await rowsOf(mk())).map(r => r[0])).toEqual(Array(6).fill('ok')) })
+  test('a healthy machine is all ok', async () => { expect((await rowsOf(mk())).map(r => r[0])).toEqual(Array(7).fill('ok')) })
   test('missing tools fail with the exact command for the human', async () => {
     const rs = await rowsOf(mk({ tools: {} }))
     expect(lvl(rs, /git/)).toEqual(['crit', 'git not found', '! sudo sh ~/.cache/cadre/fix/git.sh'])

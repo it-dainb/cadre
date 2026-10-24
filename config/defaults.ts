@@ -1,6 +1,7 @@
 // Config defaults + the settings registry (DESIGN 12, ADR 0019). defaults() holds every default value (and the Config type); REG holds every key's metadata.
 // tests/config.test.ts pins REG to the leaves of defaults() 1:1, so neither can drift. Layer class: S = safety (repo may only tighten), U = user-level only, O = ordinary (committed).
 import { defaults as typeDefaults } from '../task-management/registry'
+import { exitIssue } from '../core/roles'
 
 export type Cls = 'S' | 'U' | 'O'
 // one routing cell: the model alias and effort for a role at a risk, and the escalation after `after` failed rounds (0 = never)
@@ -18,6 +19,7 @@ export const defaults = () => ({
     reviewer: byRisk(cell('sonnet', 'high'), cell('sonnet', 'high'), cell('opus', 'high'), cell('sonnet', 'high')),
     explorer: { model: 'haiku', effort: 'low' },
     planner: { model: 'sonnet', effort: 'high' },   // drafts each epic's task plan in a milestone (ADR 0021)
+    custom: {} as Record<string, unknown>,   // role specs of the user layer (core/roles RoleSpec); rule 6 is checked at load
   },
   adapters: {} as Record<string, unknown>,
   store: { kind: 'file' },                                    // .cadre/state (task-management/adapters/file)
@@ -60,7 +62,9 @@ const roleRows = (r: string): Record<string, Meta> => Object.fromEntries(RISK.fl
     [`${at}.escalate.after`, m(M, `${w}: failed rounds before it escalates (0 = never)`, N(0, 20))], [`${at}.escalate.model`, m(M, `${w}: model after escalation`, { opts: mo })],
     [`${at}.escalate.effort`, m(M, `${w}: effort after escalation`, { opts: EFFORT })]]
 }))
+const specs = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.entries(v).map(([n, s]) => ((e) => e && `${n}: ${e}`)(exitIssue(s as any))).find(Boolean) || null : 'expected an object of role specs')
 export const REG: Record<string, Meta> = {
+  'roles.custom': m(M, 'your own agent roles: name -> {description, tools, write, ...}; a spec that drops an exit tool is refused', { cls: 'U', open: true, ok: specs }),
   'drive.mode': m(D, 'yolo: no questions after approval; auto asks at the gates', { cls: 'S', opts: ['yolo', 'auto'], tighten: 'enum' }),
   'drive.maxTurns': m(D, 'a drive stops after this many main turns', { cls: 'U', ...N(1, 10_000) }), 'drive.maxCostUsd': m(D, 'a drive stops at this spend ($)', { cls: 'U', ...N(1, 10_000) }),
   'drive.spawn': m(D, "mod: cadre starts, closes and lands the plan's tasks itself while drive runs; main: Claude spawns each step. Env CADRE_SPAWN beats it; a non-interactive session runs main", { cls: 'U', opts: ['mod', 'main'] }),

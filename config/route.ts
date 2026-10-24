@@ -11,6 +11,7 @@ import { PROTECTED } from '../core/git'
 import { RETRIES } from '../core/validate'
 import { LEASE } from '../core/drive'
 import { ROLES, TTL } from '../agents/index'
+import { fixedRules } from '../core/roles'
 import { CATS } from './index'
 import type { Row } from './index'
 
@@ -25,7 +26,8 @@ const fx = (key: string, cat: Row['cat'], value: unknown, desc: string): Row => 
 const FIXED = (): Row[] => [fx('fixed.setupLease', 'Safety and containment', `${LIMIT.turns} turns / ${LIMIT.ms / 60_000} min`, 'Claude may edit setup files only within a setup run this long'),
   fx('fixed.protected', 'Safety and containment', PROTECTED, 'paths no task agent may change'), fx('fixed.draftRetries', 'Planning', RETRIES, 'refused plan drafts before cadre asks you'),
   fx('fixed.driveLease', 'Drive and autonomy', `${LEASE / 60_000} min`, 'a drive whose session is silent this long can be taken over'),
-  fx('fixed.cacheTtl', 'Cache and context', ROLES.map(r => `${r} ${TTL[r]}`).join(', '), 'prompt-cache lifetime per agent role (set in the shipped agent files)')]
+  fx('fixed.cacheTtl', 'Cache and context', ROLES.map(r => `${r} ${TTL[r]}`).join(', '), 'prompt-cache lifetime per agent role (set in the shipped agent files)'),
+  ...fixedRules().map(([k, v, d]) => fx(k, 'Safety and containment', v, d))]
 export const settingsRows = async (h: any): Promise<Row[]> => {
   const env = await h.env(), hl = !!(await h.ui?.read?.())?.headless
   const r = [...rows(await layersOf(h, await ctx(h)), env).map(x => (x.key === 'drive.spawn' && headlessMain(String(x.value), env, hl) ? { ...x, value: 'main', src: 'forced' as const, warn: HEADLESS } : x)), ...FIXED()]

@@ -5,6 +5,7 @@ import { MAIN_TOOLS, allowlist } from '../agents/index'
 import { repoKeyOf, scoped } from '../commands/init'
 import { logCall } from '../core/specview'
 import { PROTECTED } from '../core/git'
+import { EXIT, ROLES_DEFAULT, writes } from '../core/roles'
 import { idsIn } from '../core/briefs'
 import { strictOf } from '../config/index'
 import { runOf, step } from '../core/lifecycle'
@@ -19,6 +20,7 @@ export const setPolicy = async (h: Host, patch: Policy) => h.store.set(await pol
 const SHELL = ['Bash', 'PowerShell', 'Monitor'], FILE = ['Read', 'Grep', 'Glob', 'Write', 'Edit', 'NotebookEdit'], FENCED = ['Edit', 'Write', 'NotebookEdit']
 const MOD_DIRS = PROTECTED.filter(p => p.endsWith('/')).map(p => p.slice(0, -1)), MOD_FILES = PROTECTED.filter(p => !p.endsWith('/'))
 const under = (p: string, root?: string) => !!root && (p === root || p.startsWith(root.replace(/\/$/, '') + '/'))
+const rel = (real: string, root: string) => real.slice(root.replace(/\/$/, '').length + 1)
 const join = (cwd: string, p: string) => (p.startsWith('/') ? p : `${cwd.replace(/\/$/, '')}/${p}`)
 const modOwned = (real: string, home?: string, changelog?: string) => {
   const seg = real.split('/')
@@ -75,8 +77,8 @@ const leased = (real: string, pol: Policy, kind?: string) => !!pol.repo && ((und
 const SETTINGS = /(^|\/)\.claude\/settings[^/]*\.json$/, SETTINGS_DENY = 'these settings are applied for you after the human confirms them in the dialog'
 
 // Fence verdict for one file-tool call: undefined = allow-by-fence (continue), 'allow' = tester rule 2, else a deny reason.
-async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, input: unknown, pol: Policy, guide?: string, kind?: string): Promise<string | 'allow' | 'tmp' | undefined> {
-  const tester = w.role === 'tester' && !w.main
+export async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, input: unknown, pol: Policy, guide?: string, kind?: string): Promise<string | 'allow' | 'tmp' | undefined> {
+  const tester = w.role === 'tester' && !w.main, can = (real: string) => writes(ROLES_DEFAULT[w.role], rel(real, w.b!.worktree))   // the role's write scope, relative to its own tree
   const fenced = FENCED.includes(tool) || (tool === 'Read' && !!pol.home && typeof (input as any)?.file_path === 'string' && (input as any).file_path.includes('/.claude/plugins/store/'))
   if (!tester && !fenced) return
   if (!FILE.includes(tool)) return tester && !tool.startsWith('mcp__cadre__') ? `${tool} is not available to you; use Read, Write or Edit inside your working directory` : undefined   // the role's own report tool passed the allowlist
@@ -85,10 +87,10 @@ async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, 
   const real = p === undefined ? undefined : await placed(h, join(cwd, p))
   if (FENCED.includes(tool) && (SETTINGS.test(p ?? '') || SETTINGS.test(real ?? ''))) return SETTINGS_DENY
   if (real === undefined) return 'that path cannot be used; give a plain path inside your working directory'
-  if (tester) return under(real, w.b!.worktree) ? 'allow' : 'write only inside your working directory'
+  if (tester) return under(real, w.b!.worktree) && can(real) ? 'allow' : 'write only inside your working directory'
   if (w.main && guide !== undefined && (tool === 'Read' ? under(real, guide.slice(0, guide.lastIndexOf('/'))) : leased(real, pol, kind))) return 'allow'
   if (w.main && FENCED.includes(tool) && pol.repo && real === `${pol.repo}/.cadre/config.json`) return 'the project settings are changed by the user in the cadre pane (Settings, key 9); do not edit that file'
-  const own = w.owner && under(real, w.b!.worktree)
+  const own = w.owner && under(real, w.b!.worktree) && (tool === 'Read' || can(real))   // Read is fenced only for the plugin store: reading needs no write scope
   if (!w.main && w.b && w.task?.state === 'blocked' && FENCED.includes(tool) && under(real, w.b.worktree)) return 'your task waits for a decision; stop now: you are resumed with the answer'   // live 0.9.0: "write only inside your working directory" sent a worker that had just reported spec_change looking for another place to write
   if (!w.main && !own) return under(real, (await h.env()).TMPDIR || '/tmp') ? 'tmp' : 'write only inside your working directory (or $TMPDIR)'   // positive jail: file tools are not OS-sandboxed (ADR 0006)
   if (!own && (under(real, pol.repo) || under(real, pol.wtRoot))) return 'project files are edited by a task agent only; plan the change with plan and task, or spawn the agent of a planned task'
@@ -116,7 +118,7 @@ export const judge = (e: any): string | undefined => {
 // Engine exit tools (exit rule 1): a fixed allowlist, never refused, by no guard, role, tools list or setting. Auto permission mode gives every background agent a
 // hand-back contract (Claude Code re-asks for SubagentHandback up to 3 times at its turn end); refused, an agent could never end (live 0.12.0, 0.12.1). An agent that
 // hands back without a report is cadre's to bound: its turn end nudges it, then auto-reports or releases it. The message is replaced: main never reads an agent's prose.
-export const EXIT = ['SubagentHandback', 'StructuredOutput']
+export { EXIT }   // core/roles: rule 6 refuses a spec that drops them
 const HANDED = 'This agent has stopped; its task goes on without you. Nothing to do for it.'
 // pure (the failure path has no $): the exit call as it goes on, the hand-back's prose replaced
 export const exitCall = (e: any) => (e.tool === 'SubagentHandback' ? { ...e, input: { ...e.input, message: modelText('context', HANDED) } } : e)
@@ -133,7 +135,7 @@ export const guard: Hook = async (h, e, next) => {
   const deny = async (): Promise<string | undefined> => {
     const bad = escape(e); if (bad) return bad
     const w = await who(h, e.agentId), pol = await policyOf(h), run = w.main ? await leaseOf(h) : undefined   // main during a setup/init run: Bash plus the lease's files
-    const list = w.main ? (run ? [...MAIN_TOOLS, 'Bash'] : MAIN_TOOLS) : allowlist(w.role, w.role === 'worker' ? pol.mcpAllow : [])
+    const list = w.main ? (run ? [...MAIN_TOOLS, 'Bash'] : MAIN_TOOLS) : allowlist(w.role, pol.mcpAllow)
     const loop = w.main ? undefined : await watchCall(h, e, w.role); if (loop) return loop
     if (!list.includes(e.tool)) return `${e.tool} is not available to ${w.main ? 'main' : `the ${w.role}`}; use another tool`
     if (SHELL.includes(e.tool) && !run && !(w.role === 'worker' && w.owner && w.task?.step === 'worker')) return 'shell is available only while you implement your task; use run_check or inspect'
