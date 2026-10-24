@@ -13,4 +13,4 @@ snapshots() {
     done ) &
 }
 until_debug() { local i; for i in $(seq "${2:-$(left)}"); do grep -qaE "$1" "$D"/out/debug*.log 2>/dev/null && return 0; sleep 1; done; log "budget: no $1"; return 1; }
-approve() { until_plan "$@" && sleep 2 && key Enter && log "answer approve (scenario)"; }   # without LANDED=1 the watcher only records the plan dialog
+approve() { until_plan "$@" && sleep 1 && key Enter && log "answer approve (scenario)"; }   # without LANDED=1 the watcher only records the plan dialog
