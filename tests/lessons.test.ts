@@ -75,7 +75,7 @@ describe('lessons: the pass', () => {
   test('the drive spend: dollars (cost.prices) join the drive record', async () => {
     const { w, h, add } = await lab(); w.cfg.cost.prices = { haiku: { in: 1, out: 5 } }
     await w.store.setControl({ drive: { on: true, cost: 1 } }); await add(); await pass(h, true)
-    expect(Math.round(((await w.store.control()).doc.drive as any).cost * 1e6)).toBe(1000000 + 350)   // 100 in + 50 out = $0.00035
+    expect(Math.round(((await w.store.control()).doc.drive as any).side * 1e6)).toBe(350)   // 100 in + 50 out = $0.00035
   })
   test('a pruned lesson never returns from the same keys', async () => {
     const { w, h, add } = await lab(); await add(); await pass(h, true)

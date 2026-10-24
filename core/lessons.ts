@@ -120,17 +120,16 @@ export async function pass(h: Host, idle: boolean): Promise<void> {
   if (gone.length) await cas(h, x => ({ ...x, items: x.items.filter(l => !gone.includes(l.id)) }))
   await rows(h).then(r => h.ui.update(x => ({ ...x, 'lessons.rows': r }))).catch(() => {})   // the pane's rows (the tab shows once there are lessons)
 }
-// the side model's tokens count in the session cost; its dollars (cost.prices) in the drive's spend, so maxCostUsd holds them
+// the side model's tokens count in the session cost; its dollars (cost.prices) in the drive record unrounded (`side`, summed at the bound check), so maxCostUsd holds them
 async function spend(h: Host, cfg: any, u: any = {}, model: string): Promise<void> {
   const i = u.input_tokens ?? 0, o = u.output_tokens ?? 0, k = await scoped(h, 'cost:all'), a = ((await h.store.get(k)) as any) ?? { in: 0, out: 0, cr: 0, cw: 0 }
   await h.store.set(k, { ...a, in: a.in + i, out: a.out + o })
   const p = Object.entries((cfg.cost.prices ?? {}) as Record<string, any>).find(([n]) => model.includes(n))?.[1], usd = p && (i * p.in + o * p.out) / 1e6
-  if (usd) await casDrive(h, await storeOf(h), r => (r?.on ? { ...r, cost: r.cost + usd } : undefined))
+  if (usd) await casDrive(h, await storeOf(h), r => (r?.on ? { ...r, side: (r.side ?? 0) + usd } : undefined))
 }
 
 // ---- the feed (A2): by path, at most perBrief lessons and BRIEF bytes in all, the lowest-ranked dropped until it fits ----
 export async function feed(h: Host, taskId: string, paths: string[]): Promise<string> {
-  await pass(h, true).catch(() => {})   // between runs, right before a brief is built: what the records taught so far is in it
   const cfg = await cfgOf(h), d = await read(h), u = await userDoc(h), now = await h.now()
   const mine = (l: Lesson) => (l.paths?.length ? (paths.some(p => l.paths!.some(q => overlap(q, p))) ? 2 : 0) : 1)
   const pick = [...d.items, ...u.items.filter(l => !d.items.some(x => norm(x.text) === norm(l.text)))].filter(l => mine(l) && now - l.born <= cfg.lessons.maxAgeDays * DAY && !leaks('lesson', l.text).length)

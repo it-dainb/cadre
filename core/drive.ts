@@ -19,7 +19,7 @@ import { modelIssues, tasksFull } from './queue'
 
 export const LEASE = 600_000
 export type Mode = 'auto' | 'yolo'
-interface DriveRec { on: boolean; level: 'epic'; epicId: string; mode?: Mode; stopped?: string; cause?: StopCause; ei?: Record<string, [number, number]>; turns: number; cost: number; last: number; sess: string; startedAt: number; lastSeq: number; idle: number; set?: string; cont?: string; lease: { session: string; until: number } }
+interface DriveRec { on: boolean; level: 'epic'; epicId: string; mode?: Mode; stopped?: string; cause?: StopCause; ei?: Record<string, [number, number]>; turns: number; cost: number; side?: number; last: number; sess: string; startedAt: number; lastSeq: number; idle: number; set?: string; cont?: string; lease: { session: string; until: number } }
 // CAS on the control doc's `drive` key: fn sees the current record and returns the next one (undefined = no write); a race on that key retries (other keys of the doc move freely)
 export async function casDrive(_h: Host, store: TaskStore, fn: (r: DriveRec | undefined) => DriveRec | undefined): Promise<DriveRec | undefined> {
   for (let i = 0; i < 3; i++) {
@@ -61,7 +61,7 @@ export async function hardStop(h: Host, rec?: DriveRec): Promise<string | null> 
 // a milestone's bounds cover all of it: the plan bounds times its epics (ADR 0015)
 const scaled = (dc: any, s: Snapshot) => { const k = s.plan?.epics?.length || 1; return k > 1 ? { ...dc, maxTurns: dc.maxTurns * k, maxCostUsd: dc.maxCostUsd * k, maxWallMinutes: dc.maxWallMinutes * k } : dc }
 export const boundOf = (r: DriveRec, dc: any, cost: number, idle: number, now: number): string | null =>
-  r.turns >= dc.maxTurns ? `max turns ${dc.maxTurns}` : cost >= dc.maxCostUsd ? `cost $${cost} ≥ $${dc.maxCostUsd}` : now - r.startedAt > dc.maxWallMinutes * 60_000 ? `max ${dc.maxWallMinutes} min` : idle >= dc.noProgressTurns ? `no progress in ${idle} turns` : null
+  r.turns >= dc.maxTurns ? `max turns ${dc.maxTurns}` : cost + (r.side ?? 0) >= dc.maxCostUsd ? `cost $${cost} ≥ $${dc.maxCostUsd}` : now - r.startedAt > dc.maxWallMinutes * 60_000 ? `max ${dc.maxWallMinutes} min` : idle >= dc.noProgressTurns ? `no progress in ${idle} turns` : null
 
 // a decision drive (or main under yolo) took without the human: a decision record linked to the plan + `drive.decided` for Activity and Doctor
 export async function decided(h: Host, kind: 'spec' | 'question' | 'rework' | 'integration' | 'flag' | 'rebase' | 'resolve' | 'plan', text: string, taskId?: string): Promise<void> {
