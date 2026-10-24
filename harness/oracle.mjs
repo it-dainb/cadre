@@ -92,7 +92,8 @@ for (const e of drv.filter(e => e.kind === 'press1' && offered(e.t) && e.t + 500
 // 5. no NotInitialized / uncaught errors / failed hooks
 {
   const bad = /NotInitialized|Uncaught|unhandledRejection|Unhandled promise rejection|hook failed:/
-  const hit = dlines.find(l => bad.test(l)) ?? panes.map(p => p.text.split('\n').find(l => bad.test(l))).find(Boolean)
+  // a hook CC aborted (a quit or interrupt mid-hook: "$.process.run(sh) aborted") is the engine's teardown, not cadre's error: CC runs what is below it
+  const hit = dlines.find((l, i) => bad.test(l) && !(/hook failed:/.test(l) && /hook skipped: threw .* aborted$/.test(dlines[i + 1] ?? ''))) ?? panes.map(p => p.text.split('\n').find(l => bad.test(l))).find(Boolean)
   if (hit) fail('errors', hit.replace(/^\S+ \[\w+\] /, ''))
 }
 // main's own tool calls, from its transcript (not the agents'): mine = every call with its result {ok, text}; went = those that went through

@@ -108,3 +108,15 @@ test('every reads each run from every journal image and survives a torn last sna
   assert.deepEqual(every(false).filter(f => f.startsWith('every')), [])
   assert.deepEqual(every(true).filter(f => f.startsWith('every')), [])
 })
+
+// quick continue-after-quit on d48ffd5: the cell's restart quit CC 0.8 s into a turn.step hook; CC aborted its process.run and logged "hook failed"
+test('errors skips a hook CC aborted at a quit; any other hook failure still fails', () => {
+  const errs = next => {
+    const d = mkdtempSync(join(tmpdir(), 'cadre-oracle-')); cpSync(fix, d, { recursive: true })
+    writeFileSync(join(d, 'debug-1.log'), `2026-10-24T16:16:52.426Z [ERROR] hook failed: cadre: errorKind=HooksError errorChars=32 (turn.step; skipped; what is below it ran in its place)\n2026-10-24T16:16:52.427Z [DEBUG] [cadre] $.ui.log: turn.step hook skipped: threw ${next}\n`)
+    try { execFileSync('node', [join(root, 'harness/oracle.mjs'), d], { stdio: 'pipe' }) } catch {}
+    return JSON.parse(readFileSync(join(d, 'verdict.json'), 'utf8')).fails.map(f => f.invariant).includes('errors')
+  }
+  assert.equal(errs('cadre: $.process.run(sh) aborted'), false)
+  assert.equal(errs('TypeError: x is undefined'), true)
+})
