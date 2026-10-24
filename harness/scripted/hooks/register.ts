@@ -8,7 +8,7 @@
 //   limit: lite, the first worker's first step goes to the proxy, which answers a usage limit (stub-proxy.mjs); slow: lite, the worker waits 45 s first;
 //   silent: lite, the worker writes its files and stops without a report, every time (the report-less end);
 //   multi: full lane, two tasks (kebabCase after titleCase), an amend on a stale revision refused then retried (plan-tools-full);
-//   sub: lite, the task in the `lib` submodule unit (submodule-unit); cont: lite, the reviewer waits 20 s first (continue-after-quit-s kills before or during it).
+//   sub: lite, the task in the `lib` submodule unit (submodule-unit); cont: lite, the reviewer waits 14 s first (continue-after-quit-s kills before or during it).
 import type { Register } from 'claude-code'
 
 type Row = { role: 'user' | 'assistant'; text: string; toolUses?: { tool: string; input?: any }[]; toolResults?: { text?: string; isError?: boolean }[] }
@@ -126,9 +126,9 @@ export const register: Register = (on) => {
     const [who, a] = e.agentId ? agent(rows, cwds[e.agentId] ?? '/work/run') : ['main', main(rows)]
     if (script === 'limit' && who === 'worker' && !injected) { injected = true; await L($, `step agent=${e.agentId} who=worker index=${e.index} -> next (usage limit from the proxy)`); return yield* next(e) }
     await L($, `step agent=${e.agentId ?? 'main'} who=${who} index=${e.index} msgs=${e.messageCount} effort=${e.effort ?? '-'} -> ${a.tool ? `${a.text ? 'text+' : ''}tool ${a.tool}` : 'text end_turn'}`)
-    // cont: the reviewer's first step waits 20 s. The reviewer has no Bash, so the wait is a sleep here: with none, the reviewer ends within a second of the worker and the
+    // cont: the reviewer's first two steps wait 7 s each (a hook call over ~10 s fails: HooksError, so one long sleep won't do). The reviewer has no Bash, so the wait is a sleep here: with none, the reviewer ends within a second of the worker and the
     // cell's SIGKILL (polled every 2 s, later under load) lands after it, leaving no reviewer to run after the restart
-    if (script === 'cont' && who === 'reviewer' && e.index === 0) await new Promise(r => setTimeout(r, 20000))
+    if (script === 'cont' && who === 'reviewer' && e.index < 2) await new Promise(r => setTimeout(r, 7000))
     return yield* answer(e, a)
   })
   on('turn.complete', async ($: any, e: any, next) => { await L($, `turn.complete agent=${e.agentId ?? 'main'} reason=${e.reason} usage=${e.usage?.model ?? '-'}`); return next(e) })

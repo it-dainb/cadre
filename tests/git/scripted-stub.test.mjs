@@ -16,5 +16,5 @@ test('taskOf reads every id shape a brief carries', () => {
 // the same run: the reviewer has no Bash, so a Bash wait made no wait at all and it ended in under a second, before the cell's kill landed
 test('the cont reviewer waits by sleeping in the step, not through a tool it does not have', () => {
   assert.doesNotMatch(src, /script === 'cont' \? \[WAIT\]/)
-  assert.match(src, /script === 'cont' && who === 'reviewer' && e\.index === 0\) await new Promise/)
+  assert.match(src, /script === 'cont' && who === 'reviewer' && e\.index < 2\) await new Promise\(r => setTimeout\(r, 7000\)/)   // each hook call stays under the ~10 s hook timeout
 })
