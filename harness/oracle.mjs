@@ -390,7 +390,7 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     const js = walk(join(dir, 'jsonl')).filter(f => f.endsWith('.jsonl')), ns = Object.values(needs)
     Object.assign(stats, { planners: ps.length, helpers: hs.length, needs })
     // under load the first epic may land before the cell ends and its follower's planner runs too: every planner must wait and resume, each request has one ended helper
-    if (!ps.length || pl.length !== ps.length) fail(o, `${ps.length} planner run(s), ${pl.length} planner transcript(s) (want one each: the same agent resumes)`)
+    if (!ps.length || !pl.length) fail(o, `${ps.length} planner run(s), ${pl.length} planner transcript(s) (want one planner that resumes; an ended run's record is pruned, so a follower may show only as a transcript)`)
     if (!ps.some(([, r]) => { const s = st(r), i = s.indexOf('waiting'); return i >= 0 && s.slice(i).includes('running') })) fail(o, `no planner waited and resumed: ${ps.map(([, r]) => st(r).join('>')).join(' | ')}`)   // a follower may still wait when the cell ends
     if (!pl.some(x => /Answer to your request/.test(read(x.f)) && /plan accepted: \d+ tasks approved/.test(read(x.f)))) fail(o, 'no planner transcript has the probe\'s answer and an accepted plan')
     if (hs.filter(([, r]) => st(r).at(-1) === 'ended').length !== ns.filter(n => n.answer !== undefined).length) fail(o, `${hs.length} helper run(s) for ${ns.length} request(s) (want one ended helper per answered request)`)
