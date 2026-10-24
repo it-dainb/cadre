@@ -1,6 +1,6 @@
 {
   "name": "cadre",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Plan, approve, and run tasks through an enforced pipeline: main plans, owners edit code in worktrees, the mod owns git.",
   "author": {
     "name": "it-dainb"
