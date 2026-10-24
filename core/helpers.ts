@@ -9,10 +9,10 @@ import * as G from './git'
 const MANIFEST = /^(package(-lock)?\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|requirements[\w.-]*\.txt|pyproject\.toml|uv\.lock|poetry\.lock|Cargo\.(toml|lock)|go\.(mod|sum))$/
 const manifest = (p: string, roots: string[]) => MANIFEST.test(p.split('/').pop()!) && roots.includes(p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '.')
 // files that make an install run code of the repository's choosing (a registry, a hook, a build): changed since the task's base, no install is run
-const RUNS_CODE = /(^|\/)(\.npmrc|\.pnpmfile\.cjs|\.yarnrc\.yml|\.yarnrc|pip\.conf|pip\.ini|uv\.toml|pnpm-workspace\.yaml|\.cargo\/config(\.toml)?|\.yarn\/(releases|plugins)\/.*)$/
+const RUNS_CODE = /(^|\/)(\.npmrc|\.python-version|rust-toolchain(\.toml)?|\.pnpmfile\.cjs|\.yarnrc\.yml|\.yarnrc|pip\.conf|pip\.ini|uv\.toml|pnpm-workspace\.yaml|\.cargo\/config(\.toml)?|\.yarn\/(releases|plugins)\/.*)$/
 const SOURCES = /^\+.*\b(index|sources|find-links|find_links|index-url|index_url|extra-index-url|extra_index_url)\b/m   // a pyproject.toml line added that names where packages come from
 const NPM = /^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*(@[\w.^~<>=*|, -]+)?$/i, PY = /^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*(\[[\w,.-]+\])?((==|>=|<=|~=|!=|<|>)[\w.*+!-]+(,(==|>=|<=|~=|!=|<|>)[\w.*+!-]+)*)?$/, CRATE = /^[A-Za-z][\w-]*(@[\w.^~<>=*, -]+)?$/, GO = /^[a-z0-9][\w.-]*(\/[\w.-]+)+(@[\w.-]+)?$/i
-// program -> subcommand tokens, known flags (value: the flags that take one word), the spec shape, what cadre adds. `.venv/pip` is the worktree's own virtualenv pip. No poetry: it cannot refuse source builds.
+// program -> subcommand tokens, known flags (value: the flags that take one word), the spec shape, what cadre adds. The worktree's own virtualenv is never used: nothing the toolchain runs may come from the worktree. No poetry: it cannot refuse source builds.
 interface Eco { subs: string[][]; flags: string[]; value?: string[]; spec: RegExp; add?: string[]; env?: Record<string, string>; empty?: true }   // empty: runs from an empty folder, so no bare name can be a file or folder of the repository
 const JS = { npm_config_ignore_scripts: 'true', YARN_ENABLE_SCRIPTS: 'false', YARN_IGNORE_PATH: '1' }
 const ARCHIVE = /\.(tar(\.\w+)?|tgz|zip|whl|egg|gz|bz2|xz|crate)$/i   // a local archive by its bare name
@@ -20,9 +20,8 @@ const ALLOW: Record<string, Eco> = {
   npm: { subs: [['install'], ['i'], ['add']], flags: ['-D', '--save-dev', '-O', '--save-optional', '-E', '--save-exact', '-P', '--save-prod', '--no-audit', '--no-fund'], spec: NPM, env: JS },
   pnpm: { subs: [['add'], ['install'], ['i']], flags: ['-D', '--save-dev', '-O', '--save-optional', '-E', '--save-exact', '-P', '--save-prod'], spec: NPM, add: ['--ignore-pnpmfile'], env: JS },
   yarn: { subs: [['add'], ['install']], flags: ['-D', '--dev', '-O', '--optional', '-E', '--exact'], spec: NPM, env: JS },
-  uv: { subs: [['add']], flags: ['--dev'], value: ['--group', '--optional'], spec: PY, add: ['--no-build'] },
+  uv: { subs: [['add']], flags: ['--dev'], value: ['--group', '--optional'], spec: PY, add: ['--no-build', '--no-sync'] },
   'uv pip': { subs: [['pip', 'install']], flags: [], spec: PY, add: ['--only-binary=:all:'], empty: true },
-  '.venv/pip': { subs: [['install']], flags: [], spec: PY, add: ['--only-binary=:all:'], empty: true },
   cargo: { subs: [['add']], flags: ['--dev', '-D', '--build', '--optional', '--no-default-features'], value: ['-F', '--features'], spec: CRATE },
   go: { subs: [['get']], flags: [], spec: GO, env: { GOTOOLCHAIN: 'local' } },
 }
@@ -30,20 +29,24 @@ const WORD = /^\w[\w.-]*$/
 
 // the argv to run with the environment it adds (scripts off through the environment, wheels only), or why it is refused. Allowlist only: a flag not named, a `--`, a path, URL or
 // git source as a package is refused; nothing here reads shell text.
-export function vet(argv: unknown, wt: string): { argv: string[]; env: Record<string, string>; empty?: true } | string {
+// sys: the interpreters outside the worktree (py: an absolute system python, rust: the system default toolchain)
+export function vet(argv: unknown, wt: string, sys: { py?: string; rust?: string } = {}): { argv: string[]; env: Record<string, string>; empty?: true } | string {
   if (!Array.isArray(argv) || !argv.length || argv.length > 64 || !argv.every(a => typeof a === 'string' && a && a.length < 500)) return 'argv: expected the install command as a list of arguments, e.g. ["npm","install","left-pad"]'
   const [p, ...rest] = argv as string[]
   if (p === 'poetry') return 'poetry cannot be run here: it cannot refuse source builds; use uv or pip (wheels only)'
-  const key = p === `${wt}/.venv/bin/pip` ? '.venv/pip' : p === 'uv' && rest[0] === 'pip' ? 'uv pip' : p
+  const key = p === 'uv' && rest[0] === 'pip' ? 'uv pip' : p
   const e = Object.hasOwn(ALLOW, key) ? ALLOW[key] : undefined, sub = e?.subs.find(s => s.every((t, i) => rest[i] === t))
-  if (!e || !sub) return `${p} ${rest[0] ?? ''} is not an install command that may be run here; use npm, pnpm, yarn, uv, cargo add, go get, or the project's own .venv pip`
+  if (!e || !sub) return `${p} ${rest[0] ?? ''} is not an install command that may be run here; use npm, pnpm, yarn, uv, cargo add, go get, uv pip install or uv add`
   for (let i = sub.length; i < rest.length; i++) {
     const t = rest[i]
     if (t.startsWith('-')) {
       if (e.value?.includes(t)) { if (!WORD.test(rest[++i] ?? '')) return `${t} needs a plain name` } else if (!e.flags.includes(t)) return `${t} is not an option that may be used here`
     } else if (ARCHIVE.test(t) || !e.spec.test(t)) return `${t} is not a package name from the registry (a name with an optional version)`
   }
-  return { argv: [...(argv as string[]), ...(e.add ?? [])], env: { ...(key === 'uv pip' ? { VIRTUAL_ENV: `${wt}/.venv` } : {}), ...e.env }, ...(e.empty ? { empty: true as const } : {}) }
+  const uv = key === 'uv' || key === 'uv pip'; if (uv && !sys.py) return 'there is no system python to run it with'
+  // uv: the interpreter and the project environment come from outside the worktree (env and flags beat .python-version); pip installs into the repo's .venv by prefix, never running its interpreter
+  const env = { ...(uv ? { UV_PYTHON: sys.py!, UV_PROJECT_ENVIRONMENT: '/tmp/venv' } : {}), ...(key === 'cargo' && sys.rust ? { RUSTUP_TOOLCHAIN: sys.rust } : {}), ...e.env }
+  return { argv: [...(argv as string[]), ...(e.add ?? []), ...(key === 'uv pip' ? ['--python', sys.py!, '--prefix', `${wt}/.venv`] : [])], env, ...(e.empty ? { empty: true as const } : {}) }
 }
 
 // the one-time per-repo approval: the user's own layer, keyed by repo root; a committed repo file cannot hold it
@@ -57,7 +60,8 @@ export interface SetupOut { text: string; dialog?: string; allow?: true; stray?:
 const HOLD = 'The install was not run: it waits for the user. Go on without it, or report outcome "blocked" naming what you need.'
 const scrub = (s: string) => s.trim().split('\n').filter(Boolean).slice(-1)[0]?.replace(/\/[^\s'"]+/g, '…').slice(0, 200) ?? ''   // no host paths in what a model reads
 export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
-  const v = vet(o.argv, o.wt); if (typeof v === 'string') return { text: `The install was refused: ${v}. Report outcome "blocked" if it is really needed.` }
+  const first = async (ps: string[], ok: (r: string) => boolean) => { for (const c of ps) { const r = (await h.run(['realpath', '-q', '-e', c])).stdout.trim(); if (r && ok(r)) return r } }
+  const v = vet(o.argv, o.wt, { py: await first(['/usr/bin/python3', '/usr/local/bin/python3'], r => r.startsWith('/usr/') && !r.startsWith(`${o.wt}/`)), rust: Array.isArray(o.argv) && o.argv[0] === 'cargo' ? (await h.run(['rustup', 'show', 'active-toolchain'], { cwd: '/' }).catch(() => undefined))?.stdout.split(/\s/)[0] || undefined : undefined }); if (typeof v === 'string') return { text: `The install was refused: ${v}. Report outcome "blocked" if it is really needed.` }
   if (!o.auto) return { dialog: 'deps.auto is off: an install was proposed and not run. Turn deps.auto on to let cadre install dependencies.', text: HOLD }
   if (!(await approved(h, o.root))) return { dialog: 'Allow cadre to install dependencies for tasks in this repository? It runs the install in isolation and commits only the manifest and lockfile on the task branch.', allow: true, text: HOLD }
   const mode = await G.jailMode(h.run); if (mode === 'none') return { dialog: 'Installing needs isolation, and none is available on this machine, so the install was not run.', text: HOLD }
@@ -77,7 +81,7 @@ export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
   try {
     await h.run(['mkdir', '-p', home, `${o.scratch}/cwd`])
     const path = env.PATH || '/usr/local/bin:/usr/bin:/bin', real = async (...ps: string[]) => (await h.run(['realpath', '-q', '-e', ...ps])).stdout.split('\n').filter(Boolean), rhome = (await real(await h.home()))[0] ?? await h.home()
-    const r = await h.run(G.setupJail({ wt: o.wt, scratch: o.scratch, pkgRoot: v.empty ? '/tmp/cwd' : cwd, argv: v.argv, scratchHome: home, home: rhome, path, tools: await real(...path.split(':').filter(Boolean)), varRun: (await h.run(['readlink', '/var/run'])).exitCode !== 0, env: { ...(env.LANG ? { LANG: env.LANG } : {}), ...v.env } }), { timeoutMs: 600000 })   // an empty cwd: the scratch's own folder
+    const r = await h.run(G.setupJail({ wt: o.wt, scratch: o.scratch, pkgRoot: v.empty ? '/tmp/cwd' : cwd, argv: v.argv, scratchHome: home, home: rhome, path, tools: await real(...path.split(':').filter(Boolean)), env: { ...(env.LANG ? { LANG: env.LANG } : {}), ...v.env } }), { timeoutMs: 600000 })   // an empty cwd: the scratch's own folder
     const bad = async (why: string) => {   // a failed run leaves nothing: the paths it changed, and the ignored ones it created
       await revert(await dirty()); const dirs = new Set([...before].flatMap(f => f.split('/').slice(0, -1).map((_, i, a) => a.slice(0, i + 1).join('/')))), made = [...new Set((await ignored()).filter(f => !before.has(f) && !f.startsWith('/') && !f.split('/').includes('..')).map(f => { const p = f.split('/'), i = p.findIndex((_, k) => !dirs.has(p.slice(0, k + 1).join('/'))); return p.slice(0, i + 1).join('/') }))]   // each new file, or the top of the new folder it is in
       for (let i = 0; i < made.length; i += 400) await h.run(['rm', '-rf', '--', ...made.slice(i, i + 400).map(f => `${o.wt}/${f}`)])

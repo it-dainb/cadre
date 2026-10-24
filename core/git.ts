@@ -90,10 +90,10 @@ export const homeScratchJail = (j: J & { scratchHome: string }): string[] => {
 // worktree, its scratch HOME, the tool folders on PATH that lie under the real home) are bound back on top. A PATH entry <prefix>/bin deeper than two levels under the home
 // (nvm, pyenv, asdf versions) binds its prefix so its symlinks resolve; shallower ones (~/.cargo/bin, ~/.local/bin) bind only the folder itself, never ~/.cargo or ~/.local (credentials).
 // Own pid and ipc namespaces (a fresh /proc shows no host process), /run and /var/run empty (docker.sock, the user bus, agent sockets), gone with its parent.
-export const setupJail = (j: J & { scratchHome: string; home: string; path: string; tools: string[]; varRun?: boolean }): string[] => {   // home and tools: real paths; tools: the PATH entries that exist
-  const h = j.scratchHome, bins = j.tools.filter(p => p.startsWith(`${j.home}/`)).map(p => (p.endsWith('/bin') && p.slice(j.home.length + 1).split('/').length > 3 ? p.slice(0, -4) : p))
-  // /var/run is a link to /run on most hosts, so the first tmpfs covers it (varRun: a host where it is a folder of its own)
-  return ['bwrap', '--clearenv', '--unshare-pid', '--unshare-ipc', '--die-with-parent', ...RO(j), '--tmpfs', '/run', ...(j.varRun ? ['--tmpfs', '/var/run'] : []), '--tmpfs', j.home, ...[...new Set(bins)].flatMap(b => ['--ro-bind', b, b]), '--bind', j.wt, j.wt, '--bind', h, h,
+export const setupJail = (j: J & { scratchHome: string; home: string; path: string; tools: string[]}): string[] => {   // home and tools: real paths; tools: the PATH entries that exist
+  // the host is not mounted whole: only the system folders and the tool folders on PATH are visible (a file under /opt, /srv, /var is not)
+  const h = j.scratchHome, SYS = ['/usr', '/bin', '/lib', '/lib64', '/lib32', '/etc'], bins = j.tools.filter(p => p !== j.home && !SYS.some(d => p === d || p.startsWith(`${d}/`))).map(p => (p.startsWith(`${j.home}/`) && p.endsWith('/bin') && p.slice(j.home.length + 1).split('/').length > 3 ? p.slice(0, -4) : p))
+  return ['bwrap', '--clearenv', '--unshare-pid', '--unshare-ipc', '--die-with-parent', ...SYS.flatMap(d => ['--ro-bind-try', d, d]), '--dev', '/dev', '--proc', '/proc', '--bind', j.scratch, '/tmp', '--tmpfs', '/run', '--tmpfs', '/var/run', '--tmpfs', j.home, ...[...new Set(bins)].flatMap(b => ['--ro-bind', b, b]), '--bind', j.wt, j.wt, '--bind', h, h,
     ...tail({ ...j, env: { PATH: j.path, HOME: h, XDG_CACHE_HOME: `${h}/.cache`, XDG_CONFIG_HOME: `${h}/.config`, XDG_DATA_HOME: `${h}/.local/share`, ...j.env } })]
 }
 // Probe once per hook: overlay (bwrap with --overlay-src), copy (bwrap works, no overlay) or none (no usable bwrap: unjailed throwaway copy, network unenforced).

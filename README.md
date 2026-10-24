@@ -105,6 +105,8 @@ Set in `.cadre/config.json` (the setup writes it; edit it by hand to change it):
 - Linux: `bwrap` (bubblewrap) and `socat` for sandboxed checks. macOS: setup tells you what is needed.
 
 Security note: the dependency install a task may ask for runs isolated (clean environment, your home hidden, no scripts, registry packages only) but with network access, because it must reach the package registry. On a cloud host the cloud metadata endpoint is therefore reachable from it.
+- The install has network access, so abstract unix sockets and host loopback services are reachable from it.
+- Registry or index config the repo already committed (unchanged since the task's base) is honoured as the repo's own choice; a changed one stops the install.
 
 ## Troubleshooting
 

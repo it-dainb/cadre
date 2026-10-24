@@ -44,8 +44,8 @@ const jailed = script => async (a, o) => {
 }
 
 test('every listed form is refused; the plain forms are allowed with scripts off (by environment) and wheels only', () => {
-  const W = '/w', bad = [['sudo', 'npm', 'install', 'x'], ['npm', 'install', '-g', 'x'], ['npm', 'install', '--global', 'x'], ['npm', 'i', '--location=global', 'x'], ['npm', 'i', '--location', 'global', 'x'], ['npm', 'i', '--global=true', 'x'], ['yarn', 'global', 'add', 'x'],
-    ['pnpm', 'add', '-g', 'x'], ['pip', 'install', 'x'], [`${W}/.venv/bin/pip`, 'install', '--user', 'x'], ['/other/.venv/bin/pip', 'install', 'x'], ['/repo/.venv/bin/pip', 'install', 'x'], ['cargo', 'install', 'ripgrep'], ['go', 'install', 'x.io/a@latest'], ['pipx', 'install', 'x'],
+  const W = '/w', PY = { py: '/usr/bin/python3' }, bad = [['sudo', 'npm', 'install', 'x'], ['npm', 'install', '-g', 'x'], ['npm', 'install', '--global', 'x'], ['npm', 'i', '--location=global', 'x'], ['npm', 'i', '--location', 'global', 'x'], ['npm', 'i', '--global=true', 'x'], ['yarn', 'global', 'add', 'x'],
+    ['pnpm', 'add', '-g', 'x'], ['pip', 'install', 'x'], [`${W}/.venv/bin/pip`, 'install', '--user', 'x'], ['/other/.venv/bin/pip', 'install', 'x'], ['/repo/.venv/bin/pip', 'install', 'x'], [`${W}/.venv/bin/pip`, 'install', 'x'], ['cargo', 'install', 'ripgrep'], ['go', 'install', 'x.io/a@latest'], ['pipx', 'install', 'x'],
     ['brew', 'install', 'x'], ['apt', 'install', 'x'], ['npm', 'install', 'x', '|', 'sh'], ['npm', 'install', 'x;', 'rm'], ['npm', 'install', 'x', '&&', 'y'], ['npm install x'], ['npm'], [], ['npm', 'run', 'build'], ['uv', 'tool', 'install', 'x'], ['poetry', 'add', 'x'], ['cargo', 'add', 'x', '>', 'f'],
     ['npm', 'i', '--registry=http://evil/', 'x'], ['npm', 'i', '--registry', 'http://evil/', 'x'], [`${W}/.venv/bin/pip`, 'install', '--index-url', 'http://evil/', 'x'], ['uv', 'pip', 'install', '--extra-index-url', 'http://evil/', 'x'], ['uv', 'pip', 'install', '--index-url', 'http://evil/', 'x'],
     ['npm', 'i', '--target', '/x', 'p'], [`${W}/.venv/bin/pip`, 'install', '--target', '/x', 'p'], [`${W}/.venv/bin/pip`, 'install', '-e', '.'], [`${W}/.venv/bin/pip`, 'install', '-r', 'req.txt'], ['npm', 'i', '--prefix', '/x', 'p'], ['npm', 'i', '--userconfig', '/x', 'p'], ['pnpm', 'add', '--global-folder', '/x', 'p'],
@@ -54,14 +54,18 @@ test('every listed form is refused; the plain forms are allowed with scripts off
     ['go', 'get', './x'], ['go', 'get', 'file:///x'], ['cargo', 'add', '../x'], ['uv', 'add', 'git+http://evil/x'], [`${W}/.venv/bin/pip`, 'install', 'x @ http://evil/x.whl'],
     [`${W}/.venv/bin/pip`, 'install', 'evil.tar.gz'], [`${W}/.venv/bin/pip`, 'install', 'evil.tgz'], ['uv', 'pip', 'install', 'evil.zip'], ['uv', 'pip', 'install', 'x.whl'], ['uv', 'add', 'evil.tar.gz'], ['npm', 'i', 'evil.tgz'], ['npm', 'i', 'x.tar'], ['cargo', 'add', 'x.crate'],
     [`${W}/.venv/bin/pip`, 'install', 'a..b'], [`${W}/.venv/bin/pip`, 'install', '.hidden'], ['uv', 'add', '--group', '-x', 'p'], ['uv', 'add', '--optional', '--evil', 'p']]
-  for (const a of bad) assert.equal(typeof P.vet(a, W), 'string', `refused: ${JSON.stringify(a)}`)
+  for (const a of bad) assert.equal(typeof P.vet(a, W, PY), 'string', `refused: ${JSON.stringify(a)}`)
   assert.equal(typeof P.vet('npm install x', W), 'string'); assert.match(P.vet(['poetry', 'add', 'x'], W), /poetry cannot be run here: it cannot refuse source builds/)
-  const ok = (a) => { const v = P.vet(a, W); assert.equal(typeof v, 'object', `allowed: ${JSON.stringify(a)}`); return v }
+  const ok = (a) => { const v = P.vet(a, W, PY); assert.equal(typeof v, 'object', `allowed: ${JSON.stringify(a)}`); return v }
   assert.deepEqual(ok(['npm', 'install', '-D', '--no-audit', 'x@>=1', '@scope/y@^2', 'z@latest']), { argv: ['npm', 'install', '-D', '--no-audit', 'x@>=1', '@scope/y@^2', 'z@latest'], env: { npm_config_ignore_scripts: 'true', YARN_ENABLE_SCRIPTS: 'false', YARN_IGNORE_PATH: '1' } })
   assert.deepEqual(ok(['pnpm', 'add', 'x']).argv, ['pnpm', 'add', 'x', '--ignore-pnpmfile']); assert.equal(ok(['yarn', 'add', '--dev', 'x']).env.YARN_ENABLE_SCRIPTS, 'false'); assert.equal(ok(['yarn', 'add', 'x']).env.YARN_IGNORE_PATH, '1')
-  assert.ok(ok([`${W}/.venv/bin/pip`, 'install', 'x']).empty && ok(['uv', 'pip', 'install', 'x']).empty && !ok(['uv', 'add', 'x']).empty && !ok(['npm', 'i', 'x']).empty, 'the pip forms run from an empty folder'); assert.equal(ok(['uv', 'pip', 'install', 'x']).env.VIRTUAL_ENV, `${W}/.venv`)
-  assert.deepEqual(ok(['uv', 'add', '--group', 'dev', 'pytest==8.0.1']).argv.slice(-1), ['--no-build']); assert.deepEqual(ok(['uv', 'pip', 'install', 'x>=1,<2']).argv.slice(-1), ['--only-binary=:all:'])
-  assert.deepEqual(ok([`${W}/.venv/bin/pip`, 'install', 'x[extra]==1.0']).argv.slice(-1), ['--only-binary=:all:']); assert.equal(ok(['go', 'get', 'github.com/a/b@v1.2.3']).env.GOTOOLCHAIN, 'local'); ok(['cargo', 'add', '--dev', '-F', 'derive', 'serde@1'])
+  assert.ok(ok(['uv', 'pip', 'install', 'x']).empty && !ok(['uv', 'add', 'x']).empty && !ok(['npm', 'i', 'x']).empty, 'the pip forms run from an empty folder')
+  assert.match(P.vet(['uv', 'add', 'x'], W), /no system python/); assert.match(P.vet(['uv', 'pip', 'install', 'x'], W), /no system python/); assert.match(P.vet([`${W}/.venv/bin/pip`, 'install', 'x'], W, PY), /uv pip install or uv add/)
+  const u = ok(['uv', 'add', 'x']); assert.equal(u.env.UV_PYTHON, '/usr/bin/python3'); assert.equal(u.env.UV_PROJECT_ENVIRONMENT, '/tmp/venv'); assert.deepEqual(u.argv.slice(-2), ['--no-build', '--no-sync'])
+  const up = ok(['uv', 'pip', 'install', 'x']); assert.deepEqual(up.argv.slice(-5), ['--only-binary=:all:', '--python', '/usr/bin/python3', '--prefix', `${W}/.venv`]); assert.ok(!up.env.VIRTUAL_ENV)
+  assert.equal(P.vet(['cargo', 'add', 'x'], W, { rust: 'stable-x' }).env.RUSTUP_TOOLCHAIN, 'stable-x')
+   assert.ok(ok(['uv', 'pip', 'install', 'x>=1,<2']).argv.includes('--only-binary=:all:'))
+  assert.equal(ok(['go', 'get', 'github.com/a/b@v1.2.3']).env.GOTOOLCHAIN, 'local'); ok(['cargo', 'add', '--dev', '-F', 'derive', 'serde@1'])
 })
 
 test('npm install from the registry: the lockfile is committed on the task branch, only manifests, HOME untouched', async () => {
@@ -114,7 +118,7 @@ test('the jail: no host environment variable and nothing of the real home is vis
 
 test('changed .npmrc/.pnpmfile.cjs/.yarnrc*/pip.conf/uv.toml/.cargo/config.toml against the base: no install; unchanged ones (the repo\'s own .npmrc) do not matter', async () => {
   const f = await fix(); try {
-    for (const p of ['.pnpmfile.cjs', '.yarnrc.yml', 'sub/pip.conf', 'pip.ini', '.cargo/config.toml', '.cargo/config', 'uv.toml', '.npmrc', 'pnpm-workspace.yaml', '.yarn/releases/yarn-4.cjs', '.yarn/plugins/p.cjs']) {
+    for (const p of ['.pnpmfile.cjs', '.yarnrc.yml', 'sub/pip.conf', 'pip.ini', '.cargo/config.toml', '.cargo/config', 'uv.toml', '.python-version', 'rust-toolchain', 'rust-toolchain.toml', '.npmrc', 'pnpm-workspace.yaml', '.yarn/releases/yarn-4.cjs', '.yarn/plugins/p.cjs']) {
       await sh(f.wt, 'git', 'reset', '-q', '--hard', 'main'); mkdirSync(join(f.wt, p, '..'), { recursive: true }); writeFileSync(join(f.wt, p), `changed ${p}\n`)   // an uncommitted change is checkpointed first, then judged against the base
       const r = await P.setup(f.h, f.inp()); assert.match(r.text, new RegExp(`^The install was not run: ${p.replaceAll('.', '\\.')} changed in this task`), p); assert.ok(!existsSync(join(f.wt, 'node_modules')))
     }
@@ -140,12 +144,12 @@ test('only manifests of the repo root or a unit root are committed; a failed run
   } finally { f.done() }
 })
 
-test('pip runs from an empty folder: a planted archive of the repository is not found by its bare name, and no setup.py runs', async () => {
+test('uv pip runs from an empty folder: a planted archive of the repository is not found by its bare name, and no setup.py runs', async () => {
   const f = await fix(); let seen; try {
     writeFileSync(join(f.wt, 'evil.tar.gz'), 'not a real archive'); writeFileSync(join(f.wt, 'setup.py'), `open('${f.d}/MARKER', 'w').write('ran')\n`); mkdirSync(join(f.wt, 'x')); writeFileSync(join(f.wt, 'x/setup.py'), `open('${f.d}/MARKER', 'w').write('ran')\n`)
-    assert.match((await P.setup(f.h, f.inp({ argv: [`${f.wt}/.venv/bin/pip`, 'install', 'evil.tar.gz'] }))).text, /^The install was refused/); assert.ok(!existsSync(join(f.d, 'MARKER')))
+    assert.match((await P.setup(f.h, f.inp({ argv: ['uv', 'pip', 'install', 'evil.tar.gz'] }))).text, /^The install was refused/); assert.ok(!existsSync(join(f.d, 'MARKER')))
     const orig = jailed('ls -A . > /tmp/lscwd; pwd > /tmp/pwd'); f.h.run = async (a, o) => { const r = await orig(a, o); if (a[0] === 'bwrap' && a.includes('--clearenv') && !a.includes('--unshare-net')) { const sc = join(f.d, 'scratch'); seen = { cwd: readFileSync(join(sc, 'lscwd'), 'utf8'), pwd: readFileSync(join(sc, 'pwd'), 'utf8') } } return r }
-    await P.setup(f.h, f.inp({ argv: [`${f.wt}/.venv/bin/pip`, 'install', 'x'] }))   // a bare name that is also a folder of the repository
+    await P.setup(f.h, f.inp({ argv: ['uv', 'pip', 'install', 'x'] }))   // a bare name that is also a folder of the repository
     assert.equal(seen.pwd.trim(), '/tmp/cwd'); assert.equal(seen.cwd.trim(), '', 'the folder pip starts in is empty'); assert.ok(!existsSync(join(f.d, 'MARKER')))
   } finally { f.done() }
 })
@@ -163,5 +167,22 @@ test('a failed run removes what it wrote into an ignored folder that was already
     assert.match((await P.setup(f.h, f.inp({ argv: ['npm', 'install', 'x'] }))).text, /^The install changed nothing: it failed/)
     assert.ok(existsSync(join(f.wt, 'node_modules/old/keep.js')) && existsSync(join(f.wt, 'node_modules/loose.js')), 'what was there stays')
     for (const p of ['node_modules/old/new.js', 'node_modules/newpkg', 'node_modules/created.js']) assert.ok(!existsSync(join(f.wt, p)), `${p} is gone`)
+  } finally { f.done() }
+})
+
+test('nothing the toolchain executes comes from the worktree: a planted .venv python and a .python-version are not run, the old .venv pip form is refused, the host outside the system folders is hidden', async () => {
+  const f = await fix(); let seen; try {
+    const mark = join(f.d, 'MARKER'); mkdirSync(join(f.wt, '.venv/bin'), { recursive: true }); for (const n of ['python', 'python3', 'pip']) writeFileSync(join(f.wt, '.venv/bin', n), `#!/bin/sh\necho ran > ${mark}\n`, { mode: 0o755 })
+    writeFileSync(join(f.wt, 'py'), `#!/bin/sh\necho ran > ${mark}\n`, { mode: 0o755 }); writeFileSync(join(f.wt, '.python-version'), './py\n')
+    assert.match((await P.setup(f.h, f.inp({ argv: [`${f.wt}/.venv/bin/pip`, 'install', 'x'] }))).text, /^The install was refused.*uv pip install or uv add/); assert.ok(!existsSync(mark))
+    assert.match((await P.setup(f.h, f.inp())).text, /^The install was not run: \.python-version changed/)   // committed since the base, so nothing runs
+    await sh(f.wt, 'git', 'reset', '-q', '--hard', 'main'); await sh(f.wt, 'git', 'clean', '-fdq')
+    const outside = '/var/tmp/cadre-hidden-' + process.pid; writeFileSync(outside, 'host-file')
+    try {
+      const orig = jailed(`cat ${outside} > /tmp/hid 2>&1; echo $UV_PYTHON $UV_PROJECT_ENVIRONMENT > /tmp/uvenv; ls /usr/bin/python3 > /tmp/py 2>&1; for t in npm node uv; do command -v $t; done > /tmp/tools`)
+      f.h.run = async (a, o) => { const r = await orig(a, o); if (a[0] === 'bwrap' && a.includes('--clearenv') && !a.includes('--unshare-net')) { const sc = join(f.d, 'scratch'); seen = Object.fromEntries(['hid', 'uvenv', 'tools'].map(n => [n, readFileSync(join(sc, n), 'utf8')])) } return r }
+      await P.setup(f.h, f.inp({ argv: ['uv', 'add', 'x'] }))
+    } finally { rmSync(outside, { force: true }) }
+    assert.match(seen.hid, /No such file/); assert.match(seen.uvenv, /^\/usr\/\S*python3\S* \/tmp\/venv/); assert.match(seen.tools, /npm[\s\S]*node[\s\S]*uv/); assert.ok(!existsSync(mark))
   } finally { f.done() }
 })
