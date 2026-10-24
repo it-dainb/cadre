@@ -97,18 +97,18 @@ describe('validation and provenance (ADR 0019)', () => {
     expect([r.config.drive.mode, r.config.drive.maxTurns, r.diagnostics]).toEqual(['auto', 7, ['u: drive.mode: expected one of: yolo, auto', 'u: nope: unknown key']])
   })
   test('source per key: default, user, repo, env; forced only by FORCE=1 or the effort variable, with the warning', () => {
-    const L = [{ name: '~/.claude/cadre.json', trust: 'user' as const, value: { maxParallel: 5 } }, { name: '.cadre/config.json', trust: 'repo' as const, value: { lanes: { fullAt: 4 } } }, { name: 'env', trust: 'user' as const, value: { store: { kind: 'memory' } } }]
+    const L = [{ name: '~/.claude/cadre.json', trust: 'user' as const, value: { concurrency: { default: 5 } } }, { name: '.cadre/config.json', trust: 'repo' as const, value: { lanes: { fullAt: 4 } } }, { name: 'env', trust: 'user' as const, value: { store: { kind: 'memory' } } }]
     const by = (env = {}) => Object.fromEntries(rows(L, env).map(r => [r.key, r]))
-    expect([by().maxParallel.src, by()['lanes.fullAt'].src, by()['store.kind'].src, by()['drive.maxTurns'].src]).toEqual(['user', 'repo', 'env', 'default'])
+    expect([by()['concurrency.default'].src, by()['lanes.fullAt'].src, by()['store.kind'].src, by()['drive.maxTurns'].src]).toEqual(['user', 'repo', 'env', 'default'])
     expect(by({ CLAUDE_CODE_SUBAGENT_MODEL: 'haiku' })['roles.worker.byRisk.light.model'].src).toBe('default')
     const f = by({ CLAUDE_CODE_SUBAGENT_MODEL: 'haiku', CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '1', CLAUDE_CODE_EFFORT_LEVEL: 'low' })
-    expect([f['roles.worker.byRisk.core.escalate.model'].src, f['roles.worker.byRisk.core.escalate.model'].warn, f['roles.tester.byRisk.light.effort'].warn, f['maxParallel'].src]).toEqual(['forced', 'CLAUDE_CODE_SUBAGENT_MODEL_FORCE puts every agent on haiku', 'CLAUDE_CODE_EFFORT_LEVEL puts every agent on effort low', 'user'])
+    expect([f['roles.worker.byRisk.core.escalate.model'].src, f['roles.worker.byRisk.core.escalate.model'].warn, f['roles.tester.byRisk.light.effort'].warn, f['concurrency.default'].src]).toEqual(['forced', 'CLAUDE_CODE_SUBAGENT_MODEL_FORCE puts every agent on haiku', 'CLAUDE_CODE_EFFORT_LEVEL puts every agent on effort low', 'user'])
     expect(forcedOf({ CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '1' })).toEqual({ model: "main's model" })
   })
   test('doctor: refused values and env overrides warn; then every key, non-default first; fixed invariants are shown and not editable', async () => {
-    const h = Object.assign(fakeHost({ files: { '/hm/u/.claude/cadre.json': '{"maxParallel":5,"drive":{"mode":"fast"}}' }, env: { CLAUDE_CODE_EFFORT_LEVEL: 'low' } }))
+    const h = Object.assign(fakeHost({ files: { '/hm/u/.claude/cadre.json': '{"concurrency":{"default":5},"drive":{"mode":"fast"}}' }, env: { CLAUDE_CODE_EFFORT_LEVEL: 'low' } }))
     const d = await doctorRows(h), text = d.map(r => `${r[0]} ${r[1]}`)
-    expect(text.slice(0, 3)).toEqual(['warn setting refused: ~/.claude/cadre.json: drive.mode: expected one of: yolo, auto', 'warn CLAUDE_CODE_EFFORT_LEVEL puts every agent on effort low: overrides 26 model/effort settings', 'ok setting maxParallel = 5 · user'])
+    expect(text.slice(0, 3)).toEqual(['warn setting refused: ~/.claude/cadre.json: drive.mode: expected one of: yolo, auto', 'warn CLAUDE_CODE_EFFORT_LEVEL puts every agent on effort low: overrides 26 model/effort settings', 'ok setting concurrency.default = 5 · user'])
     expect(d.length).toBe(2 + (await settingsRows(h)).length); expect(text).toContain('ok setting fixed.setupLease = 20 turns / 30 min · fixed')
   })
 })

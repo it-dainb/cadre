@@ -26,7 +26,8 @@ function lines(v: View, w: number, a: Acts): Line[] {
     if (bad) l1 = lr(w, [g(v, 'fail'), S(' '), S(bad, color('danger'))], right.filter(s => s.t || s.hk))
     else if (landed) l1 = lr(w, [g(v, 'done'), S(` ${p.id} landed on dev`)], right.filter(s => s.t || s.hk))
     else if (top) {
-      const more = run.length > 1 ? `${SEP}+${run.length - 1} running` : `${SEP}${stepName(top.step)}${lapse(v, top) && `${SEP}${lapse(v, top)}`}`
+      const queued = v.ui.queued > 0 ? `${SEP}queued ${v.ui.queued}` : ''   // core/queue: ready work that waits for a slot
+      const more = (run.length > 1 ? `${SEP}+${run.length - 1} running` : `${SEP}${stepName(top.step)}${lapse(v, top) && `${SEP}${lapse(v, top)}`}`) + queued
       const left: Line = tight ? [g(v, 'run'), S(` ${top.id}${SEP}${pr || p.id}`)] : [g(v, 'run'), S(` ${top.id} `), S(top.title, undefined, { b: false }), muted(more)]
       l1 = lr(w, left, tight ? bothCell.filter(s => s.hk) : right.filter(s => s.t || s.hk))
     } else l1 = lr(w, [g(v, 'wait'), muted(` ${[p.id, pr].filter(Boolean).join(' ')}`)], bothCell.filter(s => s.hk || s.t))

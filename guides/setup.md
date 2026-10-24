@@ -32,7 +32,7 @@ Ask the user with AskUserQuestion, in one round:
 - tasks worked on in parallel in one plan: 1, 3 (default), 5 or unlimited;
 - plans worked on in parallel in one milestone: 1, 3, 5 or unlimited (default 2).
 Unlimited is the value 0.
-Then hand the answers to cadre with one preferences call: `{"mode": "auto", "maxTurns": 100, "maxCostUsd": 20, "maxWallMinutes": 240, "maxParallel": 3, "maxEpics": 2}` with their values. cadre shows the change in a dialog and writes it after they confirm; do not edit any settings file. Tell the user to confirm it in the cadre dialog (press 1).
+Then hand the answers to cadre with one preferences call: `{"mode": "auto", "maxTurns": 100, "maxCostUsd": 20, "maxWallMinutes": 240, "concurrency": 3, "maxEpics": 2}` with their values. cadre shows the change in a dialog and writes it after they confirm; do not edit any settings file. Tell the user to confirm it in the cadre dialog (press 1).
 Done when the preferences call was accepted.
 
 ## Phase 5: what needs the password

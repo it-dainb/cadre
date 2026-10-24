@@ -50,8 +50,8 @@ export const MAIN_SPECS = [
   { name: 'status', isDeferred: false, description: 'Read the plan: {} lists its tasks, {id} shows one (scenarios, contract, changelog, records). Move one on: {id, set:"completed"} completes a task, epic or plan; "pending" gives a task back; "deleted" cancels it (reason). {id, decision} answers a blocked task.',
     inputSchema: { type: 'object', additionalProperties: false, properties: { id: L(64), set: { type: 'string', enum: ['completed', 'pending', 'deleted'] }, decision: L(1000), reason: L(300) } } },
 ] as const
-export const PREFS_SPEC = { name: 'preferences', isDeferred: false, description: 'Hand over the user\'s setup preferences: mode "auto"|"yolo", maxTurns, maxCostUsd, maxWallMinutes, maxParallel, maxEpics (0 = no limit on the last two). Only during setup.',
-  inputSchema: { type: 'object', additionalProperties: false, properties: { mode: { type: 'string', enum: ['auto', 'yolo'] }, maxTurns: N, maxCostUsd: { type: 'number' }, maxWallMinutes: N, maxParallel: N, maxEpics: N } } } as const
+export const PREFS_SPEC = { name: 'preferences', isDeferred: false, description: 'Hand over the user\'s setup preferences: mode "auto"|"yolo", maxTurns, maxCostUsd, maxWallMinutes, concurrency, maxEpics (0 = no limit on the last two). Only during setup.',
+  inputSchema: { type: 'object', additionalProperties: false, properties: { mode: { type: 'string', enum: ['auto', 'yolo'] }, maxTurns: N, maxCostUsd: { type: 'number' }, maxWallMinutes: N, concurrency: N, maxEpics: N } } } as const
 export const MAIN = [...MAIN_SPECS, PREFS_SPEC]
 const ENVELOPE = ['tool', 'tool_use_id', 'agentId', 'requestMeta', 'consent']
 // main's tool call: role gate, strict schema, then the handler (no task deps: preferences answers in a dormant repo too)

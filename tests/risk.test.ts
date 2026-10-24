@@ -44,6 +44,6 @@ describe('risk-sized review (ADR 0016)', () => {
   test('config: one routing cell merges from a layer, the other cells keep their defaults; the old tier keys are refused', () => {
     const r = resolve([{ name: 'repo', trust: 'repo', value: { roles: { worker: { byRisk: { thorough: { model: 'opus', effort: 'xhigh' } } } } } }])
     expect(r.diagnostics).toEqual([]); expect(r.config.roles.worker.byRisk.thorough).toMatchObject({ model: 'opus', effort: 'xhigh', escalate: { after: 1, model: 'sonnet' } }); expect(r.config.roles.worker.byRisk.light.model).toBe('haiku')
-    expect(resolve([{ name: 'u', trust: 'user', value: { roles: { worker: { tier: 'fast' } }, models: { fast: 'haiku' } } }]).diagnostics).toEqual(['u: roles.worker.tier: unknown key', 'u: models: unknown key'])
+    expect(resolve([{ name: 'u', trust: 'user', value: { roles: { worker: { tier: 'fast' } }, models: { fast: 'haiku' } } }]).diagnostics).toEqual(['u: roles.worker.tier: unknown key', 'u: models.fast: unknown key'])
   })
 })

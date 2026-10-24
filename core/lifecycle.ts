@@ -27,7 +27,7 @@ export function classify(v: LifeView, agentId: string, taskId?: string): RunStat
 // ---- the run record: its $.state copy (ui.runs, CAS) is the only one step() writes; the store's control doc key `run:<agentId>` mirrors it, so it survives /clear
 // and a quit (Doctor reads its log there). One writer per key: the session holding the binding. epoch = the task's spawns when it started (a wake for an older one is dropped). ----
 export type RunEvent =
-  | { type: 'spawn.ok'; bind: Binding; epoch?: number; mode?: string }   // admission: it is bound (the task's reservation goes); mode: its permission mode
+  | { type: 'spawn.ok'; bind: Binding; epoch?: number; mode?: string; model?: string }   // admission: it is bound (the task's reservation goes); mode: its permission mode
   | { type: 'report.ok'; wait?: boolean }   // wait: the report parked its task for a decision (blocked, spec change, a red that cannot be made)
   | { type: 'report.refused' }
   | { type: 'call'; tool: string; sig: string }   // one tool call: a tool first seen is journaled (exit rule 3); REPEAT identical calls in a row spend the run (rule 4)
@@ -37,7 +37,7 @@ export type RunEvent =
   | { type: 'retire' }   // context or cache over: a fresh agent takes over
   | { type: 'end'; cause: End | 'lost'; reason: string }
 export interface Run { taskId: string; role: Role; step: string; state: RunState | null; epoch: number; log: { state: string; event: string; cause?: string }[]   // state null: a binding with no record
-  mode?: string; tools?: string[]; calls?: { sig: string; n: number }; exit?: 'loop'; deadline?: number; session?: string }   // exit: its budget is spent (forced exit) · deadline: a forced exit not ended by then is stopped, by session's process only
+  mode?: string; model?: string; tools?: string[]; calls?: { sig: string; n: number }; exit?: 'loop'; deadline?: number; session?: string }   // exit: its budget is spent (forced exit) · deadline: a forced exit not ended by then is stopped, by session's process only
 export type Effect = { kind: 'unbind'; reason: string } | { kind: 'wake'; text: string; step?: string } | { kind: 'retire' }
 // ponytail: fixed bounds; registered settings when a cell shows they need tuning
 export const REPEAT = 20, BACKSTOP = 60_000
@@ -46,7 +46,7 @@ const LOG = 20, n = (s: RunState | null, k: 'refused' | 'silent') => (s?.state =
 export function next(run: Run, e: RunEvent): { run: Run; effects: Effect[] } {
   const go = (state: RunState, effects: Effect[] = [], r = run) => ({ run: { ...r, state, log: [...run.log, { state: state.state, event: e.type, ...('cause' in state ? { cause: state.cause } : {}) }].slice(-LOG) }, effects })
   const s = run.state?.state, wake = (x: { text: string; step?: string }): Effect => ({ kind: 'wake', text: x.text, ...(x.step ? { step: x.step } : {}) })
-  if (e.type === 'spawn.ok') return go({ state: 'running' }, [], { taskId: e.bind.taskId, role: e.bind.role, step: e.bind.step, epoch: e.epoch ?? run.epoch + 1, log: run.log, ...(e.mode ? { mode: e.mode } : {}), state: null })
+  if (e.type === 'spawn.ok') return go({ state: 'running' }, [], { taskId: e.bind.taskId, role: e.bind.role, step: e.bind.step, epoch: e.epoch ?? run.epoch + 1, log: run.log, ...(e.mode ? { mode: e.mode } : {}), ...(e.model ? { model: e.model } : {}), state: null })
   if (run.state === null) return go({ state: 'ended', cause: 'lost' }, [{ kind: 'unbind', reason: 'lost' }])   // a binding cadre has no record of (an older store, a lost key)
   if (e.type === 'stopped' || e.type === 'forced') return { run: { ...run, deadline: e.type === 'forced' ? run.deadline ?? e.at + BACKSTOP : undefined, ...(e.type === 'forced' && !run.deadline ? { session: e.session } : {}) }, effects: [] }
   if (s === 'ended') return { run, effects: [] }

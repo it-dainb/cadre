@@ -15,6 +15,7 @@ import { queueBrief } from './lanes'
 import { modelText } from './say'
 import { specAsk } from './tdd'
 import { isMs, stopEpic } from './milestone'
+import { modelIssues, tasksFull } from './queue'
 
 export const LEASE = 600_000
 export type Mode = 'auto' | 'yolo'
@@ -91,6 +92,7 @@ export async function stop(h: Host, why: string, cause?: StopCause): Promise<voi
 // the gate in front of the epic: pause (auto: the human answers in the dialog) or stop (yolo, where auto would ask; an agent moving a protected branch in both)
 type Gate = { pause?: string; stop?: string; cause?: StopCause } | null
 async function gate(h: Host, s: Snapshot, mode: Mode): Promise<Gate> {
+  const bad = modelIssues(await cfgOf(h))[0]; if (bad) return { stop: bad }   // a model cell the gate refuses: nothing starts (Doctor names it)
   const y = mode === 'yolo', hold = (why: string, cause?: StopCause): Gate => (y ? { stop: why, cause } : { pause: why })
   if (s.approval.planId) return { pause: `approve ${s.approval.planId}` }
   const gf = Object.keys((await h.git.read()).flags ?? {}).filter(k => k.startsWith('git:') || k.startsWith('quarantine'))
@@ -152,7 +154,7 @@ export async function tally(h: Host, cfg: any, usd: number | undefined, go: numb
   const evs = (await h.events.read()).epics[s.epic ?? ''] ?? [], seq = evs.filter(x => x.type === 'task.transitioned').reduce((m, x) => Math.max(m, x.seq), 0)
   const o = { bound: null as string | null, go: false, cost: d.costUsd, turns: d.turns, idle: [] as string[] }   // what the CAS attempt that stood decided
   const tx = (id: string) => evs.filter(x => x.type === 'task.transitioned' && s.tasks.find(t => t.id === x.taskId)?.epic === id).reduce((m, x) => Math.max(m, x.seq), 0)
-  const free = !cfg.maxParallel || s.tasks.filter(t => t.state === 'active').length < cfg.maxParallel
+  const free = !tasksFull(cfg, s)
   const quiet = (s.plan?.epics ?? []).filter(e => free && e.state === 'running' && !s.tasks.some(t => t.epic === e.id && ['active', 'review', 'blocked'].includes(t.state))).map(e => [e.id, tx(e.id)] as const)   // per-epic no progress: a slot is free, yet nothing of it moves, runs or waits on the user
   await casDrive(h, store, r => {
     if (!r?.on || r.epicId !== s.epic || held(r, me, now) || r.stopped) return undefined

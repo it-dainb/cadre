@@ -107,16 +107,16 @@ describe('claim (3.4)', () => {
     expect(seen[0]).toMatchObject({ subagentType: 'cadre:explorer', model: 'haiku' }); expect(seen[0].prompt).toContain('# QUESTION\nwhere is the parser?')
     await admitWith(h, d, spawn('x', { fork: true }), next); expect(seen[1].subagentType).toBe('general-purpose')
   })
-  test('maxParallel, not-ready (blocking dep), flags, and a type that needs the tester step are refused', async () => {
+  test('the task limit, not-ready (blocking dep), flags, and a type that needs the tester step are refused', async () => {
     const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}, { deps: [{ id: '0', type: 'blocks' }] }, { type: 'test' }, {}); await w.board(h, epic, ids)
     const { next, seen } = ok()
     expect(((await admitWith(h, d, spawn(ids[1]), next)) as any).deny).toContain('not ready')
     expect(((await admitWith(h, d, spawn(ids[2]), next)) as any).deny).toContain('not available')
     await h.board.update(s => ({ ...s, tasks: s.tasks.map(t => (t.id === ids[3] ? { ...t, condition: { on: ids[0], state: 'not-met' as const } } : t)) })); expect(((await admitWith(h, d, spawn(ids[3]), next)) as any).deny).toContain('never runs')
     await h.board.update(s => ({ ...s, tasks: s.tasks.map(t => (t.id === ids[3] ? { ...t, flags: ['git:dev'] } : t)) })); expect(((await admitWith(h, d, spawn(ids[3]), next)) as any).deny).toContain('flag git:dev')
-    await h.board.update(s => ({ ...s, tasks: s.tasks.map((t, i) => (i === 3 ? { ...t, flags: [], condition: undefined } : i === 0 ? { ...t, state: 'active' } : { ...t, state: i === 1 ? 'active' : t.state }) as SnapTask) })); d.cfg.maxParallel = 2
+    await h.board.update(s => ({ ...s, tasks: s.tasks.map((t, i) => (i === 3 ? { ...t, flags: [], condition: undefined } : i === 0 ? { ...t, state: 'active' } : { ...t, state: i === 1 ? 'active' : t.state }) as SnapTask) })); d.cfg.concurrency.default = 2
     expect(((await admitWith(h, d, spawn(ids[3]), next)) as any).deny).toContain('limit 2'); expect(seen).toEqual([])
-    d.cfg.maxParallel = 0; expect(((await admitWith(h, d, spawn(ids[3]), next)) as any)?.deny ?? '').not.toContain('limit')   // 0 = no cap (setup preferences)
+    d.cfg.concurrency.default = 0; expect(((await admitWith(h, d, spawn(ids[3]), next)) as any)?.deny ?? '').not.toContain('limit')   // 0 = no cap (setup preferences)
   })
   test('a rejected spawn ({deny}) or a thrown next releases the claim and the board, removes the new worktree; a throw is rethrown', async () => {
     const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}); await w.board(h, epic, ids)
@@ -214,7 +214,7 @@ describe('review spawn', () => {
     await admitWith(h, d, spawn(id), ok('rv3').next); expect(JSON.parse((await w.store.get(id)).meta['cadre.runs']).at(-1)).toMatchObject({ effort: 'low', forced: '/low' })
   })
   test('the reviewer may not be set to haiku (allowed values: the old floor, explicit now)', async () => {
-    expect(resolve([{ name: 'u', trust: 'user', value: { roles: { reviewer: { byRisk: { light: { model: 'haiku' } } } } } }]).diagnostics).toEqual(['u: roles.reviewer.byRisk.light.model: expected one of: sonnet, opus, fable'])
+    expect(resolve([{ name: 'u', trust: 'user', value: { roles: { reviewer: { byRisk: { light: { model: 'haiku' } } } } } }]).diagnostics).toEqual(['u: roles.reviewer.byRisk.light.model: the reviewer may not run on haiku'])
   })
   // ADR 0019: every role x risk cell, and its escalation, is exactly what the spawned agent gets; the bound event names the setting
   for (const role of ['worker', 'tester', 'reviewer'] as const) for (const risk of ['light', 'standard', 'thorough', 'core'] as const) test(`routing cell roles.${role}.byRisk.${risk} (+ escalate)`, async () => {

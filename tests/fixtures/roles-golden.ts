@@ -1179,7 +1179,14 @@ export default {
      "notify": "on",
      "escalateAfterMs": 120000
     },
-    "maxParallel": 3,
+    "concurrency": {
+      "default": 3,
+      "models": {},
+      "providers": {}
+    },
+    "models": {
+      "allow": []
+    },
     "milestone": {
      "maxEpics": 2,
      "epicPlanner": "agent"
@@ -1542,7 +1549,14 @@ export default {
      "notify": "on",
      "escalateAfterMs": 120000
     },
-    "maxParallel": 2,
+    "concurrency": {
+      "default": 2,
+      "models": {},
+      "providers": {}
+    },
+    "models": {
+      "allow": []
+    },
     "milestone": {
      "maxEpics": 2,
      "epicPlanner": "agent"
@@ -1912,7 +1926,14 @@ export default {
      "notify": "on",
      "escalateAfterMs": 120000
     },
-    "maxParallel": 3,
+    "concurrency": {
+      "default": 3,
+      "models": {},
+      "providers": {}
+    },
+    "models": {
+      "allow": []
+    },
     "milestone": {
      "maxEpics": 2,
      "epicPlanner": "agent"

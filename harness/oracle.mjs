@@ -332,6 +332,21 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
       if (!drv.some(e => e.kind === 'send' && e.t > k && /\/cadre continue/.test(e.text))) fail(o, 'no /cadre continue after the restart')
     }
   }
+  if (o === 'gate') {   // a model the gate refuses: the drive never starts, so no task agent runs and no model request follows; Doctor names the cell once
+    const agents = subs.filter(x => /(Worker|Tester|Reviewer) brief/.test(x.brief)), steps = dlines.filter(l => /SCRIPTED step agent=\S+ who=(worker|tester|reviewer)/.test(l)).length
+    const row = /setting refused: roles\.worker\.byRisk\.light\.model: unknown model "gpt-5"/g, doc = panes.map(p => left(p.text).replace(/\s+/g, ' ')).findLast(x => row.test(x)), n = doc ? (doc.match(row) ?? []).length : 0
+    Object.assign(stats, { agents: agents.length, agentSteps: steps, doctorLines: n })
+    if (agents.length || steps) fail(o, `${agents.length} task agent(s) ran, ${steps} model step(s) (want 0)`)
+    if (n !== 1) fail(o, `Doctor names the cell ${n}x (want 1)`)
+  }
+  if (o === 'fifo') {   // concurrency.default 1, three tasks: the workers start in the order the tasks were admitted (ids ascend), and no snapshot shows two tasks running
+    const id = b => b.match(/TASK-([a-z][\w-]*\w)/)?.[1], ws = subs.filter(x => /Worker brief/.test(x.brief) && id(x.brief)).sort((a, b) => a.t - b.t).map(x => id(x.brief))
+    const two = snaps.find(x => new Set(Object.values(runs(x.s)).filter(r => ['running', 'refused', 'silent'].includes(r.state?.state)).map(r => r.taskId)).size > 1)
+    Object.assign(stats, { workerOrder: ws })
+    if (ws.length !== 3) fail(o, `${ws.length} worker runs (want 3, one per task)`)
+    else if (ws.join() !== [...ws].sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).join()) fail(o, `workers started in the order ${ws.join(', ')} (want the admit order)`)
+    if (two) fail(o, `two tasks ran at once in the snapshot at ${two.t}`)
+  }
   if (o === 'submodule') {   // the task landed in lib's own dev, and the parent's dev records that commit
     const d = existsSync(join(dir, 'submodule.json')) ? JSON.parse(read(join(dir, 'submodule.json'))) : null
     if (!d) fail(o, 'no submodule.json (the scenario never got past the landing)')

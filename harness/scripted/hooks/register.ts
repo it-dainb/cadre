@@ -7,6 +7,7 @@
 //   lite: main plans one lite task; full: a full-lane task (tester, worker, reviewer); loop: lite, the worker calls the same tool forever (the repeat-call breaker, then forced exit);
 //   limit: lite, the first worker's first step goes to the proxy, which answers a usage limit (stub-proxy.mjs); slow: lite, the worker waits 45 s first;
 //   silent: lite, the worker writes its files and stops without a report, every time (the report-less end);
+//   three: full lane, three independent tasks (concurrency-fifo, with concurrency.default 1 in the repo's config);
 //   multi: full lane, two tasks (kebabCase after titleCase), an amend on a stale revision refused then retried (plan-tools-full);
 //   sub: lite, the task in the `lib` submodule unit (submodule-unit); cont: lite, the reviewer waits 14 s first (continue-after-quit-s kills before or during it).
 import type { Register } from 'claude-code'
@@ -35,7 +36,7 @@ function main(rows: Row[]): Act {
   const T = (n: string) => `mcp__cadre__${n}`, used = (n: string) => has(c => c.tool === T(n))   // main plans only through cadre's tools: plan, task, explore, ask
   const ai = after.findIndex(r => r.role === 'assistant' && r.toolUses?.some(c => c.tool === T('explore')))
   const answered = ai >= 0 && after.slice(ai + 1).some(r => isText(r) && /Result of ask-|its answer was already given/.test(r.text))   // the explorer's answer comes back as a message of its own
-  if (after.filter(r => r.role === 'assistant').length > (script === 'multi' ? 12 : 8)) return { text: 'Stopping: approve the plan in the dialog.' }
+  if (after.filter(r => r.role === 'assistant').length > (script === 'multi' ? 12 : script === 'three' ? 14 : 8)) return { text: 'Stopping: approve the plan in the dialog.' }
   if (ai < 0) return { tool: T('explore'), input: { question: 'What in the project does adding titleCase(s) touch: where string helpers live, how they are exported, where the tests are?' } }
   if (!answered) return { text: 'Waiting for the explorer.' }
   if (!used('ask')) return { tool: T('ask'), input: { clarity: { outcome: 1, scope: 1, acceptance: 1, constraints: 1 } } }
@@ -49,6 +50,11 @@ function main(rows: Row[]): Act {
     const b = num('task', 1, /"id":\s*"([^"]+)"/), desc = `${TASKS[1].description} Trim the input first.`
     if (!n('amend')) return { tool: T('amend'), input: { id: b, expectedRevision: +(num('plan', 0, /"revision":\s*(\d+)/) ?? 1), description: desc } }   // the revision main read at plan time: stale by now
     if (n('amend') === 1 && /call again with expectedRevision \d+/.test(res('amend', 0)?.text ?? '')) return { tool: T('amend'), input: { id: b, expectedRevision: +(num('amend', 0, /call again with expectedRevision (\d+)/) ?? 0), description: desc } }   // refused as stale: retry with the revision it names
+    return { text: 'The plan is drafted: approve it in the dialog (key 1 opens it).' }
+  }
+  if (script === 'three') {
+    if (!used('plan')) return { tool: T('plan'), input: { title: 'Add three string helpers to the library', description: 'Three public string helpers with node:test tests.', lane: 'full', reason: 'three new public functions', ...mission } }
+    if (calls.filter(c => c.tool === T('task')).length < 3) return { tool: T('task'), input: TASKS[calls.filter(c => c.tool === T('task')).length] }
     return { text: 'The plan is drafted: approve it in the dialog (key 1 opens it).' }
   }
   if (script === 'full') {
@@ -67,8 +73,9 @@ type Fn = { name: string; title: string; input: string; out: string; impl: strin
 const FNS: Fn[] = [
   { name: 'titleCase', title: 'S1: titleCase capitalises each word', input: 'hello big world', out: 'Hello Big World', impl: String.raw`s => s.replace(/(^|\s)(\S)/g, (_, a, b) => a + b.toUpperCase())`, what: 'uppercase the first letter of each whitespace-separated word, leave the rest unchanged' },
   { name: 'kebabCase', title: 'S1: kebabCase joins the words with dashes', input: 'Hello Big World', out: 'hello-big-world', impl: String.raw`s => s.trim().toLowerCase().split(/\s+/).join('-')`, what: 'lowercase the words and join them with dashes' },
+  { name: 'snakeCase', title: 'S1: snakeCase joins the words with underscores', input: 'Hello Big World', out: 'hello_big_world', impl: String.raw`s => s.trim().toLowerCase().split(/\s+/).join('_')`, what: 'lowercase the words and join them with underscores' },
 ]
-const fnOf = (brief: string) => (/kebabCase/.test(brief) ? FNS[1] : FNS[0])
+const fnOf = (brief: string) => (/kebabCase/.test(brief) ? FNS[1] : /snakeCase/.test(brief) ? FNS[2] : FNS[0])
 const TEST = (f: Fn) => `import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ${f.name} } from '../src/${f.name}.mjs'
@@ -91,7 +98,7 @@ const ROLES: Record<string, (k: number, brief: string, cwd: string) => Act> = {
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: `Added ${f.name}(s) in src/${f.name}.mjs with a node:test test; npm test passes.`, risks: [] } }])[k] ?? { text: END } },
   tester: (k, b, cwd) => { const f = fnOf(b); return [{ tool: 'Write', input: { file_path: `${cwd}/test/${f.name}.test.mjs`, content: TEST(f) } },
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'tester', outcome: 'done', summary: `One test per scenario in test/${f.name}.test.mjs.`, tests: [{ path: `test/${f.name}.test.mjs`, name: f.title, scenario: 'S1' }], run: { command: ['node', '--test', `test/${f.name}.test.mjs`] } } }][k] ?? { text: END } },
-  reviewer: (k, b) => { const f = fnOf(b), full = script === 'full' || script === 'multi'; return [{ tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
+  reviewer: (k, b) => { const f = fnOf(b), full = script === 'full' || script === 'multi' || script === 'three'; return [{ tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'reviewer', verdict: 'pass', summary: `The commit adds ${f.name} and its test only; npm test passes.`, findings: [], coverage: full ? [{ scenario: 'S1', test: f.title, ok: true }] : [], contractStatus: full ? [{ name: f.name, ok: true }] : [] } }][k] ?? { text: END } },
   explorer: k => [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'explorer', answer: 'One string helper, slug, in src/slug.mjs as a named ESM export; tests in test/ use node:test; npm test runs node --test.', citations: [{ path: 'src/slug.mjs', line: 1 }, { path: 'package.json', line: 1 }] } }][k] ?? { text: END },
 }

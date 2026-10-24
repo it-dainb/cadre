@@ -58,7 +58,7 @@ describe('roles as data: zero behaviour change', () => {
   })
   test('golden: fixture configs resolve unchanged (roles.custom is the one new key)', async () => {
     const L = (name: string, trust: 'user' | 'repo', value: unknown) => ({ name, trust, value })
-    const sets: Record<string, any[]> = { none: [], user: [L('u', 'user', { mcpAllow: ['mcp__a__b'], maxParallel: 2, roles: { worker: { byRisk: { light: { model: 'sonnet' } } } } })],
+    const sets: Record<string, any[]> = { none: [], user: [L('u', 'user', { mcpAllow: ['mcp__a__b'], concurrency: { default: 2 }, roles: { worker: { byRisk: { light: { model: 'sonnet' } } } } })],
       both: [L('u', 'user', { mcpAllow: ['mcp__a__b'], units: [{ root: 'a', knownRed: ['x', 'y'] }] }), L('r', 'repo', { strictness: 'strict', roles: { tester: { byRisk: { core: { effort: 'low' } } } }, units: [{ root: 'a', knownRed: ['x', 'z'] }], bogus: 1 })] }
     for (const [n, s] of Object.entries(sets)) {
       const r = resolve(s), { custom, ...roles } = r.config.roles

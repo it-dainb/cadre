@@ -37,7 +37,8 @@ export const defaults = () => ({
   planning: { clarify: { enabled: true, maxQuestions: 3, threshold: 0.7 }, deep: { maxRounds: 8 } },   // ADR 0020: explorer + clarity before a goal's plan; /cadre deep
   branches: { main: '', dev: 'dev', epicPrefix: 'epic/' }, release: { onEpicDone: 'propose' }, landing: { mode: 'direct' as 'direct' | 'pr', review: false, remote: 'origin' },
   ui: { glyphs: 'unicode', flash: true, density: 'normal', notify: 'on', escalateAfterMs: 120_000 },
-  maxParallel: 3, milestone: { maxEpics: 2, epicPlanner: 'agent' as 'agent' | 'main' }, planner: { maxRounds: 3 },   // 0 = no cadre cap (drive bounds still apply)
+  concurrency: { default: 3, models: {} as Record<string, number>, providers: {} as Record<string, number> }, models: { allow: [] as string[] },   // default counts tasks (0 = no cadre cap); a model or provider key counts running runs (core/queue)
+  milestone: { maxEpics: 2, epicPlanner: 'agent' as 'agent' | 'main' }, planner: { maxRounds: 3 },
   notes: { slice: true },   // ADR 0022
   reuse: { maxContextPct: 60, cacheTtlMs: 3_600_000 },   // 1h: roles ship as agent files with experimental.cacheTtl 1h (A28, ADR 0001 S44)
   disable: false,
@@ -52,14 +53,15 @@ export type Cat = typeof CATS[number]
 export interface Meta { cat: Cat; cls: Cls; desc: string; opts?: readonly string[]; min?: number; max?: number; tighten?: 'bool' | 'enum' | 'list' | 'min' | 'grow'; open?: true; ok?: (v: unknown) => string | null }
 const m = (cat: Cat, desc: string, x: Partial<Meta> = {}): Meta => ({ cat, desc, cls: 'O', ...x })
 const D = 'Drive and autonomy', P = 'Parallelism', M = 'Models and effort', R = 'Review', PL = 'Planning', G = 'Git and branches', C = 'Checks and TDD', SF = 'Safety and containment', CA = 'Cache and context', ST = 'Task store and sync'
-const MODEL = ['haiku', 'sonnet', 'opus', 'fable'], EFFORT = ['default', 'low', 'medium', 'high', 'xhigh', 'max'], RISK = ['light', 'standard', 'thorough', 'core'], N = (min: number, max = 1e9) => ({ min, max })
+const mdl = (v: unknown) => (typeof v === 'string' && v ? null : 'expected a model'), EFFORT = ['default', 'low', 'medium', 'high', 'xhigh', 'max'], RISK = ['light', 'standard', 'thorough', 'core'], N = (min: number, max = 1e9) => ({ min, max })
 const ref = (empty = false) => (v: unknown) => (typeof v === 'string' && (empty && !v || /^[\w.][\w./-]*$/.test(v)) && !v.includes('..') ? null : 'a git name: letters, digits, . _ / -, not starting with - or .. inside')   // it reaches git push/fetch: an option-like value is refused
+const caps = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) && Object.values(v).every(x => Number.isInteger(x) && (x as number) >= 0 && (x as number) <= 100) ? null : 'expected {name: whole number 0-100}')
 const strs = (v: unknown) => (Array.isArray(v) && v.every(x => typeof x === 'string') ? null : 'expected a list of text')
 // a role's 4 risk cells x (model, effort, escalate.after/model/effort). The reviewer may not run on haiku (ADR 0016's floor, as allowed values).
 const roleRows = (r: string): Record<string, Meta> => Object.fromEntries(RISK.flatMap(k => {
-  const at = `roles.${r}.byRisk.${k}`, w = `${r}, ${k} risk`, mo = r === 'reviewer' ? MODEL.filter(x => x !== 'haiku') : MODEL
-  return [[`${at}.model`, m(M, `${w}: model`, { opts: mo })], [`${at}.effort`, m(M, `${w}: effort ('default' keeps the agent file's)`, { opts: EFFORT })],
-    [`${at}.escalate.after`, m(M, `${w}: failed rounds before it escalates (0 = never)`, N(0, 20))], [`${at}.escalate.model`, m(M, `${w}: model after escalation`, { opts: mo })],
+  const at = `roles.${r}.byRisk.${k}`, w = `${r}, ${k} risk`, mo = (v: unknown) => (typeof v !== 'string' || !v ? 'expected a model' : r === 'reviewer' && /^haiku/.test(v) ? 'the reviewer may not run on haiku' : null)
+  return [[`${at}.model`, m(M, `${w}: model`, { ok: mo })], [`${at}.effort`, m(M, `${w}: effort ('default' keeps the agent file's)`, { opts: EFFORT })],
+    [`${at}.escalate.after`, m(M, `${w}: failed rounds before it escalates (0 = never)`, N(0, 20))], [`${at}.escalate.model`, m(M, `${w}: model after escalation`, { ok: mo })],
     [`${at}.escalate.effort`, m(M, `${w}: effort after escalation`, { opts: EFFORT })]]
 }))
 const list = (v: unknown) => v === undefined || (Array.isArray(v) && v.every(x => typeof x === 'string'))
@@ -74,9 +76,11 @@ export const REG: Record<string, Meta> = {
   'limits.startFails': m(D, 'failed agent starts of one task before the run stops', N(1, 10)),
   'limits.limitWaitMinutes': m(D, 'after a usage limit, the drive waits at least this long before it goes on (minutes)', N(1, 300)),   // 0: a limit with no reported reset would lift at once and retry while still limited
   disable: m(D, 'turn cadre off for you, from the next session (env CADRE_DISABLE)', { cls: 'U' }),
-  maxParallel: m(P, 'tasks running at once (0 = no cadre cap)', N(0, 100)), 'milestone.maxEpics': m(P, 'epics of a milestone running at once (0 = no cap)', N(0, 100)),
+  'concurrency.default': m(P, 'tasks running at once (0 = no cadre cap)', N(0, 100)), 'models.allow': m(M, 'model ids besides the aliases, claude-… and Bedrock ids that a role or unit may name', { ok: strs }),
+  'concurrency.models': m(P, 'runs at once per model: {"haiku": 2}', { open: true, ok: caps }), 'concurrency.providers': m(P, 'runs at once per provider: {"anthropic": 4}', { open: true, ok: caps }),
+  'milestone.maxEpics': m(P, 'epics of a milestone running at once (0 = no cap)', N(0, 100)),
   ...roleRows('worker'), ...roleRows('tester'), ...roleRows('reviewer'),
-  'roles.explorer.model': m(M, 'explorer (a question without a task): model', { opts: MODEL }), 'roles.explorer.effort': m(M, 'explorer: effort', { opts: EFFORT }),
+  'roles.explorer.model': m(M, 'explorer (a question without a task): model', { ok: mdl }), 'roles.explorer.effort': m(M, 'explorer: effort', { opts: EFFORT }),
   'review.deepLabels': m(R, 'task labels that make a task thorough risk', { ok: strs }), 'review.maxRework': m(R, 'review rounds before a task blocks', N(1, 20)),
   'review.tiers.light.files': m(R, 'at most this many files: light review', { tighten: 'min', ...N(0) }), 'review.tiers.light.lines': m(R, 'at most this many lines: light review', { tighten: 'min', ...N(0) }),
   'review.tiers.thorough.files': m(R, 'more files than this: thorough review', { tighten: 'min', ...N(0) }), 'review.tiers.thorough.lines': m(R, 'more lines than this: thorough review', { tighten: 'min', ...N(0) }),
@@ -113,7 +117,7 @@ export const REG: Record<string, Meta> = {
   adapters: m(ST, 'sync adapters: {command, credentialEnv, grants}', { cls: 'U', open: true }), sync: m(ST, 'sync targets of this repo', { open: true }),
   'ui.glyphs': m('UI', 'unicode or ascii marks', { opts: ['unicode', 'ascii'] }), 'ui.flash': m('UI', 'flash a row when it changes'), 'ui.density': m('UI', 'row spacing', { opts: ['compact', 'normal', 'relaxed'] }),
   'ui.notify': m('UI', 'desktop notifications for what needs you', { opts: ['on', 'off'] }), 'ui.escalateAfterMs': m('UI', 'an unanswered item becomes a desktop notification after this (ms)', N(5_000, 3_600_000)),
-  'roles.planner.model': m(M, 'planner (drafts the tasks of each epic of a milestone): model', { opts: MODEL }), 'roles.planner.effort': m(M, 'planner: effort', { opts: EFFORT }),
+  'roles.planner.model': m(M, 'planner (drafts the tasks of each epic of a milestone): model', { ok: mdl }), 'roles.planner.effort': m(M, 'planner: effort', { opts: EFFORT }),
   'milestone.epicPlanner': m(PL, "agent: a planner agent drafts each epic's tasks when the epic is ready (needs drive.spawn mod); main: Claude drafts them", { opts: ['agent', 'main'] }),
   'planner.maxRounds': m(PL, "rounds a planner's refused task plan gets before its epic stops (auto asks you; yolo goes on with the other epics)", N(1, 10)),
 }

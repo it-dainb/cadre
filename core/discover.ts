@@ -5,7 +5,7 @@ import * as G from './git'
 export interface Pkg {
   root: string; setup: string[]; checks: Record<string, string[]>; fetches?: string[]
   tdd?: { paths: string[]; report?: string; stubs?: string[]; skeleton?: string[] }; viewInclude?: string[]
-  kind?: Kind; ownGit?: boolean; routing?: Record<string, { model: string; effort?: string }>   // a workspace unit (H7); packages[] are units of kind package; its adopted test command is checks.test (core/tdd.adopt)
+  kind?: Kind; ownGit?: boolean; concurrency?: number; routing?: Record<string, { model: string; effort?: string }>   // a workspace unit (H7); packages[] are units of kind package; its adopted test command is checks.test (core/tdd.adopt)
 }
 export const KINDS = ['package', 'service', 'submodule', 'app'] as const
 type Kind = typeof KINDS[number]
@@ -29,6 +29,7 @@ export function parse(ps: any, key = 'packages'): Pkg[] | string {
     if (p.fetches && p.fetches.some((f: string) => !(f in p.checks))) return `${at}.fetches: must name checks`
     if (p.kind !== undefined && !KINDS.includes(p.kind)) return `${at}.kind: one of ${KINDS.join(', ')}`
     if (p.ownGit !== undefined && typeof p.ownGit !== 'boolean') return `${at}.ownGit: true when the unit is its own git repository (a submodule), else false`
+    if (p.concurrency !== undefined && !(Number.isInteger(p.concurrency) && p.concurrency > 0)) return `${at}.concurrency: expected a whole number above 0 (tasks of this unit at once)`
     if (p.routing !== undefined && (typeof p.routing !== 'object' || Object.values(p.routing).some((c: any) => typeof c?.model !== 'string'))) return `${at}.routing: expected {"worker":{"model":"opus","effort":"high"}}`
   }
   return ps.map(p => ({ ...p, setup: p.setup ?? [] }))

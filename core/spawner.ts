@@ -10,7 +10,9 @@ import { spawnable } from './render'
 import { IDLE, drive, modOn, ready, stop, tally } from './drive'
 import { closeTask } from './close'
 import { integrateEpic } from './integrate'
-import { resolveDeps } from './admission'
+import { modelFor, resolveDeps } from './admission'
+import { pkgOf } from './specview'
+import * as Q from './queue'
 import { sendQueued } from './reuse'
 import { life } from './session'
 import { emit } from './events'
@@ -38,7 +40,7 @@ export async function syncMode(h: Host): Promise<void> {
 
 DRIVE.sync = syncMode
 
-const inflight = new Set<string>()   // `task:role` in flight: two turn ends at once never start one task's step twice (admission's CAS holds across sessions)
+// the picks in flight are core/queue's `held`: two turn ends at once never start one task's step twice (admission's CAS holds across sessions)
 let gate: Promise<unknown> = Promise.resolve()
 const picking = <T>(f: () => Promise<T>): Promise<T> => { const r = gate.then(f, f); gate = r.catch(() => {}); return r }   // ponytail: one process-wide queue; across sessions the drive CAS still decides
 // the spawner's step at a turn end or /cadre: start every agent the board wants, within maxParallel, counted against the drive bounds
@@ -53,10 +55,18 @@ export async function spawnStep(h: Host, event: string): Promise<void> {
   const cfg = await cfgOf(h), usd = (await h.usage?.().catch(() => undefined))?.cost?.usd
   const go = await picking(async () => {   // one frame of this process at a time: read the board, pick within maxParallel, count them on the drive (a CAS three frames would contend on)
     const s = await h.board.read()
-    let free = cfg.maxParallel > 0 ? cfg.maxParallel - s.tasks.filter(t => t.state === 'active').length - [...inflight].filter(k => k.endsWith(':claim')).length : Infinity   // claims still starting count too
-    const go = spawnable(modelView(s), await h.bind.read()).filter(x => !inflight.has(`${x.id}:${x.role}`) && (x.role !== 'claim' || free-- > 0))
-    for (const x of go) inflight.add(`${x.id}:${x.role}`)
-    let ok = false; try { ok = go.length > 0 && (await tally(h, cfg, usd, go.length)) } finally { if (!ok) for (const x of go) inflight.delete(`${x.id}:${x.role}`) }   // refused or thrown: the picks go back
+    const cands = spawnable(modelView(s), await h.bind.read()).filter(x => !Q.has(x.id, x.role)).map((x): Q.Want => ({ ...x, head: x.role !== 'claim' }))
+    const keyed = Object.keys(cfg.concurrency.models).length + Object.keys(cfg.concurrency.providers).length > 0, capped = ((cfg.units ?? []) as { concurrency?: number }[]).some(u => u.concurrency)
+    const d = keyed || capped ? await resolveDeps(h) : undefined, units: Record<string, string> = {}   // routing and units are read only when a limit asks for them
+    const unitOf = async (id: string) => pkgOf(d!, await d!.store.get(id))?.root ?? '.'
+    if (d) {
+      if (capped) for (const t of s.tasks.filter(t => t.state === 'active')) units[t.id] = await unitOf(t.id).catch(() => '.')
+      for (const w of cands) { if (capped && w.role === 'claim') w.unit = await unitOf(w.id).catch(() => '.'); if (keyed) w.model = await modelFor(h, d, w.id, w.role).catch(() => undefined) }
+    }
+    const go = Q.grant(cfg, Q.providerOf(await h.env()), s, d ? await Q.running(h) : [], cands, units)
+    await h.ui.update(u => (u.queued === cands.length - go.length ? u : { ...u, queued: cands.length - go.length }))   // the band's "queued n"
+    for (const x of go) Q.hold(x)
+    let ok = false; try { ok = go.length > 0 && (await tally(h, cfg, usd, go.length)) } finally { if (!ok) for (const x of go) Q.drop(x.id, x.role) }   // refused or thrown: the picks go back
     return ok ? go : []
   })
   for (const x of go) await one(h, x.id, x.role).catch((e: Error) => h.log(`${x.id} not started: ${e.message}`))   // one pick's throw never leaks the picks after it
@@ -97,8 +107,8 @@ async function explores(h: Host) {
   }
 }
 async function one(h: Host, id: string, role: string) {
-  if (life.ending) return void inflight.delete(`${id}:${role}`)   // the session is quitting: an agent started now would die with it, its claim left behind
-  const k = `${id}:${role}`, n = await Promise.resolve().then(async () => intend(h, id, role, await sessionOf(h))).catch((e: Error) => { inflight.delete(k); throw e }); inflight.add(k)   // before the try: a throw here (sessionOf too) gives the pick back
+  if (life.ending) return void Q.drop(id, role)   // the session is quitting: an agent started now would die with it, its claim left behind
+  const n = await Promise.resolve().then(async () => intend(h, id, role, await sessionOf(h))).catch((e: Error) => { Q.drop(id, role); throw e })   // before the try: a throw here (sessionOf too) gives the pick back
   try {
     const r = await h.spawnAgent!({ prompt: modelText('agent-brief', n), description: `${role === 'claim' ? 'start' : role} ${id}` })   // PLAN-<epic>: admission starts its planner
     if (r?.agentId) await h.ui.update(u => ({ ...u, own: [...((u.own as string[]) ?? []), r.agentId!].slice(-100) }))   // its task-notification never reaches main (core/reuse.submit)
@@ -106,5 +116,5 @@ async function one(h: Host, id: string, role: string) {
   } catch (x) {   // admission undid the claim and rethrew: the task budget's startFails; at limits.startFails the run stops for the human
     const n = await charge(h, id, 'startFails'), max = (await cfgOf(h)).limits.startFails
     h.log(`${id} could not start (${n}/${max}): ${x}`); if (n >= max) await stop(h, `${id} could not start ${n} times: ${String(x).slice(0, 120)}`)
-  } finally { inflight.delete(k); await settleIntent(h, n) }
+  } finally { Q.drop(id, role); await settleIntent(h, n) }
 }

@@ -2,6 +2,7 @@
 // A bad key or value is refused with a diagnostic (doctor shows them). The repo layer may only TIGHTEN S keys and may not set U keys. Metadata: REG (config/defaults).
 import type { Host } from '../types'
 import { repoKeyOf } from '../commands/init'
+import { modelIssues } from '../core/queue'
 import { CATS, REG, defaults } from './defaults'
 import type { Cat, Cls, Config, Meta } from './defaults'
 
@@ -32,12 +33,13 @@ export function check(path: string, v: unknown): string | null {
   return r.ok?.(v) ?? null
 }
 
+const RENAMED: Record<string, string> = { maxParallel: 'concurrency.default' }
 // merge one layer onto base; returns a new object and pushes a diagnostic for every ignored key
 export function merge(base: Record<string, any>, layer: Record<string, any>, trust: Trust, diag: string[], path = ''): Record<string, any> {
   const out = { ...base }
   for (const [k, v] of Object.entries(layer)) {
     const p = path ? `${path}.${k}` : k
-    if (!(k in base) && !isOpen(path)) { diag.push(`${p}: unknown key`); continue }
+    if (!(k in base) && !isOpen(path)) { diag.push(RENAMED[p] ? `${p}: renamed: ${RENAMED[p]}` : `${p}: unknown key`); continue }
     const b = base[k]
     if (!isOpen(p) && b != null && !REG[p]?.ok && (plain(b) !== plain(v) || Array.isArray(b) !== Array.isArray(v) || typeof b !== typeof v)) { diag.push(`${p}: expected ${Array.isArray(b) ? 'a list' : plain(b) ? 'an object' : typeof b}`); continue }
     if (plain(v) && plain(b) && !isOpen(p)) { out[k] = merge(b, v, trust, diag, p); continue }   // classes apply at the leaves
@@ -60,6 +62,7 @@ export function resolve(layers: Layer[]): { config: Config; diagnostics: string[
     const d: string[] = []; const m = merge(config, l.value, l.trust, d)
     diagnostics.push(...d.map(x => `${l.name}: ${x}`)); config = m   // ponytail: bad keys are dropped per key, the rest of the layer still applies
   }
+  diagnostics.push(...modelIssues(config as Config))   // refused at load: the drive does not start (core/drive.gate), Doctor names the cell
   return { config: config as Config, diagnostics }
 }
 

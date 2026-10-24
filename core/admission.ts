@@ -26,6 +26,7 @@ import { lockCore, watch } from './rebase'
 import { notesOf, pathsOf, sliceNotes, specTestsOf, untested } from './validate'
 import { branchOf, epicOf } from './milestone'
 import { plannerBrief } from './planner'
+import { tasksFull } from './queue'
 import { budgetOf, intentOf, reserve, step as lifeStep, unreserve } from './lifecycle'
 
 export interface Deps {
@@ -50,6 +51,13 @@ export const admit: Hook = async (h, e, next) => { await warm(h); return admitWi
 const rounds = async (h: Host, id: string) => { const b = await budgetOf(h, id); return b.rework + b.rebase }   // escalation (core/risk.route) counts the task's review and rebase rounds
 export const routeOf = (d: Deps, role: Role, risk: Tier, n = 0, unit?: { root: string; routing?: Record<string, any> }) => (role === 'explorer' || role === 'planner' ? route(role, d.cfg.roles[role], '', 0)
   : ((r = route(role, { ...d.cfg.roles[role].byRisk[risk], ...unit?.routing?.[role] }, risk, n)) => (unit?.routing?.[role] && !r.escalated ? { ...r, setting: `units ${unit.root}: routing.${role}` } : r))())   // a unit's routing override (H7) wins over the risk cell
+const riskFor = (d: Deps, rt?: Tier, task?: Task) => rt ?? riskOf(d.cfg.review, { paths: pathsOf(task), labels: task?.labels ?? [], coreTask: task?.meta['cadre.core'] === 'true' })
+// the model a pick will run on: launch's own routing, asked before the start (core/queue counts runs by it)
+export async function modelFor(h: Host, d: Deps, id: string, role: string): Promise<string | undefined> {
+  const t = (await h.board.read()).tasks.find(x => x.id === id), task = t ? await d.store.get(id).catch(() => undefined) : undefined, step = role === 'claim' && t ? stepsOf(d)(t.type, t.lane)[0] : role
+  if (t && !task) return undefined
+  return forcedOf(await h.env()).model || routeOf(d, ROLE[step] ?? (step as Role), riskFor(d, undefined, task), task ? await rounds(h, id) : 0, task && pkgOf(d, task)).model
+}
 const stepsOf = (d: Deps) => (type: string, lane?: string) => { const p = pipeOf(d.reg)(type, lane); return d.view ? p : p.filter(s => s !== 'tester' && s !== 'red') }   // no view builder: tester/red skipped
 
 export async function admitWith(h: Host, d: Deps, e: any, next: ((e: any) => any) & { origin?: { plugin: string } }): Promise<any> {
@@ -84,7 +92,7 @@ export async function admitWith(h: Host, d: Deps, e: any, next: ((e: any) => any
 
 // ---- shared tail: retype, model, cwd, next(), bind. A rejected or thrown spawn runs `undo` (release) and rethrows. ----
 async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTask, role: Role, prompt: string, cwd: string, step: string, wt: string, undo: () => Promise<void>, rt?: Tier, task?: Task) {
-  const risk = rt ?? riskOf(d.cfg.review, { paths: pathsOf(task), labels: task?.labels ?? [], coreTask: task?.meta['cadre.core'] === 'true' })
+  const risk = riskFor(d, rt, task)
   const r0 = routeOf(d, step === 'tester' ? 'tester' : role, risk, task ? await rounds(h, t.id) : 0, task && pkgOf(d, task)), env = await h.env()
   const fo = forcedOf(env), forced = fo.model || fo.effort ? `${fo.model ?? ''}/${fo.effort ?? ''}` : undefined
   const run = { role, model: fo.model || r0.model, effort: fo.effort || r0.effort || 'default', risk, setting: r0.setting, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }
@@ -93,7 +101,7 @@ async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTa
   if (r?.deny) { await undo(); return r }
   if (!r?.agentId) { await unreserve(h, t.id, step); return r }
   if (typeof r.model === 'string' && r.model !== run.model) Object.assign(run, { ran: r.model })   // the id Claude Code resolved the alias to (its agent.spawn result)
-  await lifeStep(h, r.agentId, { type: 'spawn.ok', mode: e.permissionMode, bind: { taskId: t.id, role, step, worktree: wt, sessionId: d.session, ctxTokens: 0, startedAt: await h.now(), ...(r0.effort ? { effort: r0.effort } : {}) } })
+  await lifeStep(h, r.agentId, { type: 'spawn.ok', mode: e.permissionMode, model: run.model, bind: { taskId: t.id, role, step, worktree: wt, sessionId: d.session, ctxTokens: 0, startedAt: await h.now(), ...(r0.effort ? { effort: r0.effort } : {}) } })
   await emit(h, 'agent.bound', { agentId: r.agentId, taskId: t.id, role, ...(rt ? { tier: rt } : {}), model: run.model, ...((run as any).ran ? { ran: (run as any).ran } : {}), effort: run.effort, setting: r0.setting, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }, { agentId: r.agentId, taskId: t.id, actor: 'mod' })
   if (task) await safe(h, 'runs', async () => { let a: unknown[] = []; try { a = JSON.parse((await d.store.get(t.id)).meta['cadre.runs'] || '[]') } catch {}; await d.store.setMeta(t.id, { 'cadre.runs': JSON.stringify([...a, run].slice(-20)) }, d.actor) })
   await ctlSet(h, { [`hb:${t.id}`]: { s: d.session, at: 0 } })   // the owner session (core/session.ownerOf): another session judges the claim by it; at 0: the next tick renews the claim
@@ -150,8 +158,7 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
   if (t.condition?.state === 'not-met') return deny(`${t.id} never runs: its condition (${t.condition.on} failed) is not met`)
   const ep = epicOf(s, t.epic); if (ep && ep.state !== 'running') return deny(`${t.id}: its epic ${ep.id} is ${ep.state}${ep.why ? ` (${ep.why})` : ''}; go on with the other epics`)   // milestone (ADR 0015)
   if (!(await d.store.ready(t.epic ?? s.epic)).includes(t.id)) return deny(`${t.id} is not ready (waiting on a dependency or gate); spawn a task that status shows ready`)
-  const running = s.tasks.filter(x => x.state === 'active').length
-  if (d.cfg.maxParallel > 0 && running >= d.cfg.maxParallel) return deny(`${running} agents already running (limit ${d.cfg.maxParallel}); wait for one to finish`)
+  if (tasksFull(d.cfg, s)) return deny(`${s.tasks.filter(x => x.state === 'active').length} agents already running (limit ${d.cfg.concurrency.default}); wait for one to finish`)
   const spike = kindOf(spec) === 'spike', top = d; d = inRepo(d, pkgOf(d, await d.store.get(t.id)))
   if (!spike && !(await G.exists(h.run, d.root, branchOf(s, t)))) { if (d === top) return lostEpic(h, s, t); await G.git(h.run, d.root, ['branch', branchOf(s, t), (await G.exists(h.run, d.root, d.cfg.branches.dev)) ? d.cfg.branches.dev : 'HEAD']) }   // a submodule's epic branch: cut from its dev on first use
   const res = await apply(h, { kind: 'claim', id: t.id, at: await h.now(), actor: 'mod', owner: d.actor }, pipe)   // the CAS reserve: one winner (S2)

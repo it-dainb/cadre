@@ -6,6 +6,7 @@ import { ask, settle } from '../core/decide'
 import { start } from '../core/session'
 import { repoKeyOf } from '../commands/init'
 import { HEADLESS, REG, check, headlessMain, layersOf, resolve, rows, tighten } from './index'
+import { clamped } from '../core/queue'
 import { LIMIT } from '../policy/guards'
 import { PROTECTED } from '../core/git'
 import { RETRIES } from '../core/validate'
@@ -37,7 +38,8 @@ export const settingsRows = async (h: any): Promise<Row[]> => {
 export async function doctorRows(h: any): Promise<['ok' | 'warn', string, string?][]> {
   const rs = await settingsRows(h), line = (r: Row): ['ok', string] => ['ok', `setting ${r.key} = ${show(r.value) || '(empty)'} · ${r.src}`]
   const warns = [...new Set(rs.flatMap(r => r.warn?.split('; ') ?? []))].map((w): ['warn', string, string] => (w === HEADLESS ? ['warn', `drive.spawn: ${w}`, 'run Claude Code interactively for cadre to start the agents'] : [`warn`, `${w}: overrides ${rs.filter(r => r.warn?.includes(w)).length} model/effort settings`, 'unset the variable to use the Settings values']))
-  return [...resolve(await layersOf(h, await ctx(h))).diagnostics.map((d): ['warn', string, string] => ['warn', `setting refused: ${d}`, 'fix it in Settings (9) or in that file']), ...warns,
+  const res = resolve(await layersOf(h, await ctx(h)))
+  return [...res.diagnostics.map((d): ['warn', string, string] => ['warn', `setting refused: ${d}`, 'fix it in Settings (9) or in that file']), ...warns, ...clamped(res.config).map((l): ['ok', string] => ['ok', l]),
     ...rs.filter(r => r.src !== 'default' && r.src !== 'fixed').map(line), ...rs.filter(r => r.src === 'default' || r.src === 'fixed').map(line)]
 }
 // the pane cannot read files: its rows ride in the ui atom (like the doctor rows)

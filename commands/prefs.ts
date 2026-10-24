@@ -9,10 +9,10 @@ import { defaults } from '../config/index'
 import { diff as jdiff } from '../policy/settings'
 
 const CARD = 93, STAMP = 'cadre:prefs'
-type Want = { mode: 'auto' | 'yolo'; maxTurns: number; maxCostUsd: number; maxWallMinutes: number; maxParallel: number; maxEpics: number }
+type Want = { mode: 'auto' | 'yolo'; maxTurns: number; maxCostUsd: number; maxWallMinutes: number; concurrency: number; maxEpics: number }
 // metadata key -> config path, the range (min..max); 0 on the two parallel keys = no cadre cap
-const AT: Record<keyof Want, string[]> = { mode: ['drive', 'mode'], maxTurns: ['drive', 'maxTurns'], maxCostUsd: ['drive', 'maxCostUsd'], maxWallMinutes: ['drive', 'maxWallMinutes'], maxParallel: ['maxParallel'], maxEpics: ['milestone', 'maxEpics'] }
-const LIM: [keyof Want, number, number][] = [['maxTurns', 1, 10_000], ['maxCostUsd', 1, 10_000], ['maxWallMinutes', 1, 10_080], ['maxParallel', 0, 100], ['maxEpics', 0, 100]]
+const AT: Record<keyof Want, string[]> = { mode: ['drive', 'mode'], maxTurns: ['drive', 'maxTurns'], maxCostUsd: ['drive', 'maxCostUsd'], maxWallMinutes: ['drive', 'maxWallMinutes'], concurrency: ['concurrency', 'default'], maxEpics: ['milestone', 'maxEpics'] }
+const LIM: [keyof Want, number, number][] = [['maxTurns', 1, 10_000], ['maxCostUsd', 1, 10_000], ['maxWallMinutes', 1, 10_080], ['concurrency', 0, 100], ['maxEpics', 0, 100]]
 const dig = (o: any, p: string[]) => p.reduce((x, k) => x?.[k], o)
 const UNCAPPED = 'every parallel task is a full Claude agent: cost and load grow; drive limits still apply'
 const pathOf = async (h: Host) => `${await h.home()}/.claude/cadre.json`
@@ -52,7 +52,7 @@ export async function prefsTool(h: Host, m: Record<string, unknown>): Promise<un
   if (!p.lines.length) { await h.store.set(STAMP, { at: await h.now() }); return { result: modelData('tool-result', { preferences: 'unchanged' }), context: [modelText('context', 'Nothing to change: these are already the settings. Go on with the next phase.')] } }
   await h.ui.update(u => ({ ...u, 'prefs.pending': { sig: p.sig, want: w } }))
   await initPropose(h, CARD, `setup preferences\n${p.sig}`, { title: 'setup · your preferences · confirm', short: 'setup preferences', sub: 'setup prefs',
-    lines: ['cadre writes this after you confirm (a .bak is kept):', ...p.lines.slice(0, w.maxParallel === 0 || w.maxEpics === 0 ? 4 : 5).map(l => `  ~/.claude/cadre.json: ${l}`), ...(w.maxParallel === 0 || w.maxEpics === 0 ? [UNCAPPED] : [])] })
+    lines: ['cadre writes this after you confirm (a .bak is kept):', ...p.lines.slice(0, w.concurrency === 0 || w.maxEpics === 0 ? 4 : 5).map(l => `  ~/.claude/cadre.json: ${l}`), ...(w.concurrency === 0 || w.maxEpics === 0 ? [UNCAPPED] : [])] })
   return { result: modelData('tool-result', { preferences: 'shown to the user' }), context: [modelText('context', 'cadre shows these choices to the user in a dialog. Tell them to confirm it there (press 1), then go on with the next phase.')] }
 }
 // `setup prefs confirm` (the card's Confirm, dialog only): the file is re-read and must be what the card showed
@@ -76,5 +76,5 @@ export async function prefsItem(h: Host): Promise<{ name: string; st: 'ok' | 'fa
 // doctor's row
 export async function prefsRow(h: Host): Promise<['ok', string]> {
   const c = await cfgOf(h), d = c.drive, u = readJ(await h.readText(await pathOf(h))), has = Object.values(AT).some(p => dig(u, p) !== undefined), n = (x: number) => (x === 0 ? 'no cap' : String(x))
-  return ['ok', `your preferences: ${has ? '~/.claude/cadre.json' : 'the defaults'} (mode ${d.mode}, limits ${d.maxTurns}/$${d.maxCostUsd}/${d.maxWallMinutes}m, parallel ${n(c.maxParallel)} tasks/${n(c.milestone.maxEpics)} epics)`]
+  return ['ok', `your preferences: ${has ? '~/.claude/cadre.json' : 'the defaults'} (mode ${d.mode}, limits ${d.maxTurns}/$${d.maxCostUsd}/${d.maxWallMinutes}m, parallel ${n(c.concurrency.default)} tasks/${n(c.milestone.maxEpics)} epics)`]
 }

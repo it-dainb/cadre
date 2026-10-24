@@ -98,6 +98,11 @@ describe('T6.2 drive is armed at approval, never before, and never answers a dia
 })
 
 describe('T6.3 gate policy', () => {
+  test('a model the gate refuses stops the drive at once and names the cell', async () => {
+    const w = await go('auto'); await w.h.ui.update(({ goal: _g, ...u }) => u)
+    w.files['/repo/.cadre/config.json'] = JSON.stringify({ roles: { worker: { byRisk: { light: { model: 'gpt-5' } } } } }); await w.turn()
+    expect((await w.board()).drive.stopped).toContain('roles.worker.byRisk.light.model: unknown model "gpt-5"'); expect(w.submitted.length).toBe(0)
+  })
   test('auto pauses only on the critical list: an informational flag does not pause; blocked, plan flags and moved refs do', async () => {
     const w = await go('auto'); await w.h.ui.update(({ goal: _g, ...u }) => u)
     await w.setTask({ flags: ['auto-reported'] }); await w.turn(); expect((await w.board()).drive.paused).toBeUndefined(); expect(w.submitted.length).toBe(1)
@@ -221,7 +226,7 @@ describe('hard stops (both modes), bounds, stop/resume', () => {
     const w = await go('yolo'), CJ = '/hm/u/.claude.json', cwd = await w.h.cwd(); await w.h.ui.update(({ goal: _g, ...u }) => u)
     Object.assign(w.h, { write: async (p: string, t: string) => { w.files[p] = t } })
     w.files[CJ] = JSON.stringify({ numStartups: 2 }); await w.turn(); expect((await w.board()).drive.stopped).toBeUndefined()   // set at arm as absent; the engine's own counters never stop a run
-    expect((await dispatch(w.h, { schemaVersion: 1, cmd: 'config', args: ['set', 'maxParallel', '7'], origin: { kind: 'press' } }, route)).text).toContain('saved for you')
+    expect((await dispatch(w.h, { schemaVersion: 1, cmd: 'config', args: ['set', 'concurrency.default', '7'], origin: { kind: 'press' } }, route)).text).toContain('saved for you')
     await w.turn(); expect((await w.board()).drive.stopped).toBeUndefined()
     w.files[CJ] = JSON.stringify({ numStartups: 3, projects: { [cwd]: { mcpServers: { x: { command: 'evil' } } } } }); await w.turn()
     expect((await w.board()).drive.stopped).toBe('a settings file changed during the run')

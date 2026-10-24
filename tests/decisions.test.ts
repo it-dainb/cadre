@@ -131,12 +131,12 @@ describe('answers: the chosen label runs its option as origin dialog; the hash i
 describe('fields: asked one by one in the dialog, validated, re-asked with the error', () => {
   test('a Settings edit: a bad value is refused and re-asked with the error; the good one is saved', async () => {
     const w = { h: fakeHost({ files: {} }) } as unknown as W; await refreshSettings(w.h)
-    const typed = ['lots', '7'], u = await ui(w, (q, ls) => (q === 'maxParallel?' ? typed.shift()! : ls[0]))
-    await configPress(w.h, 'edit maxParallel'); expect((await top(w.h)).fields).toEqual([{ key: 'value', label: 'maxParallel', value: '3' }])
+    const typed = ['lots', '7'], u = await ui(w, (q, ls) => (q === 'concurrency.default?' ? typed.shift()! : ls[0]))
+    await configPress(w.h, 'edit concurrency.default'); expect((await top(w.h)).fields).toEqual([{ key: 'value', label: 'concurrency.default', value: '3' }])
     await answerDialog(w.h)
     expect(u.asked.map(a => a.labels)).toEqual([['Keep 3', 'Cancel'], ['Save for me', 'Save to repo', 'Cancel'], ['Keep 3', 'Cancel'], ['Save for me', 'Save to repo', 'Cancel']])
-    expect(u.asked[3].q).toContain('! expected a number'); expect((w.h as any).logs.filter((l: string) => !l.includes('prune'))).toEqual(['refused: expected a number from 0 to 100', 'maxParallel = 7 · saved for you'])
-    expect(JSON.parse((await w.h.readText('/hm/u/.claude/cadre.json'))!).maxParallel).toBe(7); expect(decisions(await read(w.h))).toEqual([])
+    expect(u.asked[3].q).toContain('! expected a number'); expect((w.h as any).logs.filter((l: string) => !l.includes('prune'))).toEqual(['refused: expected a number from 0 to 100', 'concurrency.default = 7 · saved for you'])
+    expect(JSON.parse((await w.h.readText('/hm/u/.claude/cadre.json'))!).concurrency.default).toBe(7); expect(decisions(await read(w.h))).toEqual([])
   })
   test('Cancel at a field decides nothing', async () => {
     const w = await world(); await ask(w.h, dec('f:1', 'x', 'name it', [], [OK], { fields: [{ key: 'name', label: 'name', value: 'Ada' }] })); const u = await ui(w, () => 'Cancel'); await answerDialog(w.h)

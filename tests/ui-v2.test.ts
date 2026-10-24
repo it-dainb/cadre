@@ -127,6 +127,8 @@ describe('milestone', () => {
     expect(f[0]).toBe('1: Board  2: Graph  3: Timeline  4: Activity  5: Milestone  8: Doctor  9: Settings')
     expect(f[1]).toMatch(/^m1 user-accounts · epics 1\/4 landed · e2 e4 running +live$/)
     expect(txt(band(SC['v2-milestone-parallel'], 120, A))[0]).toMatch(/^› e2\.2 Email verification · \+1 running +m1 user-accounts$/)
+    const q = { ...SC['v2-milestone-parallel'], ui: { ...SC['v2-milestone-parallel'].ui, queued: 2 } }
+    expect(txt(band(q, 120, A))[0]).toMatch(/^› e2\.2 Email verification · \+1 running · queued 2 +m1 user-accounts$/)   // core/queue: ready work waiting for a slot
     expect(flat('v2-driving-yolo', 120)[0]).not.toContain('Milestone')
     expect(flat('v2-driving-yolo', 120, 'milestone')[0]).toContain('1: Board')   // no milestone: tab 5 falls back to the Board
   })
