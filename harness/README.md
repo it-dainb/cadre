@@ -40,7 +40,7 @@ Real users broke what clean single-package runs never did (a monorepo, `/clear` 
 
 ```
 harness/matrix.sh quick -n                 # list the cells + cost/time estimate, run nothing
-harness/matrix.sh quick [-j 3]             # every release: 7 cells in parallel containers, prints the verdict table (exit 1 if any cell fails)
+harness/matrix.sh quick [-j 7]             # every release: all 7 cells at once (wall time = the slowest cell), prints the verdict table (exit 1 if any cell fails)
 harness/matrix.sh milestone                # the milestone lane: a 2-epic goal, both epic plans from planner agents, landed on dev
 SPIKE=/path/to/other/checkout harness/matrix.sh quick    # judge another commit (git archive HEAD of that checkout)
 FILTER='user1|ccr' harness/matrix.sh full  # the cross product (manual runs), a subset by cell name
