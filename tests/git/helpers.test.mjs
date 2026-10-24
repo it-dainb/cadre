@@ -15,7 +15,7 @@ async function fix(runner = run) {
   for (const p of [root, home, base]) mkdirSync(p, { recursive: true })
   await sh(root, 'git', 'init', '-q', '-b', 'main'); await sh(root, 'git', 'config', 'user.email', 't@e.x'); await sh(root, 'git', 'config', 'user.name', 't')
   writeFileSync(join(root, 'package.json'), '{"name":"app"}\n'); writeFileSync(join(root, 'a.txt'), 'a\n'); await sh(root, 'git', 'add', '-A'); await sh(root, 'git', 'commit', '-qm', 'init'); await sh(root, 'git', 'worktree', 'add', '-q', '-b', 'feat/t-1', wt)
-  const h = { run: runner, home: async () => home, readText: async p => (existsSync(p) ? readFileSync(p, 'utf8') : null), write: async (p, t) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) } }
+  const kv = new Map(), h = { run: runner, home: async () => home, env: async () => ({ PATH: process.env.PATH }), store: { get: async k => kv.get(k), set: async (k, v) => { kv.set(k, v) } }, readText: async p => (existsSync(p) ? readFileSync(p, 'utf8') : null), write: async (p, t) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) } }
   return { d, root, wt, base, h, done: () => rmSync(d, { recursive: true, force: true }) }
 }
 // the install step does not run npm: it changes a tracked file, writes a new one and edits the manifest, the way a misbehaving install would
@@ -36,7 +36,7 @@ test('a change outside manifests and lockfiles is discarded once; the next time 
 
 test('the probe tree and its probe/ branch are gone after done, failed or killed (the end is idempotent); an orphan is swept; a live one is kept', async () => {
   const f = await fix(); try {
-    const gone = async n => { assert.ok(!existsSync(P.probePath(f.base, n)), 'tree'); assert.equal(await sh(f.root, 'git', 'branch', '--list', 'probe/*'), '', 'branch') }
+    const gone = async n => { assert.ok(!existsSync(P.probePath(f.base, n)), 'tree'); assert.equal(await sh(f.root, 'git', 'branch', '--list', 'probe/c-*'), '', 'branch') }
     const n1 = { task: 'c-6-1', needId: 'n1' }, path = await P.probeAdd(f.h, f.root, f.base, n1)
     assert.equal(path, P.probePath(f.base, n1)); assert.ok(existsSync(join(path, 'package.json'))); assert.match(await sh(f.root, 'git', 'branch', '--list', 'probe/*'), /probe\/c-6-1-n1/)
     await P.probeEnd(f.h, f.root, f.base, n1); await gone(n1)   // done
@@ -48,6 +48,7 @@ test('the probe tree and its probe/ branch are gone after done, failed or killed
     await P.probeSweep(f.h, f.root, f.base, ['c-6-1-n1']); assert.ok(existsSync(P.probePath(f.base, n1)), 'live kept'); assert.ok(!existsSync(P.probePath(f.base, n2)), 'orphan swept')
     assert.equal(await sh(f.root, 'git', 'branch', '--list', 'probe/*', '--format=%(refname:short)'), 'probe/c-6-1-n1')
     await run(['rm', '-rf', P.probePath(f.base, n1)]); await P.probeSweep(f.h, f.root, f.base, []); await gone(n1)   // an orphan whose folder is gone too (a killed process)
+    await sh(f.root, 'git', 'branch', 'probe/mine'); await P.probeSweep(f.h, f.root, f.base, []); assert.equal(await sh(f.root, 'git', 'branch', '--list', 'probe/mine', '--format=%(refname:short)'), 'probe/mine', 'a branch cadre did not make is never swept')   // the record, not the prefix
     assert.equal(await sh(f.root, 'git', 'rev-parse', 'main'), await sh(f.root, 'git', 'rev-parse', 'HEAD')); assert.equal(await sh(f.root, 'git', 'branch', '--list', 'feat/*', '--format=%(refname:short)'), 'feat/t-1')   // the task branch is untouched
   } finally { f.done() }
 })

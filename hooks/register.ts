@@ -84,7 +84,7 @@ function host($): Host {
     store: { get: k => $.store.get(k), set: async (k, v) => { await $.store.set(k, v) }, del: async k => { await $.store.delete(k) } },
     env: async () => ({
       CADRE_STRICTNESS: await $.env.get('CADRE_STRICTNESS'), CADRE_STORE: await $.env.get('CADRE_STORE'),
-      CADRE_DISABLE: await $.env.get('CADRE_DISABLE'), CADRE_SPAWN: await $.env.get('CADRE_SPAWN'),
+      CADRE_DISABLE: await $.env.get('CADRE_DISABLE'), CADRE_SPAWN: await $.env.get('CADRE_SPAWN'), PATH: await $.env.get('PATH'), LANG: await $.env.get('LANG'),   // an install run's own environment (core/git.setupJail)
       GIT_AUTHOR_NAME: await $.env.get('GIT_AUTHOR_NAME'), GIT_AUTHOR_EMAIL: await $.env.get('GIT_AUTHOR_EMAIL'),   // identity prefill (core/git.identity)
     }),
     readText: async path => { try { return String(await $.fs.read(path)) } catch { return null } },

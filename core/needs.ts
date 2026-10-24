@@ -15,6 +15,7 @@ import { ROLES_DEFAULT } from './roles'
 import type { Deps } from './admission'
 import { checkpoint } from './effect'
 import { pkgOf } from './specview'
+import { unitsOf } from './discover'
 import { policyOf } from '../policy/guards'
 import * as P from './helpers'
 import { ROUTES } from './dispatch'
@@ -108,8 +109,8 @@ export async function drop(h: Host, task: string): Promise<void> {
 // the setup helper's proposed argv: cadre vets and runs it in the requester's task folder; a refusal, or a stop for the human, is the answer
 async function setupAnswer(h: Host, d: Deps, n: Need, argv: unknown): Promise<string> {
   const task = await d.store.get(n.task), wt = task.meta['cadre.worktree'] || d.root, pkg = pkgOf(d, task), strays = (await ctlGet<number>(h, `strays:${n.task}`)) ?? 0
-  const r = await P.setup(h, { root: d.root, wt, cwd: pkg && pkg.root !== '.' ? `${wt}/${pkg.root}` : wt, scratch: `${d.wtRoot}/${d.key}.scratch/${n.task}-setup`, ask: n.ask, argv, auto: d.cfg.deps.auto, check: Object.values(pkg?.checks ?? {})[0], strays, checkpoint: () => checkpoint(h, d.store, d.actor, n.task, wt) })
-  if (r.stray) await ctlSet(h, { [`strays:${n.task}`]: strays + 1 })
+  const r = await P.setup(h, { root: await h.cwd(), base: task.meta['cadre.base'], roots: ['.', ...unitsOf(d.cfg).map(u => u.root)], wt, cwd: pkg && pkg.root !== '.' ? `${wt}/${pkg.root}` : wt, scratch: `${d.wtRoot}/${d.key}.scratch/${n.task}-setup`, ask: n.ask, argv, auto: d.cfg.deps.auto, check: Object.values(pkg?.checks ?? {})[0], strays, checkpoint: () => checkpoint(h, d.store, d.actor, n.task, wt) })
+  if (r.stray || r.done) await ctlSet(h, { [`strays:${n.task}`]: r.stray ? strays + 1 : undefined })   // a clean install starts the count again
   if (r.dialog) await ask(h, { id: `deps:${n.task}:${n.needId}`, kind: 'flag', title: `${n.task}: dependencies wait for you`, hash: n.needId, tab: 'epic', sel: n.task, lines: [r.dialog],
     options: [...(r.allow ? [{ key: 'a', label: 'Allow installs in this repo', verb: 'approve', run: 'deps allow' }] : []), { key: 'k', label: 'OK', verb: 'keep' }] })
   return r.text

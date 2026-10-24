@@ -114,7 +114,7 @@ async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTa
   let r: any
   try { r = await next({ ...e, subagentType: `cadre:${role}`, prompt: modelText('agent-brief', prompt), model: r0.model, cwd }) } catch (err) { await undo(); throw modelRefusal(err, fo.model ? 'CLAUDE_CODE_SUBAGENT_MODEL' : `${r0.setting}.model`, run.model) }   // the model named is the one the engine was given: a forced one beats cadre's
   if (r?.deny) { await undo(); return r }
-  if (!r?.agentId) { await unreserve(h, t.id, step); return r }
+  if (!r?.agentId) { await unreserve(h, t.id, step); await undo(); return r }   // nobody started: what the start made (a probe's tree) goes too
   if (typeof r.model === 'string' && r.model !== run.model) Object.assign(run, { ran: r.model })   // the id Claude Code resolved the alias to (its agent.spawn result)
   await lifeStep(h, r.agentId, { type: 'spawn.ok', mode: e.permissionMode, model: run.model, bind: { taskId: t.id, role, step, worktree: wt, sessionId: d.session, ctxTokens: 0, startedAt: await h.now(), ...(r0.effort ? { effort: r0.effort } : {}), ...bx } })
   await emit(h, 'agent.bound', { agentId: r.agentId, taskId: t.id, role, ...(rt ? { tier: rt } : {}), model: run.model, ...((run as any).ran ? { ran: (run as any).ran } : {}), effort: run.effort, setting: r0.setting, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }, { agentId: r.agentId, taskId: t.id, actor: 'mod' })

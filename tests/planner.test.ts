@@ -105,3 +105,14 @@ describe('milestone.epicPlanner main', () => {
     await w.turn(); expect(w.spawned).toEqual([])
   })
 })
+
+describe("a planner's probe: its tree goes with the start that failed", () => {
+  const REQ = { outcome: 'request', request: { helper: 'probe', ask: 'where is the parser?', why: 'I plan after it' } }
+  test('a start that made no agent removes the probe tree and its branch again; a start that did keeps them', async () => {
+    const w = await ms(); await w.turn(); expect(await w.rep('ag1', REQ)).toMatch(/^request recorded/)
+    Object.assign(w.h, { spawnAgent: (a: any) => admitWith(w.h, w.d, a, Object.assign(async () => ({}), { origin: { plugin: 'cadre' } })) })   // the engine started nobody (no agent id, no deny)
+    await w.turn(); const add = w.calls.filter(c => c.includes('worktree') && c.includes('add')), del = w.calls.filter(c => c.includes('branch') && c.includes('-D') && c.some(x => x.startsWith('probe/')))
+    expect(add).toHaveLength(1); expect(add[0]).toContain(`probe/${w.es[0]}-n1`); expect(del).toHaveLength(1); expect(w.calls.indexOf(del[0])).toBeGreaterThan(w.calls.indexOf(add[0]))   // the undo, after the add
+    expect(w.calls.filter(c => c.includes('worktree') && c.includes('remove')).length).toBeGreaterThanOrEqual(2)
+  })
+})

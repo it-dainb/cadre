@@ -86,6 +86,14 @@ export const homeScratchJail = (j: J & { scratchHome: string }): string[] => {
   const h = j.scratchHome
   return writableJail({ ...j, writable: [...(j.writable ?? []), h], env: { ...j.env, HOME: h, XDG_CACHE_HOME: `${h}/.cache`, XDG_CONFIG_HOME: `${h}/.config`, XDG_DATA_HOME: `${h}/.local/share` } })
 }
+// An install run (core/helpers.setup): nothing of the host leaks in. clearenv + the given env only; the real $HOME is hidden behind a tmpfs, and the folders the run needs (the
+// worktree, its scratch HOME, the tool folders on PATH that lie under the real home) are bound back on top. A PATH entry <prefix>/bin deeper than two levels under the home
+// (nvm, pyenv, asdf versions) binds its prefix so its symlinks resolve; shallower ones (~/.cargo/bin, ~/.local/bin) bind only the folder itself, never ~/.cargo or ~/.local (credentials).
+export const setupJail = (j: J & { scratchHome: string; home: string; path: string }): string[] => {
+  const h = j.scratchHome, under = j.path.split(':').filter(p => p.startsWith(`${j.home}/`)), bins = under.map(p => (p.endsWith('/bin') && p.slice(j.home.length + 1).split('/').length > 3 ? p.slice(0, -4) : p))
+  return ['bwrap', '--clearenv', ...RO(j), '--tmpfs', j.home, ...[...new Set(bins)].flatMap(b => ['--ro-bind', b, b]), '--bind', j.wt, j.wt, '--bind', h, h,
+    ...tail({ ...j, env: { PATH: j.path, HOME: h, XDG_CACHE_HOME: `${h}/.cache`, XDG_CONFIG_HOME: `${h}/.config`, XDG_DATA_HOME: `${h}/.local/share`, ...j.env } })]
+}
 // Probe once per hook: overlay (bwrap with --overlay-src), copy (bwrap works, no overlay) or none (no usable bwrap: unjailed throwaway copy, network unenforced).
 export async function jailMode(run: Run): Promise<'overlay' | 'copy' | 'none'> {
   const t = await run(['bwrap', '--ro-bind', '/', '/', 'true']).catch(() => undefined)
