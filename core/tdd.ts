@@ -1,6 +1,6 @@
 // Spec-first TDD gates (DESIGN 3.5): copy-in by path, red (JUnit + the <error> rule), lock, green (skipped != passed, knownRed never gates), spec_change.
 // Entry points for core/close: testerDone (tester report), green (worker report), specChange (owner report), lockedViolations (close), resolveSpec (/cadre resolve).
-import { spawnIt } from './render'
+import { modOn, spawnIt } from './render'
 import type { Host } from '../types'
 import type { Task } from '../task-management/store'
 import { pipeOf } from '../task-management/registry'
@@ -292,5 +292,5 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
   await d.store.setMeta(id, { 'cadre.blocked': '', 'cadre.decision': note.slice(0, 1500) }, d.actor)
   const bind = await h.bind.read(), w = acc ? undefined : Object.keys(bind).find(a => !a.startsWith('~') && bind[a].taskId === id && bind[a].role === 'worker')
   if (w) await step(h, w, { type: 'resume', text: 'The spec change was rejected: the locked tests stay. Make them pass, then report done.' })   // as unblock does: the worker that asked is waiting
-  return { text: acc ? `${id}: accepted${sp('spawn it for the tester to amend')}; the tester amends the spec (new red, amended specCommit)` : w ? `${id}: rejected; the worker is resumed to conform to the locked tests` : `${id}: rejected${sp('spawn it to resume the worker')}` }
+  return { text: acc ? `${id}: accepted${modOn(snap) ? '; the tester amends' : '; spawn it for the tester to amend'} the spec (new red, amended specCommit)` : w ? `${id}: rejected; the worker is resumed to conform to the locked tests` : `${id}: rejected${sp('spawn it to resume the worker')}` }
 }

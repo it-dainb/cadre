@@ -73,7 +73,7 @@ export function contextLine(s: Omit<Snapshot, 'seq' | 'cost'>, idle: string[] = 
     ...ts.filter(t => !running.includes(t) && ['review', 'blocked'].includes(t.state)).map(t => `${t.id} ${tag(t)}`),
     ...s.sync.filter(x => x.state !== 'ok').map(x => `sync: ${x.target} ${x.state} (${x.pending})`)]
   if (s.approval.missing.length) parts.push(`missing: ${s.approval.missing.join('; ')}`)
-  const self = !!(s.drive?.on && !s.drive.stopped && s.drive.spawn === 'mod')   // the steps run by themselves (ADR 0018)
+  const self = !!s.drive && modOn(s as Pick<Snapshot, 'drive'>)   // the steps run by themselves (ADR 0018)
   return `${parts.filter(Boolean).join(' · ').slice(0, 1000)}\nnext: ${nextAction(s, idle, self)}`
 }
 // what an agent should start for now, as data (ADR 0018: the spawner runs these itself; nextAction words them for main): reviewers nobody runs, then every
@@ -88,7 +88,9 @@ export function spawnable(s: Omit<Snapshot, 'seq' | 'cost'>, bind?: Record<strin
 }
 // mod mode (ADR 0018): what main hears when the plan's steps are all cadre's (spawn, complete a task or an epic)
 // the instruction to spawn a step goes only to a main that spawns: where cadre starts the agents (drive.spawn mod) it is dropped, or main tries and is refused
-export const spawnIt = (s: Pick<Snapshot, 'drive'>, what: string) => (s.drive.spawn === 'mod' ? '' : `; ${what}`)
+// mod mode (ADR 0018) is on for this run: cadre spawns, closes and completes; main plans and talks to the user. A stopped or off drive spawns nothing: main may.
+export const modOn = (s: Pick<Snapshot, 'drive'>) => !!(s.drive.on && !s.drive.stopped && s.drive.spawn === 'mod')
+export const spawnIt = (s: Pick<Snapshot, 'drive'>, what: string) => (modOn(s) ? '' : `; ${what}`)
 export const RUNS = 'wait: the tasks run by themselves and you hear when each lands, so talk with the user or plan what is next'
 export function nextAction(s: Omit<Snapshot, 'seq' | 'cost'>, idle: string[] = [], mod = false): string {
   const ts = s.tasks as SnapTask[], a: string[] = []

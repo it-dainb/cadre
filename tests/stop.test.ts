@@ -6,6 +6,8 @@ import { arm, kick, stop, tally, watchdog } from '../core/drive'
 import { emit } from '../core/events'
 import { defaults } from '../config/index'
 import { stopped } from '../core/close'
+import { spawnIt } from '../core/render'
+import { resolveSpec, specChange } from '../core/tdd'
 import { decide } from '../commands/cadre'
 import { ROUTES } from '../core/dispatch'
 import { budgetOf } from '../core/lifecycle'
@@ -121,5 +123,17 @@ describe('a step back: the store and the words', () => {
     await w.at('ag1', id, 'tester'); await w.rep('ag1', { role: 'tester', outcome: 'done', summary: 's', tests: TESTS }); await w.turn()
     await w.h.board.update((s: any) => ({ ...s, drive: { ...s.drive, spawn: undefined } }))
     expect(await retry(w, id)).toBe(`${id}: back to the tester; spawn it`)
+  })
+  test('a stopped or off drive spawns nothing: main is still told, in mod mode too', () => {
+    const d = { on: true, spawn: 'mod' as const }
+    expect(spawnIt({ drive: d } as any, 'spawn it')).toBe('')
+    expect(spawnIt({ drive: { ...d, stopped: 'because' } } as any, 'spawn it')).toBe('; spawn it'); expect(spawnIt({ drive: { ...d, on: false } } as any, 'spawn it')).toBe('; spawn it')
+  })
+  test('accepting a spec change: the text names the spawn only where main spawns', async () => {
+    for (const [mode, text] of [['mod', 'accepted; the tester amends the spec'], ['main', 'accepted; spawn it for the tester to amend the spec']] as const) {
+      const w = await world({ n: 1, type: 'feature', pkg: RED_PKG, drive: 'auto', mode }); await arm(w.h, 'auto'); const [id] = w.ids
+      await w.at('ag1', id, 'tester'); await specChange(w.h, w.dep, id, 'why')
+      expect((await resolveSpec(w.h, id, 'accept')).text).toContain(`${id}: ${text} (new red, amended specCommit)`)
+    }
   })
 })

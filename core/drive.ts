@@ -8,7 +8,7 @@ import { pipeOf } from '../task-management/registry'
 import { DRIVE, ROUTES, cfgOf, mirror, registryOf, storeOf } from './dispatch'
 import { fnv1a64, idleOf, modelView, safe, sessionOf } from './board'
 import { emit, subscribe } from './events'
-import { RUNS, nextAction, spawnable } from './render'
+import { RUNS, modOn, nextAction, spawnable } from './render'
 import { ask, flagDecision, holds, yoloOn } from './decide'
 import { BLOCKING, apply } from './machine'
 import { queueBrief } from './lanes'
@@ -180,8 +180,7 @@ export async function drive(h: Host, cfg: any, usd: number | undefined, quiet = 
   if (quiet && (!text || (await h.ui.read()).told === text)) return
   if (await tally(h, cfg, usd, text ? 1 : 0) && text) { await h.ui.update(u => ({ ...u, told: text })); await h.submit!(modelText('brief', text)) }   // plain text, never a slash command; from a turn end only (#1 or the spawner, after next)
 }
-// mod mode (ADR 0018) is on for this run: cadre spawns, closes and completes; main plans and talks to the user
-export const modOn = (s: Pick<Snapshot, 'drive'>) => !!(s.drive.on && !s.drive.stopped && s.drive.spawn === 'mod')
+export { modOn }
 
 // mod mode (ADR 0018): only a turn end starts agents, and a dialog answer, a press or the timer is no frame to spawn from. With nothing running and work to
 // start, main gets one short turn whose end lets the spawner go (the idle fallback; the watchdog uses it too).

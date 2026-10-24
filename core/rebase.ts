@@ -15,7 +15,7 @@ import { setup } from './admission'
 import { baseOf, taskBranch, wtPath } from './branches'
 import { decided } from './drive'
 import { ask } from './decide'
-import { card, spawnIt } from './render'
+import { card, modOn, spawnIt } from './render'
 import { policyOf, setPolicy } from '../policy/guards'
 import { overlap, pathsOf } from './validate'
 import * as G from './git'
@@ -56,8 +56,8 @@ export async function rework(h: Host, d: Deps, t: SnapTask, task: Task, tip: str
     'Keep your change, keep every test green; locked tests stay as they are. Then report done again.'].join('\n'))
   const w = await worker(h, t.id); if (w) await step(h, w, { type: 'resume', text })
   await decided(h, 'rebase', `${t.id}: reworked onto the plan tip ${sha7(tip)} (${why}${by.length ? ` after ${by.join(', ')}` : ''}), round ${n}/${ROUNDS}`, t.id)
-  await h.board.update(s => ({ ...s, tasks: s.tasks.map(x => (x.id === t.id ? { ...x, card: card({ id: t.id, title: t.title, role: 'main', to: 'worker', flags: x.flags, next: w ? 'worker resumed: it updates its change onto the plan' : s.drive.spawn === 'mod' ? 'wait: the worker starts by itself' : `spawn TASK-${t.id} (worker)` }) } : x)) }))
-  return `${t.id} was not merged: the plan moved (${why === 'conflict' ? `conflicts in ${conf.join(', ') || 'its files'}` : 'its checks fail on the new tip'}). Its worker updates it (round ${n}/${ROUNDS}); it comes back for review. ${w ? 'Wait for it (status).' : (await h.board.read()).drive.spawn === 'mod' ? 'A new worker starts by itself.' : `Spawn TASK-${t.id} again.`}`
+  await h.board.update(s => ({ ...s, tasks: s.tasks.map(x => (x.id === t.id ? { ...x, card: card({ id: t.id, title: t.title, role: 'main', to: 'worker', flags: x.flags, next: w ? 'worker resumed: it updates its change onto the plan' : modOn(s) ? 'wait: the worker starts by itself' : `spawn TASK-${t.id} (worker)` }) } : x)) }))
+  return `${t.id} was not merged: the plan moved (${why === 'conflict' ? `conflicts in ${conf.join(', ') || 'its files'}` : 'its checks fail on the new tip'}). Its worker updates it (round ${n}/${ROUNDS}); it comes back for review. ${w ? 'Wait for it (status).' : modOn(await h.board.read()) ? 'A new worker starts by itself.' : `Spawn TASK-${t.id} again.`}`
 }
 // past the cap: the human sees both sides (auto: the dialog; yolo: the task stays blocked while the rest goes on, core/drive)
 export async function capAsk(h: Host, d: Deps, t: SnapTask, task: Task, tip: string, files: string[]): Promise<void> {

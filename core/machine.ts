@@ -69,7 +69,7 @@ export async function apply(h: Host, m: MEvent, pipe: Pipe): Promise<Result> {
   let seq = 0
   for (const e of res.events) seq = (await emit(h, e.type, e.data, { taskId: m.id, actor: m.actor })).seq
   await stamp(h, seq)
-  if (m.kind === 'rewind') await (await Promise.resolve().then(() => storeOf(h)).catch(() => null))?.setMeta(m.id, { 'cadre.step': m.on! }, 'cadre')   // the store keeps the step: a restart or /cadre continue rebuilds the board from it (it read 'worker' after a rewind to the tester)
+  if (m.kind === 'rewind') try { await (await storeOf(h)).setMeta(m.id, { 'cadre.step': m.on! }, 'cadre') } catch (e) { h.log(`${m.id}: the store keeps its old step: ${e}`) }   // a failed write must not undo the move the board already made; the store keeps the step: a restart or /cadre continue rebuilds the board from it (it read 'worker' after a rewind to the tester)
   if (m.kind === 'close') for (let s = pendingSkips(res.board); s.length; s = pendingSkips((await h.board.read()))) {   // a conditional-blocks upstream closed done: dependants never run (3.4 skip)
     for (const k of s) { const r = await apply(h, { kind: 'skip', id: k.id, on: k.on, at: m.at, actor: 'mod' }, pipe); if (!r.ok) return r; await (await Promise.resolve().then(() => storeOf(h)).catch(() => null))?.close(k.id, { outcome: 'cancelled', note: 'skipped: condition not met' }).catch(() => {}) }
   }
