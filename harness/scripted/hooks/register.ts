@@ -10,6 +10,7 @@
 //   pair: full lane, two independent tasks (concurrency-fifo, with concurrency.default 1 in the repo's config);
 //   needs: lite, the worker first asks the explore helper (report outcome request), and writes its files once it is answered (needs-explore);
 //   multi: full lane, two tasks (kebabCase after titleCase), an amend on a stale revision refused then retried (plan-tools-full);
+//   probe: a milestone of two epics (the second after the first); the epic's planner asks the probe helper first, and drafts its tasks once it is answered (planner-probe);
 //   sub: lite, the task in the `lib` submodule unit (submodule-unit); cont: lite, the reviewer waits 14 s first (continue-after-quit-s kills before or during it).
 import type { Register } from 'claude-code'
 
@@ -47,6 +48,16 @@ function main(rows: Row[]): Act {
   if (!answered) return { text: 'Waiting for the explorer.' }
   if (!used('ask')) return { tool: T('ask'), input: { clarity: { outcome: 1, scope: 1, acceptance: 1, constraints: 1 } } }
   const mission = /There is no mission yet/.test(rows[g].text) ? { mission: 'Goal: add titleCase(s) to the library\nConstraints: none\nNon-goals: none' } : {}
+  if (script === 'probe') {   // a milestone: two epics (the second after the first), the critic's review, then main waits for the roadmap's dialog
+    const n = (t: string) => calls.filter(c => c.tool === T(t)).length, ids = after.flatMap(r => (r.role === 'user' ? r.toolResults ?? [] : [])).map(r => r.text ?? ''), id = (k: number) => ids.filter(x => /"id":\s*"/.test(x))[k]?.match(/"id":\s*"([^"]+)"/)?.[1]
+    const rev = Math.max(1, ...ids.map(x => +(x.match(/"revision":\s*(\d+)/)?.[1] ?? 0)), 0)
+    if (!used('plan')) return { tool: T('plan'), input: { title: 'Add two string helpers to the library', description: 'wordCount(s) and truncate(s, n), each with node:test tests.', lane: 'milestone', reason: 'two separate features', ...mission } }
+    if (n('epic') < 2) return { tool: T('epic'), input: { ...EPICS[n('epic')], ...(n('epic') ? { after: [id(1)] } : {}) } }
+    if (n('explore') < 2) return { tool: T('explore'), input: { question: `Review this roadmap for gaps, overlaps and a wrong order: ${EPICS.map((e, i) => `${i + 1}. ${e.title}: ${e.goal} (files ${e.paths.join(', ')})`).join('; ')}` } }
+    if (after.filter(r => isText(r) && /Result of ask-|its answer was already given/.test(r.text)).length < 2) return { text: 'Waiting for the critic.' }
+    if (!used('amend')) return { tool: T('amend'), input: { id: id(0), expectedRevision: rev, critique: 'The critic found no gaps or overlaps: the order stands.' } }
+    return { text: 'The roadmap is drafted: approve it in the dialog (key 1 opens it).' }
+  }
   if (script === 'multi') {   // res: the k-th result of a tool's calls (its text, whether refused)
     const n = (t: string) => calls.filter(c => c.tool === T(t)).length
     const res = (t: string, k: number) => { let j = -1; for (let i = 0; i < after.length; i++) if (after[i].role === 'assistant' && after[i].toolUses?.some(c => c.tool === T(t)) && ++j === k) return after[i + 1]?.toolResults?.[0] }
@@ -74,6 +85,8 @@ function main(rows: Row[]): Act {
   }
   return { text: 'The plan is drafted: approve it in the dialog (key 1 opens it).' }
 }
+const EPICS = [{ title: 'wordCount(s)', goal: 'wordCount(s) in src/words.mjs returns the number of words in s', size: 1, paths: ['src/words.mjs', 'test/words.test.mjs'] },
+  { title: 'truncate(s, n)', goal: 'truncate(s, n) in src/truncate.mjs cuts s to n characters and ends it with "..."', size: 1, paths: ['src/truncate.mjs', 'test/truncate.test.mjs'] }]
 // the function a brief is about (multi: kebabCase is the second task), its test and files
 type Fn = { name: string; title: string; input: string; out: string; impl: string; what: string }
 const FNS: Fn[] = [
@@ -106,6 +119,11 @@ const ROLES: Record<string, (k: number, brief: string, cwd: string, rows: Row[])
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'tester', outcome: 'done', summary: `One test per scenario in test/${f.name}.test.mjs.`, tests: [{ path: `test/${f.name}.test.mjs`, name: f.title, scenario: 'S1' }], run: { command: ['node', '--test', `test/${f.name}.test.mjs`] } } }][k] ?? { text: END } },
   reviewer: (k, b) => { const f = fnOf(b), full = script === 'full' || script === 'multi' || script === 'pair'; return [{ tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'reviewer', verdict: 'pass', summary: `The commit adds ${f.name} and its test only; npm test passes.`, findings: [], coverage: full ? [{ scenario: 'S1', test: f.title, ok: true }] : [], contractStatus: full ? [{ name: f.name, ok: true }] : [] } }][k] ?? { text: END } },
+  planner: (k, _b, _c, rows) => rows.some(r => isText(r) && /Answer to your request/.test(r.text))
+    ? [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'planner', summary: 'One task.', tasks: [{ subject: 'wordCount(s) with node:test tests', description: 'Create src/words.mjs exporting wordCount: the number of whitespace-separated words in s.',
+      metadata: { type: 'feature', package: '.', paths: ['src/words.mjs', 'test/words.test.mjs'], scenarios: ["S1: Given 'a b c' When wordCount is called Then it returns 3"], changelog: { category: 'Added', entry: 'wordCount(s): the number of words in s' },
+        interface: { symbols: [{ name: 'wordCount', kind: 'function', params: ['s: string'], returns: 'number', status: 'new' }] } } }] } }][k] ?? { text: END }   // after the probe's answer: the plan
+    : [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'planner', outcome: 'request', summary: 'I look at the project before I plan.', request: { helper: 'probe', ask: 'Where do the string helpers live and how are they tested?', why: 'I plan the tasks next to them', paths: ['src/'] } } }][k] ?? { text: END },
   explorer: k => [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'explorer', answer: 'One string helper, slug, in src/slug.mjs as a named ESM export; tests in test/ use node:test; npm test runs node --test.', citations: [{ path: 'src/slug.mjs', line: 1 }, { path: 'package.json', line: 1 }] } }][k] ?? { text: END },
 }
 function agent(rows: Row[], cwd: string): [string, Act] {
@@ -115,7 +133,7 @@ function agent(rows: Row[], cwd: string): [string, Act] {
   if (probe === 'end') return [probe, { text: END }]
   if (probe === 'hb') return [probe, /No such tool available: SubagentHandback/.test(JSON.stringify(rows.at(-1))) ? { text: END } : { text: END, tool: 'SubagentHandback', input: { message: END } }]   // the tool exists in auto mode only
   if (probe === 'wedge' || probe === 'tools') return [probe, k === 0 ? { tool: 'Bash', input: { command: 'node -e "setTimeout(() => {}, 600000)"', description: 'Wait' } } : { text: END }]
-  const role = brief.match(/\b(Worker|Reviewer|Explorer|Tester|Planner) brief/)?.[1]?.toLowerCase() ?? 'unknown'
+  const role = brief.match(/\b(Worker|Reviewer|Explorer|Tester|Planner) brief/)?.[1]?.toLowerCase() ?? (/# PLAN-\w/.test(brief) ? 'planner' : 'unknown')
   return [role, ROLES[role]?.(k, brief, cwd, rows) ?? { text: END }]
 }
 
@@ -138,6 +156,7 @@ export const register: Register = (on) => {
     const rows = ((await $.session.messages(e.agentId ? { agentId: e.agentId } : {})) ?? []) as Row[]
     const [who, a] = e.agentId ? agent(rows, cwds[e.agentId] ?? '/work/run') : ['main', main(rows)]
     if (script === 'limit' && who === 'worker' && !injected) { injected = true; await L($, `step agent=${e.agentId} who=worker index=${e.index} -> next (usage limit from the proxy)`); return yield* next(e) }
+    if (who === 'planner' && JSON.stringify(rows.at(-1) ?? {}).includes('plan accepted')) await L($, 'planner plan accepted')
     await L($, `step agent=${e.agentId ?? 'main'} who=${who} index=${e.index} msgs=${e.messageCount} effort=${e.effort ?? '-'} -> ${a.tool ? `${a.text ? 'text+' : ''}tool ${a.tool}` : 'text end_turn'}`)
     // cont: the reviewer's first two steps wait 7 s each (a hook call over ~10 s fails: HooksError, so one long sleep won't do). The reviewer has no Bash, so the wait is a sleep here: with none, the reviewer ends within a second of the worker and the
     // cell's SIGKILL (polled every 2 s, later under load) lands after it, leaving no reviewer to run after the restart

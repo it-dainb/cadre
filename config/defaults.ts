@@ -42,6 +42,7 @@ export const defaults = () => ({
   lessons: { model: 'haiku', passesPerDay: 4, repeats: 3, repos: 2, decayDays: 30, maxAgeDays: 90, perBrief: 5 },   // ADR 0028: the side-model pass (0 passes = off), promotion, decay, the feed
   notes: { slice: true },   // ADR 0022
   reuse: { maxContextPct: 60, cacheTtlMs: 3_600_000 },   // 1h: roles ship as agent files with experimental.cacheTtl 1h (A28, ADR 0001 S44)
+  deps: { auto: true },   // cadre runs the setup helper's install; the first one in a repo still needs the user's approval (core/helpers)
   disable: false,
 })
 export type Config = ReturnType<typeof defaults>
@@ -75,6 +76,7 @@ export const REG: Record<string, Meta> = {
   'drive.maxWallMinutes': m(D, 'a drive stops after this many minutes', { cls: 'U', ...N(1, 10_080) }), 'drive.noProgressTurns': m(D, 'an epic stops after this many turns without progress', { cls: 'U', ...N(1, 100) }),
   'limits.nudges': m(D, 'times an agent that stopped without a report is nudged', N(0, 10)), 'limits.silentRuns': m(D, 'agent runs without a report before the task blocks', N(1, 10)),
   'limits.helpers.perTask': m(D, 'helper requests one task may make', N(0, 10)), 'limits.helpers.minutes': m(D, 'minutes a helper may run before it counts as failed', N(1, 120)),
+  'deps.auto': m(D, 'cadre installs the dependencies a task asks for (false: each ask waits for you); the first install in a repo also needs your approval', { cls: 'U' }),
   'limits.startFails': m(D, 'failed agent starts of one task before the run stops', N(1, 10)),
   'limits.limitWaitMinutes': m(D, 'after a usage limit, the drive waits at least this long before it goes on (minutes)', N(1, 300)),   // 0: a limit with no reported reset would lift at once and retry while still limited
   disable: m(D, 'turn cadre off for you, from the next session (env CADRE_DISABLE)', { cls: 'U' }),

@@ -12,12 +12,19 @@ import { cfgOf } from './dispatch'
 import { limited } from './drive'
 import { runOf, step } from './lifecycle'
 import { ROLES_DEFAULT } from './roles'
+import type { Deps } from './admission'
+import { checkpoint } from './effect'
+import { pkgOf } from './specview'
+import { policyOf } from '../policy/guards'
+import * as P from './helpers'
+import { ROUTES } from './dispatch'
 
 export interface Need { task: string; needId: string; n: number; requester: string; epoch: number; helper: string; ask: string; why: string; paths?: string[]; fails: number; answer?: string; ok?: boolean; delivered?: boolean }
 export const needOf = (h: Host, task: string) => ctlGet<Need>(h, `need:${task}`)
 const put = (h: Host, n: Need) => ctlSet(h, { [`need:${n.task}`]: n })
-const HELPERS = ['explore']
-export const question = (n: Need) => `${n.ask}\n\nWhy it is asked: ${n.why}${n.paths?.length ? `\nLook at: ${n.paths.join(', ')}` : ''}`
+const HELPERS = ['explore', 'setup', 'probe']
+const SETUP = '\nFind the one command that adds what is asked: read the manifests, lockfiles and CI files. Report role "explorer" with a short answer and argv, the command as a list, e.g. ["npm","install","left-pad"]. You only propose it; it is run for you and committed. No sudo, no global or user-wide installs, no pipes.'
+export const question = (n: Need) => `${n.ask}\n\nWhy it is asked: ${n.why}${n.paths?.length ? `\nLook at: ${n.paths.join(', ')}` : ''}${n.helper === 'setup' ? SETUP : n.helper === 'probe' ? '\nYour folder is a scratch copy of the project: look around freely and answer the question.' : ''}`
 const FAILED = 'The helper could not answer your request. Go on without it, or report outcome "blocked" with what you need.'
 export const reply = (n: Need) => (n.ok ? `Answer to your request:\n${n.answer}\nGo on with your task.` : FAILED)
 
@@ -46,20 +53,20 @@ async function cas(h: Host, task: string, f: (n: Need) => Need | undefined): Pro
 // the answer is stored (text null: failed), then the requester's wake (dropped by its run epoch and needId when that run is no longer the one that asked)
 async function answer(h: Host, n: Need, text: string | null, fail = false): Promise<boolean> {
   const x = await cas(h, n.task, c => (c.needId === n.needId && c.answer === undefined && (!fail || c.fails >= 1) ? { ...c, answer: text ?? FAILED, ok: text !== null } : undefined)); if (!x) return false
-  await emit(h, 'help.done', { taskId: x.task, helper: x.helper, ok: x.ok }, { taskId: x.task })
+  await emit(h, 'help.done', { taskId: x.task, helper: x.helper, ok: x.ok }, { taskId: x.task }); await probeEnd(h, x)
   await step(h, x.requester, { type: 'answered', needId: x.needId, epoch: x.epoch, text: reply(x) }); return true
 }
 // a helper's report (core/close.report): its answer is the requester's wake
-export async function helperDone(h: Host, b: Binding, r: { role: string; answer?: string; citations?: { path?: string; line?: number }[] }): Promise<string> {
+export async function helperDone(h: Host, d: Deps, b: Binding, r: { role: string; answer?: string; argv?: unknown; citations?: { path?: string; line?: number }[] }): Promise<string> {
   if (r.role !== 'explorer') throw new Error('role: you are a helper; report role "explorer" with answer and citations')
   const n = await needOf(h, b.taskId); if (!n || n.needId !== b.needId) return 'this request is closed. Stop.'
-  await answer(h, n, [String(r.answer), ...(r.citations ?? []).slice(0, 10).map(c => `${c.path}:${c.line ?? ''}`)].join('\n').slice(0, 2500))
+  await answer(h, n, n.helper === 'setup' ? await setupAnswer(h, d, n, r.argv) : [String(r.answer), ...(r.citations ?? []).slice(0, 10).map(c => `${c.path}:${c.line ?? ''}`)].join('\n').slice(0, 2500))
   return 'answer recorded. Stop.'
 }
 // a failed helper is stopped like the backstop's (it never runs beside its respawn), ended lost; the first failure leaves the request for the spawner, the second answers failed
 async function failed(h: Host, a: string, n: Need, why: string): Promise<void> {
   if ((await needOf(h, n.task))?.answer !== undefined) return   // it answered first
-  await h.stopAgent?.(a).catch(() => {}); await step(h, a, { type: 'end', cause: 'lost', reason: why })
+  await h.stopAgent?.(a).catch(() => {}); await step(h, a, { type: 'end', cause: 'lost', reason: why }); await probeEnd(h, n)
   if (!(await answer(h, n, null, true))) return void (await cas(h, n.task, c => (c.needId === n.needId && c.answer === undefined && c.fails < 1 ? { ...c, fails: 1 } : undefined)))   // the first failure: once
   await ask(h, { id: `help:${n.task}:${n.needId}`, kind: 'flag', title: `${n.task}: a helper could not answer`, hash: n.needId, tab: 'epic', sel: n.task, lines: [`The helper asked to look into "${n.ask.slice(0, 120)}" failed twice (${why}). Its task goes on without the answer.`], options: [{ key: 'k', label: 'OK', verb: 'keep' }] })
 }
@@ -93,5 +100,25 @@ export async function delivered(h: Host, task: string, agentId?: string): Promis
 export async function drop(h: Host, task: string): Promise<void> {
   const n = await needOf(h, task); if (!n) return
   for (const [a, b] of Object.entries(await h.bind.read())) if (b.taskId === task && b.parent) { await h.stopAgent?.(a).catch(() => {}); await step(h, a, { type: 'end', cause: 'lost', reason: 'dropped' }) }
+  await probeEnd(h, n); await ctlSet(h, { [`strays:${task}`]: undefined })
   await step(h, n.requester, { type: 'end', cause: 'cancelled', reason: 'dropped' }); await ctlSet(h, { [`need:${task}`]: undefined })
+}
+
+// ---- setup and probe (core/helpers) ----
+// the setup helper's proposed argv: cadre vets and runs it in the requester's task folder; a refusal, or a stop for the human, is the answer
+async function setupAnswer(h: Host, d: Deps, n: Need, argv: unknown): Promise<string> {
+  const task = await d.store.get(n.task), wt = task.meta['cadre.worktree'] || d.root, pkg = pkgOf(d, task), strays = (await ctlGet<number>(h, `strays:${n.task}`)) ?? 0
+  const r = await P.setup(h, { root: d.root, wt, cwd: pkg && pkg.root !== '.' ? `${wt}/${pkg.root}` : wt, scratch: `${d.wtRoot}/${d.key}.scratch/${n.task}-setup`, ask: n.ask, argv, auto: d.cfg.deps.auto, check: Object.values(pkg?.checks ?? {})[0], strays, checkpoint: () => checkpoint(h, d.store, d.actor, n.task, wt) })
+  if (r.stray) await ctlSet(h, { [`strays:${n.task}`]: strays + 1 })
+  if (r.dialog) await ask(h, { id: `deps:${n.task}:${n.needId}`, kind: 'flag', title: `${n.task}: dependencies wait for you`, hash: n.needId, tab: 'epic', sel: n.task, lines: [r.dialog],
+    options: [...(r.allow ? [{ key: 'a', label: 'Allow installs in this repo', verb: 'approve', run: 'deps allow' }] : []), { key: 'k', label: 'OK', verb: 'keep' }] })
+  return r.text
+}
+ROUTES.deps = async (h, c) => ({ text: c.args[0] === 'allow' ? (await P.approve(h, await h.cwd()), 'Installs are allowed for tasks in this repository.') : 'deps: allow' })
+// the probe's tree lives under the repo's worktree root and goes with its request, whichever way that ends
+const probeEnd = async (h: Host, n: Need) => { if (n.helper === 'probe') { const p = await policyOf(h); await P.probeEnd(h, p.repo, p.wtRoot, n) } }
+export async function sweepProbes(h: Host): Promise<void> {
+  const p = await policyOf(h), bind = await h.bind.read(), live: string[] = []
+  for (const t of await ctlKeys(h, 'need:')) { const n = await needOf(h, t); if (n && n.answer === undefined && running(bind, n)) live.push(`${n.task}-${n.needId}`) }
+  await P.probeSweep(h, p.repo, p.wtRoot, live)
 }

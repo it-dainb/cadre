@@ -383,6 +383,19 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     else if (!(reqs[0].max_tokens >= 800 && reqs[0].max_tokens <= 800 + 2048) ||   // the engine adds a 2048-token thinking allowance to the 800 asked (measured: 2848)
        !/haiku/.test(reqs[0].model ?? '')) fail(o, `the request was ${reqs[0].model} max_tokens ${reqs[0].max_tokens} (want haiku, 800 + the engine's 2048)`)
     else if (!after.length || after.some(x => !LESSON.test(x.brief))) fail(o, `${after.length} brief(s) after the pass, ${carry.length} carry the lesson (want every one)`)
+  if (o === 'planner-probe') {   // a milestone's epic planner asks the probe helper: it waits, the probe answers once from a tree of its own, the SAME planner resumes and drafts; no probe tree or branch is left; no dialog about it
+    const all = Object.assign({}, ...snaps.map(x => runs(x.s)), ...hist.map(runs)), needs = Object.assign({}, ...snaps.map(x => pick(x.s, 'need')), ...hist.map(h => pick(h, 'need')))
+    const ps = Object.entries(all).filter(([, r]) => r.role === 'planner'), hs = Object.entries(all).filter(([, r]) => r.role === 'explorer' && needs[r.taskId]), st = r => (r.log ?? []).map(x => x.state), pl = subs.filter(x => /# PLAN-/.test(x.brief))
+    const js = walk(join(dir, 'jsonl')).filter(f => f.endsWith('.jsonl')), ns = Object.values(needs)
+    Object.assign(stats, { planners: ps.length, helpers: hs.length, needs })
+    if (ps.length !== 1 || pl.length !== 1) fail(o, `${ps.length} planner run(s), ${pl.length} planner transcript(s) (want 1: the same agent resumes)`)
+    else { const s = st(ps[0][1]), i = s.indexOf('waiting'); if (i < 0 || !s.slice(i).includes('running')) fail(o, `the planner never waited and resumed: ${s.join('>')}`)
+      if (!/Answer to your request/.test(read(pl[0].f)) || !/plan accepted: \d+ tasks approved/.test(read(pl[0].f))) fail(o, 'the planner transcript lacks the probe\'s answer or an accepted plan') }
+    if (hs.length !== 1 || hs.some(([, r]) => st(r).at(-1) !== 'ended')) fail(o, `${hs.length} helper run(s) (want 1, ended)`)
+    if (ns.length !== 1 || ns[0].helper !== 'probe' || ns[0].ok !== true || ns[0].fails !== 0) fail(o, `want one probe request answered ok with no failure: ${JSON.stringify(ns[0] ?? null)}`)
+    if (!js.some(f => /"cwd":"[^"]*\/probe-/.test(read(f)))) fail(o, 'the probe never ran in a tree of its own (no transcript has a probe- folder as its cwd)')
+    const left = [...read(join(dir, 'refs-after')).split('\n').filter(l => /^probe\//.test(l)), ...read(join(dir, 'worktrees-after')).split('\n').filter(l => /\/probe-/.test(l))]; if (left.length) fail(o, `a probe tree or branch is left: ${left.join(' | ')}`)
+    const hd = drv.filter(e => e.kind === 'dialog' && /helper|dependenc/i.test(e.text)); if (hd.length) fail(o, `${hd.length} helper dialog(s): ${hd.map(e => e.text).join(' / ')}`)
   }
   if (o === 'submodule') {   // the task landed in lib's own dev, and the parent's dev records that commit
     const d = existsSync(join(dir, 'submodule.json')) ? JSON.parse(read(join(dir, 'submodule.json'))) : null

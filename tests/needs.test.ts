@@ -67,6 +67,19 @@ describe('a request: the requester waits, the helper answers, the same agent res
   })
 })
 
+describe('the setup helper: cadre vets and runs its proposal, the answer wakes the requester', () => {
+  const SETUP = { ...REQ, request: { ...REQ.request, helper: 'setup', ask: 'add left-pad', why: 'I need it' } }, ARGV = (argv: string[]) => ({ role: 'explorer', answer: 'it is an npm project', argv })
+  test('a refused argv is the answer, nothing is asked of the human; the brief tells the helper to propose, not run', async () => {
+    const { w } = await start(); expect(await w.rep('ag1', SETUP)).toMatch(/^request recorded/); await w.turn(); expect(w.spawned[1][1]).toContain('You only propose it')
+    await w.rep('ag2', ARGV(['sudo', 'npm', 'install', 'left-pad'])); await w.stop('ag2')
+    expect(w.sent).toHaveLength(1); expect(w.sent[0][1]).toContain('The install was refused'); expect((await w.h.board.read()).decisions ?? []).toEqual([]); expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'running' })
+  })
+  test('settings: deps.auto false: a good argv is not run, the requester is told, and the human gets exactly one dialog', async () => {
+    const { w, id } = await start(); w.cfg.deps.auto = false; await w.rep('ag1', SETUP); await w.turn(); await w.rep('ag2', ARGV(['npm', 'install', 'left-pad'])); await w.stop('ag2')
+    expect(w.sent[0][1]).toContain('waits for the user'); expect((await w.h.board.read()).decisions?.map(d => d.id)).toEqual([`deps:${id}:n1`]); expect((await events(w, 'help.done')).map(e => e.data.ok)).toEqual([true])
+  })
+})
+
 describe('every helper ends and answers exactly once', () => {
   const once = async (w: World, id: string, stops: string[], helpers: string[]) => {
     expect(await events(w, 'help.done')).toHaveLength(1); expect(stops).toEqual(helpers); expect(w.sent).toHaveLength(1); expect(w.sent[0][1]).toContain('could not answer'); expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'running' })
@@ -137,7 +150,7 @@ describe('one settle per request', () => {
 describe('refused requests', () => {
   test('a helper outside the role\'s canRequest, one that is not available, over the cap (settings: limits.helpers.perTask), and a session where Claude starts the agents', async () => {
     const { w, id } = await start(); const ask = (helper: string) => w.rep('ag1', { ...REQ, request: { ...REQ.request, helper } })
-    expect(await ask('probe')).toContain('error: request.helper: you may ask for explore or setup'); expect(await ask('setup')).toContain('setup is not available here')
+    expect(await ask('probe')).toContain('error: request.helper: you may ask for explore or setup')
     w.cfg.limits.helpers.perTask = 1; await w.rep('ag1', REQ); await w.turn(); await w.rep('ag2', ANSWER); await w.stop('ag2')
     expect(await w.rep('ag1', REQ)).toContain('this task has used its 1 requests'); w.cfg.limits.helpers.perTask = 2; expect(await w.rep('ag1', REQ)).toMatch(/^request recorded/); expect((await needOf(w.h, id))?.n).toBe(2)
     const m = await world({ mode: 'main' }); await m.at('ag1', m.ids[0], 'worker'); expect(await m.rep('ag1', REQ)).toContain('nobody can start a helper now')

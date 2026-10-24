@@ -30,6 +30,7 @@ import { plannerBrief } from './planner'
 import { modelRefusal, inSlot, tasksFull } from './queue'
 import { budgetOf, intentOf, reserve, step as lifeStep, unreserve } from './lifecycle'
 import { ROLES_DEFAULT } from './roles'
+import * as P from './helpers'
 import { needOf, question, running, undelivered, delivered } from './needs'
 
 export interface Deps {
@@ -273,8 +274,8 @@ async function planner(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snaps
 async function helper(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapshot, id: string) {
   const n = await needOf(h, id), t = s.tasks.find(x => x.id === id) ?? ({ id } as SnapTask), task = await d.store.get(id).catch(() => null)
   if (!n || running(await h.bind.read(), n) || n.answer !== undefined || !task) return deny(`${id} has no request to help with now`)
-  const wt = task.meta['cadre.worktree'] || d.root
-  return launch(h, d, e, next, t, 'explorer', brief('explorer', { id: '', title: '', type: '', question: question(n) }), wt, 'helper', wt, async () => {}, undefined, undefined, { parent: n.requester, needId: n.needId })
+  const probe = n.helper === 'probe', wt = probe ? await P.probeAdd(h, d.root, `${d.wtRoot}/${d.key}`, n) : task.meta['cadre.worktree'] || d.root   // a probe looks around in a scratch tree of its own
+  return launch(h, d, e, next, t, 'explorer', brief('explorer', { id: '', title: '', type: '', question: question(n) }), wt, 'helper', wt, async () => { if (probe) await P.probeEnd(h, d.root, `${d.wtRoot}/${d.key}`, n) }, undefined, undefined, { parent: n.requester, needId: n.needId })
 }
 
 // ---- lease heartbeat (8.4): the tick calls this; the store only, no hooks needed. Beats each of THIS session's bound tasks every `every` ms. ----

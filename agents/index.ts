@@ -26,4 +26,4 @@ export function spec(role: Role, cfg: { roles: Roles; mcpAllow: readonly string[
 export const TTL = Object.fromEntries(Object.entries(ROLES_DEFAULT).map(([r, x]) => [r, x.ttl])) as Record<Role, '5m' | '1h'>
 export const ROLES: readonly Role[] = ['worker', 'tester', 'reviewer', 'explorer', 'planner']
 export const file = (role: Role): string => ['---', `name: ${role}`, `description: "${DESC[role]}"`, `tools: ${TOOLS[role].join(', ')}`,
-  ...(ROLES_DEFAULT[role].effort ? [`effort: ${ROLES_DEFAULT[role].effort}`] : []), 'experimental:', `  cacheTtl: ${TTL[role]}`, '---', PROMPTS[role], ''].join('\n')
+  ...(ROLES_DEFAULT[role].effort ? [`effort: ${ROLES_DEFAULT[role].effort}`] : []), ...(ROLES_DEFAULT[role].maxTurns ? [`maxTurns: ${ROLES_DEFAULT[role].maxTurns}`] : []), 'experimental:', `  cacheTtl: ${TTL[role]}`, '---', PROMPTS[role], ''].join('\n')

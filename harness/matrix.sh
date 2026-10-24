@@ -53,6 +53,7 @@ continue-after-quit-s|single ready scripted/cont|contkill|MODEL=haiku CC_VERSION
 needs-explore|single ready scripted/needs|needs|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=150 ORACLE=needs-explore
 lessons-pass|single ready|lessons|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=150 ORACLE=lessons
 custom-role|single ready scripted/custom-role|custom-role|MODEL=haiku CC_VERSION=2.1.295 S=1 BUDGET=150 ORACLE=custom-role
+planner-probe|single ready scripted/probe|probe|MODEL=haiku CC_VERSION=2.1.295 S=1 BUDGET=150 ORACLE=planner-probe EPIC_PLANNERS=1
 EOF
 }
 scripted() { cells | grep -E '(^|[| ])S=1( |$)'; }
