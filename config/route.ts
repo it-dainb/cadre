@@ -6,7 +6,9 @@ import { ask, settle } from '../core/decide'
 import { start } from '../core/session'
 import { repoKeyOf } from '../commands/init'
 import { HEADLESS, REG, check, headlessMain, layersOf, resolve, rows, tighten } from './index'
-import { clamped } from '../core/queue'
+import { clamped, modelIssues } from '../core/queue'
+import { parse } from '../core/discover'
+import { UNIT, unitRows } from '../ui/views/units'
 import { LIMIT } from '../policy/guards'
 import { PROTECTED } from '../core/git'
 import { RETRIES } from '../core/validate'
@@ -30,8 +32,8 @@ const FIXED = (): Row[] => [fx('fixed.setupLease', 'Safety and containment', `${
   fx('fixed.cacheTtl', 'Cache and context', ROLES.map(r => `${r} ${TTL[r]}`).join(', '), 'prompt-cache lifetime per agent role (set in the shipped agent files)'),
   ...fixedRules().map(([k, v, d]) => fx(k, 'Safety and containment', v, d))]
 export const settingsRows = async (h: any): Promise<Row[]> => {
-  const env = await h.env(), hl = !!(await h.ui?.read?.())?.headless
-  const r = [...rows(await layersOf(h, await ctx(h)), env).map(x => (x.key === 'drive.spawn' && headlessMain(String(x.value), env, hl) ? { ...x, value: 'main', src: 'forced' as const, warn: HEADLESS } : x)), ...FIXED()]
+  const env = await h.env(), hl = !!(await h.ui?.read?.())?.headless, ls = await layersOf(h, await ctx(h))
+  const r = [...unitRows(resolve(ls).config.units as any[]), ...rows(ls, env).map(x => (x.key === 'drive.spawn' && headlessMain(String(x.value), env, hl) ? { ...x, value: 'main', src: 'forced' as const, warn: HEADLESS } : x)), ...FIXED()]
   return r.sort((a, b) => CATS.indexOf(a.cat) - CATS.indexOf(b.cat))
 }
 // doctor's settings section (ADR 0019): refused values, env overrides (one row per variable), then the full effective table, non-default first
@@ -63,14 +65,33 @@ async function editCard(h: any, row: Row, error?: string): Promise<void> {
     hint = row.kind === 'list' ? 'a comma-separated list' : row.kind === 'number' ? 'a number' : row.kind === 'json' ? 'JSON' : 'text'
   await ask(h, { id: ID(row.key), kind: 'config', title: `edit ${row.key}`, lines: [row.desc, `now ${show(row.value) || '(empty)'} [${row.src}] · default ${show(row.def) || '(empty)'}`, `${note} · ${hint}`, ...(row.warn ? [row.warn] : [])], hash: `${row.key}|${show(row.value)}|${error ?? ''}`, tab: 'settings',
     fields: [{ key: 'value', label: row.key, value: show(row.value) }], ...(error ? { error } : {}),
-    options: [{ key: 'a', label: 'Save for me', verb: 'approve', run: `config set ${row.key} {fields}` }, ...(toRepo(row) ? [{ key: 'r', label: 'Save to repo', verb: 'approve', run: `config repo ${row.key} {fields}` }] : []), { key: 'x', label: 'Cancel', verb: 'reject', run: `config cancel ${row.key}` }] })
+    options: [...(UNIT.test(row.key) ? [] : [{ key: 'a', label: 'Save for me', verb: 'approve', run: `config set ${row.key} {fields}` }]), ...(toRepo(row) ? [{ key: 'r', label: 'Save to repo', verb: 'approve', run: `config repo ${row.key} {fields}` }] : []), { key: 'x', label: 'Cancel', verb: 'reject', run: `config cancel ${row.key}` }] })
 }
 const back = (h: any, key: string) => settle(h, ID(key))
+
+// a unit's scalar field (ui/views/units): the unit is re-parsed, the model gate re-run, then .cadre/config.json is written once with its .bak
+async function saveUnit(h: any, key: string, raw: string, no: (why: string) => Promise<{ text: string }>): Promise<{ text: string }> {
+  const [, i, f] = key.match(UNIT)!, { root } = await ctx(h), path = `${root}/.cadre/config.json`, v = raw.trim()
+  let cur: any; try { cur = JSON.parse((await h.readText(path)) ?? '{}') } catch { return no('.cadre/config.json is not valid JSON') }
+  const u = cur?.units?.[Number(i)]; if (!u) return no('there is no such unit in .cadre/config.json')
+  let val: unknown = v; try { if (f === 'setup') val = JSON.parse(v); else if (f === 'concurrency') val = v === '' || v === '0' ? undefined : Number(v) } catch { return no('expected a JSON argument list, e.g. ["npm","ci"]') }
+  const { [f]: _o, ...rest } = u, next = val === undefined ? rest : { ...rest, [f]: val }, bad = parse([next]); if (typeof bad === 'string') return no(bad.replace(/^units\[0\]\./, ''))
+  cur.units = cur.units.map((x: any, j: number) => (j === Number(i) ? next : x))
+  const gate = modelIssues({ ...resolve(await layersOf(h, await ctx(h))).config, units: cur.units }); if (gate.length) return no(gate[0])
+  const text = `${JSON.stringify(cur, null, 2)}\n`, old = await h.readText(path)
+  if (old !== null && old !== text) await h.write(`${path}.bak`, old)
+  if (DRIVE.humanWrite) await DRIVE.humanWrite(h, () => h.write(path, text)); else await h.write(path, text)
+  if ((await h.readText(path)) !== text) return no('the file could not be written')
+  await start(h); await refreshSettings(h)
+  if (((await h.board.read()).decisions ?? []).some((d: any) => d.id === ID(key))) await back(h, key)
+  return { text: `${u.root} ${f} = ${JSON.stringify(val ?? null)} · saved to the repo` }
+}
 
 async function save(h: any, scope: 'user' | 'repo', key: string, raw: string): Promise<{ text: string }> {
   const row = (await settingsRows(h)).find(r => r.key === key)
   const no = async (why: string) => { if (row && ((await h.board.read()).decisions ?? []).some((d: any) => d.id === ID(key))) await editCard(h, row, why); return { text: `refused: ${why}` } }
   if (!row || row.src === 'fixed') return { text: `refused: ${key} is not a setting` }
+  if (UNIT.test(key)) return saveUnit(h, key, raw, no)
   if (scope === 'repo' && !toRepo(row)) return no(`${key} is a user-level key: save it for you, not in the repo file`)
   if (key === 'strictness' && (await h.board.read()).tasks.some((t: any) => t.state === 'active' || t.state === 'review')) return no('strictness cannot change while tasks are running; retry when they finish')
   const val = coerce(row, raw); if (val instanceof Error) return no(val.message)

@@ -25,7 +25,7 @@ const DESIGN = JSON.stringify({ symbols: [{ name: 'f', kind: 'fn', params: [], r
 async function world(n = 1) {
   const d = mkdtempSync(join(tmpdir(), 'cadre-close-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
   writeFileSync(join(d, 'a.txt'), 'a\n'); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'init'); sh(d, 'branch', 'dev'); sh(d, 'branch', 'epic/p1-x', 'dev')
-  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.jail = 'off'; cfg.packages = [{ root: '.', verify: ['verify'], checks: { verify: ['true'], test: ['sh', '-c', 'echo ran; exit 3'] } }]
+  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.jail = 'off'; cfg.units = [{ root: '.', verify: ['verify'], checks: { verify: ['true'], test: ['sh', '-c', 'echo ran; exit 3'] } }]
   const store = new MemoryStore(); await store.init({ types: {}, journal: true })
   const epic = await store.createEpic('E', 'goal'), ids = []
   for (let i = 0; i < n; i++) ids.push((await store.createDraft({ title: `task ${i}`, description: 'd', acceptance: 'S1: Given x When y Then z', design: DESIGN, type: 'refactor', parent: epic, meta: { 'cadre.package': '.', 'cadre.changelog': JSON.stringify({ none: true, reason: 'internal' }) } })).id)
@@ -116,8 +116,8 @@ test('merges refused while a git:* flag is open; protected path edit refused at 
   const w = await world(), id = w.ids[0], { h, store } = w; await w.spawn(id); const wt = (await store.get(id)).meta['cadre.worktree']
   edit(wt, 'CHANGELOG.md', 'x'); assert.match(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }), /protected or locked paths changed: CHANGELOG\.md/)
   execFileSync('rm', [join(wt, 'CHANGELOG.md')]); edit(wt)
-  w.dep.cfg.packages[0].checks.verify = ['test', '!', '-f', 'b.txt']; assert.match(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }), /green gate failed/)
-  w.dep.cfg.packages[0].checks.verify = ['true']; await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }); await w.spawn(id); await w.rep('ag2', w.pass)
+  w.dep.cfg.units[0].checks.verify = ['test', '!', '-f', 'b.txt']; assert.match(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }), /green gate failed/)
+  w.dep.cfg.units[0].checks.verify = ['true']; await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }); await w.spawn(id); await w.rep('ag2', w.pass)
   await h.git.update(g => ({ ...g, flags: { 'git:epic/p1-x': {} } })); assert.match(await C.closeTask(h, w.dep, id), /refused while git flag git:epic\/p1-x/)
   assert.equal((await h.board.read()).tasks[0].step, 'merge')
 })
@@ -176,14 +176,14 @@ const R = await import('../../core/rebase.ts')
 const queued = async (h, id, agent) => (((await h.store.get(await qk(h))) ?? []).find(x => x.taskId === id && (!agent || x.agentId === agent)) ?? {}).text ?? ''
 test('close: a moved epic is verified with the package checks; red goes back to the same worker (merged tip, checks named), the epic does not move', async () => {
   const w = await movedEpic('other.txt', 'o\n'), old = sh(w.d, 'rev-parse', 'epic/p1-x')
-  Object.assign(w.dep.cfg.packages[0], { verify: undefined, checks: { test: ['false'] } })
+  Object.assign(w.dep.cfg.units[0], { verify: undefined, checks: { test: ['false'] } })
   assert.match(String(await C.closeTask(w.h, w.dep, w.id)), /checks fail on the new tip\). Its worker updates it \(round 1\/2\)/); assert.equal(sh(w.d, 'rev-parse', 'epic/p1-x'), old)
   const t = (await w.h.board.read()).tasks[0]; assert.deepEqual([t.state, t.step], ['active', 'worker'])
   assert.equal(sh(w.wt, 'merge-base', '--is-ancestor', old, 'HEAD'), ''); assert.equal(readFileSync(join(w.wt, 'other.txt'), 'utf8'), 'o\n'); assert.equal((await w.store.get(w.id)).meta['cadre.base'], old)
   assert.match(await queued(w.h, w.id), /Its checks fail on the merged tree:\nverify \(test\) failed/)
 })
 test('close: a package with no verify check at all fails a moved-epic merge instead of passing it', async () => {
-  const w = await movedEpic('other.txt', 'o\n'); Object.assign(w.dep.cfg.packages[0], { verify: undefined, checks: {} })
+  const w = await movedEpic('other.txt', 'o\n'); Object.assign(w.dep.cfg.units[0], { verify: undefined, checks: {} })
   assert.match(String(await C.closeTask(w.h, w.dep, w.id)), /checks fail on the new tip/)
 })
 test('conflict: a trial merge finds it; the SAME worker is resumed on the merged tree with the conflict; re-review; then it lands with both changes; recorded', async () => {

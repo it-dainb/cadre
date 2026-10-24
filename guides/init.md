@@ -23,17 +23,18 @@ Tell the user to approve the mission in the cadre dialog (key 1 opens it). Do no
 
 ## Phase 4: build and test commands
 Find how this project installs, builds and tests. Read, in this order (CI wins over prose): CI config (`ls .github/workflows` and the files there, or other CI files), task runners (`Makefile`, `justfile`, `package.json` scripts, `pyproject.toml`, `Cargo.toml`, `go.mod`), then `README` and `CONTRIBUTING`. `git ls-files` shows what exists.
-Write the result into `.cadre/config.json` as `"packages"` (keep `branches`):
+Write the result into `.cadre/config.json` as `"units"` (keep `branches`):
 ```
-"packages": [
-  { "root": ".", "setup": ["npm", "ci"], "checks": { "test": ["npm", "test"], "lint": ["npm", "run", "lint"] }, "tdd": { "paths": ["test/**"] } }
+"units": [
+  { "root": ".", "setup": ["npm", "ci"], "runner": "junit", "checks": { "test": ["npm", "test"], "lint": ["npm", "run", "lint"] }, "tdd": { "paths": ["test/**"] } }
 ]
 ```
-- One entry per package; `root` is relative to the project (`.` for a single package).
-- `setup` is one command as an argument list (no shell string); `[]` when there is none.
+- One entry per unit (a package, service, app or submodule); `root` is relative to the project (`.` for a single one).
+- `setup` is one command as an argument list (no shell string), asked per unit; `[]` when there is none.
+- `runner` is `"junit"` when the test command can write a JUnit report, else `"text"` (its output is read). `concurrency` (optional) caps the tasks of this unit at once.
 - `checks` maps a name to one command each. Keep only checks that pass offline after `setup`; leave out anything that downloads at test time.
 - `tdd.paths` are the globs of the test files.
-- Separate services, apps or git submodules in one repository: write `"units"` instead of `"packages"`, the same entries plus `"kind"` (`"package"`, `"service"`, `"app"` or `"submodule"`), and `"ownGit": true` for a git submodule.
+- Services, apps or git submodules in one repository: add `"kind"` (`"package"`, `"service"`, `"app"` or `"submodule"`) to the entry, and `"ownGit": true` for a git submodule.
 If the user's goal comes next and a check fails because of the very problem that goal is about, keep the check as it is: cadre shows it to the user as known red, and the goal's fix must turn it green. Never weaken or delete a test. You may run a check once to see that it works. Done when `.cadre/config.json` holds the list. cadre then runs every check on a clean checkout without network; if one fails, you get a message naming it: fix the command or leave the check out.
 
 ## Phase 5: changelog

@@ -24,7 +24,7 @@ function monorepo() {
   put(d, 'kit/package.json', '{"name":"kit","scripts":{"test":"node -e 0"}}\n'); put(d, 'kit/src/a.js', 'export const a = 1\n'); put(d, 'README.md', '# my_project\n')
   sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'chore: initial commit'); sh(d, 'branch', 'dev', 'main')
   put(d, '.git/info/exclude', '.cadre/state/\n.claude/settings.local.json\n')
-  put(d, '.cadre/config.json', JSON.stringify({ branches: { main: 'main', dev: 'dev' }, packages: [{ root: 'kit', checks: { test: ['npm', 'test'] } }] }) + '\n'); put(d, 'CHANGELOG.md', CHANGELOG)
+  put(d, '.cadre/config.json', JSON.stringify({ branches: { main: 'main', dev: 'dev' }, units: [{ root: 'kit', checks: { test: ['npm', 'test'] } }] }) + '\n'); put(d, 'CHANGELOG.md', CHANGELOG)
   return d
 }
 const storeAt = async (h, root) => new FileStore({ run, now: async () => Date.now(), rand: (n = 16) => Math.random().toString(16).slice(2).padEnd(n * 2, '0'), write: async (p, t) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) } }, `${root}/.cadre/state`, 's')

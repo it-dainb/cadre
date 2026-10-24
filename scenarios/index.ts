@@ -14,6 +14,7 @@ import tlMulti from './timeline-multi'
 import actDrive from './activity-drive'
 import docStopped from './doctor-drive-stopped'
 import setDrive from './settings-drive'
+import setUnits from './settings-units'
 import v2dormant from './v2-dormant'
 import v2no_plan from './v2-no-plan'
 import v2run from './v2-run'
@@ -28,4 +29,4 @@ import v2msDraft from './v2-milestone-draft'
 import v2msParallel from './v2-milestone-parallel'
 import v2msBlocked from './v2-milestone-blocked'
 import v2msLanded from './v2-milestone-landed'
-export const SCENARIOS: Record<string, Scenario> = { 'epic-p3': epic, 'plan-approval': plan, 'setup-sudo-and-fields': setup, 'init-stages': init, flags, 'drive-paused': drive, 'landed-release': landed, 'narrow-60': narrow, 'empty-dormant': empty, settings, 'timeline-multi': tlMulti, 'activity-drive': actDrive, 'doctor-drive-stopped': docStopped, 'settings-drive': setDrive , 'v2-dormant': v2dormant, 'v2-no-plan': v2no_plan, 'v2-run': v2run, 'v2-replay': v2replay, 'v2-degraded': v2degraded, 'v2-driving-yolo': v2driving_yolo, 'v2-stopped': v2stopped, 'v2-big-epic': v2big_epic, 'v2-board': v2board, 'v2-inline-decision': v2inline, 'v2-milestone-draft': v2msDraft, 'v2-milestone-parallel': v2msParallel, 'v2-milestone-blocked': v2msBlocked, 'v2-milestone-landed': v2msLanded }
+export const SCENARIOS: Record<string, Scenario> = { 'epic-p3': epic, 'plan-approval': plan, 'setup-sudo-and-fields': setup, 'init-stages': init, flags, 'drive-paused': drive, 'landed-release': landed, 'narrow-60': narrow, 'empty-dormant': empty, settings, 'timeline-multi': tlMulti, 'activity-drive': actDrive, 'doctor-drive-stopped': docStopped, 'settings-drive': setDrive, 'settings-units': setUnits, 'v2-dormant': v2dormant, 'v2-no-plan': v2no_plan, 'v2-run': v2run, 'v2-replay': v2replay, 'v2-degraded': v2degraded, 'v2-driving-yolo': v2driving_yolo, 'v2-stopped': v2stopped, 'v2-big-epic': v2big_epic, 'v2-board': v2board, 'v2-inline-decision': v2inline, 'v2-milestone-draft': v2msDraft, 'v2-milestone-parallel': v2msParallel, 'v2-milestone-blocked': v2msBlocked, 'v2-milestone-landed': v2msLanded }

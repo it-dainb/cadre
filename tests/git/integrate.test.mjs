@@ -19,7 +19,7 @@ function world(check = ['test', '-f', 'c.txt'], jail = 'off') {
   const d = mkdtempSync(join(tmpdir(), 'cadre-int-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
   commit(d, 'CHANGELOG.md', skeleton(), 'chore: init'); sh(d, 'branch', 'dev'); sh(d, 'branch', 'epic/p3-auth', 'dev')
   sh(d, 'checkout', '-q', 'epic/p3-auth'); commit(d, 'c.txt', 'c\n', 'feat: login'); sh(d, 'checkout', '-q', 'main')
-  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.packages = [{ root: '.', setup: ['true'], checks: { test: check } }]; cfg.jail = jail
+  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.units = [{ root: '.', setup: ['true'], checks: { test: check } }]; cfg.jail = jail
   const h = fakeHost()
   Object.assign(h, { cwd: async () => d, home: async () => d, run, config: async () => cfg, readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } }, write: async (p, t) => writeFileSync(p, t),
     taskStore: async () => ({ list: async () => [{ id: 'm-2', category: 'done', meta: { 'cadre.changelog': JSON.stringify({ category: 'Added', entry: 'Login' }) } }] }) })
@@ -133,8 +133,8 @@ test('integration red while driving: ONE fix task (approved, recorded), no flag;
 test('settings: release.onEpicDone off lands without proposing a release; suites.integration runs only the named checks', async () => {
   const { h } = await world(); (await h.config()).release.onEpicDone = 'off'
   assert.equal(await integrateEpic(h, 'p3'), null); assert.ok(!Object.values((await h.events.read()).epics).flat().some(e => e.type === 'release.proposed'))
-  const red = await world(); (await red.h.config()).packages[0].checks = { test: ['true'], lint: ['false'] }
+  const red = await world(); (await red.h.config()).units[0].checks = { test: ['true'], lint: ['false'] }
   assert.notEqual(await integrateEpic(red.h, 'p3'), null)   // 'all': the red lint gates
-  const only = await world(), c = await only.h.config(); c.packages[0].checks = { test: ['true'], lint: ['false'] }; c.suites.integration = ['test']
+  const only = await world(), c = await only.h.config(); c.units[0].checks = { test: ['true'], lint: ['false'] }; c.suites.integration = ['test']
   assert.equal(await integrateEpic(only.h, 'p3'), null)
 })

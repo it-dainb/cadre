@@ -70,7 +70,7 @@ describe('missing runner or module', () => {
 
 describe('Settings: an adopted test check shows its source', () => {
   test('packages from the repo file with a test check the tester proposed read as source "tester"', () => {
-    const by = (v: unknown) => rows([{ name: '.cadre/config.json', trust: 'repo', value: { packages: v } }]).find(x => x.key === 'packages')!.src
+    const by = (v: unknown) => rows([{ name: '.cadre/config.json', trust: 'repo', value: { units: v } }]).find(x => x.key === 'units')!.src
     expect(by([{ root: '.', checks: { test: ['node', '--test'] }, testBy: 'tester' }])).toBe('tester')
     expect(by([{ root: '.', checks: { test: ['node', '--test'] } }])).toBe('repo')
   })

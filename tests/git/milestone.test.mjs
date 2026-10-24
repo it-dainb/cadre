@@ -32,7 +32,7 @@ async function world(check = ['true'], drive = false) {
     const t = (await store.createDraft({ title: `do ${name}`, description: 'x', type: 'feature', parent: e, meta: { 'cadre.changelog': JSON.stringify({ category: 'Added', entry: name }) } })).id
     await store.approve([t]); await store.claim(t, 'a'); await store.close(t, { outcome: 'done' }); ep.push(e)
   }
-  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.packages = [{ root: '.', setup: ['true'], checks: { test: check } }]; cfg.jail = 'off'
+  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.units = [{ root: '.', setup: ['true'], checks: { test: check } }]; cfg.jail = 'off'
   const h = fakeHost()
   Object.assign(h, { cwd: async () => d, home: async () => d, run, config: async () => cfg, taskStore: async () => store, readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } }, write: async (p, t) => writeFileSync(p, t) })
   await h.board.update(b => ({ ...b, epic: m, plan: { id: m, slug: 'accounts', state: 'approved', epicBranch: ms, lane: 'milestone', mode: 'auto' }, ...(drive ? { drive: { ...b.drive, on: true, mode: 'auto', epicId: m } } : {}) }))

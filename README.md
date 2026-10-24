@@ -81,7 +81,7 @@ Every decision is a dialog (`1` opens it). The typed fallbacks, config keys and 
 
 Set in `.cadre/config.json` (the setup writes it; edit it by hand to change it):
 
-- **`packages`** (or **`units`**): the parts of the repo that build and test on their own, each with its `root` and its `checks` (`test`, …). A `units` entry also has a `kind` (`package`, `service`, `submodule`, `app`); a git submodule is a unit with `ownGit: true`, and its work lands in its own repository before the parent's pointer moves. A task belongs to the units its files fall in; a task that spans several runs every one's checks before it merges. `routing.<role>` picks a model and effort for that unit's agents.
+- **`units`**: the parts of the repo that build and test on their own, each with its `root`, its `setup` command, its `runner` (`junit` or `text`), an optional `concurrency` cap and its `checks` (`test`, …). A unit has a `kind` (`package`, `service`, `submodule`, `app`); `packages` was renamed to `units`; a git submodule is a unit with `ownGit: true`, and its work lands in its own repository before the parent's pointer moves. A task belongs to the units its files fall in; a task that spans several runs every one's checks before it merges. `routing.<role>` picks a model and effort for that unit's agents.
 - **`landing.mode`**: `direct` (default) lands a finished plan on `dev` locally. `pr` pushes it to `landing.remote` and opens one pull request into `dev` (needs `gh`, signed in); cadre merges it when the checks pass (and, with `landing.review: true`, once it is approved), and takes the usual red path when they fail. cadre never pushes in `direct` mode.
 
 ## Stopping and continuing

@@ -27,7 +27,7 @@ describe('discovery (DESIGN 10.2)', () => {
     const bad = (f: (p: any) => void, why: string) => { const r = JSON.parse(JSON.stringify(ok)); f(r[0]); expect(parse(r)).toContain(why) }
     bad(p => { p.root = '../x' }, '.root'); bad(p => { p.setup = 'npm ci' }, '.setup'); bad(p => { p.checks = {} }, '.checks')
     bad(p => { p.tdd.report = '/var/j.xml' }, '/tmp/cadre/'); bad(p => { p.fetches = ['nope'] }, '.fetches')
-    expect(parse([])).toContain('packages: expected'); expect(parse(undefined)).toContain('e.g.')
+    expect(parse([])).toContain('units: expected'); expect(parse(undefined)).toContain('e.g.')
     for (const setup of [[], undefined]) { const r = JSON.parse(JSON.stringify(ok)); if (setup) r[0].setup = setup; else delete r[0].setup; expect((parse(r) as any)[0].setup).toEqual([]) }   // no install step
   })
 })

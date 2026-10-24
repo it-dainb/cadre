@@ -50,7 +50,7 @@ The first goal in a repo cadre hasn't seen asks once to set it up; then Claude f
 | repository | git repo with a first commit, the main and `dev` branches, `.git/info/exclude` lines, `branches` in `.cadre/config.json` (this file turns cadre on in the repo) |
 | task store | `.cadre/state` (plain files, excluded from git) answers its probe: hard links work there |
 | mission | goal, constraints, non-goals: Claude asks you, drafts it, **you approve it in the dialog** |
-| build and test commands | `packages` in `.cadre/config.json`, found by Claude from CI config, manifests and the README |
+| build and test commands | `units` in `.cadre/config.json`, found by Claude from CI config, manifests and the README |
 | commands pass on a clean checkout | cadre runs each package's setup and checks in a jail, offline; a failing one goes back to Claude |
 | workflow | the type registry and roles resolve (defaults unless you change them) |
 | changelog | `CHANGELOG.md` in Keep a Changelog 1.1.0 |

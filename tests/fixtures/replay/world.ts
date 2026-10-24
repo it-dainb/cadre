@@ -19,7 +19,7 @@ export const ACCEPT = 'S1: Given a request When it runs Then it answers'
 export async function world(o: { n?: number; type?: string; ids?: string[]; mode?: 'mod' | 'main'; drive?: 'auto' | 'yolo'; pkg?: object; git?: (a: string[]) => R | undefined; kv?: Map<string, unknown>; store?: MemoryStore; session?: string } = {}) {
   const clock = { now: 1_700_000_000_000 }, kv = o.kv ?? new Map<string, unknown>(), calls: string[] = [], sent: [string, string][] = [], submitted: string[] = [], spawned: [string, string, string][] = []
   const store = o.store ?? new MemoryStore(() => clock.now), fresh = !o.store
-  const cfg = defaults(); cfg.drive.spawn = o.mode ?? 'mod'; cfg.jail = 'off' as any; cfg.packages = [(o.pkg ?? { root: '.', verify: ['verify'], checks: { verify: ['true'], test: ['true'] } }) as any]
+  const cfg = defaults(); cfg.drive.spawn = o.mode ?? 'mod'; cfg.jail = 'off' as any; cfg.units = [(o.pkg ?? { root: '.', verify: ['verify'], checks: { verify: ['true'], test: ['true'] } }) as any]
   let epic = '', ids: string[] = []
   if (fresh) {
     await store.init({ types: cfg.types as any, journal: true }); epic = await store.createEpic('Service', 'goal')

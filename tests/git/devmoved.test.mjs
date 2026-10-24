@@ -30,7 +30,7 @@ const read = (d, f) => (existsSync(join(d, f)) ? readFileSync(join(d, f), 'utf8'
 async function world() {
   const d = mkdtempSync(join(tmpdir(), 'cadre-dm-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
   writeFileSync(join(d, 'u.txt'), 'u\n'); commit(d, 'CHANGELOG.md', skeleton(), 'chore: init'); sh(d, 'branch', 'dev')
-  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.packages = [{ root: '.', setup: ['true'], checks: { test: ['true'] } }]; cfg.jail = 'off'
+  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.units = [{ root: '.', setup: ['true'], checks: { test: ['true'] } }]; cfg.jail = 'off'
   const store = new MemoryStore(); await store.init({ types: types(), journal: false })
   const h = fakeHost(); Object.assign(h, { cwd: async () => d, home: async () => d, run, config: async () => cfg, taskStore: async () => store, stat: async p => (existsSync(p) ? { kind: 'dir', realPath: p } : undefined),
     readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } }, write: async (p, t) => writeFileSync(p, t) })
@@ -132,7 +132,7 @@ test('a dev commit mid-run: the plan takes it and its running workers get it; th
 // ---- review fixes ----
 const suites = w => { const calls = []; const r0 = w.h.run; w.h.run = async (argv, o) => { if (argv.join(' ').includes('red-check')) calls.push(1); return r0(argv, o) }; return calls }
 test('a red commit of the user under a waiting landing: the suites run once, not on every tick; again when the user commits once more', async () => {
-  const w = await world(), { d } = w; w.cfg.packages = [{ root: '.', setup: ['true'], checks: { test: ['sh', '-c', 'test ! -f bad.txt', 'red-check'] } }]
+  const w = await world(), { d } = w; w.cfg.units = [{ root: '.', setup: ['true'], checks: { test: ['sh', '-c', 'test ! -f bad.txt', 'red-check'] } }]
   sh(d, 'checkout', '-q', 'dev'); assert.equal(await integrateEpic(w.h, await w.plan('c.txt')), null)
   commit(d, 'bad.txt', 'x\n', 'chore: red'); sh(d, 'checkout', '-q', 'main')   // checked out nowhere: the tick would land it, but the merged tree is red
   const n = suites(w); for (let i = 0; i < 4; i++) await autoLand(w.h)
@@ -166,7 +166,7 @@ test('a repo whose main branch is master: a landing waiting on it lands by itsel
 })
 // ---- review r2 fixes ----
 test('two ticks at once while a green re-integration runs its checks: the second skips it, the first lands, no false hold', async () => {
-  const w = await world(), { d } = w; w.cfg.packages = [{ root: '.', setup: ['true'], checks: { test: ['sh', '-c', 'sleep 1; test -f c.txt'] } }]
+  const w = await world(), { d } = w; w.cfg.units = [{ root: '.', setup: ['true'], checks: { test: ['sh', '-c', 'sleep 1; test -f c.txt'] } }]
   sh(d, 'checkout', '-q', 'dev'); assert.equal(await integrateEpic(w.h, await w.plan('c.txt')), null)
   commit(d, 'v.txt', 'v\n', 'docs: mine'); sh(d, 'checkout', '-q', 'main')
   const bases = [], checks = [], logs = w.h.logs.length; const r0 = w.h.run; w.h.run = async (argv, o) => { if (argv.includes('update-ref') && argv.includes('refs/cadre/base/dev') && !argv.includes('-d')) bases.push(argv.length); if (argv.join(' ').includes('sleep 1')) checks.push(1); return r0(argv, o) }
@@ -183,7 +183,7 @@ test('a busy git lock during a re-integration is no hold: the next free tick lan
   assert.equal(sh(d, 'show', 'dev:c.txt'), 'c.txt'); assert.equal(ok(d, 'rev-parse', '--verify', '-q', pendingRef('dev')), false)
 })
 test('a new process (no dialogs): a held landing asks again with its reason, a waiting one offers Land again', async () => {
-  const w = await world(), { d } = w; w.cfg.packages = [{ root: '.', setup: ['true'], checks: { test: ['sh', '-c', 'test ! -f bad.txt'] } }]
+  const w = await world(), { d } = w; w.cfg.units = [{ root: '.', setup: ['true'], checks: { test: ['sh', '-c', 'test ! -f bad.txt'] } }]
   sh(d, 'checkout', '-q', 'dev'); assert.equal(await integrateEpic(w.h, await w.plan('c.txt')), null)
   await w.h.board.update(b => ({ ...b, decisions: [] })); await autoLand(w.h); assert.deepEqual(await w.decisions(), ['pending:dev'])   // waits for the checkout
   commit(d, 'bad.txt', 'x\n', 'chore: red'); sh(d, 'checkout', '-q', 'main'); await autoLand(w.h)

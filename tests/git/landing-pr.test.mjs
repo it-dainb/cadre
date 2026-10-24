@@ -38,7 +38,7 @@ async function world(o = {}) {
   mkdirSync(bin); mkdirSync(S); if (o.gh !== false) { writeFileSync(join(bin, 'gh'), GH); chmodSync(join(bin, 'gh'), 0o755) } else symlinkSync(execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim(), join(bin, 'git'))
   const env = { ...process.env, PATH: o.gh === false ? bin : `${bin}:${process.env.PATH}`, GHSTATE: S, REMOTE: R }   // no gh: PATH holds git alone (never the host's own gh)
   const run = (argv, x = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: x.cwd, env }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 127) : 0, stdout, stderr })))
-  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.packages = [{ root: '.', setup: ['true'], checks: { test: ['true'] } }]; cfg.jail = 'off'; cfg.landing = { mode: 'pr', review: !!o.review, remote: 'origin' }
+  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.units = [{ root: '.', setup: ['true'], checks: { test: ['true'] } }]; cfg.jail = 'off'; cfg.landing = { mode: 'pr', review: !!o.review, remote: 'origin' }
   const h = fakeHost(), clock = { t: 1_000_000 }
   Object.assign(h, { cwd: async () => d, home: async () => d, run, now: async () => clock.t, config: async () => cfg, readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } }, write: async (p, t) => writeFileSync(p, t),
     taskStore: async () => ({ list: async () => [{ id: 'm-2', category: 'done', meta: { 'cadre.changelog': JSON.stringify({ category: 'Added', entry: 'Login' }) } }], control: async () => ({ revision: '0', doc: {} }), setControl: async () => ({ revision: '0', doc: {} }) }) })

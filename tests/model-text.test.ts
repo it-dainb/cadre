@@ -33,7 +33,7 @@ describe('what agents read', () => {
   test('the spec view files (SCENARIOS.md with and without scenarios, INTERFACE.md, FILES.md)', async () => {
     const files: Record<string, string> = {}, h = Object.assign(fakeHost({ files }), {
       run: async (argv: readonly string[]) => ({ exitCode: 0, stdout: argv.includes('ls-tree') ? '100644 blob a1\ttest/page.test.mjs\0' : '', stderr: '' }) })
-    const d: any = { cfg: { packages: [{ root: '.', checks: {}, tdd: { paths: ['test/**'] } }], jail: 'off' }, wtRoot: '/w', key: 'k', actor: 'a', store: { setMeta: async () => {} } }
+    const d: any = { cfg: { units: [{ root: '.', checks: {}, tdd: { paths: ['test/**'] } }], jail: 'off' }, wtRoot: '/w', key: 'k', actor: 'a', store: { setMeta: async () => {} } }
     const T = (o: Partial<Task>): Task => ({ id: 'p-1.1', title: 'Fix page offset', description: 'page 1 skips the first page', type: 'bug', category: 'todo', nativeStatus: 'open', priority: 2, deps: [], labels: [], meta: { 'cadre.base': 'b' }, updatedAt: '', ...o })
     for (const t of [T({}), T({ acceptance: 'S1: Given items When page(items, 1, 2) Then the first two', design: JSON.stringify({ symbols: [{ name: 'page', kind: 'function', params: ['items: T[]', 'n: number', 'size: number'], returns: 'T[]', status: 'changed' }] }) })]) {
       for (const k of Object.keys(files)) delete files[k]

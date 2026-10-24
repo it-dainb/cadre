@@ -20,7 +20,7 @@ import { goal as goalBrief, sendBrief } from '../core/lanes'
 type R = { exitCode: number; stdout?: string; stderr?: string }
 const ROOT = '/repo', HOME = '/hm/u', RK = repoKeyOf(ROOT), PLUG = '/plug', CFG = `${ROOT}/.cadre/config.json`
 const PKG = { root: '.', setup: ['npm', 'ci'], checks: { test: ['npm', 'test'] }, tdd: { paths: ['test/**'] } }
-const READY = { [CFG]: JSON.stringify({ branches: { main: 'main', dev: 'dev' }, packages: [PKG] }), [`${ROOT}/.git/info/exclude`]: '.cadre/state/\n.claude/settings.local.json\n', [`${ROOT}/CHANGELOG.md`]: skeleton() }
+const READY = { [CFG]: JSON.stringify({ branches: { main: 'main', dev: 'dev' }, units: [PKG] }), [`${ROOT}/.git/info/exclude`]: '.cadre/state/\n.claude/settings.local.json\n', [`${ROOT}/CHANGELOG.md`]: skeleton() }
 // bwrap answers by inner argv: `npm ci` setup, `npm test` passes, anything else is red; find lists the caches setup wrote
 const jailed = (red: string[] = []) => (argv: string[]): R | undefined => {
   if (argv[0] === 'bwrap' && !argv.includes('--')) return { exitCode: 0, stdout: argv[1] === '--help' ? '--overlay-src --tmp-overlay' : '' }   // jailMode probes
@@ -59,7 +59,7 @@ const card = async (h: Host, id = 'run:init') => ((await h.board.read()).decisio
 describe('init checks (ADR 0010): read-only, one per phase', () => {
   test('an empty folder: every phase says what is missing; later phases wait as todo; nothing is written or run', async () => {
     const { h, files, calls } = mk({ repo: false, branches: [], mission: false, journal: false })
-    expect(await items(h)).toEqual({ repository: 'fail: no git repository yet', 'task store': 'todo: after the steps above', mission: 'fail: no mission yet', 'build and test commands': 'fail: no packages in .cadre/config.json',
+    expect(await items(h)).toEqual({ repository: 'fail: no git repository yet', 'task store': 'todo: after the steps above', mission: 'fail: no mission yet', 'build and test commands': 'fail: no units in .cadre/config.json',
       'commands pass on a clean checkout': 'todo: after the steps above', workflow: 'ok', changelog: 'fail: CHANGELOG.md is missing', 'safety settings': 'todo: after the steps above' })
     expect(files).toEqual({}); expect(calls.filter(a => a[0] !== 'find' && (a[0] !== 'git' || !/rev-parse/.test(a.join(' '))))).toEqual([])   // find: the stray .cadre look, read-only
     expect(banned(Object.values(await items(h)))).toEqual([])   // what a follow-up may quote
@@ -83,7 +83,7 @@ describe('init checks (ADR 0010): read-only, one per phase', () => {
     await h.board.update(b => ({ ...b, plan: { id: 'm', slug: 'mission', state: 'draft', epicBranch: '' } })); expect((await items(h)).mission).toBe('wait: approve it on its card')
   })
   test('commands are validated in a clean offline copy once per package list; a red check is named for Claude to fix', async () => {
-    const { h, calls } = mk({ files: { ...READY, [CFG]: JSON.stringify({ branches: { main: 'main', dev: 'dev' }, packages: [{ ...PKG, checks: { test: ['npm', 'test'], lint: ['npm', 'run', 'lint'] } }] }) }, extra: jailed(['npm run lint']) })
+    const { h, calls } = mk({ files: { ...READY, [CFG]: JSON.stringify({ branches: { main: 'main', dev: 'dev' }, units: [{ ...PKG, checks: { test: ['npm', 'test'], lint: ['npm', 'run', 'lint'] } }] }) }, extra: jailed(['npm run lint']) })
     expect((await items(h))['commands pass on a clean checkout']).toBe('fail: .: lint fails on a clean checkout (fix the command or leave it out)')
     const n = calls.filter(a => a[0] === 'bwrap' && a.includes('--')).length; expect(calls.some(a => a[0] === 'bwrap' && a.includes('--unshare-net'))).toBe(true)
     await items(h); expect(calls.filter(a => a[0] === 'bwrap' && a.includes('--')).length).toBe(n)   // cached while the list is unchanged
@@ -319,7 +319,7 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     const { h, sent, tick } = mk({ files: { ...READY, [CFG]: JSON.stringify({ branches: { main: 'main', dev: 'dev' } }) } })
     await start(h, 'init'); await tick(); sent.length = 0
     for (let i = 0; i < 4; i++) { await turnEnd(h, {}); await tick() }   // each turn: main "summarized the discovery in chat", nothing written
-    expect(sent).toHaveLength(3); expect(sent[0]).toContain('1. build and test commands: no packages in .cadre/config.json')
+    expect(sent).toHaveLength(3); expect(sent[0]).toContain('1. build and test commands: no units in .cadre/config.json')
     expect((await card(h))!.title).toBe('init · Claude stopped · 3 left'); expect((await card(h))!.options.map(o => o.label)).toContain('Let Claude try again')
   })
   // live 0.9.1 (2.1.296, a folder with no git): Claude stopped early and the run sat in "running" with nothing working. Claude's stop is refused while a check
@@ -327,7 +327,7 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
   test('stop with red checks: refused with the list and the guide step; a second stop without trying is let through, and the dialog shows Claude\'s words', async () => {
     const { h, sent, tick } = mk({ repo: false, branches: [], mission: false }); await start(h, 'init'); await tick(); sent.length = 0
     const b1 = await stopCheck(h, { last_assistant_message: 'I looked around.' })
-    expect(b1).toBe(`Setup is not done: these checks still fail.\n1. repository: no git repository yet (phase 1)\n2. mission: no mission yet (phase 3)\n3. build and test commands: no packages in .cadre/config.json (phase 4)\n4. changelog: CHANGELOG.md is missing (phase 5)\nFix them now, following ${PLUG}/guides/init.md. If you cannot fix one, say which one and why, then stop.`)
+    expect(b1).toBe(`Setup is not done: these checks still fail.\n1. repository: no git repository yet (phase 1)\n2. mission: no mission yet (phase 3)\n3. build and test commands: no units in .cadre/config.json (phase 4)\n4. changelog: CHANGELOG.md is missing (phase 5)\nFix them now, following ${PLUG}/guides/init.md. If you cannot fix one, say which one and why, then stop.`)
     expect(banned(b1!)).toEqual([])
     expect(await stopCheck(h, { last_assistant_message: 'I cannot run git here: the folder is read-only.' })).toBeNull()   // no tool call since: it says it cannot
     await turnEnd(h, { answer: 'I cannot run git here: the folder is read-only.' }); await tick()
@@ -581,14 +581,14 @@ describe('known red before a goal', () => {
     expect((await items(h))['commands pass on a clean checkout']).toBe('ok: known red before your goal: .: test · it must turn green')
     const d = (await card(h, 'init:5'))!; expect(d.lines).toContain('  known red before your goal: .: test · it must turn green')
     expect(await confirm(h)).toBe('init: safety settings written · restart Claude Code for the task-tool settings to apply')
-    expect(JSON.parse(files[USR]).repos[RK].packages).toEqual([{ root: '.', knownRed: ['test'] }])
-    expect((await load(h, { home: HOME, root: ROOT, repoKey: RK })).config.packages[0].knownRed).toEqual(['test'])
+    expect(JSON.parse(files[USR]).repos[RK].units).toEqual([{ root: '.', knownRed: ['test'] }])
+    expect((await load(h, { home: HOME, root: ROOT, repoKey: RK })).config.units[0].knownRed).toEqual(['test'])
     const plain = mk({ files: READY, extra: jailed(['npm test']) }); expect((await items(plain.h))['commands pass on a clean checkout']).toContain('fail: .: test fails on a clean checkout')   // no goal: unchanged
   })
   test('green after a landing: the mark goes, recorded; nothing else in the file moves', async () => {
-    const { h, files, s } = mk({ files: { ...READY, [USR]: JSON.stringify({ theme: 'dark', repos: { [RK]: { jailWritable: ['/x'], packages: [{ root: '.', knownRed: ['test', 'lint'] }] } } }) } })
+    const { h, files, s } = mk({ files: { ...READY, [USR]: JSON.stringify({ theme: 'dark', repos: { [RK]: { jailWritable: ['/x'], units: [{ root: '.', knownRed: ['test', 'lint'] }] } } }) } })
     await clearKnownRed(h, [{ root: '.', n: 'test' }], 'p1')
-    expect(JSON.parse(files[USR])).toEqual({ theme: 'dark', repos: { [RK]: { jailWritable: ['/x'], packages: [{ root: '.', knownRed: ['lint'] }] } } }); expect(files[`${USR}.bak`]).toContain('"test"')
+    expect(JSON.parse(files[USR])).toEqual({ theme: 'dark', repos: { [RK]: { jailWritable: ['/x'], units: [{ root: '.', knownRed: ['lint'] }] } } }); expect(files[`${USR}.bak`]).toContain('"test"')
     expect((await s.list({})).some(t => t.type === 'decision' && t.title === 'known red is green now: .: test')).toBe(true)
   })
   test('the setup commit: cadre commits config + changelog after the confirm and brings dev along when it is behind', async () => {

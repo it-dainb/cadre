@@ -28,7 +28,7 @@ const TASK = (subject, path) => ({ subject, description: `write ${path}`, metada
 test('a 2-epic milestone: both epic plans come from planners started by cadre; every task lands; the milestone lands on dev; main takes no turn', async () => {
   const d = mkdtempSync(join(tmpdir(), 'cadre-planner-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
   writeFileSync(join(d, 'CHANGELOG.md'), skeleton()); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'init'); sh(d, 'branch', 'dev')
-  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.jail = 'off'; cfg.drive.spawn = 'mod'; cfg.packages = [{ root: '.', verify: ['verify'], checks: { verify: ['true'] } }]
+  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.jail = 'off'; cfg.drive.spawn = 'mod'; cfg.units = [{ root: '.', verify: ['verify'], checks: { verify: ['true'] } }]
   const store = new MemoryStore(); await store.init({ types: types(), journal: true })
   const m = await store.createEpic('accounts', 'two features'), ms = `milestone/${m}-accounts`; sh(d, 'branch', ms, 'dev')
   await store.setMeta(m, { 'cadre.lane': 'milestone' }, 't')

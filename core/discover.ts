@@ -5,20 +5,21 @@ import * as G from './git'
 export interface Pkg {
   root: string; setup: string[]; checks: Record<string, string[]>; fetches?: string[]
   tdd?: { paths: string[]; report?: string; stubs?: string[]; skeleton?: string[] }; viewInclude?: string[]
-  kind?: Kind; ownGit?: boolean; concurrency?: number; routing?: Record<string, { model: string; effort?: string }>   // a workspace unit (H7); packages[] are units of kind package; its adopted test command is checks.test (core/tdd.adopt)
+  kind?: Kind; ownGit?: boolean; concurrency?: number; runner?: 'junit' | 'text'; routing?: Record<string, { model: string; effort?: string }>   // a workspace unit (H7); its adopted test command is checks.test (core/tdd.adopt)
 }
 export const KINDS = ['package', 'service', 'submodule', 'app'] as const
 type Kind = typeof KINDS[number]
-// the workspace units: `units` when set, else `packages` (units of kind package: no kind = package). The config's own objects: core/tdd.adopt updates one in place
-export const unitsOf = (cfg: { units?: unknown[]; packages?: unknown[] }): Pkg[] => ((cfg.units?.length ? cfg.units : cfg.packages ?? []) as Pkg[])
+export const RUNNERS = ['junit', 'text']
+// the workspace units (no kind = package). The config's own objects: core/tdd.adopt updates one in place
+export const unitsOf = (cfg: { units?: unknown[] }): Pkg[] => (cfg.units ?? []) as Pkg[]
 // the unit that owns a repo path: the longest root it lies under
 export const ownerOf = <T extends { root: string }>(us: T[], f: string): T | undefined => us.filter(u => u.root === '.' || f === u.root || f.startsWith(`${u.root}/`)).sort((a, b) => b.root.length - a.root.length)[0]
 export type Verdict = 'pass' | 'red' | 'net' | 'knownRed'
 export interface Run { setupOk: boolean; caches: string[]; results: Record<string, Verdict>; junit?: boolean }
 
 const isArgv = (v: unknown): v is string[] => Array.isArray(v) && v.length > 0 && v.every(x => typeof x === 'string' && x !== '')
-// the `packages` (or `units`) list of .cadre/config.json (written by Claude during init): shape check, with an example in every refusal
-export function parse(ps: any, key = 'packages'): Pkg[] | string {
+// the `units` list of .cadre/config.json (written by Claude during init): shape check, with an example in every refusal
+export function parse(ps: any, key = 'units'): Pkg[] | string {
   if (!Array.isArray(ps) || !ps.length) return `${key}: expected [{root, setup, checks, tdd}], e.g. {"root":".","setup":["npm","ci"],"checks":{"test":["npm","test"]},"tdd":{"paths":["test/**"]}}`
   for (const [i, p] of ps.entries()) {
     const at = `${key}[${i}]`
@@ -30,6 +31,7 @@ export function parse(ps: any, key = 'packages'): Pkg[] | string {
     if (p.kind !== undefined && !KINDS.includes(p.kind)) return `${at}.kind: one of ${KINDS.join(', ')}`
     if (p.ownGit !== undefined && typeof p.ownGit !== 'boolean') return `${at}.ownGit: true when the unit is its own git repository (a submodule), else false`
     if (p.concurrency !== undefined && !(Number.isInteger(p.concurrency) && p.concurrency > 0)) return `${at}.concurrency: expected a whole number above 0 (tasks of this unit at once)`
+    if (p.runner !== undefined && !RUNNERS.includes(p.runner)) return `${at}.runner: ${RUNNERS.join(' or ')} (junit reads a JUnit report, text reads the output)`
     if (p.routing !== undefined && (typeof p.routing !== 'object' || Object.values(p.routing).some((c: any) => typeof c?.model !== 'string'))) return `${at}.routing: expected {"worker":{"model":"opus","effort":"high"}}`
   }
   return ps.map(p => ({ ...p, setup: p.setup ?? [] }))

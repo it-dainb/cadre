@@ -34,7 +34,7 @@ export function check(path: string, v: unknown): string | null {
   return r.ok?.(v) ?? null
 }
 
-const RENAMED: Record<string, string> = { maxParallel: 'concurrency.default' }
+const RENAMED: Record<string, string> = { maxParallel: 'concurrency.default', packages: 'units' }
 // merge one layer onto base; returns a new object and pushes a diagnostic for every ignored key
 export function merge(base: Record<string, any>, layer: Record<string, any>, trust: Trust, diag: string[], path = ''): Record<string, any> {
   const out = { ...base }
@@ -46,14 +46,14 @@ export function merge(base: Record<string, any>, layer: Record<string, any>, tru
     if (plain(v) && plain(b) && !isOpen(p)) { out[k] = merge(b, v, trust, diag, p); continue }   // classes apply at the leaves
     if (trust === 'repo' && p === 'roles.custom' && plain(v)) { out[k] = { ...Object.fromEntries(Object.entries(v).filter(([n, x]) => !(n in (b ?? {})) && !((e) => e && diag.push(`${p}.${n}: ${e}`))(customIssue(n, x, {})))), ...b }; continue }   // the repo file adds read-only roles (core/roles.customIssue); a name the user layer has stays the user's
     if (trust === 'repo' && classOf(p) === 'U') { diag.push(`${p}: user-level only, ignored in the repo file`); continue }
-    if (trust === 'repo' && (p === 'packages' || p === 'units') && Array.isArray(v)) { out[k] = relockKnownRed(base[k]?.length ? base[k] : base.packages, v); continue }   // units take the user layer's packages grants
+    if (trust === 'repo' && p === 'units' && Array.isArray(v)) { out[k] = relockKnownRed(base[k], v); continue }
     const bad = check(p, v); if (bad) { diag.push(`${p}: ${bad}`); continue }
     if (trust === 'repo' && REG[p]?.tighten) { const t = tighten(p, base[k], v); if (JSON.stringify(t) !== JSON.stringify(v)) diag.push(`${p}: the repo file may only tighten this key`); out[k] = t; continue }
     out[k] = v
   }
   return out
 }
-// packages[].knownRed is an S key: a repo package keeps only what the user layer already granted for that root
+// units[].knownRed is an S key: a repo unit keeps only what the user layer already granted for that root
 const relockKnownRed = (prev: any[] = [], repo: any[]) => repo.map(p => { const g = prev.find(x => x.root === p.root)?.knownRed ?? []; return { ...p, knownRed: Array.isArray(p.knownRed) ? g.filter((x: string) => p.knownRed.includes(x)) : g } })
 
 // Pure: fold layers (lowest first) onto the defaults.
@@ -132,7 +132,7 @@ export function rows(layers: Layer[], env: Record<string, string | undefined> = 
     steps.forEach((c, i) => { const v = at(c, key); if (JSON.stringify(v) !== JSON.stringify(prev)) src = srcOf(layers[i].name); prev = v })
     const r = REG[key], opts = r.opts as string[] | undefined, mf = fo.model && /^roles\.\w+\.(byRisk\.\w+\.(escalate\.)?)?model$/.test(key), ef = fo.effort && /^roles\.\w+\.(byRisk\.\w+\.(escalate\.)?)?effort$/.test(key)
     const warn = mf || ef ? [mf && `CLAUDE_CODE_SUBAGENT_MODEL_FORCE puts every agent on ${fo.model}`, ef && `CLAUDE_CODE_EFFORT_LEVEL puts every agent on effort ${fo.effort}`].filter(Boolean).join('; ') : undefined
-    if (key === 'packages' && src === 'repo' && Array.isArray(prev) && prev.some(p => p?.testBy === 'tester')) src = 'tester'
+    if (key === 'units' && src === 'repo' && Array.isArray(prev) && prev.some(p => p?.testBy === 'tester')) src = 'tester'
     return { key, cat: r.cat, cls: r.cls, desc: r.desc, safety: r.cls === 'S' || !!r.tighten, value: prev, def, src: warn ? 'forced' : src, kind: r.open ? 'json' : typeof def === 'boolean' ? 'bool' : opts ? 'enum' : typeof def === 'number' ? 'number' : Array.isArray(def) ? 'list' : 'text', ...(opts ? { opts } : {}), ...(warn ? { warn } : {}) }
   }).sort((a, b) => CATS.indexOf(a.cat) - CATS.indexOf(b.cat))
 }

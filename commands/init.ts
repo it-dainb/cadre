@@ -64,8 +64,8 @@ async function mission(c: Ctx): Promise<Item> {
   return b.plan?.slug === 'mission' ? { name: 'mission', st: 'wait', why: 'approve it on its card' } : { name: 'mission', st: 'fail', why: 'no mission yet' }
 }
 async function packages(c: Ctx): Promise<string | null> {
-  const k = c.cfg.units.length ? 'units' : 'packages'; if (!c.cfg[k].length) return 'no packages in .cadre/config.json'
-  const r = D.parse(c.cfg[k], k); if (typeof r === 'string') return r
+  const k = 'units'; if (!c.cfg.units.length) return 'no units in .cadre/config.json'
+  const r = D.parse(c.cfg.units); if (typeof r === 'string') return r
   const subs = (await git(c, 'submodule', 'status')).stdout.split('\n').map(l => l.trim().split(/\s+/)[1]).filter(Boolean), i = r.findIndex(u => subs.includes(u.root) && !u.ownGit)
   return i < 0 ? null : `${k}[${i}].ownGit: ${r[i].root} is a git submodule (its own repository); set "ownGit": true`
 }
@@ -104,12 +104,12 @@ async function contained(c: Ctx): Promise<boolean> {   // $.settings.read() is t
   return (await c.h.board.read()).init.some(i => i.stage === 5 && i.state === 'done') || (assess(await c.h.settings().catch(() => ({})), await realOf(c), await wtOf(c)).state === 'contained' && gated(await readJ(c.h, `${c.root}/.claude/settings.local.json`)))
 }
 const redLine = (red: Red[]) => `known red before your goal: ${red.map(x => `${x.root}: ${x.n}`).join(', ')} · it must turn green`
-const grant = (pk: any[] = [], red: Red[]) => red.reduce((l, x) => (l.some(p => p.root === x.root) ? l.map(p => (p.root === x.root ? { ...p, knownRed: union(p.knownRed, [x.n]) } : p)) : [...l, { root: x.root, knownRed: [x.n] }]), pk)   // packages[].knownRed is granted only by the user layer (config relockKnownRed)
+const grant = (pk: any[] = [], red: Red[]) => red.reduce((l, x) => (l.some(p => p.root === x.root) ? l.map(p => (p.root === x.root ? { ...p, knownRed: union(p.knownRed, [x.n]) } : p)) : [...l, { root: x.root, knownRed: [x.n] }]), pk)   // units[].knownRed is granted only by the user layer (config relockKnownRed)
 async function plan5(c: Ctx, caches: string[], red: Red[] = []) {
   const real = await realOf(c), wt = await wtOf(c), setP = `${c.root}/.claude/settings.local.json`, usrP = `${c.home}/.claude/cadre.json`, abs = caches.map(x => `${c.home}/${x}`), p = SANDBOX(wt, real, abs)
   const cur = await readJ(c.h, setP), cu = await readJ(c.h, usrP)
   const next = { ...cur, env: { ...cur.env, ...p.env }, sandbox: { ...cur.sandbox, ...p.sandbox, filesystem: { ...cur.sandbox?.filesystem, allowWrite: union(cur.sandbox?.filesystem?.allowWrite, p.sandbox.filesystem.allowWrite), denyWrite: union(cur.sandbox?.filesystem?.denyWrite, p.sandbox.filesystem.denyWrite) } } }
-  const mine = { ...cu.repos?.[c.rk], ...(abs.length ? { jailWritable: union(cu.repos?.[c.rk]?.jailWritable, abs) } : {}), ...(red.length ? { packages: grant(cu.repos?.[c.rk]?.packages, red) } : {}) }
+  const mine = { ...cu.repos?.[c.rk], ...(abs.length ? { jailWritable: union(cu.repos?.[c.rk]?.jailWritable, abs) } : {}), ...(red.length ? { units: grant(cu.repos?.[c.rk]?.units, red) } : {}) }
   const user = abs.length || red.length ? { ...cu, repos: { ...cu.repos, [c.rk]: mine } } : cu
   const lines = [...(red.length ? [redLine(red)] : []), ...jdiff(cur, next).map(l => `.claude/settings.local.json: ${l}`), ...jdiff(cu, user).map(l => `~/.claude/cadre.json: ${l}`)]
   const writes: [string, string][] = [[setP, JSON.stringify(next, null, 2) + '\n'], ...(user !== cu ? [[usrP, JSON.stringify(user, null, 2) + '\n'] as [string, string]] : [])]
@@ -155,10 +155,10 @@ export async function commitSetup(c: Pick<Ctx, 'h' | 'root' | 'cfg'>): Promise<s
 // integration green (core/integrate): a known-red check that passes now loses its mark (the user-layer grant), recorded
 export async function clearKnownRed(h: Host, green: Red[], planId: string): Promise<void> {
   if (!green.length) return
-  const c = await ctxOf(h), path = `${c.home}/.claude/cadre.json`, old = await h.readText(path), cu = await readJ(h, path), pk = (cu.repos?.[c.rk]?.packages ?? []) as { root: string; knownRed?: string[] }[]
+  const c = await ctxOf(h), path = `${c.home}/.claude/cadre.json`, old = await h.readText(path), cu = await readJ(h, path), pk = (cu.repos?.[c.rk]?.units ?? []) as { root: string; knownRed?: string[] }[]
   const next = pk.map(p => ({ ...p, knownRed: (p.knownRed ?? []).filter(n => !green.some(g => g.root === p.root && g.n === n)) }))
   if (JSON.stringify(next) === JSON.stringify(pk)) return
-  const text = JSON.stringify({ ...cu, repos: { ...cu.repos, [c.rk]: { ...cu.repos[c.rk], packages: next } } }, null, 2) + '\n'
+  const text = JSON.stringify({ ...cu, repos: { ...cu.repos, [c.rk]: { ...cu.repos[c.rk], units: next } } }, null, 2) + '\n'
   const write = async () => { if (old !== null) await h.write(`${path}.bak`, old); await h.write(path, text) }
   await (DRIVE.humanWrite ? DRIVE.humanWrite(h, write) : write())   // a narrowed grant is not a change a running drive stops for
   await (await wire.store(h, c.cfg, c.root)).record('decision', `known red is green now: ${green.map(g => `${g.root}: ${g.n}`).join(', ')}`, `plan ${planId} landed with these checks passing; they gate integration again.`, planId).catch(() => {})

@@ -10,7 +10,7 @@ import * as G from './git'
 import { ownerOf, unitsOf } from './discover'
 import { pathsOf } from './validate'
 
-export interface Pkg { root: string; setup?: string[]; checks: Record<string, string[]>; verify?: string[]; knownRed?: string[]; viewInclude?: string[]; routing?: Record<string, { model: string; effort?: string }>; ownGit?: boolean; tdd?: { check?: string; paths: string[]; report?: string; stubs?: string[]; skeleton?: string[] } }
+export interface Pkg { root: string; setup?: string[]; checks: Record<string, string[]>; verify?: string[]; knownRed?: string[]; viewInclude?: string[]; routing?: Record<string, { model: string; effort?: string }>; ownGit?: boolean; runner?: 'junit' | 'text'; concurrency?: number; tdd?: { check?: string; paths: string[]; report?: string; stubs?: string[]; skeleton?: string[] } }
 
 // the units a task touches, by its declared paths (H7); more than one = a cross-unit task (core/close runs every one's verify checks on its squash)
 export const unitsOfTask = (d: Pick<Deps, 'cfg'>, task: Pick<Task, 'meta'>): Pkg[] => [...new Set(pathsOf(task).map(f => ownerOf(unitsOf(d.cfg) as Pkg[], f)).filter((u): u is Pkg => !!u))]

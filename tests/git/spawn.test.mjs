@@ -29,7 +29,7 @@ const DESIGN = JSON.stringify({ symbols: [{ name: 'f', kind: 'fn', params: [], r
 async function world(n = 1, o = {}) {
   const d = mkdtempSync(join(tmpdir(), 'cadre-spawn-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
   writeFileSync(join(d, 'a.txt'), 'a\n'); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'init'); sh(d, 'branch', 'dev'); sh(d, 'branch', 'epic/p1-x', 'dev')
-  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.jail = 'off'; cfg.concurrency.default = o.maxParallel ?? 3; cfg.drive.spawn = o.mode ?? 'mod'; cfg.packages = [{ root: '.', verify: ['verify'], checks: { verify: ['true'] } }]
+  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.jail = 'off'; cfg.concurrency.default = o.maxParallel ?? 3; cfg.drive.spawn = o.mode ?? 'mod'; cfg.units = [{ root: '.', verify: ['verify'], checks: { verify: ['true'] } }]
   const store = new MemoryStore(); await store.init({ types: {}, journal: true })
   const epic = await store.createEpic('E', 'goal'), ids = []
   for (let i = 0; i < n; i++) ids.push((await store.createDraft({ title: `task ${i}`, description: 'd', acceptance: 'S1: Given x When y Then z', design: DESIGN, type: 'refactor', parent: epic, meta: { 'cadre.package': '.', 'cadre.changelog': JSON.stringify({ none: true, reason: 'internal' }) } })).id)

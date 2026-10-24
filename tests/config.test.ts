@@ -23,7 +23,7 @@ describe('classes', () => {
   test('S / U / O by longest prefix', async () => {
     for (const k of ['strictness', 'mcpAllow', 'jail', 'jailWritable', 'effectCheck', 'roles.testerView']) expect(classOf(k)).toBe('S')
     for (const k of ['adapters.pm.command', 'store.kind', 'worktrees.root', 'drive.maxTurns', 'cost.prices', 'disable']) expect(classOf(k)).toBe('U')
-    for (const k of ['changelog.path', 'cost.clearHintPct', 'types', 'packages', 'sync.pm', 'review.maxRework', 'concurrency.default', 'ui.glyphs', 'roles.worker.tier', 'roles.tdd.author', 'models.fast']) expect(classOf(k)).toBe('O')
+    for (const k of ['changelog.path', 'cost.clearHintPct', 'types', 'units', 'sync.pm', 'review.maxRework', 'concurrency.default', 'ui.glyphs', 'roles.worker.tier', 'roles.tdd.author', 'models.fast']) expect(classOf(k)).toBe('O')
   })
   test('tighten: bool takes only the strict value, enum the stricter, list the intersection', async () => {
     expect(tighten('jail', 'auto', 'on')).toBe('on')
@@ -71,10 +71,10 @@ describe('layers', () => {
     expect(r.config.adapters).toEqual({}); expect(r.config.worktrees.root).toBe(''); expect(r.config.concurrency.default).toBe(9)
     expect(r.diagnostics.sort()).toEqual(['repo: adapters: user-level only, ignored in the repo file', 'repo: drive.maxCostUsd: user-level only, ignored in the repo file', 'repo: store.kind: user-level only, ignored in the repo file', 'repo: worktrees.root: user-level only, ignored in the repo file'])
   })
-  test('packages[].knownRed: a repo package keeps only what the user layer granted', async () => {
-    const r = resolve([user({ packages: [{ root: 'a', knownRed: ['lint', 'e2e'] }] }), repo({ packages: [{ root: 'a', knownRed: ['lint', 'sneaky'], checks: { t: ['x'] } }, { root: 'b', knownRed: ['x'] }, { root: 'c' }] })])
-    expect(r.config.packages).toEqual([{ root: 'a', knownRed: ['lint'], checks: { t: ['x'] } }, { root: 'b', knownRed: [] }, { root: 'c', knownRed: [] }])
-    expect(resolve([user({ packages: [{ root: 'a', knownRed: ['lint'] }] }), repo({ packages: [{ root: 'a' }] })]).config.packages).toEqual([{ root: 'a', knownRed: ['lint'] }])
+  test('units[].knownRed: a repo layer cannot widen units[i].knownRed (it keeps only what the user layer granted)', async () => {
+    const r = resolve([user({ units: [{ root: 'a', knownRed: ['lint', 'e2e'] }] }), repo({ units: [{ root: 'a', knownRed: ['lint', 'sneaky'], checks: { t: ['x'] } }, { root: 'b', knownRed: ['x'] }, { root: 'c' }] })])
+    expect(r.config.units).toEqual([{ root: 'a', knownRed: ['lint'], checks: { t: ['x'] } }, { root: 'b', knownRed: [] }, { root: 'c', knownRed: [] }])
+    expect(resolve([user({ units: [{ root: 'a', knownRed: ['lint'] }] }), repo({ units: [{ root: 'a' }] })]).config.units).toEqual([{ root: 'a', knownRed: ['lint'] }])
   })
   test('bad layers are skipped with a diagnostic; unknown keys and wrong types are dropped, the rest applies', async () => {
     const r = resolve([user('bad json in x', 'home'), user({ nope: 1, concurrency: { default: 'many' }, ui: { glyphs: 'ascii' }, roles: { worker: 5 } })])

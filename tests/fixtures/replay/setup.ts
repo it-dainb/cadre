@@ -8,7 +8,7 @@ import { pump } from '../../../commands/agentrun'
 type R = { exitCode: number; stdout?: string; stderr?: string }
 export const ROOT = '/repo'
 const CFG = `${ROOT}/.cadre/config.json`, PKG = { root: '.', setup: ['npm', 'ci'], checks: { test: ['npm', 'test'] }, tdd: { paths: ['test/**'] } }
-export const READY = { [CFG]: JSON.stringify({ branches: { main: 'main', dev: 'dev' }, packages: [PKG] }), [`${ROOT}/.git/info/exclude`]: '.cadre/store/\n.cadre/store.gate.lock\n.claude/settings.local.json\n' }   // no CHANGELOG.md: one init check stays red
+export const READY = { [CFG]: JSON.stringify({ branches: { main: 'main', dev: 'dev' }, units: [PKG] }), [`${ROOT}/.git/info/exclude`]: '.cadre/store/\n.cadre/store.gate.lock\n.claude/settings.local.json\n' }   // no CHANGELOG.md: one init check stays red
 // bwrap answers by inner argv (jail probes, `npm ci`, `npm test` pass); git answers a repo with main and dev
 const jailed = (argv: string[]): R | undefined => {
   if (argv[0] === 'bwrap' && !argv.includes('--')) return { exitCode: 0, stdout: argv[1] === '--help' ? '--overlay-src --tmp-overlay' : '' }

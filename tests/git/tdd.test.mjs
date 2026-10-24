@@ -56,7 +56,7 @@ function world(over = {}) {
   writeFileSync(join(root, 'test/old.json'), JSON.stringify({ name: 'old', status: 'passed' })); symlinkSync('../src/login.ts', join(root, 'test/link.ts'))
   sh(root, 'add', '-A'); sh(root, 'commit', '-qm', 'init'); sh(root, 'branch', 'epic/e1-x')
   const pkg = { root: '.', setup: [], checks: { test: ['node', 'run.mjs'], knownbad: ['false'] }, verify: ['test'], viewInclude: ['docs/**'], tdd: { paths: ['test/**'], report: '/tmp/cadre/r.xml' }, ...over.pkg }
-  const cfg = { ...defaults(), packages: [pkg], worktrees: { root: join(b, 'wt') }, jail: 'auto', ...over.cfg }
+  const cfg = { ...defaults(), units: [pkg], worktrees: { root: join(b, 'wt') }, jail: 'auto', ...over.cfg }
   if (!over.cover) cfg.review = { ...cfg.review, coverage: { enforce: false } }   // the fixtures name tests 'a', 'login ok'; the coverage rule has its own test
   const meta = {}, comments = [], ctl = { revision: '0', doc: {} }, store = { async setMeta(id, kv) { Object.assign(meta, kv) }, async control() { return ctl }, async setControl(p) { Object.assign(ctl.doc, p); return ctl }, async move() {}, async resume() {}, async get(id) { return { id, title: 't', type: over.type ?? 'feature', meta: { ...meta }, acceptance: over.acceptance ?? 'S1: Given a When b Then c', description: 'page 1 skips the first page', design: over.design ?? JSON.stringify({ symbols: [{ name: 'login', kind: 'function', params: 'u', returns: 'bool', status: 'new' }] }) } } }
   const h = fakeHost(); Object.assign(h, { run, readText: async p => (existsSync(p) ? readFileSync(p, 'utf8') : null), write: async (p, t) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) }, cwd: async () => root, home: async () => b, config: async () => cfg, taskStore: async () => store })
@@ -231,7 +231,7 @@ test('red via the tester command + JUnit (every named test failed); no test chec
   const { wt, res } = await testerRun(w, { 'test/login.test.mjs': LOGIN }, JUNIT)
   assert.ok(res.ok, res.why); assert.match(res.card, /red ✓ 1 failing/); assert.deepEqual(JSON.parse(w.meta['cadre.specTests']), ['test.S1 login ok'])
   assert.deepEqual(JSON.parse(w.meta['cadre.testRun']), JUNIT)
-  const cfg = JSON.parse(readFileSync(join(w.root, '.cadre/config.json'), 'utf8')), p = cfg.packages[0]
+  const cfg = JSON.parse(readFileSync(join(w.root, '.cadre/config.json'), 'utf8')), p = cfg.units[0]
   assert.deepEqual(p.checks.test, ['node', '--test', '--test-reporter=junit', '--test-reporter-destination=/tmp/cadre/junit.xml']); assert.equal(p.tdd.report, '/tmp/cadre/junit.xml'); assert.equal(p.testBy, 'tester')
   assert.deepEqual(w.records.map(r => [r.kind, r.title, r.link]), [['decision', 'test check set from the tester: node --test --test-reporter=junit --test-reporter-destination=/tmp/cadre/junit.xml', 'm-1']])
   const ev = Object.values((await w.h.events.read()).epics).flat().find(e => e.type === 'drive.decided'); assert.equal(ev.data.kind, 'setting'); assert.equal(ev.actor, 'mod')
@@ -239,7 +239,7 @@ test('red via the tester command + JUnit (every named test failed); no test chec
   writeFileSync(join(wt, 'src/login.ts'), 'export const LOGIN_OK = 1\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'impl')
   const g = await T.green(w.h, w.d, await mkTask(w), wt); assert.ok(g.ok, g.why); assert.match(g.card, /green ✓ spec tests\+test/)
   // a second task of the package: the check exists now, nothing is adopted again
-  const w2 = noCheck(); recorded(w2); w2.d.cfg.packages[0].checks.test = p.checks.test
+  const w2 = noCheck(); recorded(w2); w2.d.cfg.units[0].checks.test = p.checks.test
   assert.ok((await testerRun(w2, { 'test/login.test.mjs': LOGIN }, JUNIT)).res.ok); assert.equal(w2.records.length, 0); assert.equal(existsSync(join(w2.root, '.cadre/config.json')), false)
 })
 

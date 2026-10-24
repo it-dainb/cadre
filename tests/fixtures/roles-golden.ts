@@ -1070,7 +1070,6 @@ export default {
       "contract": "none"
      }
     },
-    "packages": [],
     "units": [],
     "suites": {
      "integration": "all"
@@ -1444,7 +1443,6 @@ export default {
       "contract": "none"
      }
     },
-    "packages": [],
     "units": [],
     "suites": {
      "integration": "all"
@@ -1818,7 +1816,6 @@ export default {
       "contract": "none"
      }
     },
-    "packages": [],
     "units": [
      {
       "root": "a",

@@ -133,7 +133,7 @@ describe('claim (3.4)', () => {
   })
   test('the setup argv of the package runs in the writable jail; a failing setup releases the claim', async () => {
     const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}); await w.board(h, epic, ids)
-    d.cfg.packages = [{ root: '.', setup: ['npm', 'ci'] }] as any
+    d.cfg.units = [{ root: '.', setup: ['npm', 'ci'] }] as any
     await admitWith(h, d, spawn(ids[0]), ok().next); const j = w.calls.find(c => c[0] === 'bwrap')!
     expect(j).toContain('--bind'); expect(j.slice(j.indexOf('--') + 1)).toEqual(['npm', 'ci']); expect(j).not.toContain('--unshare-net')
   })
@@ -220,7 +220,7 @@ describe('review spawn', () => {
   for (const role of ['worker', 'tester', 'reviewer'] as const) for (const risk of ['light', 'standard', 'thorough', 'core'] as const) test(`routing cell roles.${role}.byRisk.${risk} (+ escalate)`, async () => {
     const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}), id = ids[0], rv = role === 'reviewer'
     await w.board(h, epic, ids, rv ? [{ state: 'review', step: 'reviewer' }] : [])
-    if (role === 'tester') { d.view = async (_h, _d, t) => `/wt/repo-1.views/${t.id}`; d.cfg.packages = [{ root: '.', tdd: { paths: ['test/**'] } }] as any }
+    if (role === 'tester') { d.view = async (_h, _d, t) => `/wt/repo-1.views/${t.id}`; d.cfg.units = [{ root: '.', tdd: { paths: ['test/**'] } }] as any }
     if (rv) { await w.store.claim(id, d.actor); await w.store.setMeta(id, { 'cadre.sourceCommit': 'deadbee', 'cadre.base': 'abc1234', 'cadre.worktree': `/wt/repo-1/${id}` }, d.actor); w.numstat.out = risk === 'standard' ? '60\t50\tsrc/a.ts\n' : '1\t1\tsrc/a.ts\n' }
     else await w.store.setMeta(id, { 'cadre.paths': JSON.stringify(risk === 'standard' ? ['a', 'b', 'c'] : ['src/a.ts']) }, d.actor)
     if (risk === 'thorough') await w.store.update(id, { labels: ['security'] }, d.actor)
@@ -283,7 +283,7 @@ describe('multi-session leases (two hosts, one store)', () => {
 describe('tester step with a spec view (3.5)', () => {
   test('claim: tester agent, cwd = the view and the binding\'s root = the view; the worker waits for a red record, then sees the locked tests', async () => {
     const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}), id = ids[0], view = `/wt/repo-1.views/${id}`; await w.board(h, epic, ids)
-    d.view = async (_h, _d, t) => `/wt/repo-1.views/${t.id}`; d.cfg.packages = [{ root: '.', tdd: { paths: ['test/**'] } }] as any
+    d.view = async (_h, _d, t) => `/wt/repo-1.views/${t.id}`; d.cfg.units = [{ root: '.', tdd: { paths: ['test/**'] } }] as any
     const a = ok('tt1'); await admitWith(h, d, spawn(id), a.next)
     expect(a.seen[0]).toMatchObject({ subagentType: 'cadre:tester', cwd: view }); expect(a.seen[0].prompt).toContain('# SPEC TASK'); expect(a.seen[0].prompt).toContain('test/**')
     expect((await h.bind.read()).tt1.worktree).toBe(view)
