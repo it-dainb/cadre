@@ -5,11 +5,7 @@ export const BUDGET = {
   "memoryStoreLoc": 106,
   "skills": 0,
   "gatingMissing": 0,
-  "modelExits": [
-    "core/roles.ts:39: if (!s.description || typeof s.description !== 'string' || !s.prompt || typeof s.prompt !== 'string') return 'descriptio",
-    "core/roles.ts:41: if (new TextEncoder().encode(s.prompt).length > PROMPT_CAP) return `prompt: over ${PROMPT_CAP} bytes`",
-    "core/roles.ts:42: if (leaks('agent-file', `${s.description}\\n${s.prompt}`).length) return 'description and prompt: name how the tool works"
-  ],
+  "modelExits": [],
   "writesOutside": [],
   "uiLiterals": [],
   "offText": [],
