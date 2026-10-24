@@ -1,7 +1,7 @@
 // core/queue: the one slot count. A slot belongs to the task; model and provider keys count running runs; FIFO per key with skip-ahead; heads before new claims.
 import { describe, expect, test } from 'claude-code/testing'
 import { defaults } from '../config/index'
-import { clamped, drop, grant, hold, limitOf, providerOf, running, unitCap, type Want } from '../core/queue'
+import { clamped, drop, grant, hold, limitOf, providerOf, running, tasksFull, unitCap, type Want } from '../core/queue'
 import { fakeHost } from './support'
 import { arm } from '../core/drive'
 import { world } from './fixtures/replay/world'
@@ -12,6 +12,10 @@ const ids = (g: Want[]) => g.map(w => w.id)
 const board = (...active: string[]) => ({ tasks: active.map(id => ({ id, state: 'active' })) })
 
 describe('queue', () => {
+  test('a task in review (the worker reported, the reviewer runs or the merge waits) still holds its slot at concurrency.default', () => {
+    const c = cfg({ default: 1 }), s = { tasks: [{ id: 'a', state: 'review' }] }
+    expect(ids(grant(c, 'anthropic', s, [], [claim('b', 'haiku')]))).toEqual([]); expect(tasksFull(c, s)).toBe(true)
+  })
   test('settings: concurrency.models: FIFO per key, skip-ahead across keys', () => {
     const c = cfg({ default: 9, models: { haiku: 1 } }), ws = [claim('a', 'haiku'), claim('b', 'haiku'), claim('c', 'sonnet'), claim('d', 'haiku')]
     expect(ids(grant(c, 'anthropic', board(), [], ws))).toEqual(['a', 'c'])   // b waits behind a; c skips ahead; d never passes b

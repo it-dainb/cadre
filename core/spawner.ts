@@ -62,7 +62,7 @@ export async function spawnStep(h: Host, event: string): Promise<void> {
     const d = keyed || capped ? await resolveDeps(h) : undefined, units: Record<string, string> = {}   // routing and units are read only when a limit asks for them
     const unitOf = async (id: string) => pkgOf(d!, await d!.store.get(id))?.root ?? '.'
     if (d) {
-      if (capped) for (const t of s.tasks.filter(t => t.state === 'active')) units[t.id] = await unitOf(t.id).catch(() => '.')
+      if (capped) for (const t of s.tasks.filter(Q.inSlot)) units[t.id] = await unitOf(t.id).catch(() => '.')
       for (const w of cands) { if (capped && w.role === 'claim') w.unit = await unitOf(w.id).catch(() => '.'); if (keyed) w.model = await modelFor(h, d, w.id, w.role).catch(() => undefined) }
     }
     const go = Q.grant(cfg, Q.providerOf(await h.env()), s, d ? await Q.running(h) : [], cands, units)

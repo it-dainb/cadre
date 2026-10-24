@@ -42,8 +42,9 @@ export const unitCap = (c: Config['concurrency'], u: { concurrency?: number }) =
 export const clamped = (cfg: Config) => ((cfg.units ?? []) as { root: string; concurrency?: number }[]).filter(u => u.concurrency && cfg.concurrency.default > 0 && u.concurrency > cfg.concurrency.default).map(u => `unit ${u.root}: concurrency ${u.concurrency} is held to ${cfg.concurrency.default} (concurrency.default)`)
 
 const live = new Set(['running', 'refused', 'silent'])
-// the tasks in a slot: the active ones (grant adds the claims still starting)
-export const tasksFull = (cfg: Config, s: { tasks: { state: string }[] }) => cfg.concurrency.default > 0 && s.tasks.filter(t => t.state === 'active').length >= cfg.concurrency.default
+// the tasks in a slot: the active ones and the ones in review (a task holds its slot until it lands; the worker's report moves it to review, and the next task must not start in that gap). grant adds the claims still starting
+export const inSlot = (t: { state: string }) => t.state === 'active' || t.state === 'review'
+export const tasksFull = (cfg: Config, s: { tasks: { state: string }[] }) => cfg.concurrency.default > 0 && s.tasks.filter(inSlot).length >= cfg.concurrency.default
 // who runs now, by model: the bound runs whose state is running (a waiting run holds no model slot)
 export async function running(h: Host): Promise<(string | undefined)[]> {
   const runs = ((await h.ui.read()).runs ?? {}) as Record<string, Run>, bound = await h.bind.read()
@@ -52,10 +53,10 @@ export async function running(h: Host): Promise<(string | undefined)[]> {
 // the wants that start now, in order. `units`: the unit of each active or wanted task (per-unit caps); `now`: models of the runs in progress
 export function grant(cfg: Config, provider: string, s: { tasks: { id: string; state: string }[] }, now: (string | undefined)[], wants: Want[], units: Record<string, string> = {}): Want[] {
   const c = cfg.concurrency, byModel: Record<string, number> = {}, byUnit: Record<string, number> = {}
-  let all = 0, tasks = s.tasks.filter(t => t.state === 'active').length + [...held.values()].filter(w => w.role === 'claim').length
+  let all = 0, tasks = s.tasks.filter(inSlot).length + [...held.values()].filter(w => w.role === 'claim').length
   const add = (m?: string, u?: string) => { all++; if (m) byModel[aliasOf(m)] = (byModel[aliasOf(m)] ?? 0) + 1; if (u) byUnit[u] = (byUnit[u] ?? 0) + 1 }
   for (const m of now) add(m); for (const w of held.values()) add(w.model)
-  for (const t of s.tasks) if (t.state === 'active' && units[t.id]) byUnit[units[t.id]] = (byUnit[units[t.id]] ?? 0) + 1
+  for (const t of s.tasks) if (inSlot(t) && units[t.id]) byUnit[units[t.id]] = (byUnit[units[t.id]] ?? 0) + 1
   const units0 = new Map(((cfg.units ?? []) as { root: string; concurrency?: number }[]).map(u => [u.root, unitCap(c, u)]))
   const out: Want[] = []
   for (const w of [...wants.filter(x => x.head), ...wants.filter(x => !x.head)]) {

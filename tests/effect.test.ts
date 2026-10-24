@@ -99,6 +99,11 @@ describe('L3 effect (13.1)', () => {
     h.run = (async (argv: readonly string[]) => { if (argv[3] === 'for-each-ref') { await h.git.update(g => ({ ...g, busy: true })); w.refs['refs/heads/dev'] = SHA('9'); w.st['/wt/a'].push(mod('x.ts')) } return run(argv) }) as any
     await sweep(h); expect(await flags()).toEqual([]); expect(w.calls.filter(c => c[3] === 'stash')).toEqual([])
   })
+  test('a cadre git op that finishes between the audit\'s second look and its save is never judged a stranger\'s move at the next audit', async () => {
+    const { w, h, flags } = await mk(), read = h.git.read.bind(h.git); let n = 0
+    h.git.read = (async () => { const g = await read(); if (++n === 2) { w.refs['refs/heads/dev'] = SHA('9'); await h.git.update(x => ({ ...x, epoch: x.epoch + 1 })) } return g }) as any
+    await sweep(h); h.git.read = read as any; await sweep(h); expect(await flags()).toEqual([])
+  })
   test('gitBusy skips; an epoch change re-baselines instead of judging', async () => {
     const { w, h, flags } = await mk()
     await h.git.update(g => ({ ...g, busy: true })); w.st['/r'].push(mod('m.ts')); await sweep(h); expect(w.calls.filter(c => c[3] === 'stash')).toEqual([]); expect(await flags()).toEqual([])

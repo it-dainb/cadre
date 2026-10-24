@@ -69,7 +69,7 @@ export async function audit(h: Host, caller: string | null): Promise<void> {
   const now = await fingerprint(h, scope, pol.repo), base = g.fp
   { const g2 = await h.git.read(); if (g2.busy || g2.epoch !== g.epoch) return }   // a cadre git op ran while this one looked (a close at another agent's turn end, ADR 0018): judge nothing; its epoch re-baselines the next look
   const open = [...new Set(Object.values(g.win?.open ?? {}))]
-  const save = (fp: Record<string, string>, loops: string[]) => h.git.update(x => ({ ...x, fp: { ...x.fp, ...fp, epoch: String(x.epoch) }, win: { open: x.win?.open ?? {}, loops } }))   // the window restarts at each audit with the calls still in flight
+  const save = (fp: Record<string, string>, loops: string[]) => h.git.update(x => ({ ...x, fp: { ...x.fp, ...fp, epoch: String(g.epoch) }, win: { open: x.win?.open ?? {}, loops } }))   // the window restarts at each audit with the calls still in flight
   if (!base || base.epoch !== String(g.epoch)) return void (await save(now, open))   // first sight or a mod git op: re-baseline, no verdict
   const loops = g.win?.loops ?? [], agentLoop = loops.some(l => l !== ''), after = { ...now }
   for (const t of scope) {

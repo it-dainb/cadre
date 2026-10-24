@@ -27,7 +27,7 @@ import { feed } from './lessons'
 import { notesOf, pathsOf, sliceNotes, specTestsOf, untested } from './validate'
 import { branchOf, epicOf } from './milestone'
 import { plannerBrief } from './planner'
-import { modelRefusal, tasksFull } from './queue'
+import { modelRefusal, inSlot, tasksFull } from './queue'
 import { budgetOf, intentOf, reserve, step as lifeStep, unreserve } from './lifecycle'
 import { ROLES_DEFAULT } from './roles'
 import { needOf, question, running, undelivered, delivered } from './needs'
@@ -172,7 +172,7 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
   if (t.condition?.state === 'not-met') return deny(`${t.id} never runs: its condition (${t.condition.on} failed) is not met`)
   const ep = epicOf(s, t.epic); if (ep && ep.state !== 'running') return deny(`${t.id}: its epic ${ep.id} is ${ep.state}${ep.why ? ` (${ep.why})` : ''}; go on with the other epics`)   // milestone (ADR 0015)
   if (!(await d.store.ready(t.epic ?? s.epic)).includes(t.id)) return deny(`${t.id} is not ready (waiting on a dependency or gate); spawn a task that status shows ready`)
-  if (tasksFull(d.cfg, s)) return deny(`${s.tasks.filter(x => x.state === 'active').length} agents already running (limit ${d.cfg.concurrency.default}); wait for one to finish`)
+  if (tasksFull(d.cfg, s)) return deny(`${s.tasks.filter(inSlot).length} agents already running (limit ${d.cfg.concurrency.default}); wait for one to finish`)
   const spike = kindOf(spec) === 'spike', top = d; d = inRepo(d, pkgOf(d, await d.store.get(t.id)))
   if (!spike && !(await G.exists(h.run, d.root, branchOf(s, t)))) { if (d === top) return lostEpic(h, s, t); await G.git(h.run, d.root, ['branch', branchOf(s, t), (await G.exists(h.run, d.root, d.cfg.branches.dev)) ? d.cfg.branches.dev : 'HEAD']) }   // a submodule's epic branch: cut from its dev on first use
   const res = await apply(h, { kind: 'claim', id: t.id, at: await h.now(), actor: 'mod', owner: d.actor }, pipe)   // the CAS reserve: one winner (S2)
