@@ -8,7 +8,7 @@ import { repoKeyOf } from '../commands/init'
 import { HEADLESS, REG, check, headlessMain, layersOf, resolve, rows, tighten } from './index'
 import { clamped, modelIssues } from '../core/queue'
 import { parse } from '../core/discover'
-import { UNIT, unitRows } from '../ui/views/units'
+import { UNIT, unitRows } from '../ui/settings'
 import { LIMIT } from '../policy/guards'
 import { PROTECTED } from '../core/git'
 import { RETRIES } from '../core/validate'
@@ -70,7 +70,7 @@ async function editCard(h: any, row: Row, error?: string): Promise<void> {
 }
 const back = (h: any, key: string) => settle(h, ID(key))
 
-// a unit's scalar field (ui/views/units): the unit is re-parsed, the model gate re-run, then .cadre/config.json is written once with its .bak
+// a unit's scalar field (ui/settings): the unit is re-parsed, the model gate re-run, then .cadre/config.json is written once with its .bak
 async function saveUnit(h: any, key: string, raw: string, no: (why: string) => Promise<{ text: string }>): Promise<{ text: string }> {
   const [, i, f] = key.match(UNIT)!, { root } = await ctx(h), path = `${root}/.cadre/config.json`, v = raw.trim()
   let cur: any; try { cur = JSON.parse((await h.readText(path)) ?? '{}') } catch { return no('.cadre/config.json is not valid JSON') }
