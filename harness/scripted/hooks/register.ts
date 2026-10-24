@@ -88,16 +88,17 @@ function main(rows: Row[]): Act {
 const EPICS = [{ title: 'wordCount(s)', goal: 'wordCount(s) in src/words.mjs returns the number of words in s', size: 1, paths: ['src/words.mjs', 'test/words.test.mjs'] },
   { title: 'truncate(s, n)', goal: 'truncate(s, n) in src/truncate.mjs cuts s to n characters and ends it with "..."', size: 1, paths: ['src/truncate.mjs', 'test/truncate.test.mjs'] }]
 // the function a brief is about (multi: kebabCase is the second task), its test and files
-type Fn = { name: string; title: string; input: string; out: string; impl: string; what: string }
-const FNS: Fn[] = [
+type Fn = { name: string; title: string; input: string; out: string; impl: string; what: string; lit?: string }   // lit: the expected value as code, when it is no string
+const FNS: Fn[] = [   // wordCount is the probe script's task (its epic's planner drafts it); fnOf picks it by name
   { name: 'titleCase', title: 'S1: titleCase capitalises each word', input: 'hello big world', out: 'Hello Big World', impl: String.raw`s => s.replace(/(^|\s)(\S)/g, (_, a, b) => a + b.toUpperCase())`, what: 'uppercase the first letter of each whitespace-separated word, leave the rest unchanged' },
   { name: 'kebabCase', title: 'S1: kebabCase joins the words with dashes', input: 'Hello Big World', out: 'hello-big-world', impl: String.raw`s => s.trim().toLowerCase().split(/\s+/).join('-')`, what: 'lowercase the words and join them with dashes' },
+  { name: 'wordCount', title: 'S1: wordCount counts the words', input: 'a b c', out: '3', lit: '3', impl: String.raw`s => s.trim().split(/\s+/).length`, what: 'count the whitespace-separated words' },
 ]
-const fnOf = (brief: string) => (/kebabCase/.test(brief) ? FNS[1] : FNS[0])
+const fnOf = (brief: string) => (/wordCount/.test(brief) ? FNS[2] : /kebabCase/.test(brief) ? FNS[1] : FNS[0])
 const TEST = (f: Fn) => `import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ${f.name} } from '../src/${f.name}.mjs'
-test('${f.title}', () => assert.equal(${f.name}('${f.input}'), '${f.out}'))
+test('${f.title}', () => assert.equal(${f.name}('${f.input}'), ${f.lit ?? `'${f.out}'`}))
 `
 // the test file only when there is none (full lane: the tester's is locked)
 const FILES = (f: Fn) => `mkdir -p src test && cat > src/${f.name}.mjs <<'EOF'
@@ -156,7 +157,7 @@ export const register: Register = (on) => {
     const rows = ((await $.session.messages(e.agentId ? { agentId: e.agentId } : {})) ?? []) as Row[]
     const [who, a] = e.agentId ? agent(rows, cwds[e.agentId] ?? '/work/run') : ['main', main(rows)]
     if (script === 'limit' && who === 'worker' && !injected) { injected = true; await L($, `step agent=${e.agentId} who=worker index=${e.index} -> next (usage limit from the proxy)`); return yield* next(e) }
-    if (who === 'planner' && JSON.stringify(rows.at(-1) ?? {}).includes('plan accepted')) await L($, 'planner plan accepted')
+    if (who === 'planner' && a.tool && JSON.stringify(a.input).includes('"tasks"')) await L($, 'planner drafts')   // the cell waits for it; its tool result is the accepted plan
     await L($, `step agent=${e.agentId ?? 'main'} who=${who} index=${e.index} msgs=${e.messageCount} effort=${e.effort ?? '-'} -> ${a.tool ? `${a.text ? 'text+' : ''}tool ${a.tool}` : 'text end_turn'}`)
     // cont: the reviewer's first two steps wait 7 s each (a hook call over ~10 s fails: HooksError, so one long sleep won't do). The reviewer has no Bash, so the wait is a sleep here: with none, the reviewer ends within a second of the worker and the
     // cell's SIGKILL (polled every 2 s, later under load) lands after it, leaving no reviewer to run after the restart
