@@ -91,4 +91,4 @@ Evidence per cell: `harness/out/matrix/<tier>-<stamp>/<cell>/` (gitignored): `dr
 **Add a scenario**: `scenarios/<name>.sh` with the steps above; end with `until_plan` (or rely on `LANDED=1`). A new perturbation that needs a key or command the steps lack: add one line to the steps block in `cell.sh`.
 **Add an invariant**: one numbered block in `oracle.mjs` calling `fail('<id>', evidence)`; add its row above. Prove it: a cell that should break it must FAIL on a commit with the bug.
 **Clarify tier** (`harness/matrix.sh clarify`, ADR 0020, about US$5): a vague goal on the `landing` fixture (auto, yolo, deep) and the clear titleCase goal. Not in quick: four extra sonnet cells per release.
-**Add a cell to a tier**: one line `name|fixtures|scenario|ENV=…` in `quick()` in `matrix.sh` (`full()` is generated).
+**Add a cell to a tier**: one line `name|fixtures|scenario|ENV=…` in `quick()` in `matrix.sh` (`full()` is generated).  `RUNS=N` in the env runs the cell N times (evidence `<cell>.r1…rN`); its row is PASS only if every run passes, US$ and min are summed (`continue-after-quit` runs twice in quick).

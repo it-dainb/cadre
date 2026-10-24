@@ -4,6 +4,7 @@
 # A cell: name | fixtures (base, then overlays) | scenario | env for tui.sh/cell.sh/oracle.mjs. Env knobs of the matrix itself:
 #   S=1: the scripted model (harness/scripted: a second plugin answers every model request; the stub proxy refuses any request it has no stub for, so
 #        an S cell costs no quota and oracle.mjs fails it on any refused request). An S cell <name> and its L twin <name>-live in one run must agree.
+#   RUNS=N: the cell runs N times (evidence <name>.rK); its row is PASS only if every run passes; US$ and min are summed.
 #   KNOWN=<slice>: the cell checks a slice that has not landed; a FAIL of its own oracle (ORACLE=…, not-landed) shows as known:<slice> and does not
 #   fail the run; any other invariant (zero-quota, errors, …) still fails it.
 H=$(cd "$(dirname "$0")" && pwd); TIER=${1:-quick}; shift; J=7; [ "$TIER" = scripted ] && J=6; DRY=   # scripted cells cost nothing: run them all at once
@@ -12,7 +13,7 @@ quick() { cat <<'EOF'
 user1-mono-clear-cd-retype|monorepo leftover|user1|MODEL=haiku CC_VERSION=2.1.299
 user2-nogit-lazy-interrupt|nogit|goal|MODEL=haiku CC_VERSION=2.1.299 LAZY=1 FAULT=interrupt
 leftover-pointer|single ready leftover|goal|MODEL=haiku CC_VERSION=2.1.299
-continue-after-quit|single ready|continue|MODEL=haiku CC_VERSION=2.1.299 LANDED=1 BUDGET=1800 PROXY=1
+continue-after-quit|single ready|continue|MODEL=haiku CC_VERSION=2.1.299 LANDED=1 BUDGET=1800 PROXY=1 RUNS=2
 single-295|single|goal|MODEL=haiku CC_VERSION=2.1.295
 single-via-ccr|single|goal|MODEL=haiku CC_VERSION=2.1.299 VIA=ccr
 kill-mid-setup|nogit|kill|MODEL=haiku CC_VERSION=2.1.299 FAULT=kill
@@ -61,6 +62,9 @@ full() {   # the cross product, minus cells that cannot exist (user1 needs kit/,
   done
 }
 CELLS=$($TIER | grep -E "^(${FILTER:-.*})\|" ) || { echo "no cells"; exit 2; }
+# RUNS=N in a cell's env: N lines <name>.r1..rN (evidence dirs of their own); table.mjs folds them back into one row
+CELLS=$(while IFS='|' read -r name fix scen envs; do r=1; [[ " $envs " =~ " RUNS="([0-9]+)" " ]] && r=${BASH_REMATCH[1]}; envs=$(sed -E 's/(^| )RUNS=[0-9]+//' <<<"$envs")
+  for ((k = 1; k <= r; k++)); do echo "$name$([ "$r" -gt 1 ] && echo ".r$k")|$fix|$scen|$envs"; done; done <<<"$CELLS")
 n=$(wc -l <<<"$CELLS")
 # live runs are haiku only (H0): a cell naming any other model is refused; tui.sh also forces every subagent and pins every cadre route to haiku
 bad=$(grep -vE 'MODEL=haiku( |$)' <<<"$CELLS") && { echo "not haiku:"; echo "$bad"; exit 2; }
@@ -75,15 +79,5 @@ export H RUN
 xargs -P "$J" -d '\n' -I{} bash -c 'IFS="|" read -r name fix scen envs <<<"$1"; echo "$envs" >"$RUN/$name.env"
   case " $envs " in *" S=1 "*) export PROXY=1 PROXY_JS=harness/scripted/stub-proxy.mjs CLAUDE_ARGS="--plugin-dir /work/spike/harness/scripted" EXTRA_ENV="-e CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false";; esac
   env $envs OUT_DIR="$RUN/$name" "$H/cell.sh" "m$$-$name" "$fix" "$scen" >"$RUN/$name.line" 2>"$RUN/$name.err"; cat "$RUN/$name.line"' _ {} <<<"$CELLS"
-echo; node -e '
-const fs = require("fs"), run = process.argv[1], rows = []
-for (const c of fs.readdirSync(run)) { if (!fs.existsSync(`${run}/${c}.line`)) continue; const f = `${run}/${c}/verdict.json`; if (!fs.existsSync(f)) { if (fs.statSync(`${run}/${c}`).isDirectory()) rows.push([c, "-", "NO VERDICT", "", "", "", "", ""]); continue }
-  const v = JSON.parse(fs.readFileSync(f)), s = v.stats, envs = fs.readFileSync(`${run}/${c}.env`, "utf8"), own = ["not-landed", (envs.match(/(?:^| )ORACLE=(\S+)/) ?? [])[1]]
-  const known = v.fails.every(f => own.includes(f.invariant)) && (envs.match(/(?:^| )KNOWN=(\S+)/) ?? [])[1]   // known masks only the cell own oracle and its landing, never a leak or an error
-  rows.push([c, v.pass ? "PASS" : known ? `known:${known}` : "FAIL", v.pass ? "" : [...new Set(v.fails.map(f => f.invariant))].join(","), s.secsToPlan ?? "-", s.dialogs, s.turns, s.usd, Math.round(s.secs / 60), v.pass ? "" : v.fails[0].evidence.slice(0, 90)]) }
-const head = ["cell", "verdict", "failing invariant", "s to plan", "dialogs", "turns", "US$", "min", "evidence"]
-const w = head.map((h, i) => Math.max(h.length, ...rows.map(r => String(r[i] ?? "").length)))
-for (const r of [head, ...rows]) console.log(r.map((x, i) => String(x ?? "").padEnd(w[i])).join(" | "))
-for (const r of rows) { const twin = rows.find(x => x[0] === `${r[0]}-live`); if (twin && twin[1] !== "-" && r[1] !== "-" && (r[1] === "PASS") !== (twin[1] === "PASS")) console.log(`${r[0]} | FAIL | twin-disagree | S ${r[1]}, L ${twin[1]}`) }
-const t = rows.reduce((a, r) => a + (+r[6] || 0), 0); console.log(`total US$ ${t.toFixed(2)} · ${rows.filter(r => r[1] === "PASS").length}/${rows.length} pass`)' "$RUN" | tee "$RUN/table.txt"
+echo; node "$H/table.mjs" "$RUN" | tee "$RUN/table.txt"
 ! grep -q 'FAIL\|NO VERDICT' "$RUN/table.txt"
