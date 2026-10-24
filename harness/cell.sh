@@ -26,7 +26,7 @@ title() { awk '/☐/{f=1; next} f && /^ *❯ 1\./{exit} f{x=$0; sub(/^│ ?/,"",
 # the band = the rows from the one ending in Claude Code's fold button [-] down to the composer; the status line = the rows under the composer
 AWK_BAND='{L[NR]=$0} /^─{20}/{b[++nb]=NR} END{if(nb<2)exit; t=b[nb-1]; for(i=t-1;i>0&&i>t-8;i--)if(L[i]~/\[-\] *$/){for(j=i;j<t;j++)print L[j];break}; for(i=b[nb]+1;i<=NR;i++)print L[i]}'
 band() { awk "$AWK_BAND" <<<"$1"; }
-key() { docker exec "cadre-tui-$N" tmux send-keys -t q "$@"; }
+key() { for i in 1 2 3; do docker exec "cadre-tui-$N" tmux send-keys -t q "$@" 2>&1 | grep -q "OCI runtime exec failed" || break; sleep 1; done; }
 comp() { awk '/^─{20}/{b[++nb]=NR} {L[NR]=$0} END{x=L[b[nb-1]+1]; sub(/^❯/,"",x); gsub(/[ \302\240]/,"",x); print x}' <<<"$1"; }   # what is typed in the composer
 watcher() {
   local prev= seen= since=0 last1=0 lastt= tnew=0 bsince=0 bask= fault= cur p t now

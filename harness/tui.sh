@@ -18,7 +18,9 @@ o.limits = { limitWaitMinutes: 1 }   // a cell waits for the reported reset (90 
 console.log(JSON.stringify(o))' --input-type=module "$R"; fi
 . "$H/check.sh"
 c=$1; n=$2; shift 2; C=cadre-tui-$n; D=$T/$n
-tm() { docker exec "$C" tmux "$@"; }
+# docker exec sometimes fails to start under load ("OCI runtime exec failed"): the command never ran, so run it again
+dx() { local o r i; for i in 1 2 3 4 5; do o=$(docker exec "$@" 2>&1); r=$?; [[ $o == *"OCI runtime exec failed"* ]] || break; sleep 1; done; printf '%s\n' "$o"; return $r; }
+tm() { dx "$C" tmux "$@"; }
 ready() {   # deterministic dialog handling: Enter on any known first-run prompt until the composer shows
   for i in $(seq 120); do
     p=$(tm capture-pane -t q -p)
