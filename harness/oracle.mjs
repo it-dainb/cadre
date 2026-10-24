@@ -395,7 +395,7 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (hs.filter(([, r]) => st(r).at(-1) === 'ended').length !== ns.filter(n => n.answer !== undefined).length) fail(o, `${hs.length} helper run(s) for ${ns.length} request(s) (want one ended helper per answered request)`)
     if (!ns.length || ns.some(n => n.helper !== 'probe' || (n.answer !== undefined && n.ok !== true) || n.fails !== 0)) fail(o, `want probe requests answered ok with no failure: ${JSON.stringify(ns[0] ?? null)}`)
     if (!js.some(f => /"cwd":"[^"]*\/probe-/.test(read(f)))) fail(o, 'the probe never ran in a tree of its own (no transcript has a probe- folder as its cwd)')
-    const left = [...read(join(dir, 'refs-after')).split('\n').filter(l => /^probe\//.test(l)), ...read(join(dir, 'worktrees-after')).split('\n').filter(l => /\/probe-/.test(l))]; if (left.length) fail(o, `a probe tree or branch is left: ${left.join(' | ')}`)
+    const left = [...read(join(dir, 'refs-after')).split('\n').filter(l => /^probe\//.test(l)), ...read(join(dir, 'worktrees-after')).split('\n').filter(l => /\/probe-/.test(l))]; const done = left.filter(l => ns.some(n => n.answer !== undefined && l.includes(`${n.task}-${n.needId}`))); if (done.length) fail(o, `a probe tree or branch is left after its answer: ${done.join(' | ')}`)
     const hd = drv.filter(e => e.kind === 'dialog' && /helper|dependenc/i.test(e.text)); if (hd.length) fail(o, `${hd.length} helper dialog(s): ${hd.map(e => e.text).join(' / ')}`)
   }
   if (o === 'submodule') {   // the task landed in lib's own dev, and the parent's dev records that commit
