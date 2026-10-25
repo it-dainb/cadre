@@ -384,6 +384,26 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
        !/haiku/.test(reqs[0].model ?? '')) fail(o, `the request was ${reqs[0].model} max_tokens ${reqs[0].max_tokens} (want haiku, 800 + the engine's 2048)`)
     else if (!after.length || after.some(x => !LESSON.test(x.brief))) fail(o, `${after.length} brief(s) after the pass, ${carry.length} carry the lesson (want every one)`)
   }
+  if (o === 'needs-setup') {   // the worker asks the setup helper; cadre installs and commits `chore(deps)` (manifest + lockfile only) on the task branch; HOME is untouched; the dependency is on dev; the task lands
+    const needs = Object.assign({}, ...snaps.map(x => pick(x.s, 'need')), ...hist.map(h => pick(h, 'need'))), ns = Object.values(needs).filter(n => n.helper === 'setup')
+    const cs = read(join(dir, 'deps-commits')).split('\n').filter(Boolean).map(l => { const [sha, subject, branches, files] = l.split('\t'); return { sha: sha.slice(0, 7), subject, branches: branches ? branches.split(',') : [], files: files ? files.split(',') : [] } })
+    const MAN = /(^|\/)(package(-lock)?\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|requirements[\w.-]*\.txt|pyproject\.toml|uv\.lock|poetry\.lock|Cargo\.(toml|lock)|go\.(mod|sum))$/
+    const [hb, ha] = ['home-before', 'home-after'].map(f => new Set(read(join(dir, f)).split('\n').filter(Boolean))), made = [...ha].filter(p => !hb.has(p))
+    Object.assign(stats, { setupNeeds: ns.length, depsCommits: cs, homeNew: made.length })
+    if (!ns.length) fail(o, 'no setup request was made (the worker never asked for the install)')
+    else if (ns.some(n => n.ok !== true || n.fails !== 0)) fail(o, `the setup request was not answered ok: ${JSON.stringify(ns[0])}`)
+    if (!cs.length) fail(o, 'no chore(deps) commit on any branch')
+    for (const c of cs) {
+      if (!/^chore\(deps\): \S/.test(c.subject)) fail(o, `commit ${c.sha} subject: ${c.subject}`)
+      if (!c.files.length || c.files.some(f => !MAN.test(f))) fail(o, `commit ${c.sha} touches more than a manifest and lockfile: ${c.files.join(', ')}`)
+      if (!c.branches.length || c.branches.some(b => b === 'dev' || b === 'main')) fail(o, `commit ${c.sha} is on ${c.branches.join(',') || 'no branch'} (want the task's own branch)`)
+    }
+    if (!existsSync(join(dir, 'home-before')) || !existsSync(join(dir, 'home-after'))) fail(o, 'no HOME listings (the scenario did not reach its end)')
+    else if (made.length) fail(o, `HOME changed: ${made.slice(0, 5).join(', ')}`)
+    if (!new RegExp(`(package(-lock)?\\.json|pyproject\\.toml|uv\\.lock):.*\\b${process.env.ORACLE_DEP}\\b`).test(read(join(dir, 'deps-final')))) fail(o, `dev's manifests do not name ${process.env.ORACLE_DEP}`)
+    if (!wantLanded) fail(o, 'run it with LANDED=1: the task must land')
+    const hd = drv.filter(e => e.kind === 'dialog' && /dependenc|install|isolation/i.test(e.text)); if (hd.length) fail(o, `${hd.length} install dialog(s) (the repo is approved): ${hd.map(e => e.text).join(' / ')}`)
+  }
   if (o === 'planner-probe') {   // a milestone's epic planner asks the probe helper: it waits, the probe answers once from a tree of its own, the SAME planner resumes and drafts; no probe tree or branch is left; no dialog about it
     const all = Object.assign({}, ...snaps.map(x => runs(x.s)), ...hist.map(runs)), needs = Object.assign({}, ...snaps.map(x => pick(x.s, 'need')), ...hist.map(h => pick(h, 'need')))
     const ps = Object.entries(all).filter(([, r]) => r.role === 'planner'), hs = Object.entries(all).filter(([, r]) => r.role === 'explorer' && needs[r.taskId]), st = r => (r.log ?? []).map(x => x.state), pl = subs.filter(x => /# PLAN-/.test(x.brief))

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Interactive claude 2.1.295 in a container, driven through tmux. See harness/README.md.
-#   tui.sh start <name> [--scenario <name>]   (--scenario: seed the board/events/secret/ui atoms from scenarios/<name>.ts; needs the CADRE_DEV session.start block)  env: NO_GIT_IDENT=1 (no git identity in the container); CADRE_SOURCE=marketplace (install from GitHub, CADRE_REF=<branch|tag>) instead of the local checkout; COLS=120 ROWS=40 MODEL=haiku (the only model live runs use) PERM=bypassPermissions SCAFFOLD=<script> CLAUDE_ARGS="..." SESSION_ARGS (appended)
+#   tui.sh start <name> [--scenario <name>]   (--scenario: seed the board/events/secret/ui atoms from scenarios/<name>.ts; needs the CADRE_DEV session.start block)  env: NO_GIT_IDENT=1 (no git identity in the container); CADRE_SOURCE=marketplace (install from GitHub, CADRE_REF=<branch|tag>) instead of the local checkout; COLS=120 ROWS=40 MODEL=haiku (the only model live runs use) PERM=bypassPermissions SCAFFOLD=<script> CLAUDE_ARGS="..." SESSION_ARGS (appended) DEPS=1 (installs approved for the repo + uv mounted: the needs-setup cells)
 #   tui.sh send <name> <text...>   types text + Enter;  keys <name> <tmux keys...> (Up, Enter, C-c ...)
 #   tui.sh type <name> <text>      types text, no Enter
 #   tui.sh wait-for <name> <regex> [secs=60] [pane|jsonl|debug]   exit 0 on match (prints the match), 1 on timeout
@@ -43,6 +43,7 @@ start)
     CCB=$HOME/.local/share/claude/versions/$CC_VERSION; [ -f "$CCB" ] || CCB=$H/claude-$CC_VERSION
     [ -f "$CCB" ] || { echo "no Claude Code $CC_VERSION on the host or in harness/claude-$CC_VERSION" >&2; exit 1; }
     VOL="-v $CCB:/opt/claude/claude:ro"; fi
+  [ -n "$DEPS" ] && VOL="$VOL -v $(readlink -f "$(command -v uv)"):/usr/local/bin/uv:ro"   # DEPS=1: the install cells (needs-setup-*) need uv in the container
   [ "$1" = --scenario ] && { node --experimental-transform-types --no-warnings "$R/scripts/ui-dev.mjs" --dump "$2" >"$D/work/.cadre-dev-scenario.json" || exit 1; EXTRA_ENV="$EXTRA_ENV -e CADRE_DEV=1 -e CADRE_DEV_SCENARIO=/work/run/.cadre-dev-scenario.json"; }   # dev: seed the pane atoms from scenarios/<name>.ts (docs/dev/ui-dev.md)
   [ -n "$SCAFFOLD" ] && (cd "$D/work" && bash "$SCAFFOLD" >"$D/out/scaffold.log" 2>&1 || { cat "$D/out/scaffold.log"; exit 1; })
   git -C "$D/work" config user.email q@x 2>/dev/null
@@ -59,6 +60,8 @@ start)
   # a fixture may leave .harness-roles.json (roles.custom of the user layer) in the work dir: merged into the pins
   "$0" pins | R="$D/work/.harness-roles.json" node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8")),f=process.env.R;if(require("fs").existsSync(f))(o.roles??={}).custom=JSON.parse(require("fs").readFileSync(f,"utf8"));console.log(JSON.stringify(o))' | docker exec -i "$C" sh -c 'cat > /cchome/.claude/cadre.json' || exit 1   # every cadre route on haiku
   rm -f "$D/work/.harness-roles.json"
+  # DEPS=1: the user's one-time approval of installs for this repo (user layer, keyed by the repo root), as after answering the dialog once
+  [ -n "$DEPS" ] && echo '{"/work/run": true}' | docker exec -i "$C" sh -c 'mkdir -p /cchome/.claude/cadre && cat > /cchome/.claude/cadre/deps.json'
   # plugin $.store (one JSON file per plugin; id = name_source-<sha256(name@source)[:12]>): the fixture's seed, e.g. the machine-setup stamp
   [ -f "$D/work/.harness-store.json" ] && { docker exec -i "$C" sh -c 'mkdir -p -m 700 /cchome/.claude/plugins/store && cat > /cchome/.claude/plugins/store/cadre_inline-8e6dc893c684.json' <"$D/work/.harness-store.json"; rm "$D/work/.harness-store.json"; }
   ENV=; [ -n "$PROXY" ] && { docker exec -d "$C" node "/work/spike/${PROXY_JS:-harness/effort-proxy.mjs}" /out/effort.jsonl; ENV="ANTHROPIC_BASE_URL=http://127.0.0.1:8899"; }   # PROXY=1: log each request's model + effort (never content or headers)

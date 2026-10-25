@@ -1,9 +1,10 @@
 #!/bin/bash
 # Run a tier of cells (harness/cell.sh) in parallel containers and print the verdict table. See harness/README.md "Matrix".
-#   harness/matrix.sh quick|milestone|clarify|cells|scripted|full [-j N] [-n]      -n: print the cells and the estimate only.   env: SPIKE=<plugin checkout> (default this repo), FILTER=<regex on cell names>
+#   harness/matrix.sh quick|milestone|clarify|cells|release016|scripted|full [-j N] [-n]      -n: print the cells and the estimate only.   env: SPIKE=<plugin checkout> (default this repo), FILTER=<regex on cell names>
 # A cell: name | fixtures (base, then overlays) | scenario | env for tui.sh/cell.sh/oracle.mjs. Env knobs of the matrix itself:
 #   S=1: the scripted model (harness/scripted: a second plugin answers every model request; the stub proxy refuses any request it has no stub for, so
 #        an S cell costs no quota and oracle.mjs fails it on any refused request). An S cell <name> and its L twin <name>-live in one run must agree.
+#   CCV=<version>: every cell runs that Claude Code build instead of its own (the host's versions dir or harness/claude-<version>), e.g. CCV=2.1.310 harness/matrix.sh scripted
 #   RUNS=N: the cell runs N times (evidence <name>.rK); its row is PASS only if every run passes; US$ and min are summed.
 #   KNOWN=<slice>: the cell checks a slice that has not landed; a FAIL of its own oracle (ORACLE=…, not-landed) shows as known:<slice> and does not
 #   fail the run; any other invariant (zero-quota, errors, …) still fails it.
@@ -56,6 +57,17 @@ custom-role|single ready scripted/custom-role|custom-role|MODEL=haiku CC_VERSION
 planner-probe|single ready scripted/probe|probe|MODEL=haiku CC_VERSION=2.1.295 S=1 BUDGET=150 ORACLE=planner-probe EPIC_PLANNERS=1
 EOF
 }
+# the 0.16 release gate (L, needs the user's OK; the quick tier runs apart): the two setup cells, the restart cell, exit-every-role live on 2.1.295 and on the newest build.
+# The setup cells install from the real registry inside the container; DEPS=1 gives them the one-time approval and uv (tui.sh).
+release016() {
+  cat <<'EOF'
+needs-setup-node|single ready deps-node|needs-setup|MODEL=haiku CC_VERSION=2.1.295 DEPS=1 KIND=node ORACLE_DEP=ms LANDED=1 BUDGET=900 PROXY=1 ORACLE=needs-setup
+needs-setup-python|deps-py|needs-setup|MODEL=haiku CC_VERSION=2.1.295 DEPS=1 KIND=py ORACLE_DEP=six LANDED=1 BUDGET=900 PROXY=1 ORACLE=needs-setup
+continue-after-quit|single ready|continue|MODEL=haiku CC_VERSION=2.1.299 LANDED=1 BUDGET=1800 PROXY=1 RUNS=2
+EOF
+  cells | grep '^exit-every-role-live|'
+  cells | grep '^exit-every-role-live|' | sed -E 's/^exit-every-role-live\|/exit-every-role-live-new|/; s/CC_VERSION=[0-9.]+/CC_VERSION=2.1.310/'
+}
 scripted() { cells | grep -E '(^|[| ])S=1( |$)'; }
 full() {   # the cross product, minus cells that cannot exist (user1 needs kit/, continue needs a set-up repo)
   local f s v via lz e m=haiku
@@ -70,6 +82,7 @@ full() {   # the cross product, minus cells that cannot exist (user1 needs kit/,
   done
 }
 CELLS=$($TIER | grep -E "^(${FILTER:-.*})\|" ) || { echo "no cells"; exit 2; }
+[ -n "$CCV" ] && CELLS=$(sed -E "s/CC_VERSION=[0-9.]+/CC_VERSION=$CCV/" <<<"$CELLS")
 # RUNS=N in a cell's env: N lines <name>.r1..rN (evidence dirs of their own); table.mjs folds them back into one row
 CELLS=$(while IFS='|' read -r name fix scen envs; do r=1; [[ " $envs " =~ " RUNS="([0-9]+)" " ]] && r=${BASH_REMATCH[1]}; envs=$(sed -E 's/(^| )RUNS=[0-9]+//' <<<"$envs")
   for ((k = 1; k <= r; k++)); do echo "$name$([ "$r" -gt 1 ] && echo ".r$k")|$fix|$scen|$envs"; done; done <<<"$CELLS")
