@@ -77,17 +77,25 @@ export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
   }
   await o.checkpoint()
   if ((await dirty()).length) return { text: 'The install was not run: your folder has changes that could not be set aside. Finish or discard them, then ask again.' }
-  // the packages stay in the folder: node_modules is ignored for this repository (the install dir is no stray, and a checkpoint never commits it). uv's venv ignores itself.
-  if (['npm', 'pnpm', 'yarn'].includes(v.argv[0])) {
-    const ex = (await git('rev-parse', '--path-format=absolute', '--git-path', 'info/exclude')).stdout.trim()
-    if (ex && !((await h.readText(ex)) ?? '').split('\n').includes('node_modules/')) await h.run(['sh', '-c', 'printf "\\nnode_modules/\\n" >> "$1"', 'sh', ex])
-  }
-  const before = new Set(await ignored()), env = await h.env()   // an ignored file is not in the diff, and the toolchain reads it all the same (not node_modules: packages carry their own)
+  let before = new Set(await ignored()); const env = await h.env()   // an ignored file is not in the diff, and the toolchain reads it all the same (not node_modules: packages carry their own)
   const rc = [...new Set([...(await git('diff', '--name-only', o.base ?? 'HEAD')).stdout.split('\n'), ...before].filter(f => RUNS_CODE.test(f) && !/(^|\/)node_modules\//.test(f)))]
   if (SOURCES.test((await git('diff', o.base ?? 'HEAD', '--', ':(glob)**/pyproject.toml')).stdout)) rc.push('pyproject.toml')
   if (rc.length) return { text: `The install was not run: ${rc.join(', ')} changed in this task, and an install would act on it. Ask the user, or report outcome "blocked".` }
   try {
     if (!(await h.run(['test', '-L', `${o.wt}/.venv`])).exitCode) return { text: 'The install was not run: .venv in your folder is a link. Ask the user, or report outcome "blocked".' }
+    // the packages stay in the folder: node_modules is ignored for this repository (the install dir is no stray, and a checkpoint never commits it); uv's venv ignores itself.
+    // Only the common git dir's own info/exclude is written, and put back as it was when the install fails.
+    let restore: (() => Promise<unknown>) | undefined
+    if (['npm', 'pnpm', 'yarn'].includes(v.argv[0])) {
+      const ex = (await git('rev-parse', '--path-format=absolute', '--git-path', 'info/exclude')).stdout.trim(), common = (await git('rev-parse', '--path-format=absolute', '--git-common-dir')).stdout.trim()
+      if (!ex || !common || ex !== `${common}/info/exclude`) return { text: 'The install was not run: the repository\'s ignore file could not be found. Ask the user, or report outcome "blocked".' }
+      const was = await h.readText(ex)
+      if (!(was ?? '').split('\n').includes('node_modules/')) {
+        await h.run(['sh', '-c', 'printf "\\nnode_modules/\\n" >> "$1"', 'sh', ex])
+        restore = was === null ? () => h.run(['rm', '-f', '--', ex]) : () => h.run(['sh', '-c', 'printf %s "$2" > "$1"', 'sh', ex, was])
+        before = new Set(await ignored())
+      }
+    }
     await h.run(['mkdir', '-p', home, `${o.scratch}/cwd`])
     const path = env.PATH || '/usr/local/bin:/usr/bin:/bin', real = async (...ps: string[]) => (await h.run(['realpath', '-q', '-e', ...ps])).stdout.split('\n').filter(Boolean), rhome = (await real(await h.home()))[0] ?? await h.home()
     const tools = await real(...path.split(':').filter(Boolean)), jail = (argv: string[], empty?: true) => h.run(G.setupJail({ wt: o.wt, scratch: o.scratch, pkgRoot: empty ? '/tmp/cwd' : cwd, argv, scratchHome: home, home: rhome, path, tools, env: { ...(env.LANG ? { LANG: env.LANG } : {}), ...v.env } }), { timeoutMs: 600000 })   // an empty cwd: the scratch's own folder
@@ -98,9 +106,11 @@ export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
     // console scripts written by a prefix install start with the system python: point them at the venv's own (a file edit only, nothing is run)
     if (uv && !r.exitCode) {
       const esc = (x: string) => x.replace(/[\\|&]/g, '\\$&'), bin = `${o.wt}/.venv/bin`
-      for (const f of (await h.run(['find', bin, '-maxdepth', '1', '-type', 'f'])).stdout.split('\n').filter(Boolean)) if ((await h.readText(f))?.startsWith(`#!${py}\n`)) await h.run(['sed', '-i', `1s|^#!${esc(py)}$|#!${esc(bin)}/python|`, f])
+      // absolute paths only, from a NUL-separated listing: a file name with a newline in it can never stand for another path
+      for (const f of (await h.run(['find', bin, '-maxdepth', '1', '-type', 'f', '-print0'])).stdout.split('\0')) if (f.startsWith(`${bin}/`) && !f.includes('\n') && (await h.readText(f))?.startsWith(`#!${py}\n`)) await h.run(['sed', '-i', `1s|^#!${esc(py)}$|#!${esc(bin)}/python|`, f])
     }
-    const bad = async (why: string) => {   // a failed run leaves nothing: the paths it changed, and the ignored ones it created
+    const bad = async (why: string) => {   // a failed run leaves nothing: the paths it changed, the ignored ones it created, the ignore line it added
+      await restore?.()
       await revert(await dirty()); const dirs = new Set([...before].flatMap(f => f.split('/').slice(0, -1).map((_, i, a) => a.slice(0, i + 1).join('/')))), made = [...new Set((await ignored()).filter(f => !before.has(f) && !f.startsWith('/') && !f.split('/').includes('..')).map(f => { const p = f.split('/'), i = p.findIndex((_, k) => !dirs.has(p.slice(0, k + 1).join('/'))); return p.slice(0, i + 1).join('/') }))]   // each new file, or the top of the new folder it is in
       for (let i = 0; i < made.length; i += 400) await h.run(['rm', '-rf', '--', ...made.slice(i, i + 400).map(f => `${o.wt}/${f}`)])
       return { text: `The install changed nothing: ${why}` }

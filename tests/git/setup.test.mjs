@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { createServer } from 'node:http'
-import { existsSync, symlinkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, realpathSync, symlinkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const P = await import('../../core/helpers.ts'), G = await import('../../core/git.ts')
@@ -225,13 +225,16 @@ case $c in
   add) printf 'dependencies = ["six"]\\n' >> pyproject.toml; echo lock > uv.lock;;
   export) printf 'six==1.17.0 \\\\\\n    --hash=sha256:abc\\n' > /tmp/req.txt;;
   venv) for a; do d=$a; done; mkdir -p "$d/lib/python3/site-packages" "$d/bin"; echo home > "$d/pyvenv.cfg"; echo "*" > "$d/.gitignore"; : > "$d/bin/python";;
-  pip) for a in "$@"; do case $a in -r) R=1;; esac; done; [ -n "$R" ] || exit 1; mkdir -p "$P/lib/python3/site-packages/six" "$P/bin"; : > "$P/lib/python3/site-packages/six/__init__.py"; printf '#!%s\\nprint(1)\\n' "$Y" > "$P/bin/tool"; chmod +x "$P/bin/tool";;
+  pip) for a in "$@"; do case $a in -r) R=1;; esac; done; [ -n "$R" ] || exit 1; mkdir -p "$P/lib/python3/site-packages/six" "$P/bin"; : > "$P/lib/python3/site-packages/six/__init__.py"; printf '#!%s\\nprint(1)\\n' "$Y" > "$P/bin/tool"; chmod +x "$P/bin/tool"; n=$(printf 'x\\nmanage.py'); printf '#!%s\\nprint(1)\\n' "$Y" > "$P/bin/$n";;
 esac\n`, { mode: 0o755 })
     f.h.env = async () => ({ PATH: `${bin}:${process.env.PATH}`, LANG: process.env.LANG })
     const calls = [], orig = f.h.run; f.h.run = async (a, o) => { const r = await orig(a, o); if (a[0] === 'bwrap' && existsSync(join(f.d, 'scratch/uvlog'))) { calls.push(...readFileSync(join(f.d, 'scratch/uvlog'), 'utf8').split('\n').filter(Boolean)); rmSync(join(f.d, 'scratch/uvlog')) } return r }
     writeFileSync(join(f.wt, 'pyproject.toml'), '[project]\nname = "x"\ndependencies = []\n'); await sh(f.wt, 'git', 'add', '-A'); await sh(f.wt, 'git', 'commit', '-qm', 'py')
-    const r = await P.setup(f.h, f.inp({ argv: ['uv', 'add', 'six'] })), site = join(f.wt, '.venv/lib/python3/site-packages/six/__init__.py')
+    // a file named "x\nmanage.py" in .venv/bin must not stand for ./manage.py of the folder the host runs in (the user's repo root)
+    const here = process.cwd(), py = realpathSync('/usr/bin/python3'), top = join(f.d, 'top'); mkdirSync(top); writeFileSync(join(top, 'manage.py'), `#!${py}\nprint(1)\n`); process.chdir(top)
+    const r = await P.setup(f.h, f.inp({ argv: ['uv', 'add', 'six'] })).finally(() => process.chdir(here)), site = join(f.wt, '.venv/lib/python3/site-packages/six/__init__.py')
     assert.match(r.text, /^Installed and committed on your branch: pyproject\.toml, uv\.lock/, r.text)
+    assert.equal(readFileSync(join(top, 'manage.py'), 'utf8'), `#!${py}\nprint(1)\n`, 'the top-level script is untouched'); assert.ok(readFileSync(join(f.wt, '.venv/bin', 'x\nmanage.py'), 'utf8').startsWith(`#!${py}`), 'the odd name is skipped, not rewritten')
     assert.equal(/in your folder/.test(r.text), existsSync(site), 'the reply claims what happened'); assert.ok(existsSync(site))
     assert.ok(calls.some(l => l.startsWith('/tmp/cwd pip install --python') && l.includes('--only-binary=:all:') && l.includes('--require-hashes') && l.includes(`--prefix ${f.wt}/.venv`) && l.endsWith(' -r /tmp/req.txt')), calls.join('\n')); assert.ok(calls.some(l => l.endsWith(` export --frozen --no-emit-project --output-file /tmp/req.txt`) && !l.startsWith('/tmp/cwd')), calls.join('\n')); assert.equal(readFileSync(join(f.wt, '.venv/bin/tool'), 'utf8').split('\n')[0], `#!${f.wt}/.venv/bin/python`, 'a console script runs the venv\'s python'); assert.ok(calls.some(l => /^\/tmp\/cwd venv --python \S+ .*\.venv$/.test(l)))
   } finally { f.done() }
@@ -251,5 +254,15 @@ test('npm install in a repo that does not ignore node_modules: the packages stay
     assert.match(r.text, /^Installed and committed on your branch: package\.json, package-lock\.json/, r.text)
     assert.equal(/in your folder/.test(r.text), existsSync(dep), 'the reply claims what happened'); assert.ok(existsSync(dep)); assert.ok(r.done && !r.stray)
     assert.equal(await sh(f.wt, 'git', 'ls-files', 'node_modules'), '', 'node_modules is not committed')
+  } finally { f.done() }
+})
+
+test('npm: a failed install leaves info/exclude as it was; a refused one never touches it', async () => {
+  const f = await fix(); try {
+    const ex = await sh(f.wt, 'git', 'rev-parse', '--path-format=absolute', '--git-path', 'info/exclude'); mkdirSync(join(ex, '..'), { recursive: true }); const was = existsSync(ex) ? readFileSync(ex, 'utf8') : null
+    await sh(f.wt, 'git', 'rm', '-q', '.gitignore'); await sh(f.wt, 'git', 'commit', '-qm', 'no ignore')
+    assert.match((await P.setup(f.h, f.inp({ argv: ['npm', 'install', 'no-such-package-here'] }))).text, /^The install changed nothing/)
+    assert.equal(existsSync(ex) ? readFileSync(ex, 'utf8') : null, was, 'restored after the failure')
+    assert.match((await P.setup(f.h, f.inp({ argv: ['npm', 'install', '-g', 'x'] }))).text, /^The install was refused/); assert.equal(existsSync(ex) ? readFileSync(ex, 'utf8') : null, was, 'untouched by a refusal')
   } finally { f.done() }
 })
