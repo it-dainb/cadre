@@ -48,8 +48,8 @@ describe('one output contract: a marker-less explorer (ask)', () => {
     expect((await note()).text).toBe('Agent ask-x1y2z3 finished; its answer was already given (explore {id:"ask-x1y2z3"}).')
   })
   test('auto mode hand-back: never refused, before or after the report, and it carries no agent prose for main (live 0.12.0, 0.12.1: agents could not end)', async () => {
-    const { h } = await mk(), hb = (agentId: string) => guard(h, { tool: 'SubagentHandback', agentId, input: { message: PROSE } }, async (e: any) => e) as Promise<any>
-    for (const a of ['agent-x1y2z3', 'agent-q9']) { const r = await hb(a); expect(r.deny).toBeUndefined(); expect(r.tool).toBe('SubagentHandback'); expect(r.input.message).not.toContain('parser') }
+    const { h } = await mk(), hb = (agentId: string) => guard(h, { tool: 'SubagentHandback', agentId, message: PROSE }, async (e: any) => e) as Promise<any>
+    for (const a of ['agent-x1y2z3', 'agent-q9']) { const r = await hb(a); expect(r.deny).toBeUndefined(); expect(r.tool).toBe('SubagentHandback'); expect(r.message).not.toContain('parser'); expect(r.input).toBeUndefined() }
     expect(await handleWith(h, {} as any, { tool: 'mcp__cadre__report', agentId: 'agent-x1y2z3', input: { schemaVersion: 1, role: 'explorer' } }).then((r: any) => r.result)).toContain('error: answer: required')   // refused
     expect((await hb('agent-x1y2z3')).deny).toBeUndefined()
   })

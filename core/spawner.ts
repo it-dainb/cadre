@@ -19,7 +19,7 @@ import { emit } from './events'
 import { modelText } from './say'
 import { isMs } from './milestone'
 import { charge, intend, settleIntent } from './lifecycle'
-import { pending } from './needs'
+import { pending, settleSetups } from './needs'
 import { sessionOf } from './board'
 
 export const FRAMES = ['turn.complete', 'command.run']
@@ -52,6 +52,7 @@ export async function spawnStep(h: Host, event: string): Promise<void> {
   if (!modOn(await h.board.read()) || !(await ready(h))) return
   const t = await h.now(); await h.ui.update(u => ({ ...u, idleAt: t }))   // a sign of life: the watchdog's window starts over
   if (await land(h) && !(await ready(h))) return   // what landed may finish the run
+  if ((await pending(h)).setup.length) await settleSetups(h, await resolveDeps(h))   // a requester waits for an install: cadre runs it (no helper), the result resumes it
   await sendQueued(h)   // a rework a close queued (a conflict on the plan tip): its worker is resumed now
   const cfg = await cfgOf(h), usd = (await h.usage?.().catch(() => undefined))?.cost?.usd
   const go = await picking(async () => {   // one frame of this process at a time: read the board, pick within the slots, count them on the drive (a CAS three frames would contend on)

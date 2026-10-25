@@ -1,6 +1,6 @@
 // A need (core/needs): a run that asks for help waits on it as a lifecycle state, and its helper's one answer wakes it. The state × event rows of next(), then the flow
 // on the replay world: request -> helper -> answer -> resume, every way a helper ends, the refusals, the caps, and a process death in between.
-import { vet } from '../core/helpers'
+import { FORMS, vet } from '../core/helpers'
 import { describe, expect, test } from 'claude-code/testing'
 import { backstop, intend, next, runOf, step, type Run, type RunEvent, type RunState } from '../core/lifecycle'
 import { needOf, overdue, pending, undelivered } from '../core/needs'
@@ -68,26 +68,32 @@ describe('a request: the requester waits, the helper answers, the same agent res
   })
 })
 
-describe('the setup helper: cadre vets and runs its proposal, the answer wakes the requester', () => {
-  const SETUP = { ...REQ, request: { ...REQ.request, helper: 'setup', ask: 'add left-pad', why: 'I need it' } }, ARGV = (argv: string[]) => ({ role: 'explorer', answer: 'it is an npm project', argv })
-  test('a refused argv is the answer, nothing is asked of the human; the brief tells the helper to propose, not run', async () => {
-    const { w } = await start(); expect(await w.rep('ag1', SETUP)).toMatch(/^request recorded/); await w.turn(); expect(w.spawned[1][1]).toContain('You only propose it')
-    await w.rep('ag2', ARGV(['sudo', 'npm', 'install', 'left-pad'])); await w.stop('ag2')
-    expect(w.sent).toHaveLength(1); expect(w.sent[0][1]).toContain('The install was refused'); expect((await w.h.board.read()).decisions ?? []).toEqual([]); expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'running' })
+describe('a setup request: the requester sends the install command, cadre vets it and runs it itself (no helper)', () => {
+  const SETUP = (argv?: unknown) => ({ ...REQ, request: { helper: 'setup', ask: 'add left-pad', why: 'I need it', ...(argv === undefined ? {} : { argv }) } })
+  test('a refused or missing argv goes back to its sender at once with the allowed forms: nothing recorded, no wait, no helper', async () => {
+    const { w, id } = await start()
+    for (const argv of [['sudo', 'npm', 'install', 'left-pad'], ['npm', 'install', '-g', 'left-pad'], undefined]) {
+      const r = await w.rep('ag1', SETUP(argv)); expect(r).toContain('request.argv:'); expect(r).toContain(`allowed: ${FORMS}`)
+    }
+    for (const argv of [['pnpm', 'ci'], ['python', '-m', 'pip', 'install', 'x']]) { const x = await start(); expect(await x.w.rep('ag1', SETUP(argv))).toContain(`allowed: ${FORMS}`); expect(await needOf(x.w.h, x.id)).toBeUndefined() }
+    expect(await w.rep('ag1', { ...REQ, request: { ...REQ.request, argv: ['npm', 'ci'] } })).toContain('request.argv: only a setup request has one')
   })
-  test('an install answer without argv is sent back to the helper (the command belongs in argv, not the answer); the requester keeps waiting; npm ci is an allowed form', async () => {
-    const { w } = await start(); await w.rep('ag1', SETUP); await w.turn()
-    const r = await w.rep('ag2', { role: 'explorer', answer: 'Run ["npm","ci"]' }).catch((e: Error) => e.message); expect(String(r)).toContain('argv: this question asks for an install command')
-    expect(w.sent).toEqual([]); expect((await runOf(w.h, 'ag1'))?.state).toMatchObject({ state: 'waiting' })
-    expect(w.spawned[1][1]).toContain('Allowed: npm install, add or ci; pnpm or yarn install or add; uv add or uv pip install; cargo add; go get')
-    // every form the text names passes vet, and the ones it does not name are refused (pnpm ci, yarn ci)
+  test('every form the text names passes vet, and the ones it does not name are refused', () => {
     const py = { py: '/usr/bin/python3' }
     for (const f of [['npm', 'install', 'x'], ['npm', 'add', 'x'], ['npm', 'ci'], ['pnpm', 'install', 'x'], ['pnpm', 'add', 'x'], ['yarn', 'install', 'x'], ['yarn', 'add', 'x'], ['uv', 'add', 'x'], ['uv', 'pip', 'install', 'x'], ['cargo', 'add', 'x'], ['go', 'get', 'github.com/a/b']]) expect(typeof vet(f, '/w', py)).toBe('object')
     for (const f of [['pnpm', 'ci'], ['yarn', 'ci'], ['pip', 'install', 'x'], ['python', '-m', 'pip', 'install', 'x']]) expect(typeof vet(f, '/w', py)).toBe('string')
+    expect(FORMS).toBe('npm install, add or ci; pnpm or yarn install or add; uv add or uv pip install; cargo add; go get')
   })
-  test('settings: deps.auto false: a good argv is not run, the requester is told, and the human gets exactly one dialog', async () => {
-    const { w, id } = await start(); w.cfg.deps.auto = false; await w.rep('ag1', SETUP); await w.turn(); await w.rep('ag2', ARGV(['npm', 'install', 'left-pad'])); await w.stop('ag2')
-    expect(w.sent[0][1]).toContain('waits for the user'); expect((await w.h.board.read()).decisions?.map(d => d.id)).toEqual([`deps:${id}:n1`]); expect((await events(w, 'help.done')).map(e => e.data.ok)).toEqual([true])
+  test('a good argv: the requester waits, no helper starts, cadre answers from the next frame (here: the repo is not approved, so one dialog) and the requester resumes with the result', async () => {
+    const { w, id } = await start(); expect(await w.rep('ag1', SETUP(['npm', 'install', 'left-pad']))).toMatch(/^request recorded; the install runs/)
+    expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'waiting', on: 'need', needId: 'n1' }); expect(await needOf(w.h, id)).toMatchObject({ helper: 'setup', argv: ['npm', 'install', 'left-pad'] })
+    await w.turn(); expect(types(w)).toEqual(['cadre:worker'])   // never a helper
+    expect(w.sent).toHaveLength(1); expect(w.sent[0][0]).toBe('ag1'); expect(w.sent[0][1]).toContain('waits for the user'); expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'running' })
+    expect((await w.h.board.read()).decisions?.map(d => d.id)).toEqual([`deps:${id}:n1`]); expect((await events(w, 'help.done')).map(e => e.data.ok)).toEqual([true]); expect(await needOf(w.h, id)).toMatchObject({ ok: true, delivered: true })
+  })
+  test('settings: deps.auto false: the install is not run, the requester is told, and the human gets exactly one dialog', async () => {
+    const { w, id } = await start(); w.cfg.deps.auto = false; await w.rep('ag1', SETUP(['npm', 'install', 'left-pad'])); await w.turn()
+    expect(w.sent[0][1]).toContain('waits for the user'); expect((await w.h.board.read()).decisions?.map(d => d.id)).toEqual([`deps:${id}:n1`]); expect(types(w)).toEqual(['cadre:worker'])
   })
 })
 
@@ -164,7 +170,7 @@ describe('refused requests', () => {
     expect(await ask('probe')).toContain('error: request.helper: you may ask for explore or setup')
     w.cfg.limits.helpers.perTask = 1; await w.rep('ag1', REQ); await w.turn(); await w.rep('ag2', ANSWER); await w.stop('ag2')
     expect(await w.rep('ag1', REQ)).toContain('this task has used its 1 requests'); w.cfg.limits.helpers.perTask = 2; expect(await w.rep('ag1', REQ)).toMatch(/^request recorded/); expect((await needOf(w.h, id))?.n).toBe(2)
-    const m = await world({ mode: 'main' }); await m.at('ag1', m.ids[0], 'worker'); expect(await m.rep('ag1', REQ)).toContain('nobody can start a helper now')
+    const m = await world({ mode: 'main' }); await m.at('ag1', m.ids[0], 'worker'); expect(await m.rep('ag1', REQ)).toContain('nobody can answer a request now')
     expect(await w.rep('ag1', { ...REQ, outcome: 'done' })).toContain('request: only with outcome request')
   })
   test('a request without its request, and a reviewer\'s: refused by the contract', async () => {

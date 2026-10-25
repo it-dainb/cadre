@@ -234,6 +234,10 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (open.length) fail('every', `not ended at the end: ${open.map(([a, r]) => `${r.role} ${a} ${r.state?.state}`).join(', ')}`)
     if (want.some(r => !roles.has(r))) fail('every', `roles never run: ${want.filter(r => !roles.has(r)).join(', ')} (ran: ${[...roles].join(', ')})`)
     if (others > 1) fail('every', `${others} dialogs besides the plan's and the release's: ${drv.filter(e => e.kind === 'dialog').map(e => e.text).join(' / ')}`)
+    if (process.env.S) {   // an agent's hand-back prose is replaced before main reads it: main's own transcript has cadre's line, never the agent's words (the scripted agents hand back END)
+      const mains = walk(join(dir, 'jsonl')).filter(f => f.endsWith('.jsonl') && !f.includes('/subagents/')).map(read).join('\n')
+      if (!/This agent has stopped/.test(mains)) fail('every', 'main never read the replaced hand-back line (This agent has stopped)'); if (/The report follows:\\n\s+Done\. Stopping here\./.test(mains)) fail('every', "main read an agent's own hand-back prose")
+    }
     for (const x of subs) { let n = 0, prev = ''; for (const u of x.uses) { const k = u.name + JSON.stringify(sorted(u.input)); n = k === prev ? n + 1 : 1; prev = k; if (n === N) fail('every', `${u.name} repeated ${N}x in a row in ${basename(x.f)}`) } }
   }
   if (o === 'forced') {   // an agent past its budget ends with 0 model tokens on the forced step, the engine logs a normal end, its turn.complete fires once
@@ -395,6 +399,9 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     const MAN = /(^|\/)(package(-lock)?\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|requirements[\w.-]*\.txt|pyproject\.toml|uv\.lock|poetry\.lock|Cargo\.(toml|lock)|go\.(mod|sum))$/
     const [hb, ha] = ['home-before', 'home-after'].map(f => new Set(read(join(dir, f)).split('\n').filter(Boolean))), made = [...ha].filter(p => !hb.has(p))
     Object.assign(stats, { setupNeeds: ns.length, depsCommits: cs, homeNew: made.length })
+    // cadre ran the install itself: no helper agent was ever started for the request
+    const allRuns = Object.assign({}, ...snaps.map(x => runs(x.s)), ...hist.map(runs)), helperRuns = Object.entries(allRuns).filter(([, r]) => r.role === 'explorer' && ns.some(n => n.task === r.taskId))
+    if (helperRuns.length) fail(o, `${helperRuns.length} helper run(s) for a setup request (cadre runs the install itself): ${helperRuns.map(([a, r]) => `${r.role} ${a}`).join(', ')}`)
     if (!ns.length) fail(o, 'no setup request was made (the worker never asked for the install)')
     else if (ns.some(n => n.ok !== true || n.fails !== 0)) fail(o, `the setup request was not answered ok: ${JSON.stringify(ns[0])}`)
     // no chore(deps) commit is acceptable only when nothing else touched a manifest or lockfile either (the helper installed what was already declared and found nothing to commit); a worker that edited the manifest itself is not this cell

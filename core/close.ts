@@ -185,9 +185,9 @@ async function explorerDone(h: Host, d: Deps, t: SnapTask, agentId: string, r: a
 // The one entry for an accepted report (tools/index validated the envelope). Returns the text the agent sees; a thrown Error is a refusal the agent may retry.
 export async function report(h: Host, d: Deps, agentId: string | undefined, r: any, o: { lax?: boolean } = {}): Promise<string> {
   const b = agentId ? (await h.bind.read())[agentId] : undefined, s = await h.board.read(), t = b && s.tasks.find(x => x.id === b.taskId)
-  if (b?.parent) return helperDone(h, d, b, r)   // a helper answers its requester, before the task lookup (a planner's task is an epic), the step gate and the role dispatch
+  if (b?.parent) return helperDone(h, b, r)   // a helper answers its requester, before the task lookup (a planner's task is an epic), the step gate and the role dispatch
   if (!b || !t) throw new Error('no task is bound to this agent; only a spawned owner reports')
-  if (r.outcome === 'request') return request(h, agentId!, b, r)   // the requester waits on its helper
+  if (r.outcome === 'request') return request(h, agentId!, b, r)   // the requester waits on its answer
   if (r.role !== b.role) throw new Error(`role: this agent is bound as ${b.role}, got ${r.role}`)
   if (!(t.step === b.step && STEP_CAT[b.step] === t.state)) throw new Error(`${t.id} is ${t.state}·${t.step}: nothing to report at your step`)
   if (r.role === 'tester') {

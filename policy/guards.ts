@@ -125,7 +125,7 @@ export const judge = (e: any): string | undefined => {
 export { EXIT }   // core/roles: rule 6 refuses a spec that drops them
 const HANDED = 'This agent has stopped; its task goes on without you. Nothing to do for it.'
 // pure (the failure path has no $): the exit call as it goes on, the hand-back's prose replaced
-export const exitCall = (e: any) => (e.tool === 'SubagentHandback' ? { ...e, input: { ...e.input, message: modelText('context', HANDED) } } : e)
+export const exitCall = (e: any) => (e.tool === 'SubagentHandback' ? { ...e, message: modelText('context', HANDED) } : e)   // the tool's arguments sit beside `tool` in the event (live: the old `input.message` never replaced anything, main read each agent's prose)
 // exit rules 3 and 4 on an agent's call: a tool first seen on its run is journaled, and one that is no cadre tool, not its role's, not an MCP server's is noted for
 // Doctor (observation only: the verdict below is the same); the same call REPEAT times in a row spends the run, which then ends at its next step
 async function watchCall(h: Host, e: any, role: string): Promise<string | undefined> {

@@ -22,7 +22,7 @@ describe('rule 1: engine exit tools are never refused', () => {
   test('every guard path lets them through: the guard (main, an agent that owes its report, an unknown agent), the re-entry judge, the failure path', async () => {
     const w = await world(), [id] = w.ids; await w.at('ag1', id, 'worker')
     for (const tool of EXIT) for (const a of [undefined, 'ag1', 'stranger']) expect((await call(w, a, tool, { input: { message: 'x' } })).deny).toBeUndefined()
-    expect((await call(w, 'ag1', 'SubagentHandback', { input: { message: 'my long prose' } })).input.message).not.toContain('prose')   // main never reads it
+    expect((await call(w, 'ag1', 'SubagentHandback', { message: 'my long prose' })).message).not.toContain('prose')   // main never reads it
     for (const tool of EXIT) { expect(judge({ tool, agentId: 'ag1' })).toBeUndefined(); expect(judge({ tool })).toBeUndefined() }
     const next = Object.assign((e: any) => ({ passed: e.tool }), { called: false, error: { kind: 'thrown', message: 'boom' } }), $ = { ui: { log: () => {} } }
     for (const tool of EXIT) expect(denyCall($, { tool, agentId: 'ag1' }, next)).toEqual({ passed: tool })
@@ -37,7 +37,7 @@ describe('rule 2: an agent can always end, on every exit path', () => {
   const roles = [['worker', 'docs'], ['tester', 'feature'], ['reviewer', 'docs'], ['explorer', 'spike']] as const
   for (const [role, type] of roles) for (const path of ['no report', 'aborted', 'API error'] as const) test(`${role}, ${path}: one terminal state`, async () => {
     const w = await world({ type }), [id] = w.ids; await w.at('ag1', id, role)
-    expect((await call(w, 'ag1', 'SubagentHandback', { input: { message: 'done' } })).deny).toBeUndefined()   // the hand-back passes on every path
+    expect((await call(w, 'ag1', 'SubagentHandback', { message: 'done' })).deny).toBeUndefined()   // the hand-back passes on every path
     if (path === 'no report') for (let i = 0; i <= w.cfg.limits.nudges; i++) await w.stop('ag1')
     else await stopped(w.h, w.dep, { agentId: 'ag1', reason: path === 'aborted' ? 'aborted' : 'error' })
     const s = (await runOf(w.h, 'ag1'))!.state!
@@ -145,6 +145,6 @@ describe('review fixes: the backstop holds', () => {
   })
   test('the failure path rewrites the hand-back too: main never reads the agent\'s prose', () => {
     const next = Object.assign((e: any) => e, { called: false, error: { kind: 'thrown', message: 'boom' } })
-    expect(denyCall({ ui: { log: () => {} } }, { tool: 'SubagentHandback', agentId: 'ag1', input: { message: 'my long prose' } }, next).input.message).not.toContain('prose')
+    expect(denyCall({ ui: { log: () => {} } }, { tool: 'SubagentHandback', agentId: 'ag1', message: 'my long prose' }, next).message).not.toContain('prose')
   })
 })

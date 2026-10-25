@@ -63,13 +63,19 @@ const read = async (h: Host): Promise<Record<string, boolean>> => { try { return
 export const approved = async (h: Host, root: string) => (await read(h))[root] === true
 export const approve = async (h: Host, root: string) => h.write(await FILE(h), JSON.stringify({ ...(await read(h)), [root]: true }, null, 1))
 
+// the forms an install request may take (the message a refused argv is sent back with; tests/needs.test.ts keeps it equal to what vet allows)
+export const FORMS = 'npm install, add or ci; pnpm or yarn install or add; uv add or uv pip install; cargo add; go get'
+// a proposed install argv, vetted with the interpreters outside the worktree: the vetted argv with its environment, or why it is refused (used at the request and again when it runs)
+export async function vetted(h: Host, argv: unknown, wt: string) {
+  const first = async (ps: string[], ok: (r: string) => boolean) => { for (const c of ps) { const r = (await h.run(['realpath', '-q', '-e', c])).stdout.trim(); if (r && ok(r)) return r } }
+  return vet(argv, wt, { py: await first(['/usr/bin/python3', '/usr/local/bin/python3'], r => r.startsWith('/usr/') && !r.startsWith(`${wt}/`)), rust: Array.isArray(argv) && argv[0] === 'cargo' ? (await h.run(['rustup', 'show', 'active-toolchain'], { cwd: '/' }).catch(() => undefined))?.stdout.split(/\s/)[0] || undefined : undefined })
+}
 export interface SetupIn { wt: string; cwd?: string; scratch: string; ask: string; argv: unknown; auto: boolean; root: string; base?: string; roots?: string[]; check?: string[]; strays?: number; checkpoint: () => Promise<unknown> }   // root: the repo (the approval's key); base: the task's base commit; roots: folders whose manifests may change
 export interface SetupOut { text: string; dialog?: string; allow?: true; stray?: true; done?: true }   // dialog: nothing ran, the human decides; stray: a path besides manifests was discarded; done: installed (or nothing to do) with nothing stray
 const HOLD = 'The install was not run: it waits for the user. Go on without it, or report outcome "blocked" naming what you need.'
 const scrub = (s: string) => s.trim().split('\n').filter(Boolean).slice(-1)[0]?.replace(/\/[^\s'"]+/g, '…').slice(0, 200) ?? ''   // no host paths in what a model reads
 export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
-  const first = async (ps: string[], ok: (r: string) => boolean) => { for (const c of ps) { const r = (await h.run(['realpath', '-q', '-e', c])).stdout.trim(); if (r && ok(r)) return r } }
-  const v = vet(o.argv, o.wt, { py: await first(['/usr/bin/python3', '/usr/local/bin/python3'], r => r.startsWith('/usr/') && !r.startsWith(`${o.wt}/`)), rust: Array.isArray(o.argv) && o.argv[0] === 'cargo' ? (await h.run(['rustup', 'show', 'active-toolchain'], { cwd: '/' }).catch(() => undefined))?.stdout.split(/\s/)[0] || undefined : undefined }); if (typeof v === 'string') return { text: `The install was refused: ${v}. Report outcome "blocked" if it is really needed.` }
+  const v = await vetted(h, o.argv, o.wt); if (typeof v === 'string') return { text: `The install was refused: ${v}. Report outcome "blocked" if it is really needed.` }
   if (!o.auto) return { dialog: 'deps.auto is off: an install was proposed and not run. Turn deps.auto on to let cadre install dependencies.', text: HOLD }
   if (!(await approved(h, o.root))) return { dialog: 'Allow cadre to install dependencies for tasks in this repository? It runs the install in isolation and commits only the manifest and lockfile on the task branch.', allow: true, text: HOLD }
   const mode = await G.jailMode(h.run); if (mode === 'none') return { dialog: 'Installing needs isolation, and none is available on this machine, so the install was not run.', text: HOLD }
