@@ -84,7 +84,7 @@ export interface Binding {
   taskId: string; role: Role; step: string; worktree: string; sessionId: string
   lastReviewedCommit?: string; ctxTokens: number; startedAt: number
   parent?: string; needId?: string                                      // a helper: the agent that asked and the request it answers (core/needs)
-  lastAt?: number; retired?: boolean; effort?: string                   // last turn.step (idle clock, core/reuse); retired = needs a fresh spawn (admission rebinds it)
+  lastAt?: number; openAt?: number; retired?: boolean; effort?: string                   // lastAt: its last sign of life (a model step, a tool call or its end, a wake: core/close stalls) · openAt: a tool call that has not ended · idle clock, core/reuse; retired = needs a fresh spawn (admission rebinds it)
 }
 export interface GitState {
   busy: boolean; epoch: number

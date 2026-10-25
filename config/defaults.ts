@@ -33,7 +33,7 @@ export const defaults = () => ({
   tdd: { testerCommand: { use: true, adopt: true }, collectErrors: ['ERROR collecting', 'errors? during collection', 'ImportError', 'ModuleNotFoundError', 'Cannot find module', 'ERR_MODULE_NOT_FOUND', 'SyntaxError', 'Test suite failed to run', '\\[build failed\\]', '\\[setup failed\\]', 'no tests ran', 'No tests found'] },
   review: { coverage: { enforce: true }, deepLabels: ['security', 'breaking'], maxRework: 3, coreTask: 'core', coreDiff: 'thorough', tiers: { light: { files: 5, lines: 100, paths: 2 }, thorough: { files: 20, lines: 500 }, risky: ['**/auth/**', '**/security/**', '**/crypto/**', '**/permission*/**', '**/migrations/**', '.github/**', '.gitlab-ci.yml', 'Dockerfile', '**/package.json', '**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/go.mod', '**/Cargo.toml', '**/pyproject.toml', '**/requirements*.txt'] } },
   limits: { reportRetries: 3, shapeRetries: 6, nudges: 1, stagnantNudges: 3, silentRuns: 3, startFails: 3, limitWaitMinutes: 15, rebaseRounds: 2, testerRounds: 3, helpers: { perTask: 3, minutes: 10 } },
-  lifecycle: { firstOutputSec: 90, staleMin: 45, goneSec: 60 },   // stall timers (core/close stalls)
+  lifecycle: { firstOutputSec: 240, staleMin: 45, goneSec: 60 },   // stall timers (core/close stalls)
   lanes: { fullAt: 3, milestoneAt: 8 },
   planning: { clarify: { enabled: true, maxQuestions: 3, threshold: 0.7 }, deep: { maxRounds: 8 } },   // ADR 0020: explorer + clarity before a goal's plan; /cadre deep
   branches: { main: '', dev: 'dev', epicPrefix: 'epic/' }, release: { onEpicDone: 'propose' }, landing: { mode: 'direct' as 'direct' | 'pr', review: false, remote: 'origin' },
@@ -77,7 +77,7 @@ export const REG: Record<string, Meta> = {
   'drive.maxWallMinutes': m(D, 'a drive stops after this many minutes', { cls: 'U', ...N(1, 10_080) }), 'drive.noProgressTurns': m(D, 'an epic stops after this many turns without progress', { cls: 'U', ...N(1, 100) }),
   'limits.nudges': m(D, 'times an agent that stopped without a report is nudged', N(0, 10)), 'limits.silentRuns': m(D, 'agent runs without a report before the task blocks', N(1, 10)),
   'limits.stagnantNudges': m(D, 'times an agent is nudged for stopping without a report, with no tool call in between, before the task blocks', N(1, 10)),
-  'lifecycle.firstOutputSec': m(D, 'seconds an agent may run without its first model request before its start counts as failed', { cls: 'U', ...N(10, 3600) }),
+  'lifecycle.firstOutputSec': m(D, 'seconds an agent may run without a model request or a tool call before its start counts as failed', { cls: 'U', ...N(10, 3600) }),
   'lifecycle.staleMin': m(D, 'minutes an agent may go without any activity before it is stopped and its task blocks (never replaced by itself)', { cls: 'U', ...N(1, 600) }),
   'lifecycle.goneSec': m(D, 'seconds an agent whose session is gone may stay bound before its run is released', { cls: 'U', ...N(10, 3600) }),
   'limits.helpers.perTask': m(D, 'helper requests one task may make', N(0, 10)), 'limits.helpers.minutes': m(D, 'minutes a helper may run before it counts as failed', N(1, 120)),

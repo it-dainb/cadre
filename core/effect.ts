@@ -10,7 +10,7 @@ import { scoped } from '../commands/init'
 import { inputPath, leaseOf, policyOf } from '../policy/guards'
 import { drainDelta, idsIn } from './briefs'
 import { logCall } from './specview'
-import { UI } from './board'
+import { UI, patchBinding } from './board'
 import { noReportCard } from './render'
 
 const WRITERS = ['Edit', 'Write', 'NotebookEdit', 'Bash', 'PowerShell', 'Monitor']
@@ -128,6 +128,7 @@ async function after(h: Host, e: any, r: any): Promise<any> {
     return { ...r, result: { ...r.result, content: [{ ...r.result.content[0], text: modelText('card', text.replace('\n', ' · ')) }, ...r.result.content.slice(1)] } }
   }
   const b = (await h.bind.read())[e.agentId]
+  if (b?.openAt) await patchBinding(h, e.agentId, { lastAt: await h.now(), openAt: undefined })   // the call is over: alive now, nothing open
   if (b?.role === 'tester') await logCall(h, e.agentId, { tool: e.tool, path: inputPath(e.tool, e.input ?? e, b.worktree), outcome: r?.deny ? String(r.deny) : r?.error ? 'error' : 'ok' })
   const d = b && (await drainDelta(h, e.agentId))
   return d ? { ...r, context: [...(r?.context ?? []), modelText('context', d)] } : r

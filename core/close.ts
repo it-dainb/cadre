@@ -269,15 +269,22 @@ export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
   if (b.role === 'reviewer') { await patch(h, t.id, x => ({ ...x, owner: undefined })); return end(h, e.agentId, 'stopped', 'released') }
   await release(h, d, t, b, e.agentId, String(e.reason ?? 'stopped'))
 }
-// the 5 s tick: the stall timers (ADR 0024 B2). first: no model request since its start; stale: no activity for lifecycle.staleMin (the run is cancelled and its task blocks, never replaced by itself);
+// the 5 s tick: the stall timers (ADR 0024 B2). first: no model request and no tool call since its start (lifecycle.firstOutputSec, 240 s: a slow first answer on a loaded host is not a failed start); stale: no activity for lifecycle.staleMin (the run is cancelled and its task blocks, never replaced by itself);
 // gone: its session is gone. Each ends the run, so each fires once. first and stale only by the session that holds the agent; gone by any session.
+// ponytail: a tool call that has not returned holds the stale clock for 4x lifecycle.staleMin (a long test run is work); a call the guard refused leaves it open until the next call
+const OPEN_CALL = 4
+let ticking = false   // one pass at a time: a slow pass and the next tick never both raise the stale dialog
 export async function stalls(h: Host, me: string): Promise<void> {
+  if (ticking) return; ticking = true
+  try { await stallPass(h, me) } finally { ticking = false }
+}
+async function stallPass(h: Host, me: string): Promise<void> {
   const d = await resolveDeps(h), now = await h.now(), bind = await h.bind.read(), tasks = (await h.board.read()).tasks
   for (const [a, b] of Object.entries(bind)) {
     const r = a.startsWith('~') || b.parent || b.retired || b.role === 'planner' ? undefined : await runOf(h, a), t = tasks.find(x => x.id === b.taskId)
     if (!r || r.exit || !['running', 'refused', 'silent'].includes(r.state?.state ?? '') || !t || !(t.step === b.step && STEP_CAT[b.step] === t.state) || (await askOf(h, a))) continue
-    const idle = now - (b.lastAt ?? b.startedAt), hd = await held(h, b.sessionId), mine = hd === 'here' || b.sessionId === me
-    const kind = hd === 'gone' && !mine ? (idle > d.cfg.lifecycle.goneSec * 1000 ? 'gone' : null) : !mine ? null : idle > d.cfg.lifecycle.staleMin * 60_000 ? 'stale' : !b.lastAt && idle > d.cfg.lifecycle.firstOutputSec * 1000 ? 'first' : null
+    const idle = now - (b.lastAt ?? b.startedAt), hd = await held(h, b.sessionId), mine = hd === 'here' || b.sessionId === me, staleMs = d.cfg.lifecycle.staleMin * 60_000, open = !!b.openAt && now - b.openAt < OPEN_CALL * staleMs
+    const kind = hd === 'gone' && !mine ? (idle > d.cfg.lifecycle.goneSec * 1000 ? 'gone' : null) : !mine ? null : idle > staleMs && !open ? 'stale' : !b.lastAt && idle > d.cfg.lifecycle.firstOutputSec * 1000 ? 'first' : null
     if (!kind) continue
     if (b.worktree) await checkpoint(h, d.store, d.actor, t.id, b.worktree).catch(() => {})
     if (kind === 'stale') await end(h, a, 'stalled', 'cancelled')

@@ -1154,7 +1154,7 @@ export default {
      }
     },
     "lifecycle": {
-     "firstOutputSec": 90,
+     "firstOutputSec": 240,
      "staleMin": 45,
      "goneSec": 60
     },
@@ -1539,7 +1539,7 @@ export default {
      }
     },
     "lifecycle": {
-     "firstOutputSec": 90,
+     "firstOutputSec": 240,
      "staleMin": 45,
      "goneSec": 60
     },
@@ -1931,7 +1931,7 @@ export default {
      }
     },
     "lifecycle": {
-     "firstOutputSec": 90,
+     "firstOutputSec": 240,
      "staleMin": 45,
      "goneSec": 60
     },

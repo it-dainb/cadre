@@ -123,7 +123,7 @@ function host($): Host {
   h.sendTo = (agentId, text) => $.session.send({ to: { agentId }, text: modelText('nudge', text) })   // core/reuse.drain only
   h.submit = text => $.prompt.submit({ text: modelText('brief', text) })   // drive, from #1 after next only
   h.usage = () => $.session.usage()
-  h.version = async () => String((await $.session.version()).version)
+  h.version = async () => String((await $.session.version())?.version ?? '')
   h.theme = async () => { const v = String(((await $.config.list().catch(() => [])) as { key: string; value?: unknown }[]).find(r => r.key === 'theme')?.value ?? ''); return /^light/.test(v) ? 'light' : /^dark/.test(v) ? 'dark' : 'unknown' }
   h.root = async () => $.plugin.root
   h.model = { complete: a => $.model.complete(a) as any }
@@ -190,7 +190,7 @@ export const register: Register = (on, opts) => {
 
   // session.start: agents, command, tools env, the one tick. Awaited before turn one (L7).
   on('session.start', async ($, e, next) => {
-    const v = String((await $.session.version().catch(() => ({ version: '' }))).version ?? ''), old = tooOld(v) ? v : undefined   // outside the try: a step that throws never lets cadre run on a Claude Code that is too old
+    const v = String((await $.session.version().catch(() => null))?.version ?? ''), old = tooOld(v) ? v : undefined   // outside the try: a step that throws never lets cadre run on a Claude Code that is too old
     try {
     await $.command.register({ name: 'cadre', description: 'cadre: plan, approve, status, resolve, release, drive, init, setup, doctor', argumentHint: '<sub> [args]', immediate: true })
     await update($, secret, x => ({ ...x, old }))

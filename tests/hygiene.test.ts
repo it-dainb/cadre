@@ -3,6 +3,8 @@ import { describe, expect, test } from 'claude-code/testing'
 import { world } from './fixtures/replay/world'
 import { runOf, step } from '../core/lifecycle'
 import { stalls } from '../core/close'
+import { guard } from '../policy/guards'
+import { scoped } from '../commands/init'
 
 const bound = async (w: any, a: string, id: string, f: object = {}, role: any = 'worker') => { await w.at(a, id, role); await w.h.bind.update((t: any) => ({ ...t, [a]: { ...t[a], startedAt: w.clock.now, ...f } })) }
 const stops = (w: any) => { const s: string[] = []; Object.assign(w.h, { stopAgent: async (x: string) => { s.push(x) } }); return s }
@@ -34,11 +36,39 @@ describe('stall timers', () => {
     w.clock.now += 10_000; await stalls(w.h, 's1')
     expect((await runOf(w.h, 'ag1'))!.state).toEqual({ state: 'ended', cause: 'released' }); expect(s).toEqual([]); expect(await task(w, id)).toMatchObject({ state: 'todo' })
   })
-  test('a waiting run, a helper, a planner and a run its own session no longer holds are never stalled', async () => {
-    const w = await world({ n: 2 }), [a, b] = w.ids, s = stops(w); await bound(w, 'ag1', a); await bound(w, 'ag2', b, { sessionId: 'other' })
-    await step(w.h, 'ag1', { type: 'report.ok', wait: true })   // parked for a decision
-    w.clock.now += 3 * 3600_000; await stalls(w.h, 's1')
-    expect(s).toEqual([]); expect((await runOf(w.h, 'ag1'))!.state).toEqual({ state: 'waiting', on: 'decision' })
+  test('a waiting run is never stalled', async () => {
+    const w = await world(), [id] = w.ids, s = stops(w); await bound(w, 'ag1', id); await step(w.h, 'ag1', { type: 'report.ok', wait: true })
+    w.clock.now += 3 * 3600_000; await stalls(w.h, 's1'); expect(s).toEqual([]); expect((await runOf(w.h, 'ag1'))!.state).toEqual({ state: 'waiting', on: 'decision' })
+  })
+  test('a helper is never stalled', async () => {
+    const w = await world(), [id] = w.ids, s = stops(w); await bound(w, 'ag1', id, { parent: 'ag0', needId: 'n1' })
+    w.clock.now += 3 * 3600_000; await stalls(w.h, 's1'); expect(s).toEqual([]); expect((await runOf(w.h, 'ag1'))!.state).toEqual({ state: 'running' })
+  })
+  test('a planner is never stalled', async () => {
+    const w = await world(), [id] = w.ids, s = stops(w); await bound(w, 'ag1', id, {}, 'planner')
+    w.clock.now += 3 * 3600_000; await stalls(w.h, 's1'); expect(s).toEqual([])
+  })
+  test('an agent of another live session is left to that session', async () => {
+    const w = await world(), [id] = w.ids, s = stops(w); await bound(w, 'ag1', id, { sessionId: 'other' })
+    w.clock.now += 3 * 3600_000; await w.h.store.set(await scoped(w.h, 'alive'), { other: { p: 'other-process', at: w.clock.now } }); await stalls(w.h, 's1')
+    expect(s).toEqual([]); expect((await runOf(w.h, 'ag1'))!.state).toEqual({ state: 'running' })
+  })
+  test('a wake is a sign of life: a reused agent resumed after a long idle is not stale-killed', async () => {
+    const w = await world(), [id] = w.ids, s = stops(w); await bound(w, 'ag1', id, { lastAt: w.clock.now }); await step(w.h, 'ag1', { type: 'report.ok' })
+    w.clock.now += w.cfg.lifecycle.staleMin * 60_000 * 2; await step(w.h, 'ag1', { type: 'resume', text: 'findings' })
+    await stalls(w.h, 's1'); expect(s).toEqual([]); expect((await runOf(w.h, 'ag1'))!.state).toEqual({ state: 'running' })
+  })
+  test('a tool call is a sign of life, and one that has not returned holds the stale clock (a long test run is work) until 4x staleMin', async () => {
+    const w = await world(), [id] = w.ids, s = stops(w), min = w.cfg.lifecycle.staleMin * 60_000; await bound(w, 'ag1', id, { lastAt: w.clock.now })
+    await guard(w.h, { tool: 'Read', agentId: 'ag1', input: { file_path: 'a' } }, async (e: any) => e)   // the guard's call event stamps lastAt and opens the call
+    const b = (await w.h.bind.read()).ag1; expect([b.lastAt! > 0, b.openAt === b.lastAt]).toEqual([true, true])
+    w.clock.now += min * 2; await stalls(w.h, 's1'); expect(s).toEqual([])   // 90 minutes inside one call
+    w.clock.now += min * 2.5; await stalls(w.h, 's1'); expect(s).toEqual(['ag1'])   // past 4x: a call that never returns does not hold it forever
+  })
+  test('two ticks at once raise one dialog and one stop', async () => {
+    const w = await world(), [id] = w.ids, s = stops(w); await bound(w, 'ag1', id, { lastAt: w.clock.now })
+    w.clock.now += w.cfg.lifecycle.staleMin * 60_000 + 5000; await Promise.all([stalls(w.h, 's1'), stalls(w.h, 's1')])
+    expect(s).toEqual(['ag1']); expect((await w.h.board.read()).decisions!.length).toBe(1)
   })
 })
 

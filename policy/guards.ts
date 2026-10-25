@@ -11,7 +11,7 @@ import { idsIn } from '../core/briefs'
 import { cfgOf, strictOf } from '../config/index'
 import { askOf } from '../core/asks'
 import { runOf, step } from '../core/lifecycle'
-import { canon, fnv1a64 } from '../core/board'
+import { canon, fnv1a64, patchBinding } from '../core/board'
 
 // Paths the guards need, written to $.store `cadre:<repoKey>:policy` by init/session.start/tdd (absolute, realpath'd). Absent keys disable the rule they feed.
 export interface Policy { repo?: string; wtRoot?: string; home?: string; mcpAllow?: string[]; locks?: Record<string, string[]>; core?: Record<string, string[]>; protect?: string[]; effectCheck?: string; epicPrefix?: string; changelog?: string }
@@ -131,6 +131,7 @@ export const exitCall = (e: any, bound: boolean) => (bound && e.tool === 'Subage
 // Doctor (observation only: the verdict below is the same); the same call REPEAT times in a row spends the run, which then ends at its next step
 async function watchCall(h: Host, e: any, role: string): Promise<string | undefined> {
   const seen = (await runOf(h, e.agentId))?.tools ?? [], r = await step(h, e.agentId, { type: 'call', tool: e.tool, sig: `${e.tool} ${fnv1a64(canon(e.input ?? argsOf(e)))}` })   // a hash: a large Write content is not kept per step
+  if (r) { const t = await h.now(); await patchBinding(h, e.agentId, { lastAt: t, openAt: t }) }   // a tool call is a sign of life, and open until its result comes back (core/effect.after)
   if (r && !seen.includes(e.tool) && !e.tool.startsWith('mcp__') && !allowlist(role as any).includes(e.tool)) { const k = await scoped(h, 'injected'), x = ((await h.store.get(k)) as string[] | undefined) ?? []; if (!x.includes(e.tool)) await h.store.set(k, [...x, e.tool]) }
   return r?.exit ? 'you have made the same call over and over; stop now' : undefined
 }

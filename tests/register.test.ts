@@ -206,3 +206,11 @@ test('a failed start says so: a toast, secret.start set on the throw and cleared
   v = '2.1.287'; deny = 1; said.length = 0; await $.session.start(START)   // the first state write (the version) throws
   expect(st.secret.old).toBe('2.1.287'); expect(said.some(t => t.includes('cadre needs Claude Code'))).toBe(true)
 })
+
+test('session.version resolving to nothing is not a throw: the start goes on as on a current Claude Code', ENGINE, async ($, on) => {
+  const commands: any[] = []
+  on('session.start', () => ({ cwd: '/work' })); on('session.version', () => ({ value: null })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined }))
+  on('command.register', ($, e) => { commands.push(e); return { value: undefined } }); on('env.set', () => ({ value: undefined })); on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined }))
+  mock.clock(on)
+  await $.session.start(START); expect(commands.length).toBe(1)
+})
