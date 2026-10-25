@@ -147,4 +147,16 @@ describe('a step back: the store and the words', () => {
     await state('idle-bound'); expect(await idle(w.h)).toBe(true)
     await state('ended'); expect(await idle(w.h)).toBe(true)
   })
+  // the guard: a claim the concurrency cap holds back is no work to start (the first version kicked main every 2 min behind an agent waiting on a dialog: the drive stopped "no progress")
+  test('idle: a task waiting for a free slot is not work to start: cap 1, A idle-bound or waiting, B todo: idle is false and the watchdog never kicks', async () => {
+    const w = await world({ n: 2, type: 'feature', pkg: RED_PKG, drive: 'auto', mode: 'mod' }); await arm(w.h, 'auto'); w.dep.cfg.concurrency.default = 1; const [a] = w.ids
+    await w.at('ag1', a, 'worker')
+    const state = (st: string) => w.h.ui.update((u: any) => ({ ...u, runs: { ...u.runs, ag1: { ...u.runs?.ag1, state: { state: st } } } }))
+    for (const st of ['idle-bound', 'waiting']) {
+      await state(st); expect(await idle(w.h)).toBe(false)
+      for (let i = 0; i < 4; i++) { w.clock.now += 125_000; await watchdog(w.h) }
+      expect((await w.h.board.read()).drive.turns).toBe(0); expect((await w.h.ui.read()).goal).toBeUndefined()
+    }
+    w.dep.cfg.concurrency.default = 3; await state('idle-bound'); expect(await idle(w.h)).toBe(true)   // a free slot: B is work to start
+  })
 })

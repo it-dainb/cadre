@@ -77,3 +77,9 @@ test('ready: waits for the newest debug log to say the plugin started; an older 
   writeFileSync(join(d, 'out/debug-2.log'), 'a fresh start, still starting\n'); execFileSync('touch', ['-d', '2030-01-01', join(d, 'out/debug-2.log')]); assert.equal(call(2), 'timeout')   // the newer log has no line yet
   writeFileSync(join(d, 'out/debug-2.log'), 'hooks module cadre@inline session.start settled in 6000ms\n'); execFileSync('touch', ['-d', '2030-01-01', join(d, 'out/debug-2.log')]); assert.equal(call(2), 'ready')
 })
+
+// the cell must wait for the plugin before typing the goal, and after a restart; a timeout is a line in driver.log (fail-soft: the cell goes on)
+test('goal() and restart() both wait for the plugin (ready) and say in driver.log when it never showed', () => {
+  const src = readFileSync(join(root, 'harness/cell.sh'), 'utf8'), goal = /\ngoal\(\) \{[\s\S]*?\n  log "goal-failed/.exec(src)?.[0] ?? '', restart = /\nrestart\(\) \{[^\n]*/.exec(src)?.[0] ?? ''
+  assert.match(goal, /ready \|\| log "goal: typed without the plugin's start line/); assert.match(restart, /ready \|\| log "restart: the plugin's start line never showed/)
+})

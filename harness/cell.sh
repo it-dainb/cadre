@@ -108,7 +108,7 @@ waitfor() { [ -n "$1" ] && echo "$2" || echo 30; }
 # the plugin registers /cadre while its session.start runs (5-8 s): a line typed before that reaches the model as plain text (live: main began coding the goal, was refused
 # 3-6 times, and the oracle's refusal-loop counted them). The newest debug log says when it is done.
 ready() { local i f; for i in $(seq "${1:-90}"); do f=$(ls -t "$D"/out/debug*.log 2>/dev/null | head -1); [ -n "$f" ] && grep -qa 'cadre@inline.*session.start settled' "$f" && return 0; sleep 1; done; log "plugin not ready after ${1:-90} s"; return 1; }
-goal() { local i n d b; ready; for i in 1 2 3; do n=$(cat "$D"/out/debug*.log 2>/dev/null | grep -ac 'answered command\.run'); d=$(taken); b=; busy && b=1; send "/cadre $*"
+goal() { local i n d b; ready || log "goal: typed without the plugin's start line (waited 90 s)"; for i in 1 2 3; do n=$(cat "$D"/out/debug*.log 2>/dev/null | grep -ac 'answered command\.run'); d=$(taken); b=; busy && b=1; send "/cadre $*"
   # taken = cadre answered the command, or anything of cadre's showed up (a dialog the watcher logged, a plan): the onboarding dialog is such an answer
   for _ in $(seq "$(waitfor "$b" "$(left)")"); do { [ "$(cat "$D"/out/debug*.log 2>/dev/null | grep -ac 'answered command\.run')" -gt "$n" ] || [ "$(taken)" -gt "$d" ]; } && return 0; sleep 1; done
   # Claude Code busy and nothing of cadre's after the 30 s is not "taken": a line typed 1-2 s after the plugin loaded reached the model as plain text (live: main
@@ -123,7 +123,7 @@ clear_() { send "/clear"; sleep 3; }                            # /clear (a name
 shell_cd() { send "Run exactly this one Bash command and nothing else: cd $1 && pwd"; idle 120; }   # main's shell moves (a Bash cd)
 hold() { echo "$1" >"$O/dialog_wait"; log "hold dialogs ${1}s"; }   # the human looks away: dialogs stay unanswered that long
 pause1() { touch "$O/hold"; }; resume1() { rm -f "$O/hold"; }  # stop / restart pressing 1 on the band
-restart() { log "restart"; tui restart "$N" >>"$O/start.log" 2>&1; ready; }   # quit Claude Code and start it again in the same container
+restart() { log "restart"; tui restart "$N" >>"$O/start.log" 2>&1; ready || log "restart: the plugin's start line never showed (waited 90 s)"; }   # quit Claude Code and start it again in the same container
 seen() { grep -qE "$1" "$O/driver.log"; }
 until_log() { local i; for i in $(seq "${2:-$(left)}"); do seen "$1" && return 0; sleep 1; done; return 1; }
 until_plan() { until_log '^[0-9]+ plan ' "${1:-$(left)}" || log "budget: no plan dialog"; }
