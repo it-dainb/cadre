@@ -3,7 +3,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { SPECS } from '../tools/index'
 import { runShape, validateReport } from '../core/validate'
 import { RUN_ASK, brief } from '../core/briefs'
-import { collectLine, missing } from '../core/tdd'
+import { collectLine, junit, missing } from '../core/tdd'
 import { defaults, rows } from '../config/index'
 
 const rep = { schemaVersion: 1, role: 'tester', outcome: 'done', summary: 's', tests: [{ path: 'test/a.test.mjs', name: 'S1 ok', scenario: 'S1' }] }
@@ -73,5 +73,13 @@ describe('Settings: an adopted test check shows its source', () => {
     const by = (v: unknown) => rows([{ name: '.cadre/config.json', trust: 'repo', value: { units: v } }]).find(x => x.key === 'units')!.src
     expect(by([{ root: '.', checks: { test: ['node', '--test'] }, testBy: 'tester' }])).toBe('tester')
     expect(by([{ root: '.', checks: { test: ['node', '--test'] } }])).toBe('repo')
+  })
+})
+
+describe('the JUnit reader decodes test names the way the reporters write them', () => {
+  const one = (name: string) => junit(`<testsuite><testcase name="${name}" classname="" time="0"/></testsuite>`)[0].name
+  test('a quote escaped twice by node (&amp;quot;) matches the name with the quote; a single &quot; and a plain &amp; still match', () => {
+    expect(one('a &amp;quot;b&amp;quot;')).toBe('a "b"'); expect(one('a &quot;b&quot;')).toBe('a "b"'); expect(one('a &amp; b')).toBe('a & b'); expect(one('x &lt;y&gt;')).toBe('x <y>')
+    expect(junit('<testcase name="S1: given &amp;quot;hello world&amp;quot;"><failure message="m"/></testcase>')[0].status).toBe('failure')
   })
 })

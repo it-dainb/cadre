@@ -23,10 +23,11 @@ export interface Sym { name: string; status: string }
 
 // ---- JUnit reader: <testcase> elements; a child <failure> / <error> / <skipped> decides the status; text = the child's message + body ----
 const unxml = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&')
+const nameOf = (s: string) => unxml(unxml(s))   // node's reporter escapes a quote twice (&amp;quot;): a name is decoded again, once (never past that: a literal & in a name stays)
 export function junit(xml: string): Case[] {
-  const attr = (s: string, k: string) => unxml(new RegExp(`\\b${k}="([^"]*)"`).exec(s)?.[1] ?? '')
+  const attr = (s: string, k: string, f = unxml) => f(new RegExp(`\\b${k}="([^"]*)"`).exec(s)?.[1] ?? '')
   return [...xml.matchAll(/<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g)].map(m => {
-    const body = m[2] ?? '', k = /<(failure|error|skipped)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/\1>)/.exec(body), cls = attr(m[1], 'classname'), name = attr(m[1], 'name')
+    const body = m[2] ?? '', k = /<(failure|error|skipped)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/\1>)/.exec(body), cls = attr(m[1], 'classname', nameOf), name = attr(m[1], 'name', nameOf)
     return { name: cls ? `${cls}.${name}` : name, status: (k?.[1] === 'failure' ? 'failure' : k?.[1] === 'error' ? 'error' : k ? 'skipped' : 'passed') as Case['status'], text: k ? unxml(`${attr(k[2], 'message')} ${k[3] ?? ''}`).trim() : '' }
   })
 }
@@ -123,7 +124,7 @@ async function redRun(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, tests:
     const lines: string[] = []
     for (const t of tests) {
       const c = find(r.cases, t.name)
-      if (!c) return didNot ?? no(`test "${t.name}" is not in the JUnit report`)
+      if (!c) return didNot ?? no(`test "${t.name}" is not in the JUnit report (the name must be written exactly as the runner prints it)`)
       if (c.status === 'passed' || c.status === 'skipped') return no(`test "${t.name}" ${c.status} at red; it must fail`)
       if (c.status === 'error' && !errorOk(c.text, syms, sk)) return didNot ?? no(`errors, not failures: fix test setup ("${t.name}": ${c.text.slice(0, 160)})`)
       lines.push(`- ${t.name}: ${c.text.slice(0, 120)}`)
