@@ -23,7 +23,7 @@ test('a crashed run (no verdict) counts 0 landed, in either arm', () => {
 })
 test('the command reads the runs of both arms and writes its decision', () => {
   const d = mkdtempSync(join(tmpdir(), 'fvk-')), put = (cell, fk) => { mkdirSync(join(d, cell)); if (fk) writeFileSync(join(d, cell, 'verdict.json'), JSON.stringify({ stats: { foldKeep: fk } })) }
-  for (const k of [1, 2, 3]) { put(`fold-vs-keep-folded.r${k}`, run(1)); put(`fold-vs-keep-kept.r${k}`, k === 3 ? undefined : run(1)) }
+  for (const k of [1, 2, 3]) { put(`fold-vs-keep-folded.r${k}`, run(1)); put(`fold-vs-keep-kept.r${k}`, k === 3 ? undefined : run(1)); for (const x of ['env', 'err', 'line']) writeFileSync(join(d, `fold-vs-keep-folded.r${k}.${x}`), '') }
   const out = JSON.parse(execFileSync('node', ['harness/fold-vs-keep.mjs', d], { encoding: 'utf8' }))
   assert.deepEqual([out.folded.landed, out.kept.landed, out.specifierDefault, out.runs], [3, 2, 'off (opt-in)', { folded: 3, kept: 3 }])
 })
