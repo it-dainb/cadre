@@ -51,6 +51,7 @@ type Alive = Record<string, { p: string; at: number; pid?: string }>
 const ALIVE = 30_000
 // each active session stamps {process, at} at most every 10 s from the 5 s tick. ponytail: read-modify-write on one key; two sessions writing at once may drop one stamp for one interval (the 30 s window absorbs it).
 export async function stampAlive(h: Host): Promise<void> {
+  if (life.ending) return   // a quit cleared this process's stamp: a tick that runs before the process is gone must not write it again (live 0.17: the stamp, and a pid still in the table, held the plan 30 s)
   const k = await scoped(h, 'alive'), now = await h.now(), me = await sessionOf(h), a = ((await h.store.get(k)) as Alive | undefined) ?? {}
   if (a[me]?.p === procOf(h) && now - a[me].at < 10_000) return
   await h.store.set(k, { ...Object.fromEntries(Object.entries(a).filter(([, v]) => now - v.at < 86_400_000)), [me]: { p: procOf(h), at: now, pid: await pidOf(h) } })

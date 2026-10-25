@@ -7,7 +7,7 @@ import { roadmap, stopEpic } from '../core/milestone'
 import { nextAction } from '../core/render'
 import { modelView } from '../core/board'
 import { drain } from '../core/reuse'
-import { kick } from '../core/drive'
+import { kick, tally } from '../core/drive'
 import { emit } from '../core/events'
 import { sendBrief } from '../core/lanes'
 import '../core/close'   // registers ROUTES.resolve (the stopped epic's Retry)
@@ -187,6 +187,23 @@ describe('stops and bounds', () => {
     const s = await w.board(); expect(s.plan!.epics!.map(e => [e.state, e.why])).toEqual([['running', undefined], ['stopped', 'no progress in 3 turns']])
     expect(s.drive.stopped).toBeUndefined(); expect(s.drive.turns).toBe(4)
     const dc = defaults().drive; expect([s.drive.maxTurns, s.drive.maxUsd, s.drive.maxMinutes]).toEqual([dc.maxTurns * 2, dc.maxCostUsd * 2, dc.maxWallMinutes * 2])   // milestone-wide bounds: the plan bounds times its epics
+  })
+  test('a specifier\'s pick (a task being prepared) is not a turn of no progress for its epic', async () => {
+    const w = await approved(2, false), a = await planIt(w, w.es[0]); await planIt(w, w.es[1]); const cfg = defaults(), st = async () => (await w.board()).plan!.epics!.map(e => e.state)
+    for (let i = 0; i < 5; i++) await tally(w.h, cfg, 1, 1, false)
+    const prepared = await st()
+    for (let i = 0; i < 4; i++) { await emit(w.h, 'task.transitioned', { taskId: a.ids[0], from: 'todo', to: 'todo' }, { taskId: a.ids[0] }); await tally(w.h, cfg, 1, 1) }   // the other epic moves, this one never
+    expect([prepared, await st()]).toEqual([['running', 'running'], ['running', 'stopped']])   // five picks that only prepare tasks stop nothing; real steps with nothing moving still stop an epic after 3
+  })
+  test('Retry of an epic stopped for no progress starts its count again: it is not stopped by the very next step', async () => {
+    const w = await approved(2, false); const a = await planIt(w, w.es[0]); await planIt(w, w.es[1])
+    const turn = async () => { await sendBrief(w.h); await drain(w.h, { reason: 'answer' }, async () => ({ text: 'done' })) }
+    for (let i = 0; i < 4; i++) { await emit(w.h, 'task.transitioned', { taskId: a.ids[0], from: 'todo', to: 'todo' }, { taskId: a.ids[0] }); await turn() }
+    expect((await w.board()).plan!.epics![1].state).toBe('stopped')
+    const d = (await w.h.board.read()).decisions!.find(x => x.id === `flag:${w.es[1]}:stopped`)!; await decide(w.h, d.id, 'r', d.hash)
+    const after = [(await w.board()).plan!.epics![1].state]
+    await emit(w.h, 'task.transitioned', { taskId: a.ids[0], from: 'todo', to: 'todo' }, { taskId: a.ids[0] }); await turn()
+    expect([...after, (await w.board()).plan!.epics![1].state]).toEqual(['running', 'running'])   // one idle turn after the Retry is the first of three, not the fourth
   })
 })
 

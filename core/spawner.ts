@@ -74,7 +74,7 @@ export async function spawnStep(h: Host, event: string): Promise<void> {
     const go = Q.grant(cfg, Q.providerOf(await h.env()), s, d ? await Q.running(h) : [], cands, units)
     await h.ui.update(u => (u.queued === cands.length - go.length ? u : { ...u, queued: cands.length - go.length }))   // the band's "queued n"
     for (const x of go) Q.hold(x)
-    let ok = false; try { ok = go.length > 0 && (await tally(h, cfg, usd, go.length)) } finally { if (!ok) for (const x of go) Q.drop(x.id, x.role) }   // refused or thrown: the picks go back
+    let ok = false; try { ok = go.length > 0 && (await tally(h, cfg, usd, go.length, go.some(x => x.role !== 'specify'))) } finally { if (!ok) for (const x of go) Q.drop(x.id, x.role) }   // refused or thrown: the picks go back
     return ok ? go : []
   })
   for (const [i, x] of go.entries()) {   // one pick's throw never leaks the picks after it

@@ -58,7 +58,7 @@ export async function stopEpic(h: Host, id: string, why: string): Promise<void> 
     options: [{ key: 'r', label: 'Retry', verb: 'change', run: `resolve ${id} keep` }] })
   await emit(h, 'flag.raised', { taskId: id, flag: 'stopped' }, { taskId: id })
 }
-export async function goOn(h: Host, id: string): Promise<void> { const store = await storeOf(h); await store.setMeta(id, { 'cadre.stopped': '', 'cadre.planRounds': '' }, 'cadre'); await mirror(h, store, await registryOf(h)) }
+export async function goOn(h: Host, id: string): Promise<void> { await DRIVE.forget?.(h, id); const store = await storeOf(h); await store.setMeta(id, { 'cadre.stopped': '', 'cadre.planRounds': '' }, 'cadre'); await mirror(h, store, await registryOf(h)) }
 
 // after an epic landed: the milestone branch takes what dev gained meanwhile (a throwaway worktree, CAS). A conflict leaves it as it is: the final landing on dev shows it.
 export async function freshen(h: Host, root: string, ms: string, dev: string, tmp: string): Promise<void> {

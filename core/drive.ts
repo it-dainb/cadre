@@ -149,7 +149,8 @@ export async function ready(h: Host): Promise<DriveRec | null> {
   return rec
 }
 // count `go` steps (a main turn, or the agents the spawner starts: ADR 0018) against the bounds; false when a bound stopped the run
-export async function tally(h: Host, cfg: any, usd: number | undefined, go: number): Promise<boolean> {
+// advance: false when the picks only prepare tasks (a specifier's run changes no task state): they count against the bounds but are not a turn of no progress for the epic
+export async function tally(h: Host, cfg: any, usd: number | undefined, go: number, advance = true): Promise<boolean> {
   const s = await h.board.read(), d = s.drive, store = await storeOf(h), me = await sessionOf(h), now = await h.now(), dc = scaled(cfg.drive, s)
   const evs = (await h.events.read()).epics[s.epic ?? ''] ?? [], seq = evs.filter(x => x.type === 'task.transitioned').reduce((m, x) => Math.max(m, x.seq), 0)
   const o = { bound: null as string | null, go: false, side: 0, cost: d.costUsd, turns: d.turns, idle: [] as string[] }   // what the CAS attempt that stood decided
@@ -158,12 +159,12 @@ export async function tally(h: Host, cfg: any, usd: number | undefined, go: numb
   const quiet = (s.plan?.epics ?? []).filter(e => free && e.state === 'running' && !s.tasks.some(t => t.epic === e.id && ['active', 'review', 'blocked'].includes(t.state))).map(e => [e.id, tx(e.id)] as const)   // per-epic no progress: a slot is free, yet nothing of it moves, runs or waits on the user
   await casDrive(h, store, r => {
     if (!r?.on || r.epicId !== s.epic || held(r, me, now) || r.stopped) return undefined
-    const moved = seq > r.lastSeq || !r.turns, idle = moved ? 0 : r.idle + 1
+    const moved = seq > r.lastSeq || !r.turns, idle = moved ? 0 : r.idle + (advance ? 1 : 0)
     const last = r.last ?? usd ?? 0, delta = usd === undefined || r.sess !== me ? 0 : usd >= last ? usd - last : usd   // a new session starts at its own baseline; a usage that went down was reset: count it from 0
     o.cost = +((r.cost ?? 0) + delta).toFixed(2); o.side = r.side ?? 0
     o.bound = boundOf(r, dc, o.cost, idle, now)
     o.go = !o.bound && go > 0; o.turns = r.turns + (o.go ? go : 0)
-    const ei = Object.fromEntries(quiet.map(([id, q]) => { const [ls, n] = r.ei?.[id] ?? [0, 0]; return [id, q > ls ? [q, 0] : [ls, n + (o.go ? 1 : 0)]] })) as Record<string, [number, number]>
+    const ei = Object.fromEntries(quiet.map(([id, q]) => { const [ls, n] = r.ei?.[id] ?? [0, 0]; return [id, q > ls ? [q, 0] : [ls, n + (o.go && advance ? 1 : 0)]] })) as Record<string, [number, number]>
     o.idle = Object.keys(ei).filter(id => ei[id][1] >= dc.noProgressTurns)
     // lastSeq moves with every call, so progress seen with no turn charged must reset the count here: kept stale, the next turn read it as one more idle turn
     return { ...r, ei, cost: o.cost, last: usd ?? last, sess: me, turns: o.turns, lastSeq: seq, idle: o.go || moved ? idle : r.idle, lease: { session: me, until: now + LEASE } }
@@ -255,6 +256,8 @@ export async function resume(h: Host): Promise<string> {
   await h.board.update(x => ({ ...x, drive: { ...x.drive, stopped: undefined, cause: undefined, paused: undefined, turns: 0, costUsd: 0, startedAt: now } }))   // a resume is a fresh budget: the human chose to go on
   await driveEvent(h, 'resumed'); await kick(h, true); return 'drive resumed'
 }
+// an epic's Retry starts its no-progress count again: the count in the drive record would stop it at the very next step (live 0.17: 112 stops of one epic)
+DRIVE.forget = async (h, id) => { await casDrive(h, await storeOf(h), r => (r?.ei?.[id] ? { ...r, ei: Object.fromEntries(Object.entries(r.ei).filter(([k]) => k !== id)) } : undefined)) }
 DRIVE.arm = arm; DRIVE.kick = h => kick(h); DRIVE.humanWrite = humanWrite; DRIVE.decided = decided
 
 // integration red (core/integrate, both modes while driving): the first failure gets ONE fix task, approved by drive (recorded); the second one stops yolo and asks in auto

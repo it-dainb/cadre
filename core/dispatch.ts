@@ -125,7 +125,7 @@ export const isHuman = (o: Origin): string | null => (o.kind === 'press' || o.ki
 // agent-run setup/init (commands/agentrun fills these at load; core never imports commands/agentrun: a load cycle)
 export const RUN: { recheck?(h: Host): Promise<string>; cancel?(h: Host, kind: string): Promise<void> } = {}
 // drive (core/drive fills these at load; a static import would be a load cycle): arm at approval, hand main the next step after a dialog answer
-export const DRIVE: { sync?(h: Host): Promise<void>; arm?(h: Host, mode: 'auto' | 'yolo'): Promise<string>; kick?(h: Host): Promise<void>; humanWrite?<T>(h: Host, fn: () => Promise<T>): Promise<T>; decided?(h: Host, kind: 'plan', text: string): Promise<void> } = {}
+export const DRIVE: { sync?(h: Host): Promise<void>; arm?(h: Host, mode: 'auto' | 'yolo'): Promise<string>; kick?(h: Host): Promise<void>; humanWrite?<T>(h: Host, fn: () => Promise<T>): Promise<T>; decided?(h: Host, kind: 'plan', text: string): Promise<void>; forget?(h: Host, epicId: string): Promise<void> } = {}
 // gates = everything that decides or changes state for the human; only `init`/`setup` with no subcommand (start the run) may also be typed
 const gated = (c: Command): boolean => ['approve', 'reject', 'resolve', 'release', 'restore', 'deps'].includes(c.cmd) || (['init', 'setup'].includes(c.cmd) && !!c.args[0]) || (c.cmd === 'config' && c.args[0] === 'set') || (c.cmd === 'sync' && c.args[0] === 'add') || (c.cmd === 'drive' && c.args[0] !== 'status')
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { step } from '../core/lifecycle'
-import { NOTHING, continueRun, proc, prune, quit, unfinished, rehydrate, savePointer, stampAlive } from '../core/session'
+import { NOTHING, continueRun, life, proc, prune, quit, unfinished, rehydrate, savePointer, stampAlive } from '../core/session'
 import { drain, queueResume } from '../core/reuse'
 import { admit } from '../core/admission'
 import { arm, casDrive } from '../core/drive'
@@ -151,6 +151,12 @@ describe('continue after exit', () => {
     const m = await running('auto'); await quit(m.h1)
     const h2 = await after(m, 2_000)
     expect(await continueRun(h2)).toMatch(new RegExp(`^Picking up ${m.a} worker, ${m.b} reviewer`))
+  })
+
+  test('a tick after the quit does not stamp again: the session that quit stays gone', async () => {
+    const m = await running('auto'); try { await quit(m.h1); await m.h1.now(); await stampAlive(m.h1) } finally { life.ending = false }
+    const h2 = await after(m, 2_000), run = h2.run; h2.run = async (argv: string[]) => (argv[2]?.startsWith('kill -0') ? { exitCode: 0, stdout: '', stderr: '' } : run(argv))   // the old pid is still in the table (a process not yet reaped)
+    expect(await continueRun(h2)).toMatch(new RegExp(`^Picking up ${m.a} worker`))
   })
 
   test('a crash: a stamp whose process is gone on this machine frees the plan at once; another machine waits out the window', async () => {
