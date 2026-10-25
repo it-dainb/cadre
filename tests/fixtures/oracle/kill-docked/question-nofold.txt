@@ -1,0 +1,40 @@
+  R…           Submit   │                                                                                             ✕
+                        │1: Board  2: Graph  3: Timeline  4: Activity  8: Doctor  9: Settings
+│ The explorer found    │no plan yet                                                                                live
+│ that slug is          │
+│ ASCII-only and that   │no tasks yet · /cadre <goal> to start
+│ titleCase has no      │
+│ precedent for         │k: keys
+│ non-ASCII or          │
+│ non-string input.     │
+│ Should titleCase      │
+│ handle accented       │
+│ letters (e.g. 'élan' →│
+│ 'Élan'), and what     │
+│ should it do with a   │
+│ non-string?           │
+                        │
+❯ 1. Unicode letters;   │
+     throw on non-string│
+     (Recommended)      │
+     'élan' → 'Élan'    │
+     using Unicode-aware│
+     casing. A          │
+     non-string argument│
+     throws a           │
+     TypeError.         │
+  2. ASCII only; throw  │
+     on non-string      │
+     Only a-z is        │
+     capitalised,       │
+     consistent with    │
+     slug. A non-string │
+     argument throws a  │
+     TypeError.         │
+  3. Type something.    │
+────────────────────────│
+  4. Chat about this    │
+                        │
+Enter to select ·       │
+Tab/Arrow keys to       │
+navigate · Esc to cancel│

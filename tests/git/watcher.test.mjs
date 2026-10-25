@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const root = new URL('../../', import.meta.url).pathname, fix = join(root, 'tests/fixtures/oracle/kill-docked')
-const fns = readFileSync(join(root, 'harness/cell.sh'), 'utf8').split('\n').filter(l => /^(flat|dialog|title|isplan|plantitle)\(\)/.test(l)).join('\n')
+const fns = readFileSync(join(root, 'harness/cell.sh'), 'utf8').split('\n').filter(l => /^(flat|dialog|title|isplan|plantitle|qtitle)\(\)/.test(l)).join('\n')
 const sh = (call, pane) => execFileSync('bash', ['-c', `${fns}\np=$(cat "$1"); ${call}`, '_', join(fix, pane)], { encoding: 'utf8' }).trim()
 
 // quick tier, kill-mid-setup on 7d24520: after the restart cadre's pane docked at the right and narrowed the main column, so the review screen read
@@ -23,4 +23,10 @@ test('a question\'s title skips the tab bar the narrowed column wraps', () => {
 test('a plan dialog whose title a toast covers is logged as the plan', () => {
   assert.equal(sh('isplan "$(plantitle "$(title "$p")" "$p")" && echo plan || echo other', 'plan-covered.txt'), 'plan')
   assert.equal(sh('isplan "$(plantitle "$(title "$p")" "$p")" && echo plan || echo other', 'question.txt'), 'other')
+})
+// quick tier, kill-mid-setup on 380bdaf: the pane was so narrow that the tab bar's ☐ row scrolled off, the title read empty, and the oracle counted the third tab of
+// main's one question call as a dialog of its own (dialog-budget 5 > 4)
+test('a question whose tab bar scrolled off still has its title', () => {
+  assert.match(sh('qtitle "$p"', 'question-nofold.txt'), /^The explorer found that slug/)
+  assert.equal(sh('title "$p"', 'question-nofold.txt'), '')
 })

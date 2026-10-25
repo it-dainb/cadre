@@ -33,6 +33,7 @@ title() { awk '/☐/{f=1; next} f && /^ *❯ 1\./{exit} f{x=$0; sub(/^│ ?/,"",
 AWK_BAND='{L[NR]=$0} /^─{20}/{b[++nb]=NR} END{if(nb<2)exit; t=b[nb-1]; for(i=t-1;i>0&&i>t-8;i--)if(L[i]~/\[-\] *$/){for(j=i;j<t;j++)print L[j];break}; for(i=b[nb]+1;i<=NR;i++)print L[i]}'
 # a toast docked over the dialog's top rows hides its title (live: "╰───╯ library: capitalise…"); a draft plan alone offers "Lane →", so that names it.
 # The name must match isplan, or the watcher logs a dialog and no "plan" event comes (the cell waits for it: no-plan)
+qtitle() { local t; t=$(title "$1"); [ -z "$t" ] && ! grep -q '☐' <<<"$1" && t=$(title "$(printf '☐\n%s' "$1")"); printf '%s' "$t"; }   # a narrow pane scrolls the tab bar's ☐ row off: the question then starts at the top row
 isplan() { grep -qiE '^approve (the mission|mission|plan|milestone)' <<<"$1"; }
 plantitle() { if grep -qiE '^approve ' <<<"$1"; then printf '%s' "$1"; elif grep -q '[0-9]\. Lane → ' <<<"$(flat "$2")"; then printf 'approve plan (title covered)'; else printf '%s' "$1"; fi; }
 band() { awk "$AWK_BAND" <<<"$1"; }
@@ -64,7 +65,7 @@ watcher() {
     fi
     if dialog "$p"; then
       lastt=$cur; tnew=0   # what asked for a dialog (shown before or with it) got one
-      t=$(title "$p"); [ -z "$t" ] && grep -q 'Ready to submit your answers' <<<"$(flat "$p")" && t='submit answers'   # the review screen: Enter submits (not a dialog of its own)
+      t=$(qtitle "$p"); [ -z "$t" ] && grep -q 'Ready to submit your answers' <<<"$(flat "$p")" && t='submit answers'   # the review screen: Enter submits (not a dialog of its own)
       t=$(plantitle "$t" "$p")
       if isplan "$t"; then
         if [ "$seen" != "plan:$t" ]; then log "plan $t"; seen="plan:$t"; since=$now; [ -n "$LANDED" ] && { sleep 1; key Enter; log "answer $t"; }

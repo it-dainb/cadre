@@ -120,7 +120,8 @@ if (process.env.ORACLE !== 'custom-role') {
   // a fault the cell injected (FAULT=interrupt|kill) earns the setup's one recovery dialog ("… stopped …")
   const faulted = drv.some(e => e.kind === 'fault'); let budget = DIALOGS + (faulted && drv.some(e => e.kind === 'dialog' && /stopped/.test(e.text)) ? 1 : 0)
   const norm = x => x.replace(/\s+/g, ' ').trim().slice(0, 40), asks = went.filter(b => b.name === 'AskUserQuestion').map(b => (b.input?.questions ?? []).map(q => norm(q.question ?? '')).filter(Boolean))
-  const seen = drv.filter(e => e.kind === 'dialog' && e.t < until).map(e => asks.findIndex(qs => qs.includes(norm(e.text)))), calls = new Set(seen.filter(i => i >= 0))
+  // a tab whose title the watcher could not read (a narrow pane wraps the question; live: `dialog ` with nothing after it) belongs to the call of the tab before it
+  const seen = drv.filter(e => e.kind === 'dialog' && e.t < until).map(e => asks.findIndex(qs => qs.includes(norm(e.text)))).map((i, k, a) => i < 0 && !norm(drv.filter(e => e.kind === 'dialog' && e.t < until)[k].text) ? (a.slice(0, k).findLast(x => x >= 0) ?? i) : i), calls = new Set(seen.filter(i => i >= 0))
   const dialogs = seen.filter(i => i < 0).length + calls.size + (plan ? 1 : 0)
   budget += Math.min(1, calls.size)
   const nTurns = turns.filter(([a]) => a < until).length
