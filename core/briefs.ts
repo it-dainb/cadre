@@ -55,7 +55,7 @@ export function brief(role: Role, b: BriefIn): string {
   const contract = sec('Contract', renderContract(b.contract)), files = (why: string) => (b.paths?.length ? `\nFiles: ${b.paths.join(', ')}${why}` : '')   // the task's declared paths, in the task block
   if (role === 'explorer') return join([plan, head, `# ${b.question !== undefined ? 'QUESTION' : `TASK-${b.id}`}\n${b.question ?? b.title}`, sec('Scope', 'read-only; no edits, no shell'), mine, notes])
   if (role === 'tester')
-    return join([plan, head, `# SPEC TASK-${b.id}${files(' (the code this task changes)')}`, spec([sec('Scenarios', b.scenarios), contract]), sec('Test paths', b.testPaths), b.runAsk ? sec('How your tests run', RUN_ASK) : '', mine, sec('Folder', 'tests only; read FILES.md first: it lists what you can see (you cannot list directories)'), notes])
+    return join([plan, head, `# SPEC TASK-${b.id}${files(' (the code this task changes)')}`, spec([sec('Scenarios', b.scenarios), contract]), sec('Decided (apply it to the tests)', b.decisions), sec('Test paths', b.testPaths), b.runAsk ? sec('How your tests run', RUN_ASK) : '', mine, sec('Folder', 'tests only; read FILES.md first: it lists what you can see (you cannot list directories)'), notes])
   if (role === 'reviewer')
     return join([plan, head, `# REVIEW TASK-${b.id}${files(' (a change outside these files is a finding, not a fail on its own)')}`, sec('Source commit', b.sourceCommit), sec('Diff', [b.diffStat ?? '', cap(b.diff ?? '', 3072)]),
       spec([sec('Scenarios', b.scenarios), contract, sec('Spec tests', b.locked)]),

@@ -176,6 +176,14 @@ test('spec_change: owner report blocks; reject resumes the worker, accept rewind
   }
 })
 
+test('spec_change accept: the red rounds start over, and the tester brief carries the accepted change', async () => {
+  const { brief } = await import('../../core/briefs.ts'), { budgetOf, charge } = await import('../../core/lifecycle.ts')
+  const w = world(), { wt } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']); w.meta['cadre.worktree'] = wt
+  await charge(w.h, 'm-1', 'red'); await charge(w.h, 'm-1', 'red')   // two refusals before the worker's change request
+  await T.specChange(w.h, w.d, 'm-1', 'S5 is true on the base'); await T.resolveSpec(w.h, 'm-1', 'accept')
+  assert.equal((await budgetOf(w.h, 'm-1')).red, 0)
+  assert.match(brief('tester', { id: 'm-1', title: 't', type: 'test', decisions: [w.meta['cadre.decision']] }), /Decided \(apply it to the tests\)\nspec change accepted: S5 is true on the base\. Change the tests/)
+})
 test('spec_change accept: the worker commits are dropped, so the amended red is measured on the spec commit tree', async () => {
   const w = world(), { wt } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']), spec = w.meta['cadre.specCommit']; w.meta['cadre.worktree'] = wt
   writeFileSync(join(wt, 'src/impl.ts'), 'export const IMPL = 1\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'worker')

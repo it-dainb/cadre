@@ -15,7 +15,7 @@ import { baseOf } from './branches'
 import { auditView, inRepo, matches, modeOf, pkgOf, rootOf, type Pkg } from './specview'
 import { untested } from './validate'
 import { policyOf, setPolicy } from '../policy/guards'
-import { step } from './lifecycle'
+import { retry, step } from './lifecycle'
 
 export interface Gate { ok: boolean; why?: string; card: string; tests?: string[]; setup?: true }   // setup: the tester cannot fix it (the config must change); the task blocks at once
 export interface Case { name: string; status: 'passed' | 'failure' | 'error' | 'skipped'; text: string }
@@ -307,7 +307,8 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
   const r = await apply(h, acc ? { kind: 'rewind', id, at: await h.now(), actor: by, on: 'tester' } : { kind: 'unblock', id, at: await h.now(), actor: by }, pipe)
   if (!r.ok) return { text: r.error }
   await d.store.resume(id, d.actor)   // the store follows the board out of blocked (as unblock does), or the next report cannot move it
-  const note = acc ? `spec change accepted: ${task!.meta['cadre.specChange'] ?? ''}` : 'spec change rejected: the locked tests stay; conform to them'
+  if (acc) await retry(h, id, 'red')   // the refusals before the change were for the old tests: the amended ones get their own rounds
+  const note = acc ? `spec change accepted: ${task!.meta['cadre.specChange'] ?? ''}. Change the tests under test/ to match it; they must differ from the ones there now.` : 'spec change rejected: the locked tests stay; conform to them'
   await d.store.setMeta(id, { 'cadre.blocked': '', 'cadre.decision': note.slice(0, 1500) }, d.actor)
   const bind = await h.bind.read(), w = acc ? undefined : Object.keys(bind).find(a => !a.startsWith('~') && bind[a].taskId === id && bind[a].role === 'worker')
   if (w) await step(h, w, { type: 'resume', text: 'The spec change was rejected: the locked tests stay. Make them pass, then report done.' })   // as unblock does: the worker that asked is waiting
