@@ -1,3 +1,5 @@
+import { scoped } from '../commands/init'
+import { mark } from '../commands/agentrun'
 import { describe, expect, test } from 'claude-code/testing'
 import { audit, parse, resolveGit, sweep, wrap, writes } from '../core/effect'
 import { fakeHost, task } from './support'
@@ -81,10 +83,26 @@ describe('L3 effect (13.1)', () => {
     expect(Object.values(w.refs).includes(SHA('8'))).toBe(true); expect(await flags()).toEqual([])
     await sweep(h); expect(await flags()).toEqual([])   // re-baselined: no repeat flag
   })
-  test('rule 3 is off while main holds a setup/init lease: the run\'s own commits move main and dev (no git: flag), and it is on again when the lease is gone', async () => {
-    const { w, h, flags } = await mk(); await h.secret.update((x: any) => ({ ...x, run: { kind: 'setup', turns: 0, at: 0 } }))
-    w.refs['refs/heads/dev'] = SHA('9'); w.refs['refs/heads/main'] = SHA('8'); await sweep(h); expect(await flags()).toEqual([])
-    await h.secret.update((x: any) => ({ ...x, run: undefined })); w.refs['refs/heads/dev'] = SHA('a'); await sweep(h); expect(await flags()).toEqual(['git:dev'])
+  // a setup/init run's durable record keeps the branches that existed when it first started (`pre`); what the run makes itself is not a stranger's move, only while its lease is held
+  const lease = async (h: any, pre: string[] | undefined) => { await h.secret.update((x: any) => ({ ...x, run: { kind: 'setup', turns: 0, at: 0 } })); await h.store.set(await scoped(h, 'run'), { kind: 'setup', ...(pre ? { pre } : {}) }) }
+  test('rule 3 and a setup run: its own commit on a branch it made (after a kill and a restart) is not flagged; the same commit with no lease is; another run\'s refs are; a main-agent move is', async () => {
+    const own = await mk(); await lease(own.h, [])   // the repo did not exist when the run first started: main and dev are the run's
+    own.w.refs['refs/heads/dev'] = SHA('9'); own.w.refs['refs/heads/main'] = SHA('8'); await sweep(own.h); expect(await own.flags()).toEqual([])
+    const none = await mk(); await none.h.store.set(await scoped(none.h, 'run'), { kind: 'setup', pre: [] })   // the record outlives the process; the lease does not
+    none.w.refs['refs/heads/dev'] = SHA('9'); none.w.refs['refs/heads/main'] = SHA('8'); await sweep(none.h); expect((await none.flags()).sort()).toEqual(['git:dev', 'git:main'])
+    const other = await mk(); await lease(other.h, ['refs/heads/main', 'refs/heads/dev'])   // both existed before this run: not its refs
+    other.w.refs['refs/heads/dev'] = SHA('9'); await sweep(other.h); expect(await other.flags()).toEqual(['git:dev'])
+    const agent = await mk(); await lease(agent.h, [])
+    await callBy(agent.h, 'w1', 'Bash', 'c1', () => { agent.w.refs['refs/heads/main'] = SHA('8') }); expect(await agent.flags()).toEqual(['git:main:agent'])   // an agent's window is never excused
+    const bare = await mk(); await bare.h.secret.update((x: any) => ({ ...x, run: { kind: 'setup', turns: 0, at: 0 } }))   // a lease with no record of what predates it
+    bare.w.refs['refs/heads/dev'] = SHA('9'); await sweep(bare.h); expect(await bare.flags()).toEqual(['git:dev'])
+  })
+  test('the record keeps the first start\'s branches through a restart or a retry, and a new run takes its own (commands/agentrun mark)', async () => {
+    const { h } = await mk(), key = await scoped(h, 'run')
+    await h.store.set(key, { kind: 'setup', pre: ['refs/heads/old'] })
+    await mark(h, { kind: 'setup', pre: ['refs/heads/new'], follow: 1 }); expect((await h.store.get(key) as any).pre).toEqual(['refs/heads/old'])
+    await h.store.del(key); await mark(h, { kind: 'setup', pre: ['refs/heads/new'] }); expect((await h.store.get(key) as any).pre).toEqual(['refs/heads/new'])
+    await h.store.set(key, { kind: 'init', pre: ['refs/heads/x'] }); await mark(h, { kind: 'setup', pre: ['refs/heads/y'] }); expect((await h.store.get(key) as any).pre).toEqual(['refs/heads/y'])   // another kind of run is another run
   })
   test('G7: epic refs are protected by the configured prefix, not a hard-coded epic/', async () => {
     const { w, h, flags } = await mk(); await setPolicy(h, { epicPrefix: 'feat/' })

@@ -57,6 +57,12 @@ async function raise(h: Host, flag: string, taskId: string, info: { ref?: string
 
 const isProtected = (branch: string, protect: string[] = ['main', 'dev'], epicPrefix = 'epic/') => protect.includes(branch) || branch.startsWith(epicPrefix) || branch.startsWith('milestone/')
 
+// the refs that were there when the held setup/init run first started (recorded in its durable record: a kill and a restart keep them), or undefined with no lease or no record
+async function ownRefs(h: Host): Promise<Set<string> | undefined> {
+  if (!(await leaseOf(h))) return undefined
+  const r = (await h.store.get(await scoped(h, 'run'))) as { pre?: string[] } | undefined
+  return r?.pre ? new Set(r.pre) : undefined
+}
 // One audit: scope = main + caller's worktree (sandbox on) or everything (sweep / degraded / effectCheck always).
 export async function audit(h: Host, caller: string | null): Promise<void> {
   const g = await h.git.read(), pol = await policyOf(h)
@@ -90,13 +96,15 @@ export async function audit(h: Host, caller: string | null): Promise<void> {
     await raise(h, r.exitCode ? `quarantine-failed:${tid || 'main'}` : `quarantine:${tid || 'main'}`, tid, {}, `${bad.length} path(s) quarantined (${name})`)
     if (!r.exitCode) { const qk = await scoped(h, 'quarantine'), q = ((await h.store.get(qk)) as unknown[]) ?? []; await h.store.set(qk, [...q, { name, tree: t, paths: bad, ts }]); Object.assign(after, await fingerprint(h, [t], pol.repo)) }
   }
-  // rule 3: protected refs moved outside a cadre merge (epoch unchanged). Not while main holds a setup/init lease: that run's own commits make and move main and dev (after a restart in the
-  // middle of a setup the repo exists, so the audit is on while the setup run goes on: live, kill-mid-setup showed a git:main dialog for the setup's own commit)
-  if (scope.includes(pol.repo) && base.refs !== undefined && !(await leaseOf(h))) {
+  // rule 3: protected refs moved outside a cadre merge (epoch unchanged). Skipped only for a ref the setup/init run made itself, while its lease is held: a repo that did not exist when the run first started
+  // gets main and dev from the run's own commits, and after a kill and a restart the run goes on (live: kill-mid-setup showed a git:main dialog for the setup's own commit). A ref that was there before the run,
+  // a move in an agent's window, a move with no lease, or another run's refs are flagged as ever.
+  const own = agentLoop ? undefined : await ownRefs(h)
+  if (scope.includes(pol.repo) && base.refs !== undefined) {
     const was = refMap(base.refs), is = refMap(now.refs)
     for (const [ref, old] of was) {
       const br = ref.replace(/^refs\/heads\//, ''), tip = is.get(ref)
-      if (tip !== old && isProtected(br, pol.protect, pol.epicPrefix)) await raise(h, agentLoop ? `git:${br}:agent` : `git:${br}`, '', { ref, old, tip }, `protected branch ${br} moved outside cadre`)
+      if (tip !== old && isProtected(br, pol.protect, pol.epicPrefix) && !(own && !own.has(ref))) await raise(h, agentLoop ? `git:${br}:agent` : `git:${br}`, '', { ref, old, tip }, `protected branch ${br} moved outside cadre`)
     }
   }
   await save(after, open)

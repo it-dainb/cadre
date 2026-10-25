@@ -22,8 +22,8 @@ const WHAT = { setup: 'Set up cadre on this machine', init: 'Set up cadre in thi
 
 const end = async (h: Host, done = false) => { if (done) { await h.store.del(await scoped(h, 'run')); await h.ui.update(({ halt: _x, ...u }) => u) } await h.secret.update(({ run: _r, ...s }) => s) }   // done: finished or cancelled; a stopped run stays open (halted)
 // a run started here and never finished (Claude Code quit or was killed mid-run, or it stopped): kept in $.store, as session memory goes with the session. None while a run is on.
-type Halt = { kind: Kind; goal?: { text: string; mode: 'auto' | 'yolo' }; follow?: number }   // follow: the stop refusals spent (a resume after /clear keeps them)
-const mark = async (h: Host, r: Halt) => h.store.set(await scoped(h, 'run'), r)
+type Halt = { kind: Kind; goal?: { text: string; mode: 'auto' | 'yolo' }; follow?: number; pre?: string[] }   // pre: the branches that existed when the run first started (core/effect: what the run itself makes is not a stranger's move)   // follow: the stop refusals spent (a resume after /clear keeps them)
+export const mark = async (h: Host, r: Halt) => { const k = await scoped(h, 'run'), old = (await h.store.get(k)) as Halt | undefined; await h.store.set(k, { ...r, ...(old?.pre && old.kind === r.kind ? { pre: old.pre } : r.pre ? { pre: r.pre } : {}) }) }   // a restart or a retry keeps the first start's `pre`; a new run (the record was ended) takes its own
 export const halted = async (h: Host) => ((await h.secret.read()).run ? undefined : ((await h.store.get(await scoped(h, 'run'))) as Halt | undefined))
 export const haltText = (r: Halt) => `Setup was interrupted · /cadre ${r.goal ? r.goal.text.slice(0, 80) : r.kind === 'setup' ? 'setup' : '<goal>'} to pick it up`
 export async function halt(h: Host): Promise<void> { const r = await halted(h); if (r) await h.ui.update(u => ({ ...u, halt: haltText(r) })) }   // session.start: the band says it (ui/v2/band)
@@ -86,6 +86,7 @@ async function stuck(h: Host, r: NonNullable<Secret['run']>, its: Item[], why: s
   return `${r.kind}: stopped · press 1`
 }
 
+const heads = async (h: Host) => { const r = await h.run(['git', '-C', await h.cwd(), 'for-each-ref', '--format=%(refname)', 'refs/heads']).catch(() => undefined); return r && !r.exitCode ? r.stdout.split('\n').filter(Boolean) : [] }
 // `/cadre setup` | `/cadre init` (human origin only: core/dispatch). Nothing open: done at once. Else the lease starts and main gets the brief.
 // `goal` (the onboarding dialog's Set up, commands/cadre): init skips the mission question (drafted with the plan) and the goal flow follows once every check passes (ADR 0014)
 // again: the human's "Let Claude try again" (the stopped run's refusal count): ONE stop budget per run, a retry never refills it, and the brief says the user asked
@@ -98,7 +99,7 @@ export async function start(h: Host, k: Kind, goal?: { text: string; mode: 'auto
   const at = await h.now(); await h.secret.update(s => ({ ...s, run: { kind: k, at, turns: 0, follow: again ?? 0, guide: '', snap: {}, ...(goal ? { goal } : {}) } }))   // before the checks: mission waits for the plan in a goal run
   const its = await items(h, k)
   if (finished(its)) { await end(h, true); await settle(h, `run:${k}`); if (goal) { await goalBrief(h, goal.text, goal.mode); return `${k}: all done · ${goal.mode === 'yolo' ? 'yolo · ' : ''}Claude plans your goal` } return `${k}: all done` }
-  const guide = `${(await h.root?.()) ?? '.'}/guides/${k}.md`; await mark(h, { kind: k, ...(goal ? { goal } : {}) })
+  const guide = `${(await h.root?.()) ?? '.'}/guides/${k}.md`; await mark(h, { kind: k, ...(goal ? { goal } : {}), pre: await heads(h) })
   await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, guide } } : s)); await resnap(h)
   await draw(h, k, its, 'on')
   const at0 = k === 'init' ? ` The project root is ${await h.cwd()}: start every Bash call with cd "${await h.cwd()}" && and give files there by their full path.` : ''   // a shell left in a package folder made a second .cadre there, live 0.10.0
