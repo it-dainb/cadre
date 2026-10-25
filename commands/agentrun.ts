@@ -86,7 +86,13 @@ async function stuck(h: Host, r: NonNullable<Secret['run']>, its: Item[], why: s
   return `${r.kind}: stopped · press 1`
 }
 
-const heads = async (h: Host) => { const r = await h.run(['git', '-C', await h.cwd(), 'for-each-ref', '--format=%(refname)', 'refs/heads']).catch(() => undefined); return r && !r.exitCode ? r.stdout.split('\n').filter(Boolean) : [] }
+// the branches that exist now; [] only when there is no repository yet (rev-parse fails and no .git is there); undefined on any other git error, so `pre` stays unset and nothing is excused
+export const heads = async (h: Host): Promise<string[] | undefined> => {
+  const cwd = await h.cwd(), r = await h.run(['git', '-C', cwd, 'for-each-ref', '--format=%(refname)', 'refs/heads']).catch(() => undefined)
+  if (r && !r.exitCode) return r.stdout.split('\n').filter(Boolean)
+  const g = await h.run(['git', '-C', cwd, 'rev-parse', '--git-dir']).catch(() => undefined)
+  return g && g.exitCode && !(await h.stat(`${cwd}/.git`).catch(() => undefined)) ? [] : undefined
+}
 // `/cadre setup` | `/cadre init` (human origin only: core/dispatch). Nothing open: done at once. Else the lease starts and main gets the brief.
 // `goal` (the onboarding dialog's Set up, commands/cadre): init skips the mission question (drafted with the plan) and the goal flow follows once every check passes (ADR 0014)
 // again: the human's "Let Claude try again" (the stopped run's refusal count): ONE stop budget per run, a retry never refills it, and the brief says the user asked
@@ -99,7 +105,7 @@ export async function start(h: Host, k: Kind, goal?: { text: string; mode: 'auto
   const at = await h.now(); await h.secret.update(s => ({ ...s, run: { kind: k, at, turns: 0, follow: again ?? 0, guide: '', snap: {}, ...(goal ? { goal } : {}) } }))   // before the checks: mission waits for the plan in a goal run
   const its = await items(h, k)
   if (finished(its)) { await end(h, true); await settle(h, `run:${k}`); if (goal) { await goalBrief(h, goal.text, goal.mode); return `${k}: all done · ${goal.mode === 'yolo' ? 'yolo · ' : ''}Claude plans your goal` } return `${k}: all done` }
-  const guide = `${(await h.root?.()) ?? '.'}/guides/${k}.md`; await mark(h, { kind: k, ...(goal ? { goal } : {}), pre: await heads(h) })
+  const guide = `${(await h.root?.()) ?? '.'}/guides/${k}.md`; const pre = await heads(h); await mark(h, { kind: k, ...(goal ? { goal } : {}), ...(pre ? { pre } : {}) })
   await h.secret.update(s => (s.run ? { ...s, run: { ...s.run, guide } } : s)); await resnap(h)
   await draw(h, k, its, 'on')
   const at0 = k === 'init' ? ` The project root is ${await h.cwd()}: start every Bash call with cd "${await h.cwd()}" && and give files there by their full path.` : ''   // a shell left in a package folder made a second .cadre there, live 0.10.0
