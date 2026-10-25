@@ -116,7 +116,8 @@ const NOT_RUN = 'The install could not be run. Go on without it, or report outco
 export async function settleSetups(h: Host, d: Deps, resume: () => Promise<unknown>): Promise<void> {
   for (const t of (await pending(h)).setup) {
     const now = await h.now(), x = await cas(h, t, c => (c.answer === undefined && c.argv && !(c.running !== undefined && now - c.running < CLAIM_MS) ? { ...c, running: now } : undefined)); if (!x) continue
-    h.after(0, async () => {   // a timer's own context: it outlives the frame that claimed it
+    const later = h.ops?.after ?? ((_: number, f: () => unknown) => { void f() })   // the host's timer (its own context: it outlives the frame that claimed the run)
+    later(0, async () => {
       const r = await setupAnswer(h, d, x, x.argv).catch((): { text: string; ok: boolean } => ({ text: NOT_RUN, ok: false }))
       if (await answer(h, x, r.text, false, r.ok)) await resume()   // the requester is resumed now, not at the next turn end
     })

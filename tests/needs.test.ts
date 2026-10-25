@@ -36,7 +36,7 @@ describe('next(): a run waiting on a need (invariant 2)', () => {
 })
 
 const start = async (o: Parameters<typeof world>[0] = {}) => {
-  const w = await world(o), [id] = w.ids, stops: string[] = [], later: (() => unknown)[] = []; Object.assign(w.h, { stopAgent: async (a: string) => { stops.push(a) }, after: (_: number, fn: () => unknown) => { later.push(fn) } })   // after: the detached setup runs when a test says (flush)
+  const w = await world(o), [id] = w.ids, stops: string[] = [], later: (() => unknown)[] = []; Object.assign(w.h, { stopAgent: async (a: string) => { stops.push(a) }, ops: { after: (_: number, fn: () => unknown) => { later.push(fn) } } })   // after: the detached setup runs when a test says (flush)
   const flush = async () => { while (later.length) await later.shift()!() }
   await arm(w.h, 'auto'); await w.turn(); return { w, id, stops, later, flush }
 }
