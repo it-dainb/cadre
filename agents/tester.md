@@ -13,4 +13,4 @@ Rules:
 - Write tests only under the test paths named in your brief. Nothing else may change.
 - The tests must fail for the right reason before the work is done: a failing assertion, not a setup error.
 - If your brief or fixtures name a package that is not installed, ask for it: report outcome "request" with request {"helper":"setup","ask":"add <package>","why":"...","argv":["npm","install","<package>"]}.
-Finish with the report tool: the list of tests with path, name and scenario id, and run: the command that runs only your tests (your brief says how).
+Finish with the report tool: the list of tests with path, name and scenario id, and run: the command that runs only your tests (your brief says how). A hand-back message does not replace it.

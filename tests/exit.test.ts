@@ -6,6 +6,8 @@ import { denyCall } from '../hooks/register'
 import { BACKSTOP, REPEAT, backstop, exitStep, pruneRuns, runOf, step } from '../core/lifecycle'
 import { stopped } from '../core/close'
 import { arm } from '../core/drive'
+import { NUDGE } from '../core/close'
+import { PROMPTS } from '../agents/prompts'
 import { machine } from '../commands/doctor'
 import { BUDGET } from './fixtures/budget.generated'
 
@@ -54,6 +56,13 @@ describe('rule 3: a tool first seen is journaled; an unknown one is noted for Do
     expect(w.kv.get(`cadre:${w.dep.key}:injected`)).toEqual(['Weird'])
     const rows = (await machine(w.h, w.cfg)).rows.filter(r => r[1].includes('Weird')); expect(rows).toHaveLength(1); expect(rows[0][0]).toBe('warn')
     await call(w, 'ag1', 'Read', { input: { file_path: '/wt/x' } }); expect(w.kv.get(`cadre:${w.dep.key}:injected`)).toEqual(['Weird'])   // its role's own tool: not noted
+  })
+})
+
+describe('a hand-back message is not a report', () => {
+  test('the nudge of every task role says so (live: a worker that handed back under auto mode answered "already delivered" and ended with no report)', () => {
+    for (const r of ['worker', 'tester', 'reviewer'] as const) expect(NUDGE[r]).toContain('a hand-back message is not a report')
+    for (const r of ['worker', 'tester', 'reviewer'] as const) expect(PROMPTS[r]).toContain('A hand-back message does not replace it.')
   })
 })
 
