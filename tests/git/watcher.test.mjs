@@ -30,3 +30,13 @@ test('a question whose tab bar scrolled off still has its title', () => {
   assert.match(sh('qtitle "$p"', 'question-nofold.txt'), /^The explorer found that slug/)
   assert.equal(sh('title "$p"', 'question-nofold.txt'), '')
 })
+// quick tier at 215de58: the fallback title also fired on the review screen ("› Prompt from the cadre plugin …"), so the watcher logged a dialog where it used to log
+// "submit answers", and the oracle counted 5 dialogs against 4. The fallback is for a real question only.
+test('the review screen keeps an empty title (it is logged as the submit); the fallback never turns it into a dialog', () => {
+  assert.equal(sh('dialog "$p" && echo yes || echo no', 'review-wrapped.txt'), 'yes')
+  assert.equal(sh('qtitle "$p"', 'review-wrapped.txt'), '')
+  assert.equal(sh('qtitle "$p"', 'review.txt'), '')
+})
+test('a title the fallback reads from a covered pane has no box drawing in it', () => {
+  assert.doesNotMatch(sh('qtitle "$p"', 'plan-covered.txt'), /[╭╮╰╯─│]/)
+})

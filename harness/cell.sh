@@ -33,7 +33,7 @@ title() { awk '/☐/{f=1; next} f && /^ *❯ 1\./{exit} f{x=$0; sub(/^│ ?/,"",
 AWK_BAND='{L[NR]=$0} /^─{20}/{b[++nb]=NR} END{if(nb<2)exit; t=b[nb-1]; for(i=t-1;i>0&&i>t-8;i--)if(L[i]~/\[-\] *$/){for(j=i;j<t;j++)print L[j];break}; for(i=b[nb]+1;i<=NR;i++)print L[i]}'
 # a toast docked over the dialog's top rows hides its title (live: "╰───╯ library: capitalise…"); a draft plan alone offers "Lane →", so that names it.
 # The name must match isplan, or the watcher logs a dialog and no "plan" event comes (the cell waits for it: no-plan)
-qtitle() { local t; t=$(title "$1"); [ -z "$t" ] && ! grep -q '☐' <<<"$1" && t=$(title "$(printf '☐\n%s' "$1")"); printf '%s' "$t"; }   # a narrow pane scrolls the tab bar's ☐ row off: the question then starts at the top row
+qtitle() { local t; t=$(title "$1"); [ -z "$t" ] && ! grep -q '☐' <<<"$1" && ! grep -q 'Ready to submit' <<<"$(flat "$1")" && grep -q '❯ 1\. ' <<<"$(flat "$1")" && grep -q 'Enter to select' <<<"$(flat "$1")" && { t=$(title "$(printf '☐\n%s' "$1")"); t=$(sed -E 's/[╭╮╰╯─│←]+//g; s/^ +//; s/  +/ /g' <<<"$t"); [ ${#t} -ge 8 ] || t=; }; printf '%s' "$t"; }   # a narrow pane scrolls the tab bar's ☐ row off of a real question (numbered options, its footer, not the review screen): the question then starts at the top row
 isplan() { grep -qiE '^approve (the mission|mission|plan|milestone)' <<<"$1"; }
 plantitle() { if grep -qiE '^approve ' <<<"$1"; then printf '%s' "$1"; elif grep -q '[0-9]\. Lane → ' <<<"$(flat "$2")"; then printf 'approve plan (title covered)'; else printf '%s' "$1"; fi; }
 band() { awk "$AWK_BAND" <<<"$1"; }
@@ -101,12 +101,14 @@ idle() { local i n=0; for i in $(seq "${1:-300}"); do if busy; then n=0; else n=
 send() { local i t; log "send $*"; tui send "$N" "$*"; sleep 2; t=${*//[ $'\302\240']/}
   for i in 1 2 3 4 5; do [ -n "$t" ] && [[ "$(comp "$(tui capture "$N")")" == "${t:0:20}"* ]] || return 0; log "enter again"; key Enter; sleep 2; done; }
 # the user types a goal; a line typed while Claude Code still starts up can vanish without a trace, or reach the model as text: when no command ran within 30 s, type it again (<= 3 times)
-goal() { local i n; for i in 1 2 3; do n=$(cat "$D"/out/debug*.log 2>/dev/null | grep -ac 'answered command\.run'); send "/cadre $*"
-  for _ in $(seq 30); do [ "$(cat "$D"/out/debug*.log 2>/dev/null | grep -ac 'answered command\.run')" -gt "$n" ] && return 0; sleep 1; done
-  # Claude Code busy with no command answered after the 30 s is not "taken": a line typed 1-2 s after the plugin loaded reached the model as plain text (live: main
+goal() { local i n d; for i in 1 2 3; do n=$(cat "$D"/out/debug*.log 2>/dev/null | grep -ac 'answered command\.run'); d=$(taken); send "/cadre $*"
+  # taken = cadre answered the command, or anything of cadre's showed up (a dialog the watcher logged, a plan): the onboarding dialog is such an answer
+  for _ in $(seq 30); do { [ "$(cat "$D"/out/debug*.log 2>/dev/null | grep -ac 'answered command\.run')" -gt "$n" ] || [ "$(taken)" -gt "$d" ]; } && return 0; sleep 1; done
+  # Claude Code busy and nothing of cadre's after the 30 s is not "taken": a line typed 1-2 s after the plugin loaded reached the model as plain text (live: main
   # began coding the goal itself, without the goal guide, and was refused three times); stop that turn and type it again
   busy && { log "goal ran as plain text: stopped, typed again"; key Escape; sleep 2; continue; }; log "goal not taken"; done
   log "goal-failed no command answered it in 3 tries"; return 1; }   # the oracle fails the cell on this line
+taken() { grep -cE '^[0-9]+ (dialog|plan|press1|submit) ' "$O/driver.log" 2>/dev/null; }
 clear_() { send "/clear"; sleep 3; }                            # /clear (a name of its own: `clear` is the shell's)
 shell_cd() { send "Run exactly this one Bash command and nothing else: cd $1 && pwd"; idle 120; }   # main's shell moves (a Bash cd)
 hold() { echo "$1" >"$O/dialog_wait"; log "hold dialogs ${1}s"; }   # the human looks away: dialogs stay unanswered that long

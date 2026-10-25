@@ -1,0 +1,40 @@
+› Prompt from the cadre plugin
+❯ The cadre plugin sent a message:
+  Result of ask-6c61c0: EXPLORER ask-6c61c0 "The goal is "add titleCase(s) to the library: capitalise the first letter
+  of ea…" · explorer → answered (7 citations) · flags: none · answer: Files a titleCase change would touch, and
+  existing choices: - src/slug.mjs: the only source file. One ESM export, export const slug = s => ..., arrow style, no
+  semicolons, single quotes, 2-space in… · next: full answer: explore {id:"ask-6c61c0"}
+
+  This is how Claude Code surfaces a prompt a plugin submits between turns — it starts this turn in the user's place.
+  Address the message above.
+
+● cadre - explore (MCP)(id: "ask-6c61c0")
+  ⎿  {
+       "id": "ask-6c61c0",
+       "subject": "The goal is \"add titleCase(s) to the library: capitalise the first letter of ea…",
+     … +14 lines
+
+● cadre - ask (MCP)(clarity: {"outcome":0.9,"scope":0.8,"acceptance":0.6,"constraints":0.4})
+  ⎿  {
+       "clarity": {
+         "outcome": 0.9,
+     … +5 lines
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ Word bounds  ☒ Rest of word  ☒ Spacing  ✔ Submit  →
+
+Review your answers
+
+ │ ● The existing slug() treats any run of non-[a-z0-9] characters as a separator. For titleCase, what counts as a word
+ │   boundary?
+   → Whitespace only (Recommended)
+ ● Should the rest of each word be left alone or lowercased? E.g. 'hELLO wORLD'.
+   → Leave alone (Recommended)
+ │ ● Whitespace and input handling: should titleCase trim the input and collapse repeated spaces, or keep the spacing
+ │   exactly?
+   → Keep spacing (Recommended)
+
+Ready to submit your answers?
+
+❯ 1. Submit answers
+  2. Cancel
