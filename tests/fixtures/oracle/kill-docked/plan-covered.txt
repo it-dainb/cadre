@@ -1,0 +1,40 @@
+  ╭────────────────────╮│                                                                                             ✕
+│ │ cadre              ││1: Board !  2: Graph  3: Timeline  4: Activity  8: Doctor  9: Settings
+│ │ Plan c-10-1 ready  ││c-10-1 add-titlecase-to-the                                                                live
+│ │ for approval ·     ││
+│ │ press 1            ││NEEDS YOU
+│ ╰────────────────────╯│  ! approve the mission and plan c-10-1                                               1: answer
+│ the first letter of   │    mission: add titleCase(s) to the library, capitalising the first letter of each word, with…
+│ each word, with       │    auto · full · 1 task · feat · New public function in the library (new exported API), so fu…
+│ node:test tests.      │    assumed: Words are split on whitespace; the rest of each word is left unchanged
+│ auto · full · 1 task ·│    assumed: The function lives in its own module src/titleCase.mjs
+│ feat · New public     │    assumed: Input is a string
+│ function in the       │      c-14-1 feature Implement titleCase with node:test tests · 4 scenarios
+│ library (new exported │
+│ API), so full rather  │Waiting
+│ than lite.            │  ○ c-14-1  Implement titleCase with node:test tests                                      ready
+│ assumed: Words are    │
+│ split on whitespace;  │c-14-1  Implement titleCase with node:test tests · feature
+│ the rest of each word │  spec  red  implement  green  review  merged
+│ is left unchanged     │  no dependencies
+│ assumed: The function │
+│ lives in its own      │Timeline  0m  3: open
+│ module                │
+│ src/titleCase.mjs     │k: keys
+│ assumed: Input is a   │
+│ string                │
+│   c-14-1 feature      │
+│ Implement titleCase   │
+│ with node:test tests ·│
+│ 4 scenarios           │
+                        │
+❯ 1. Approve            │
+  2. Reject             │
+  3. Lane → ask         │
+  4. Type something.    │
+────────────────────────│
+  5. Chat about this    │
+                        │
+Enter to select · ↑/↓ to│
+navigate · Esc to       │
+cancel                  │

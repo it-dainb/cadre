@@ -31,6 +31,10 @@ dialog() { grep -qE 'Enter to select|Ready to submit your answers' <<<"$(flat "$
 title() { awk '/☐/{f=1; next} f && /^ *❯ 1\./{exit} f{x=$0; sub(/^│ ?/,"",x); sub(/ *│.*$/,"",x); if (!n && x ~ /Submit *$/) next; if (x ~ /[^ ]/) {t=t (t?" ":"") x; if (++n==3) exit}} END{gsub(/  +/," ",t); sub(/^ /,"",t); print substr(t,1,120)}' <<<"$1"; }   # the question: up to 3 rows, wrapped, without the docked pane
 # the band = the rows from the one ending in Claude Code's fold button [-] down to the composer; the status line = the rows under the composer
 AWK_BAND='{L[NR]=$0} /^─{20}/{b[++nb]=NR} END{if(nb<2)exit; t=b[nb-1]; for(i=t-1;i>0&&i>t-8;i--)if(L[i]~/\[-\] *$/){for(j=i;j<t;j++)print L[j];break}; for(i=b[nb]+1;i<=NR;i++)print L[i]}'
+# a toast docked over the dialog's top rows hides its title (live: "╰───╯ library: capitalise…"); a draft plan alone offers "Lane →", so that names it.
+# The name must match isplan, or the watcher logs a dialog and no "plan" event comes (the cell waits for it: no-plan)
+isplan() { grep -qiE '^approve (the mission|mission|plan|milestone)' <<<"$1"; }
+plantitle() { if grep -qiE '^approve ' <<<"$1"; then printf '%s' "$1"; elif grep -q '[0-9]\. Lane → ' <<<"$(flat "$2")"; then printf 'approve plan (title covered)'; else printf '%s' "$1"; fi; }
 band() { awk "$AWK_BAND" <<<"$1"; }
 key() { for i in 1 2 3; do docker exec "cadre-tui-$N" tmux send-keys -t q "$@" 2>&1 | grep -q "OCI runtime exec failed" || break; sleep 1; done; }
 comp() { awk '/^─{20}/{b[++nb]=NR} {L[NR]=$0} END{x=L[b[nb-1]+1]; sub(/^❯/,"",x); gsub(/[ \302\240]/,"",x); print x}' <<<"$1"; }   # what is typed in the composer
@@ -50,9 +54,8 @@ watcher() {
     if dialog "$p"; then
       lastt=$cur; tnew=0   # what asked for a dialog (shown before or with it) got one
       t=$(title "$p"); [ -z "$t" ] && grep -q 'Ready to submit your answers' <<<"$(flat "$p")" && t='submit answers'   # the review screen: Enter submits (not a dialog of its own)
-      # a toast docked over the dialog's top rows hides its title (live: "╰───╯ library: capitalise…"); a draft plan alone offers "Lane →", so that names it
-      grep -qiE '^approve ' <<<"$t" || { grep -q '[0-9]\. Lane → ' <<<"$(flat "$p")" && t="approve the plan (title covered)"; }
-      if grep -qiE '^approve (the mission|mission|plan|milestone)' <<<"$t"; then
+      t=$(plantitle "$t" "$p")
+      if isplan "$t"; then
         if [ "$seen" != "plan:$t" ]; then log "plan $t"; seen="plan:$t"; since=$now; [ -n "$LANDED" ] && { sleep 1; key Enter; log "answer $t"; }
         elif [ -n "$LANDED" ] && [ $((now - since)) -ge 15000 ]; then key Enter; log "answer $t"; since=$now   # re-asked (the draft changed under the first press: "it changed; review again")
         fi
