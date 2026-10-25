@@ -111,7 +111,7 @@ export async function drop(h: Host, task: string): Promise<void> {
 // a setup request: cadre runs the argv the requester gave (vetted again here) in its task folder, detached from the spawner's frame once the requester waits; a refusal, a stop for the human or the result is the answer.
 // The run is claimed first (a compare-and-set of `running` on the record, reclaimed after CLAIM_MS): a second frame, a second process or a restart never runs it twice, and the frame never waits for an install.
 // A request left unanswered by a crash is claimed again once its claim is old; a run that finds its work done changes nothing.
-const CLAIM_MS = 30 * 60_000
+const CLAIM_MS = 60 * 60_000   // above the jail's three 600 s steps (venv, add, install) plus their checks
 const NOT_RUN = 'The install could not be run. Go on without it, or report outcome "blocked" with what you need.'
 export async function settleSetups(h: Host, d: Deps, resume: () => Promise<unknown>): Promise<void> {
   for (const t of (await pending(h)).setup) {

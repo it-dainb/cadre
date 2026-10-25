@@ -100,7 +100,7 @@ describe('a setup request: the requester sends the install command, cadre vets i
   test('one run per request: a second frame (or process) finds it claimed and runs nothing; an expired claim is taken again; an answered one never runs', async () => {
     const { w, id, later, flush } = await start(); w.cfg.deps.auto = false; await w.rep('ag1', SETUP(['npm', 'install', 'left-pad']))
     await w.turn(); await w.turn(); await w.turn(); expect(later.length).toBe(1)   // three frames, one claim
-    w.clock.now += 31 * 60_000; await w.turn(); expect(later.length).toBe(2)   // the first run died: its claim is old
+    w.clock.now += 61 * 60_000; await w.turn(); expect(later.length).toBe(2)   // the first run died: its claim is old
     await flush(); expect(w.sent).toHaveLength(1)   // the first to answer wins; the other changes nothing
     expect(await needOf(w.h, id)).toMatchObject({ ok: false }); await w.turn(); expect(later.length).toBe(0)   // answered: nothing more
   })
