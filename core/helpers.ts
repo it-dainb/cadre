@@ -6,7 +6,7 @@ import type { Host } from '../types'
 import * as G from './git'
 
 // Only manifests and lockfiles of the repo root or a unit root may change: the file name here, the folder against `roots`.
-const MANIFEST = /^(package(-lock)?\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|requirements[\w.-]*\.txt|pyproject\.toml|uv\.lock|poetry\.lock|Cargo\.(toml|lock)|go\.(mod|sum))$/
+export const MANIFEST = /^(package(-lock)?\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|requirements[\w.-]*\.txt|pyproject\.toml|uv\.lock|poetry\.lock|Cargo\.(toml|lock)|go\.(mod|sum))$/
 const manifest = (p: string, roots: string[]) => MANIFEST.test(p.split('/').pop()!) && roots.includes(p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '.')
 // files that make an install run code of the repository's choosing (a registry, a hook, a build): changed since the task's base, no install is run
 const RUNS_CODE = /(^|\/)(\.npmrc|\.python-version|rust-toolchain(\.toml)?|\.pnpmfile\.cjs|\.yarnrc\.yml|\.yarnrc|pip\.conf|pip\.ini|uv\.toml|pnpm-workspace\.yaml|\.cargo\/config(\.toml)?|\.yarn\/(releases|plugins)\/.*)$/

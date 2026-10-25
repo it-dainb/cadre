@@ -126,7 +126,7 @@ async function edit(h: Host, store: TaskStore, reg: TypeRegistry, id: string, i:
   const { title, description, after = [], ...m } = i, s = await h.board.read()
   const no2 = async (why: string): Promise<W> => ({ error: await refuse(h, id, why) })
   if (m.critique !== undefined && !Object.values(((await h.ui.read()).asks ?? {}) as Record<string, { answer?: string }>).some(a => a.answer !== undefined)) return no2('critique: ask the critic first (explore with the whole roadmap) and use its answer')
-  const err = validateFields(m, reg) ?? repoSplit(await cfgOf(h), m.paths) ?? (m.type !== undefined && m.type !== t.type ? `type: fixed at creation (${t.type}); remove the draft and add a new task` : null); if (err) return no2(err)
+  const err = validateFields(m, reg) ?? repoSplit(await cfgOf(h), m.paths) ?? manifestOnly(m.paths) ?? (m.type !== undefined && m.type !== t.type ? `type: fixed at creation (${t.type}); remove the draft and add a new task` : null); if (err) return no2(err)
   const isEpic = id === s.epic, draft = t.category === 'draft' && !(isEpic && s.plan && s.plan.state !== 'draft')   // approval leaves the epic itself draft: its board state is the truth
   if (!draft) {
     if (isEpic) return { error: REFUSED }

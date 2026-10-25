@@ -38,6 +38,11 @@ describe('declared paths and the overlap check', () => {
     expect(JSON.stringify(await w.call('TaskCreate', { subject: 'Use six', description: 'd', metadata: { ...FULL, paths: ['pyproject.toml', 'src/textlib/text.py'] } }))).not.toMatch(/a package is not a task/)
     expect(p).toBeTruthy()
   })
+  test('an edit that leaves a task with only manifest and lock files is refused too', async () => {
+    const w = await world(), { plan: p, task: a } = await plan(w); expect(p).toBeTruthy()
+    const r = await w.call('TaskUpdate', { taskId: a, metadata: { paths: ['package.json', 'package-lock.json'] } })
+    expect(JSON.stringify(r)).toMatch(/a package is not a task: plan the code that uses it/)
+  })
   test('one code task (and a spike) needs no paths', () => {
     const t = (id: string, type: string, meta: Record<string, string> = {}) => ({ id, title: id, description: 'd', type, deps: [], labels: [], meta: { 'cadre.lane': 'lite', 'cadre.changelog': '{}', ...meta } }) as any
     expect(missingList([t('a', 'bug'), t('s', 'spike')], reg)).toEqual([])
