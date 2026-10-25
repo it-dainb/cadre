@@ -169,3 +169,24 @@ test('a repo that turns on mid-session: main keeps Agent until its plan tools ar
   await $.turn.start({ turnId: 't1' }); expect(tools).toEqual(expect.arrayContaining(MAIN_NAMES)); expect(await agent()).toEqual({ result: 'ran' })   // registered now, listed from the next prompt
   await $.turn.start({ turnId: 't2' }); expect((await agent()).deny).toContain('call explore with your question')
 })
+
+// slice 5: the HooksError seen under load at session.start was not reproduced (eight starts at once, with the machine's load average at 68 and 24 more busy loops: all returned in about 0.9 s);
+// a step that does throw no longer fails the hook: the session goes on, the log says so, and Doctor has a row (tests/doctor.test.ts)
+test('eight session.start calls at once all return, with one registered command each', ENGINE, async ($, on) => {
+  const commands: any[] = []
+  on('session.start', () => ({ cwd: '/work' })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined }))
+  on('command.register', ($, e) => { commands.push(e); return { value: undefined } }); on('env.set', () => ({ value: undefined })); on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined }))
+  mock.clock(on)
+  const rs = await Promise.allSettled(Array.from({ length: 8 }, () => $.session.start(START)))
+  expect(rs.map(r => r.status)).toEqual(Array(8).fill('fulfilled')); expect(commands.length).toBe(8)
+})
+
+test('a session.start step that throws does not fail the hook: the session starts, the log names the step', ENGINE, async ($, on) => {
+  const said: string[] = []
+  on('session.start', () => ({ cwd: '/work' })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined }))
+  on('command.register', () => ({ value: undefined })); on('env.set', () => ({ deny: 'the host was slow' })); on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined }))
+  on('ui.log', ($, e) => { said.push(String(e.text ?? e)); return { value: undefined } })
+  mock.clock(on)
+  await $.session.start(START)   // resolves: it does not reject
+  expect(said.some(t => t.includes('session start:') && t.includes('the host was slow'))).toBe(true)
+})

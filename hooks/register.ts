@@ -190,6 +190,7 @@ export const register: Register = (on, opts) => {
 
   // session.start: agents, command, tools env, the one tick. Awaited before turn one (L7).
   on('session.start', async ($, e, next) => {
+    try {
     await $.command.register({ name: 'cadre', description: 'cadre: plan, approve, status, resolve, release, drive, init, setup, doctor', argumentHint: '<sub> [args]', immediate: true })
     const v = String((await $.session.version().catch(() => ({ version: '' }))).version ?? ''), old = tooOld(v) ? v : undefined
     await update($, secret, x => ({ ...x, old }))
@@ -203,10 +204,13 @@ export const register: Register = (on, opts) => {
       for (const t of set) await $.tool.register(t).catch(() => { refused.push(t.name) }); const listed = ((await $.tool.list().catch(() => [])) as { name: string }[]).map(t => t.name)
       await update($, secret, x => ({ ...x, tools: { on: set.map(t => t.name), refused, task: TASK_TOOLS.filter(n => listed.includes(n)) } })) }   // task: the task tools this session still shows (Doctor: the repo's settings lack the gate)   // refused (managed allowedMcpServers, --bare): Doctor says so
     { const h = host($); if (await wake(h).catch(() => false)) { await nudge(h).catch(() => {}); await sweepProbes(h).catch(() => {}); await autoLand(h).catch(x => $.ui.log(`land: ${x}`)) } }   // a landing that waited for the user's checkout   // active repos only: no setup stamp for this Claude Code build -> one toast
-    await update($, secret, x => ({ ...x, roles: undefined, turn: 0 }))   // a secret that survived a resume holds registers of an earlier engine: register again
+    await update($, secret, x => ({ ...x, roles: undefined, turn: 0, start: undefined }))   // a secret that survived a resume holds registers of an earlier engine: register again; a complete start clears an earlier failure
     if (await wake(host($)).catch(() => false)) await roles($).catch(x => $.ui.log(`roles: ${x}`))   // active repos only; a repo turned on later gets them next session
     $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void watch(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}); void watchdog(h).catch(() => {}); void h.secret.read().then(s => Promise.all([backstop(h, s.session ?? ''), overdue(h, s.session ?? '')])).catch(() => {}); void autoLand(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
     $.clock.every(30_000, () => { const h = host($); void wake(h).then(act => act && tickUi(h)).catch(() => {}) })   // live timeline cursor (blit, no re-render)
+    } catch (x) {   // a step failed (live under load: a session.start HooksError, not reproduced in a test of 8 starts at once): the session goes on, and Doctor says that cadre started only in part
+      void $.ui.log(`session start: ${x}`); await update($, secret, s => ({ ...s, start: { failed: String(x).slice(0, 160) } })).catch(() => {})
+    }
     return next(e)
   })
 

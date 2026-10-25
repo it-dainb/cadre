@@ -44,6 +44,19 @@ function mk(o: { shadow?: string; foreign?: boolean; npmFails?: boolean; tools?:
 }
 const rowsOf = async (h: Host) => (await machine(h, defaults() as any)).rows, lvl = (rs: any[], re: RegExp) => rs.find(r => re.test(r[1]))
 
+describe('session start', () => {
+  test('a step of session.start that threw leaves a Doctor row; a complete start leaves none', async () => {
+    const h = mk(); await h.secret.update((x: any) => ({ ...x, start: { failed: 'Error: the host was slow' } }))
+    const r = lvl(await rowsOf(h), /started only in part/); expect(r?.[0]).toBe('warn'); expect(r?.[1]).toContain('(Error: the host was slow)'); expect(r?.[2]).toContain('restart Claude Code')
+    await h.secret.update((x: any) => ({ ...x, start: undefined })); expect(lvl(await rowsOf(h), /started only in part/)).toBeUndefined()
+  })
+})
+describe('the fake host\'s clock (tests/support)', () => {
+  test('h.now moves by 10 ms a read and as the test says: set and advance', async () => {
+    const h = mk(); const a = await h.now(), b = await h.now(); expect(b - a).toBe(10)
+    h.clock.set(5_000); expect(await h.now()).toBe(5_010); h.clock.advance(60_000); expect(await h.now()).toBe(65_020)
+  })
+})
 describe('machine checks', () => {
   test('a healthy machine is all ok', async () => { expect((await rowsOf(mk())).map(r => r[0])).toEqual(Array(7).fill('ok')) })
   test('missing tools fail with the exact command for the human', async () => {
