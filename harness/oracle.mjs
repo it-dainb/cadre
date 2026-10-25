@@ -62,14 +62,18 @@ for (const e of drv.filter(e => e.kind === 'press1' && offered(e.t) && e.t + 500
 }
 // 3. no refusal repeated >= 3 times with the same text (tool calls refused, Claude's stop refused)
 {
-  const n = new Map()
+  const n = new Map(), uses = new Map()
   // forced: the worker's same call 20x in a row IS the scenario (scripted/loop; the breaker, then the forced step, checked under ORACLE=forced): its
   // refusals are error results since tools/index sends them as {deny}, so only main's transcript is held to the rule there
   for (const f of walk(join(dir, 'jsonl')).filter(f => f.endsWith('.jsonl') && !(process.env.ORACLE === 'forced' && f.includes('/subagents/')))) for (const l of read(f).split('\n').filter(Boolean)) {
     let d; try { d = JSON.parse(l) } catch { continue }
     const c = d.type === 'user' ? d.message?.content : undefined
+    if (d.type === 'assistant' && Array.isArray(d.message?.content)) for (const b of d.message.content) if (b.type === 'tool_use') uses.set(b.id, JSON.stringify(b.input))
     const texts = typeof c === 'string' ? (c.startsWith('Stop hook feedback') ? [c] : [])
       : Array.isArray(c) ? c.filter(b => b.type === 'tool_result' && b.is_error).map(b => (typeof b.content === 'string' ? b.content : JSON.stringify(b.content))) : []
+    // a tool's own error that names no file ("File does not exist. Note: your current working directory is …") reads the same for every path: three
+    // different missing files are exploration, so the call's input is part of the key; the same call 3x is still a loop
+    for (const b of Array.isArray(c) ? c : []) if (b.type === 'tool_result' && b.is_error && /^File does not exist\./.test(typeof b.content === 'string' ? b.content : '')) texts[texts.findIndex(x => x === b.content)] = `${uses.get(b.tool_use_id) ?? ''} ${b.content}`
     for (const t of texts) n.set(t, (n.get(t) ?? 0) + 1)
   }
   const [t, k] = [...n].sort((a, b) => b[1] - a[1])[0] ?? ['', 0]
