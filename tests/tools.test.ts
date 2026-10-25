@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { MAIN } from '../tools/index'
+import { MAIN, sameTask } from '../tools/index'
 import { viaEngine } from './fixtures/engine'
 import { handleWith } from '../tools/index'
 import { mainAgent } from '../core/plantools'
@@ -196,5 +196,13 @@ describe('role gate and the other tools', () => {
   })
   test('checkInput: nested items name their index', () => {
     expect(checkInput({ type: 'object', properties: { after: { type: 'array', items: { type: 'string' } } } }, { after: ['a', 2] })).toBe('after[1]: expected a string, got 2; fix it and call again')
+  })
+})
+
+describe('sameTask: the brief heading reads TASK-<id>, but an id may itself begin with `task-`', () => {
+  test('exact first, then the heading form; another task never matches', () => {
+    expect(sameTask('c-8-1', 'c-8-1')).toBe(true); expect(sameTask('TASK-c-8-1', 'c-8-1')).toBe(true)
+    expect(sameTask('task-1', 'task-1')).toBe(true); expect(sameTask('TASK-task-1', 'task-1')).toBe(true)
+    expect(sameTask('c-8-2', 'c-8-1')).toBe(false); expect(sameTask('TASK-c-8-2', 'c-8-1')).toBe(false); expect(sameTask('task-1', 'c-8-1')).toBe(false); expect(sameTask(undefined, 'c-8-1')).toBe(false)
   })
 })

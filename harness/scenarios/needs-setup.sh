@@ -1,7 +1,6 @@
 # needs-setup-node / needs-setup-python (L, DEPS=1 LANDED=1, KIND=node|py): the task needs a package that is not installed; the worker asks for its install, cadre runs it and commits
 # `chore(deps): …` on the task branch (manifest + lockfile only); HOME is untouched; the task lands (oracle: needs-setup).
-# HOME outside .claude, Claude Code's own cache and cadre's own cache (its task folders) is compared.
-# Evidence: home-before / home-after (every file in the container's HOME outside .claude), deps-commits (each chore(deps) commit seen on any branch: sha, subject, branches, files; polled
+# Evidence: home-before / home-after (every file, link and folder in the container's HOME outside .claude and the paths the home() filter names), deps-commits (each chore(deps) commit seen on any branch: sha, subject, branches, files; polled
 # because the task branch is squashed at landing), deps-final (the manifests on dev), driver.log.
 . "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"; snapshots
 case $KIND in
@@ -11,7 +10,8 @@ case $KIND in
 esac
 # landed = the dependency is in dev's manifest and the task's own file is on dev (no wording of a title or commit message is relied on); cell.sh calls this again after the scenario
 landed() { while [ "$(left)" -gt 0 ]; do git -C "$D/work" show "dev:$MAN" 2>/dev/null | grep -qw "$ORACLE_DEP" && git -C "$D/work" cat-file -e "dev:$SRC" 2>/dev/null && { log "landed"; return 0; }; sleep 1; done; log "budget: not landed"; }
-home() { docker exec "cadre-tui-$N" sh -c 'cd /cchome && find . -mindepth 1 -type f -not -name claude-code-url-handler.desktop -not -path "./.claude" -not -path "./.claude/*" -not -path "./.claude.json*" -not -path "./.cache/claude-cli-nodejs*" -not -path "./.cache/cadre*" | sort'; }
+# files, links and folders of HOME outside .claude, minus what Claude Code and cadre make on their own: Claude's cache and url handler (and the folders above them), cadre's task folders (.cache/cadre/wt*)
+home() { docker exec "cadre-tui-$N" sh -c 'cd /cchome && find . -mindepth 1 \( -type f -o -type l -o -type d \) -not -path "./.claude" -not -path "./.claude/*" -not -path "./.claude.json*" -not -path "./.cache/claude-cli-nodejs*" -not -path "./.cache/cadre/wt*" -not -path ./.cache -not -path ./.cache/cadre -not -path ./.local -not -path ./.local/share -not -path ./.local/share/applications -not -path ./.local/share/applications/claude-code-url-handler.desktop | sort'; }
 home >"$O/home-before"
 ( while :; do for s in $(git -C "$D/work" log --all --grep='^chore(deps)' --format=%H 2>/dev/null); do
     grep -q "^$s" "$O/deps-commits" 2>/dev/null || printf '%s\t%s\t%s\t%s\n' "$s" "$(git -C "$D/work" log -1 --format=%s "$s")" "$(git -C "$D/work" for-each-ref --contains "$s" --format='%(refname:short)' refs/heads | paste -sd,)" "$(git -C "$D/work" show --name-only --format= "$s" | paste -sd,)" >>"$O/deps-commits"

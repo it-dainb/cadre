@@ -10,6 +10,7 @@ import { emit } from './events'
 import { ask, yoloOn } from './decide'
 import { fnv1a64 } from './board'
 import * as G from './git'
+import { modelText } from './say'
 import { baseOf } from './branches'
 import { auditView, inRepo, matches, modeOf, pkgOf, rootOf, type Pkg } from './specview'
 import { untested } from './validate'
@@ -39,6 +40,8 @@ export function errorOk(text: string, syms: Sym[], skeleton: boolean): boolean {
 
 // a runner or a module that is not installed is a machine problem no tester round fixes (exit 127, "command not found", execvp, "No module named", "Cannot find module"):
 // (a relative or file import is the tester's own path: it stays a tester round) the gate sets `setup`, so the task blocks at once with one dialog naming it. An import of a status:new symbol (no skeleton) is still the right red (errorOk).
+// what a tester is told when its tests need a package nobody installed: it cannot install, it can ask (the setup helper), and report its tests again
+export const ASK_SETUP = modelText('tool-result', 'You cannot install it yourself: report outcome "request" with request {"helper":"setup","ask":"add <package>","why":"..."}, then report your tests again.')
 export function missing(exit: number, out: string, syms: Sym[], sk: boolean): string | null {
   const l = out.split('\n').find(x => /command not found|execvp/.test(x))
   if (exit === 127 || l) return `the test runner is not installed (missing runner, exit=${exit}): ${(l ?? out.trim().split('\n').pop() ?? '').slice(0, 200)}; install it, then run again`

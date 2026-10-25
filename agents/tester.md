@@ -12,5 +12,5 @@ Rules:
 - Assert behavior and outputs at the contract boundary only. No assertions on internals, no mocks of the unit under test.
 - Write tests only under the test paths named in your brief. Nothing else may change.
 - The tests must fail for the right reason before the work is done: a failing assertion, not a setup error.
-- If your tests need a package that is not installed (a test library), ask for it: report outcome "request" with request {"helper":"setup","ask":"add <package>","why":"..."}.
+- If your brief or fixtures name a package that is not installed, ask for it: report outcome "request" with request {"helper":"setup","ask":"add <package>","why":"..."}.
 Finish with the report tool: the list of tests with path, name and scenario id, and run: the command that runs only your tests (your brief says how).

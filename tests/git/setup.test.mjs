@@ -266,3 +266,15 @@ test('npm: a failed install leaves info/exclude as it was; a refused one never t
     assert.match((await P.setup(f.h, f.inp({ argv: ['npm', 'install', '-g', 'x'] }))).text, /^The install was refused/); assert.equal(existsSync(ex) ? readFileSync(ex, 'utf8') : null, was, 'untouched by a refusal')
   } finally { f.done() }
 })
+
+// the folder's own .venv/bin leads PATH for checks (like node_modules/.bin): what an install put there is what runs, in every jail mode
+test('checkRun: .venv/bin of the folder is first on PATH, in the jail (overlay or copy) and unjailed; without it nothing changes', async () => {
+  const f = await fix(); try {
+    mkdirSync(join(f.wt, '.venv/bin'), { recursive: true }); writeFileSync(join(f.wt, '.venv/bin/venvtool'), '#!/bin/sh\necho from-venv\n', { mode: 0o755 })
+    const mode = await G.jailMode(run), sc = join(f.d, 'sc'); mkdirSync(sc)
+    for (const m of [...new Set([mode, 'none'])]) {
+      const r = await G.checkRun(run, m, { wt: f.wt, scratch: sc, pkgRoot: f.wt, argv: ['venvtool'] }); assert.equal(r.stdout.trim(), 'from-venv', `${m}: ${r.stderr}`)
+    }
+    rmSync(join(f.wt, '.venv'), { recursive: true }); assert.notEqual((await G.checkRun(run, 'none', { wt: f.wt, scratch: sc, pkgRoot: f.wt, argv: ['venvtool'] })).exitCode, 0)
+  } finally { f.done() }
+})

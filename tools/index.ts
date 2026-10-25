@@ -92,7 +92,7 @@ async function onReport(h: Host, d: Deps, agentId: string | undefined, r: any): 
 }
 
 // the brief's heading reads "TASK-c-8-1"; small models copy it into the id field, so the prefix is accepted
-const sameTask = (a: unknown, id: string) => typeof a === 'string' && a.replace(/^TASK-/i, '') === id
+export const sameTask = (a: unknown, id: string) => typeof a === 'string' && (a === id || a.replace(/^TASK-/i, '') === id)   // exact first: a configured tracker prefix may itself start with `task-`
 const SAFE = /^[\w./@^~:{}+-]+$/
 async function onInspect(h: Host, d: Deps, agentId: string | undefined, i: any): Promise<string> {
   const b = agentId ? (await h.bind.read())[agentId] : undefined, tree = b?.worktree || d.root, what = i.what

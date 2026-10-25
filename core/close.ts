@@ -15,7 +15,7 @@ import { card, comment, spawnIt, commitMessage, noReportCard, startNew, type Rec
 import { checkpoint, resolveGit, sweep } from './effect'
 import { policyOf } from '../policy/guards'
 import { integrateEpic } from './integrate'
-import { green as tddGreen, lockedViolations, verifyOf, redOf, resolveSpec, specChange, testerDone } from './tdd'
+import { green as tddGreen, lockedViolations, verifyOf, redOf, resolveSpec, specChange, testerDone, ASK_SETUP } from './tdd'
 import { inRepo, modeOf, pkgOf, unitsOfTask } from './specview'
 import * as G from './git'
 import { decided, hardStop, limited, stop } from './drive'
@@ -194,7 +194,8 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
     const task = await d.store.get(t.id), g = await testerDone(h, d, task, task.meta['cadre.worktree'], b.worktree, r.tests, agentId, r.run)
     if (!g.ok) {   // bounded (limits.testerRounds, across agents: the task budget's red): past it, or a setup fault the tester cannot fix, the task blocks once with one dialog naming the check
       const n = await charge(h, t.id, 'red')   // only the dialog's Retry clears it
-      if (!g.setup && n < d.cfg.limits.testerRounds) throw new Error(`red gate refused: ${g.why}\n${g.card}`)
+      const pkgMissing = g.setup && /\(missing module\)/.test(g.why ?? '')   // a package: the tester can ask for it; a missing runner stays a dialog
+      if ((!g.setup || pkgMissing) && n < d.cfg.limits.testerRounds) throw new Error(`red gate refused: ${g.why}\n${g.card}${pkgMissing ? `\n${ASK_SETUP}` : ''}`)
       await redAsk(h, d, t.id, g.setup ? g.why! : `check "${redOf(pkgOf(d, task)!)}" after ${n} tester rounds: ${g.why}`)
       await blockTask(h, d, t, `red: ${g.why}`, 'red', { summary: r.summary, tests: r.tests })
       return 'Your tests are kept, but they cannot be made to fail for the right reason here; the task now waits for the user. Stop.'
