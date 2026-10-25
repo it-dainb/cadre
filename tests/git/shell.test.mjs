@@ -4,7 +4,7 @@ import '../dev/register.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const { CACHES, OFFLINE, offlinePrefix } = await import('../../core/helpers.ts')
@@ -43,8 +43,9 @@ test('scripts/test-wall.mjs: with TEST_WALL_S=2 a 5 s file fails and a 0 s file 
   const tmp = mkdtempSync(join('/var/tmp', 'cadre-wall-')), wall = file => spawnSync('node', ['scripts/test-wall.mjs', file], { cwd: new URL('../..', import.meta.url).pathname, env: { ...process.env, NODE_TEST_CONTEXT: undefined, TEST_WALL_S: '2' }, encoding: 'utf8' })
   try {
     const slow = join(tmp, 'slow.mjs'), fast = join(tmp, 'fast.mjs')
-    writeFileSync(slow, "import { test } from 'node:test'\ntest('slow', async () => { await new Promise(r => setTimeout(r, 5000)) })\n"); writeFileSync(fast, "import { test } from 'node:test'\ntest('fast', () => {})\n")
+    const pidf = join(tmp, 'pid'); writeFileSync(slow, `import { test } from 'node:test'\nimport { writeFileSync } from 'node:fs'\ntest('slow', async () => { writeFileSync(${JSON.stringify(pidf)}, String(process.pid)); await new Promise(r => setTimeout(r, 5000)) })\n`); writeFileSync(fast, "import { test } from 'node:test'\ntest('fast', () => {})\n")
     const s = wall(slow); assert.equal(s.status, 1); assert.match(s.stdout, /TIMEOUT/)
+    const pid = Number(readFileSync(pidf, 'utf8')); assert.throws(() => process.kill(pid, 0), 'the test file child died with the runner')
     const f = wall(fast); assert.equal(f.status, 0, f.stdout)
   } finally { rmSync(tmp, { recursive: true, force: true }) }
 })
