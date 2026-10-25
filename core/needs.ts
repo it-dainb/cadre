@@ -73,11 +73,14 @@ async function failed(h: Host, a: string, n: Need, why: string): Promise<void> {
   if (!(await answer(h, n, null, true))) return void (await cas(h, n.task, c => (c.needId === n.needId && c.answer === undefined && c.fails < 1 ? { ...c, fails: 1 } : undefined)))   // the first failure: once
   await ask(h, { id: `help:${n.task}:${n.needId}`, kind: 'flag', title: `${n.task}: a helper could not answer`, hash: n.needId, tab: 'epic', sel: n.task, lines: [`The helper asked to look into "${n.ask.slice(0, 120)}" failed twice (${why}). Its task goes on without the answer.`], options: [{ key: 'k', label: 'OK', verb: 'keep' }] })
 }
+const HELPER_NUDGE = 'You stopped without calling report; a hand-back message is not a report. Call the report tool now, once: {"schemaVersion":1,"role":"explorer","answer":"<your answer>","citations":[{"path":"src/a.ts","line":1}]}'
 // the helper's turn ended (core/close.stopped): after its report it just ends; without one it failed, a usage limit aside (the drive waits, the spawner starts it again)
 export async function helperStopped(h: Host, b: Binding, e: { agentId: string; reason?: string }): Promise<void> {
   const n = await needOf(h, b.taskId); if (!n || n.needId !== b.needId || n.answer !== undefined) return void (await step(h, e.agentId, { type: 'end', cause: 'done', reason: 'answer' }))
   if (await limited(h, e)) { return void (await step(h, e.agentId, { type: 'end', cause: 'released', reason: 'usage limit' })) }
-  await failed(h, e.agentId, n, (await runOf(h, e.agentId))?.exit ? 'it repeated one call' : 'it stopped without an answer')
+  const run = await runOf(h, e.agentId), k = run?.state?.state === 'silent' ? run.state.n : 0   // this run's nudges so far
+  if (e.reason === 'answer' && !run?.exit && k < (await cfgOf(h)).limits.nudges) return void (await step(h, e.agentId, { type: 'turn.end', text: HELPER_NUDGE }))   // a hand-back message is no report: one nudge before it counts as failed
+  await failed(h, e.agentId, n, run?.exit ? 'it repeated one call' : 'it stopped without an answer')
 }
 // the 5 s tick: a helper still running past limits.helpers.minutes failed (only by the session that holds it)
 export async function overdue(h: Host, me: string): Promise<void> {

@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const root = new URL('../../', import.meta.url).pathname, fix = join(root, 'tests/fixtures/oracle/kill-docked')
-const fns = readFileSync(join(root, 'harness/cell.sh'), 'utf8').split('\n').filter(l => /^(flat|dialog|title|isplan|plantitle|qtitle)\(\)/.test(l)).join('\n')
+const fns = readFileSync(join(root, 'harness/cell.sh'), 'utf8').split('\n').filter(l => /^(flat|dialog|title|isplan|plantitle|qtitle|isplain)\(\)/.test(l)).join('\n')
 const sh = (call, pane) => execFileSync('bash', ['-c', `${fns}\np=$(cat "$1"); ${call}`, '_', join(fix, pane)], { encoding: 'utf8' }).trim()
 
 // quick tier, kill-mid-setup on 7d24520: after the restart cadre's pane docked at the right and narrowed the main column, so the review screen read
@@ -48,4 +48,15 @@ test('no scenario assigns a variable the cell itself uses', () => {
     const hits = readFileSync(join(root, 'harness/scenarios', f), 'utf8').split('\n').filter(l => !/^\s*#/.test(l)).flatMap(l => [...l.matchAll(/(?:^|[;&{(]|\s)(?:local\s+)?([A-Z][A-Z0-9_]*)=/g)].map(m => m[1])).filter(v => own.includes(v))
     assert.deepEqual(hits, [], `${f} assigns ${hits.join(', ')}`)
   }
+})
+
+// quick tier, user1-mono-clear-cd-retype on 7467527: main took 33 s to ask its question after the setup; goal() read the open dialog as "the line ran as plain text" and pressed Escape
+// on main's own question, then typed the goal again (a dialog too many). A turn running with a dialog open is cadre's, never plain text.
+test('a running turn with no dialog open is plain text; one with a dialog open (main\'s question) is not', () => {
+  const busy = 'Working on it…\nesc to interrupt'
+  assert.equal(execFileSync('bash', ['-c', `${fns}\nisplain "$1" && echo plain || echo not`, '_', busy], { encoding: 'utf8' }).trim(), 'plain')
+  assert.equal(execFileSync('bash', ['-c', `${fns}\nisplain "$1" && echo plain || echo not`, '_', 'idle composer\n? for shortcuts'], { encoding: 'utf8' }).trim(), 'not')
+  assert.equal(sh('{ isplain "$p" && echo plain || echo not; }', 'question.txt'), 'not')
+  assert.equal(execFileSync('bash', ['-c', `${fns}\np=$(cat "$1"); isplain "$p
+esc to interrupt" && echo plain || echo not`, '_', join(fix, 'question.txt')], { encoding: 'utf8' }).trim(), 'not')   // a dialog on screen wins even when the footer still says esc to interrupt
 })

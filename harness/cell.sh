@@ -107,8 +107,11 @@ goal() { local i n d; for i in 1 2 3; do n=$(cat "$D"/out/debug*.log 2>/dev/null
   for _ in $(seq 30); do { [ "$(cat "$D"/out/debug*.log 2>/dev/null | grep -ac 'answered command\.run')" -gt "$n" ] || [ "$(taken)" -gt "$d" ]; } && return 0; sleep 1; done
   # Claude Code busy and nothing of cadre's after the 30 s is not "taken": a line typed 1-2 s after the plugin loaded reached the model as plain text (live: main
   # began coding the goal itself, without the goal guide, and was refused three times); stop that turn and type it again
-  busy && { log "goal ran as plain text: stopped, typed again"; key Escape; sleep 2; continue; }; log "goal not taken"; done
+  p=$(tui capture "$N"); dialog "$p" && { log "goal working: a dialog is open"; return 0; }   # main's question (or any of cadre's) is open: that is cadre answering, never Escaped
+  isplain "$p" && { log "goal ran as plain text: stopped, typed again"; key Escape; sleep 2; continue; }; log "goal not taken"; done
   log "goal-failed no command answered it in 3 tries"; return 1; }   # the oracle fails the cell on this line
+# a turn is running and no dialog is open: the line reached the model as plain text
+isplain() { grep -q 'esc to interrupt' <<<"$1" && ! dialog "$1"; }
 taken() { grep -cE '^[0-9]+ (dialog|plan|press1|submit) ' "$O/driver.log" 2>/dev/null; }
 clear_() { send "/clear"; sleep 3; }                            # /clear (a name of its own: `clear` is the shell's)
 shell_cd() { send "Run exactly this one Bash command and nothing else: cd $1 && pwd"; idle 120; }   # main's shell moves (a Bash cd)

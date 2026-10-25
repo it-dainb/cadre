@@ -216,3 +216,10 @@ describe('the report tool schema and the report contracts name the same fields',
     for (const [k, v] of per) if (v.type && tool[k].type) expect([k, tool[k].type]).toEqual([k, v.type])
   })
 })
+
+describe('main is told what inspect gives it', () => {
+  test('the inspect description names main\'s limit (status, files, log), so it does not ask for show or diff six times in one batch (live: leftover-pointer, 6 refusals)', () => {
+    const d = (SPECS as any[]).find(x => x.name === 'inspect').description as string
+    expect(d).toContain('main: status, files and log only'); expect(d).toContain('read a file with Read')
+  })
+})

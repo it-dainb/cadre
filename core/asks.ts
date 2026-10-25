@@ -28,7 +28,7 @@ export async function askAnswer(h: Host, agentId: string, r: { answer: string; c
   await put(h, agentId, x => ({ ...x, answer: String(r.answer).slice(0, 2000), cites: (r.citations ?? []).length, auto: false }))
   return 'answer recorded. Stop.'
 }
-export const NUDGE = 'You stopped without calling report. Call it now, once: {"schemaVersion":1,"role":"explorer","answer":"<your answer>","citations":[{"path":"src/a.ts","line":1}]}'
+export const NUDGE = 'You stopped without calling report; a hand-back message is not a report. Call the report tool now, once: {"schemaVersion":1,"role":"explorer","answer":"<your answer>","citations":[{"path":"src/a.ts","line":1}]}'
 // the ask's turn.complete (core/close.observe): no answer -> nudge x2 -> auto-report; an ask whose card said "finishing" gets its answer card sent to main once
 export async function askStopped(h: Host, e: { agentId: string; answer?: string; reason?: string }): Promise<void> {
   const a = await askOf(h, e.agentId); if (!a) return

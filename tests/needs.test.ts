@@ -108,13 +108,20 @@ describe('a setup request: the requester sends the install command, cadre vets i
 
 describe('every helper ends and answers exactly once', () => {
   const once = async (w: World, id: string, stops: string[], helpers: string[]) => {
-    expect(await events(w, 'help.done')).toHaveLength(1); expect(stops).toEqual(helpers); expect(w.sent).toHaveLength(1); expect(w.sent[0][1]).toContain('could not answer'); expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'running' })
+    expect(await events(w, 'help.done')).toHaveLength(1); expect(stops).toEqual(helpers); const toReq = w.sent.filter(x => x[0] === 'ag1'); expect(toReq).toHaveLength(1); expect(toReq[0][1]).toContain('could not answer'); expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'running' })
     expect((await needOf(w.h, id))).toMatchObject({ ok: false, delivered: true })
     expect((await w.h.board.read()).decisions?.map(d => d.id)).toEqual([`help:${id}:n1`])   // the second failure: one dialog
   }
-  test('a helper that stops without a report (also at its turn cap): the first failure respawns it once, the second answers failed with one dialog', async () => {
-    const { w, id, stops } = await asked(); await w.stop('ag2'); expect(stops).toEqual(['ag2']); expect(await w.state('ag2', id)).toEqual({ state: 'ended', cause: 'lost' }); expect(w.sent).toEqual([]); expect((await w.h.board.read()).decisions ?? []).toEqual([])
-    await w.turn(); expect(types(w)).toEqual(['cadre:worker', 'cadre:explorer', 'cadre:explorer']); await w.stop('ag3'); await once(w, id, stops, ['ag2', 'ag3'])
+  test('a helper that stops without a report (also at its turn cap) is nudged once (a hand-back message is no report); the next stop is the first failure and respawns it, the second answers failed with one dialog', async () => {
+    const { w, id, stops } = await asked(); await w.stop('ag2')
+    expect(stops).toEqual([]); expect(w.sent.map(x => x[0])).toEqual(['ag2']); expect(w.sent[0][1]).toContain('a hand-back message is not a report'); expect(await w.state('ag2', id)).toMatchObject({ state: 'silent', n: 1 }); expect((await w.h.board.read()).decisions ?? []).toEqual([])
+    await w.stop('ag2'); expect(stops).toEqual(['ag2']); expect(await w.state('ag2', id)).toEqual({ state: 'ended', cause: 'lost' }); expect((await w.h.board.read()).decisions ?? []).toEqual([])
+    await w.turn(); expect(types(w)).toEqual(['cadre:worker', 'cadre:explorer', 'cadre:explorer']); await w.stop('ag3'); await w.stop('ag3'); await once(w, id, stops, ['ag2', 'ag3'])
+  })
+  test('a helper nudged once that then reports is the answer: no failure, no respawn, no dialog', async () => {
+    const { w, id, stops } = await asked(); await w.stop('ag2'); expect(w.sent.map(x => x[0])).toEqual(['ag2'])
+    expect(await w.rep('ag2', ANSWER)).toBe('answer recorded. Stop.'); await w.stop('ag2')
+    expect(stops).toEqual([]); expect(w.sent.map(x => x[0])).toEqual(['ag2', 'ag1']); expect(await needOf(w.h, id)).toMatchObject({ ok: true }); expect((await w.h.board.read()).decisions ?? []).toEqual([])
   })
   test('a helper that repeats one call is stopped and fails the same way', async () => {
     const { w, id, stops } = await asked()
