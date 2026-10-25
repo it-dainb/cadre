@@ -102,5 +102,8 @@ export H RUN
 xargs -P "$J" -d '\n' -I{} bash -c 'IFS="|" read -r name fix scen envs <<<"$1"; echo "$envs" >"$RUN/$name.env"
   case " $envs " in *" S=1 "*) export PROXY=1 PROXY_JS=harness/scripted/stub-proxy.mjs CLAUDE_ARGS="--plugin-dir /work/spike/harness/scripted" EXTRA_ENV="-e CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false";; esac
   env $envs OUT_DIR="$RUN/$name" "$H/cell.sh" "m$$-$name" "$fix" "$scen" >"$RUN/$name.line" 2>"$RUN/$name.err"; cat "$RUN/$name.line"' _ {} <<<"$CELLS"
+# no cell leaves a process behind (its watcher or watchdog): a leak is named, killed, and fails the run
+LEFT=$(pgrep -f "cell.sh m$$-" || true)
 echo; node "$H/table.mjs" "$RUN" | tee "$RUN/table.txt"
-! grep -q 'FAIL\|NO VERDICT' "$RUN/table.txt"
+[ -n "$LEFT" ] && { echo "LEAK: cell processes alive after the run: $(echo $LEFT)" | tee -a "$RUN/table.txt"; kill $LEFT 2>/dev/null; }
+! grep -q 'FAIL\|NO VERDICT\|LEAK' "$RUN/table.txt"

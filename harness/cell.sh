@@ -51,7 +51,7 @@ keeplogs() { local f n; for f in "$D"/out/debug*.log; do [ -f "$f" ] || continue
   [ -f "$O/.ts-$n.new" ] && mv "$O/.ts-$n.new" "$O/.ts-$n"; done; }
 watcher() {
   local prev= seen= since=0 last1=0 lastt= tnew=0 bsince=0 bask= fault= kept=0 cur p t now
-  while :; do
+  while kill -0 "$CELL" 2>/dev/null; do   # the cell is gone: so is the watcher, whatever left it running
     p=$(docker exec "cadre-tui-$N" tmux capture-pane -t q -p 2>/dev/null) || { sleep 2; continue; }
     now=$(date +%s%3N); [ $((now - kept)) -ge 10000 ] && { keeplogs; kept=$now; }
     [ "$p" != "$prev" ] && { printf '%s\n' "$p" >"$O/panes/$now.txt"; prev=$p; }
@@ -91,8 +91,9 @@ watcher() {
     sleep 2
   done
 }
-watcher & W=$!
-trap 'kill $W $WALL 2>/dev/null' EXIT
+# WATCH, not W: a scenario that sets W (devmoved did: W=$D/work) left the watcher running for hours after the cell
+CELL=$$; watcher & WATCH=$!
+trap 'kill $WATCH $WALL 2>/dev/null' EXIT
 
 # ---- scenario steps (harness/scenarios/<name>.sh is sourced: plain bash with these) ----
 busy() { local p; p=$(tui capture "$N"); grep -q 'esc to interrupt' <<<"$p" || dialog "$p"; }
@@ -122,7 +123,7 @@ landed() { while [ "$(left)" -gt 0 ]; do git -C "$D/work" log --oneline dev 2>/d
 
 . "$H/scenarios/$SCEN.sh"
 [ -n "$LANDED" ] && landed
-pause1; sleep 7; kill $W 2>/dev/null; wait $W 2>/dev/null; keeplogs; log "end"   # no press in the last 7 s: a press before it gets its 5 s to bring a dialog up
+pause1; sleep 7; kill $WATCH 2>/dev/null; wait $WATCH 2>/dev/null; keeplogs; log "end"   # no press in the last 7 s: a press before it gets its 5 s to bring a dialog up
 
 # ---- evidence (harness/out is gitignored), then the verdict ----
 cp "$D"/out/debug*.log "$O/" 2>/dev/null; mkdir -p "$O/jsonl"; find "$D/projects" -name '*.jsonl' -exec cp --parents {} "$O/jsonl" \; 2>/dev/null

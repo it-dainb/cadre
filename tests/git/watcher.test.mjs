@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const root = new URL('../../', import.meta.url).pathname, fix = join(root, 'tests/fixtures/oracle/kill-docked')
@@ -39,4 +39,13 @@ test('the review screen keeps an empty title (it is logged as the submit); the f
 })
 test('a title the fallback reads from a covered pane has no box drawing in it', () => {
   assert.doesNotMatch(sh('qtitle "$p"', 'plan-covered.txt'), /[╭╮╰╯─│]/)
+})
+
+// devmoved.sh set W=$D/work, the cell's own variable for the watcher's pid: `kill $W` killed nothing and every dev-moved cell left its watcher running for hours
+test('no scenario assigns a variable the cell itself uses', () => {
+  const own = ['H', 'N', 'FIX', 'SCEN', 'D', 'O', 'T0', 'PP', 'WALL', 'WATCH', 'CELL', 'S', 'TOK']
+  for (const f of readdirSync(join(root, 'harness/scenarios'))) {
+    const hits = readFileSync(join(root, 'harness/scenarios', f), 'utf8').split('\n').filter(l => !/^\s*#/.test(l)).flatMap(l => [...l.matchAll(/(?:^|[;&{(]|\s)(?:local\s+)?([A-Z][A-Z0-9_]*)=/g)].map(m => m[1])).filter(v => own.includes(v))
+    assert.deepEqual(hits, [], `${f} assigns ${hits.join(', ')}`)
+  }
 })
