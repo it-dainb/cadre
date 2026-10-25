@@ -343,6 +343,15 @@ describe('round 2: effort, pruning, tester deny log', () => {
     await run('t1'); await run('w1')
     expect(seen[0].effort).toBe('high'); expect('effort' in seen[1]).toBe(false)
   })
+  test('the routed effort still applies to an agent\'s last step, after its binding was ended by the accepted report', async () => {
+    const { h, a } = await mk()
+    await bound(h, { r1: B(a, 'S1', { step: 'reviewer', effort: 'high' }) })
+    const seen: any[] = []
+    const run = async (agentId: string) => { const g = meter(h, { agentId }, async function* (e: any) { seen.push(e); return { usage: null } } as any); let r = await g.next(); while (!r.done) r = await g.next() }
+    await run('r1'); await h.bind.update(() => ({})); await run('r1')   // the binding is gone for the second step
+    expect(seen.map(e => e.effort)).toEqual(['high', 'high'])
+    await h.bind.update(() => ({})); await run('stranger'); expect('effort' in seen[2]).toBe(false)   // an agent that never had a routed effort keeps the file's
+  })
   test('session.start pruning: stale-lease resume entries, closed/expired pointer bindings, quarantine older than 30 days', async () => {
     const { h, a, b } = await mk()
     const day = 86_400_000

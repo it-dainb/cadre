@@ -2,7 +2,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { readFileSync, readdirSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const root = new URL('../../', import.meta.url).pathname, fix = join(root, 'tests/fixtures/oracle/kill-docked')
@@ -66,4 +67,13 @@ esc to interrupt" && echo plain || echo not`, '_', join(fix, 'question.txt')], {
 test('how long goal() waits for cadre to answer: the budget when a turn was running at the send, 30 s at an idle prompt', () => {
   const w = (busy, left) => execFileSync('bash', ['-c', `${fns}\nwaitfor "$1" "$2"`, '_', busy, left], { encoding: 'utf8' }).trim()
   assert.equal(w('1', '480'), '480'); assert.equal(w('', '480'), '30')
+})
+
+// live (release016 continue-after-quit): a goal typed before the plugin finished session.start reached the model as plain text; the cell now waits for that line in the NEWEST debug log
+test('ready: waits for the newest debug log to say the plugin started; an older log\'s line does not count', () => {
+  const d = mkdtempSync(join(tmpdir(), 'cell-ready-')); mkdirSync(join(d, 'out'))
+  const call = n => execFileSync('bash', ['-c', `D=${d}; log() { :; }\n${fns}\nready ${n} && echo ready || echo timeout`], { encoding: 'utf8' }).trim()
+  writeFileSync(join(d, 'out/debug-1.log'), 'x\nhooks module cadre@inline session.start settled in 5000ms\n'); assert.equal(call(2), 'ready')
+  writeFileSync(join(d, 'out/debug-2.log'), 'a fresh start, still starting\n'); execFileSync('touch', ['-d', '2030-01-01', join(d, 'out/debug-2.log')]); assert.equal(call(2), 'timeout')   // the newer log has no line yet
+  writeFileSync(join(d, 'out/debug-2.log'), 'hooks module cadre@inline session.start settled in 6000ms\n'); execFileSync('touch', ['-d', '2030-01-01', join(d, 'out/debug-2.log')]); assert.equal(call(2), 'ready')
 })

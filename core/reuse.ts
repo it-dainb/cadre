@@ -83,8 +83,12 @@ export function usdOf(u: U, cfg: any): number | undefined {   // cost.prices: {<
   return p && (u.in * p.in + u.out * p.out + u.cr * (p.cacheRead ?? 0) + u.cw * (p.cacheWrite ?? 0)) / 1e6
 }
 const ck = (id: string) => `cadre:cost:${id}`
+const efforts = new Map<string, string>()   // agentId -> the effort its binding carried
 export async function* meter(h: Host, e: any, next: (e: any) => any): AsyncGenerator<any, any, any> {
-  const b = e.agentId && (await h.bind.read())[e.agentId], eff = b?.effort
+  // the routed effort outlives the binding: an agent's last step after its accepted report comes after cadre ended the binding, and ran on Claude Code's default (live: a reviewer's
+  // trailing request on medium where the settings say high)
+  const b = e.agentId && (await h.bind.read())[e.agentId], eff = b?.effort ?? (e.agentId ? efforts.get(e.agentId) : undefined)
+  if (b?.effort && e.agentId) { if (efforts.size > 500) efforts.clear(); efforts.set(e.agentId, b.effort) }
   const r = yield* next(eff && eff !== 'default' ? { ...e, effort: eff } : e)   // TM-03: the effort admission routed for this run (core/risk.route: roles.<role>.byRisk.<risk>, recorded on the binding); none = the agent file's
   if (r?.usage) await safe(h, 'cost', async () => {
     const id = e.agentId ?? 'main'
