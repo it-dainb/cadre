@@ -308,7 +308,7 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
   if (!r.ok) return { text: r.error }
   await d.store.resume(id, d.actor)   // the store follows the board out of blocked (as unblock does), or the next report cannot move it
   if (acc) await retry(h, id, 'red')   // the refusals before the change were for the old tests: the amended ones get their own rounds
-  const note = acc ? `spec change accepted: ${task!.meta['cadre.specChange'] ?? ''}. Change the tests under test/ to match it; they must differ from the ones there now.` : 'spec change rejected: the locked tests stay; conform to them'
+  const note = acc ? `spec change accepted: ${task!.meta['cadre.specChange'] ?? ''}. Change the tests in your test paths to match it; they must differ from the ones there now.` : 'spec change rejected: the locked tests stay; conform to them'
   await d.store.setMeta(id, { 'cadre.blocked': '', 'cadre.decision': note.slice(0, 1500) }, d.actor)
   const bind = await h.bind.read(), w = acc ? undefined : Object.keys(bind).find(a => !a.startsWith('~') && bind[a].taskId === id && bind[a].role === 'worker')
   if (w) await step(h, w, { type: 'resume', text: 'The spec change was rejected: the locked tests stay. Make them pass, then report done.' })   // as unblock does: the worker that asked is waiting
