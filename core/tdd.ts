@@ -296,16 +296,20 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
   if (acc) {
     const wt = task!.meta['cadre.worktree'], sc = task!.meta['cadre.specCommit'], base = task!.meta['cadre.base']
     if (!wt || !sc) return { text: modelText('tool-result', `${id}: its spec tests or its working folder are not recorded, so the spec cannot be amended; reject instead, or cancel the task.`) }
+    let pre = ''
     try {
       await G.op(h, async () => {
         // the install commits (the setup helper's chore(deps): manifest + lockfile) are not the worker's implementation: they go back on after the reset, or the
         // worker asks for the same install again (live: it could not, offline, and the task blocked)
-        const deps = (await G.git(h.run, wt, ['log', '--reverse', '--format=%H%x09%s', `${sc}..HEAD`])).split('\n').filter(l => /\tchore\(deps\):/.test(l)).map(l => l.split('\t')[0])
+        pre = await G.tip(h.run, wt, 'HEAD')   // a failed step puts the worktree back exactly here
+        const deps = (await G.git(h.run, wt, ['log', '--first-parent', '--no-merges', '--reverse', '--format=%H%x09%s', `${sc}..HEAD`])).split('\n').filter(l => /\tchore\(deps\):/.test(l)).map(l => l.split('\t')[0])
         await G.git(h.run, wt, ['reset', '--hard', '-q', sc]); await G.git(h.run, wt, ['clean', '-fdq'])
         if (base && (await h.run(['git', '-C', wt, 'merge-base', '--is-ancestor', base, 'HEAD'])).exitCode) await G.git(h.run, wt, ['merge', '--no-ff', '--no-edit', '-q', '-m', `merge the plan tip into ${id}`, base])
         for (const c of deps) await G.git(h.run, wt, ['cherry-pick', '--allow-empty', '--keep-redundant-commits', c])
       })
-    } catch (e) { h.log(`${id}: reset for the spec change failed: ${e}`); await h.run(['git', '-C', wt, 'merge', '--abort']); await h.run(['git', '-C', wt, 'cherry-pick', '--abort']); return { text: modelText('tool-result', `${id}: the working folder could not be reset right now; answer again in a moment.`) } }
+    } catch (e) { h.log(`${id}: reset for the spec change failed: ${e}`); await h.run(['git', '-C', wt, 'merge', '--abort']); await h.run(['git', '-C', wt, 'cherry-pick', '--abort'])
+      if (pre) await G.op(h, async () => { await G.git(h.run, wt, ['reset', '--hard', '-q', pre]); await G.git(h.run, wt, ['clean', '-fdq']) }).catch((x: Error) => h.log(`${id}: the worktree could not be put back: ${x}`))   // the worker's code stays: the task stays blocked, spec unamended
+      return { text: modelText('tool-result', `${id}: the working folder could not be reset right now; answer again in a moment.`) } }
     await d.store.setMeta(id, { 'cadre.sourceCommit': '' }, d.actor)
   }
   const r = await apply(h, acc ? { kind: 'rewind', id, at: await h.now(), actor: by, on: 'tester' } : { kind: 'unblock', id, at: await h.now(), actor: by }, pipe)
