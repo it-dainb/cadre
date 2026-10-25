@@ -202,10 +202,16 @@ describe('custom roles: the guard enforces the role\'s own spec', () => {
 describe('a cadre agent\'s Bash call goes on with the package managers offline, for that one shell', () => {
   const host = async () => { const h: any = fakeHost(); await h.bind.update((b: any) => ({ ...b, ag1: { role: 'worker', taskId: 'c-1-1', worktree: '/x/wt' } })); return h }
   test('a bound agent\'s Bash gets `export K=V …; ` in front of its own command, untouched; main, other tools and agents cadre did not start are unchanged', async () => {
-    const h = await host(), e = { tool: 'Bash', agentId: 'ag1', input: { command: 'npm install ms && npm test', description: 'x', timeout: 5 } }, r = await shelled(h, e)
-    expect(r.input.command.endsWith('; npm install ms && npm test')).toBe(true); expect(r.input).toMatchObject({ description: 'x', timeout: 5 })
-    const ex = r.input.command.slice('export '.length, r.input.command.indexOf('; ')).split(' ').sort(); expect(ex).toEqual(Object.entries(OFFLINE).map(([k, v]) => `${k}=${v}`).sort())
-    expect(e.input.command).toBe('npm install ms && npm test')   // the original object is not edited
-    for (const x of [{ tool: 'Bash', input: { command: 'ls' } }, { tool: 'Bash', agentId: 'stranger', input: { command: 'ls' } }, { tool: 'Read', agentId: 'ag1', input: { file_path: 'a' } }, { tool: 'PowerShell', agentId: 'ag1', input: { command: 'ls' } }, { tool: 'Bash', agentId: 'ag1', input: {} }]) expect(await shelled(h, x)).toBe(x)
+    const h = await host(), e = { tool: 'Bash', agentId: 'ag1', command: 'npm install ms && npm test', description: 'x', timeout: 5 }, r = await shelled(h, e)
+    expect(r.command.endsWith('; npm install ms && npm test')).toBe(true); expect(r).toMatchObject({ tool: 'Bash', agentId: 'ag1', description: 'x', timeout: 5 })
+    const ex = r.command.slice('export '.length, r.command.indexOf('; ')).split(' ').sort(); expect(ex).toEqual(Object.entries(OFFLINE).map(([k, v]) => `${k}=${v}`).sort())
+    expect(e.command).toBe('npm install ms && npm test')   // the original event is not edited
+    for (const x of [{ tool: 'Bash', command: 'ls' }, { tool: 'Bash', agentId: 'stranger', command: 'ls' }, { tool: 'Read', agentId: 'ag1', file_path: 'a' }, { tool: 'PowerShell', agentId: 'ag1', command: 'ls' }, { tool: 'Bash', agentId: 'ag1' }]) expect(await shelled(h, x)).toBe(x)
+  })
+  test('through the guard: the next hook receives the prefixed command (also when the guard only advises)', async () => {
+    const h: any = fakeHost(); await h.bind.update((b: any) => ({ ...b, ag1: { role: 'worker', taskId: 'c-1-1', worktree: '/x/wt', step: 'worker' } }))
+    h.config = async () => ({ strictness: 'advisory' }); await setPolicy(h, { repo: '/x/repo', wtRoot: '/x', home: '/hm/u' })
+    const seen: any[] = []; await guard(h, { tool: 'Bash', agentId: 'ag1', command: 'ls' }, (x: any) => { seen.push(x); return {} })
+    expect(seen.length).toBe(1); expect(seen[0].command === 'ls' || seen[0].command.startsWith('export npm_config_offline=true')).toBe(true)
   })
 })

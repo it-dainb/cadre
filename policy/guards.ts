@@ -135,8 +135,8 @@ async function watchCall(h: Host, e: any, role: string): Promise<string | undefi
 }
 // A cadre agent's Bash call goes on with the package managers offline for that one shell (core/helpers.OFFLINE); main's, other tools' and non-cadre agents' calls are unchanged
 export async function shelled(h: Host, e: any): Promise<any> {
-  if (e.tool !== 'Bash' || !e.agentId || typeof e.input?.command !== 'string' || !(await h.bind.read())[e.agentId]) return e
-  return { ...e, input: { ...e.input, command: `export ${Object.entries(OFFLINE).map(([k, v]) => `${k}=${v}`).join(' ')}; ${e.input.command}` } }
+  if (e.tool !== 'Bash' || !e.agentId || typeof e.command !== 'string' || !(await h.bind.read())[e.agentId]) return e   // the tool's arguments sit beside `tool` in the event (e.command)
+  return { ...e, command: `export ${Object.entries(OFFLINE).map(([k, v]) => `${k}=${v}`).join(' ')}; ${e.command}` }
 }
 // #5 tool.call guards: L1 allowlist, fence. Judge before next. Advisory: denies become warnings.
 export const guard: Hook = async (h, e, next) => {
