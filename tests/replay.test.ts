@@ -15,6 +15,7 @@ import { LIMIT } from '../policy/guards'
 import { FULL, plan, world as native } from './fixtures/native/world'
 import { setupWorld } from './fixtures/replay/setup'
 import { classify, step } from '../core/lifecycle'
+import { setPolicy } from '../policy/guards'
 import { EPIC } from './fixtures/readmodel/snapshot.golden'
 
 const roles = (w: { spawned: [string, string, string][] }) => w.spawned.map(x => x[2])
@@ -182,6 +183,15 @@ describe('replays 12-20: regressions from the log', () => {
     await prune(c.h); await rehydrate(c.h)
     expect((await c.h.bind.read())[rv]).toMatchObject({ role: 'reviewer', sessionId: 's2' }); expect(await c.state(rv)).toEqual({ state: 'running' })
     expect(await c.rep(rv, PASS)).toContain('pass@')
+  })
+  test('a review finding on a locked spec test tells the worker to ask for a spec_change; one on its own file does not', async () => {
+    const w = await world(), [rv] = await inReview(w), id = w.ids[0], task = await w.dep.store.get(id)
+    await setPolicy(w.h, { locks: { [id]: [`${task.meta['cadre.worktree']}/test/a.test.js`] } })
+    const f = (file: string) => ({ ...CHANGES, findings: [{ severity: 'major', file, issue: 'weak' }] })
+    expect(await w.rep(rv, f('test/a.test.js'))).toContain('changes (1/'); await w.turn(); const asked = w.sent.filter(x => x[0] === 'ag1').map(x => x[1]).at(-1)!
+    expect(asked).toContain('cannot be fixed by editing it (locked spec test)'); expect(asked).toContain('report outcome "spec_change" with scenario'); expect(asked).toContain('test/a.test.js')
+    expect(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'again' })).toContain('report accepted'); await w.turn()
+    expect(await w.rep(rv, f('src/a.ts'))).toContain('changes (2/'); await w.turn(); expect(w.sent.filter(x => x[0] === 'ag1').map(x => x[1]).at(-1)!).not.toContain('locked spec test')
   })
   test('#20 a reworked task keeps its reviewer: resumed, never a second one', async () => {
     const w = await world(), [rv] = await inReview(w)

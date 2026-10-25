@@ -17,7 +17,8 @@ const clip = s => s.replace(/\s+/g, ' ').trim().slice(0, 200)
 const drv = read(join(dir, 'driver.log')).split('\n').filter(Boolean).map(l => { const [t, kind, ...r] = l.split(' '); return { t: +t, kind, text: r.join(' ') } })
 const tEnd = drv.findLast(e => e.kind === 'end')?.t ?? Date.now()
 const panes = readdirSync(join(dir, 'panes')).filter(f => f.endsWith('.txt')).map(f => ({ t: +basename(f, '.txt'), text: read(join(dir, 'panes', f)) })).sort((a, b) => a.t - b.t)
-const debug = readdirSync(dir).filter(f => /^debug.*\.log$/.test(f)).sort().map(f => read(join(dir, f)).split('\n'))
+// Claude Code 2.1.310 keeps only the last ~1 MB of its debug log: cell.sh's keeplogs collects every line in keep-<name> as it runs, so that is the log to read when it exists
+const debug = readdirSync(dir).filter(f => /^debug.*\.log$/.test(f)).sort().map(f => read(join(dir, existsSync(join(dir, `keep-${f}`)) ? `keep-${f}` : f)).split('\n'))
 const ts = l => Date.parse(l.slice(0, 24))
 const dlines = debug.flat().filter(l => /^\d{4}-/.test(l))
 

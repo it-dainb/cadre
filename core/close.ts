@@ -165,7 +165,9 @@ async function verdict(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
   await d.store.resume(t.id, d.actor); await d.store.setMeta(t.id, { 'cadre.step': 'worker', 'cadre.review': '', 'cadre.rejected': `review of ${sha7(C)}: ${r.summary}\n${asked}` }, d.actor)   // the handoff's Rejected (briefs.handoffOf)
   await clear(h, t.id, 'rework:'); if (n > max) await raise(h, t.id, `rework:${n}/${max}`)
   const bind = await h.bind.read(), w = ownerOf(bind, t.id, 'worker')
-  const text = `Review of ${sha7(C)} asks for changes (${n}/${max}):\n${r.summary}\n${asked}\nFix them, then report done again.`.slice(0, 3000)
+  const locks = (await policyOf(h)).locks?.[t.id] ?? [], onLocked = [...new Set(findings.filter(f => f.file && locks.includes(`${task.meta['cadre.worktree'] ?? wt}/${f.file}`)).map(f => f.file as string))]   // findings on spec tests the worker may not edit
+  const lockedNote = onLocked.length ? `\nA finding on ${onLocked.join(', ')} cannot be fixed by editing it (locked spec test): if it is right, report outcome "spec_change" with scenario: the changed scenario in full; fix the others.` : ''
+  const text = `Review of ${sha7(C)} asks for changes (${n}/${max}):\n${r.summary}\n${asked}${lockedNote}\nFix them, then report done again.`.slice(0, 3000)
   if (w) await step(h, w, { type: 'resume', text })
   await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'reviewer', to: 'worker', commit: C, flags: x.flags, next: w ? 'worker resumed' : startNew(t.id, 'worker', 'reviewer') }) }))
   return `verdict accepted: changes (${n}/${max}). Stop.`
