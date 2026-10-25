@@ -151,18 +151,19 @@ async function verdict(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
   const locks = (await policyOf(h)).locks?.[t.id] ?? [], onLocked = [...new Set(findings.filter(f => f.file && locks.includes(`${task.meta['cadre.worktree'] ?? wt}/${f.file}`)).map(f => f.file as string))]
   const mine = pathsOf(task), outside = new Set(mine.length ? findings.filter(f => f.file && !f.inDiff && !onLocked.includes(f.file) && !mine.some(p => overlap(p, f.file))).map(f => f.file as string) : [])
   // a `changes` whose every blocking finding is outside the task's files is a pass with followups: the worker cannot fix those, so a re-review would ask forever
-  const blockers = findings.filter(f => !['minor', 'nit'].includes(String(f.severity)))
+  const blockers = findings.filter(f => !['minor', 'nit'].includes(String(f.severity))); let filed = ''   // filed: the card's note that the pass carries followups
   if (r.verdict === 'changes' && blockers.length && blockers.every(f => outside.has(f.file)) && !coverageGaps(d.cfg.review.coverage.enforce, task.acceptance, specTestsOf(task), r.coverage).length) {   // coverage still counts: a pass cannot skip it
     r = { ...r, verdict: 'pass' }
     await followups(d, t.id, findings.map(f => ({ title: `${f.file}: ${String(f.issue).split('\n')[0]}`.slice(0, 120), description: `${f.issue}${f.fix ? ` (fix: ${f.fix})` : ''}`.slice(0, 1000) })))
-    await decided(h, 'rework', `${t.id}: passed with its findings outside the task's files as followups`, t.id)
+    filed = ` · passed with ${Math.min(5, findings.length)} followup(s) outside its files${findings.length > 5 ? ` (+${findings.length - 5} more not filed)` : ''}`   // followups() files at most 5
+    await decided(h, 'rework', `${t.id}: passed with its findings outside the task's files as followups${findings.length > 5 ? ` (+${findings.length - 5} more not filed)` : ''}`, t.id)
   }
   const m = await apply(h, { kind: 'verdict', id: t.id, at, actor: 'reviewer', verdict: r.verdict }, pipe(d)); if (!m.ok) throw new Error(m.error)
   await patchBinding(h, agentId, { lastReviewedCommit: C })
   await record(h, d, t.id, 'review', 'reviewer', { verdict: r.verdict, sourceCommit: C, findings: findings.length }, { summary: r.summary, findings, coverage: r.coverage, contractStatus: r.contractStatus })
   if (r.verdict === 'pass') {
     await d.store.setMeta(t.id, { 'cadre.review': `pass@${C}`, 'cadre.step': 'merge' }, d.actor)
-    await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'reviewer', to: 'review✓', commit: C, flags: x.flags, next: `complete TASK-${t.id}` }) }))
+    await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'reviewer', to: 'review✓', commit: C, flags: x.flags, next: `complete TASK-${t.id}${filed}` }) }))
     return `verdict accepted: pass@${sha7(C)}. Stop.`
   }
   const n = await charge(h, t.id, 'rework'), max = d.cfg.review.maxRework, dr = (await h.board.read()).drive

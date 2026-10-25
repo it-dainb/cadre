@@ -205,12 +205,16 @@ describe('replays 12-20: regressions from the log', () => {
     expect(many.asked).toContain('docs/1.md, docs/2.md, docs/3.md, docs/4.md, docs/5.md and 2 more are outside your files')
   })
   test('a glob in the task\'s files covers its own file (no note); a task with no declared files gets no note', async () => {
-    const g = await outside(['src/*.ts'], [{ severity: 'major', file: 'src/a.ts', issue: 'weak' }, { severity: 'minor', file: 'src/b.ts', issue: 'x' }]); expect(g.asked).not.toContain('outside your files')
+    // a file that is not in the diff and only the glob covers: with exact matching it would be "outside" and the verdict would become a pass
+    const g = await outside(['docs/*.md'], [{ severity: 'major', file: 'docs/guide.md', issue: 'weak' }]); expect(g.r).toContain('changes (1/'); expect(g.asked).not.toContain('outside your files')
     const n = await outside(null, [{ severity: 'major', file: '.github/workflows/ci.yml', issue: 'no install step' }]); expect(n.r).toContain('changes (1/'); expect(n.asked).not.toContain('outside your files')
   })
   test('a changes verdict whose only blocking findings are outside the task\'s files is a pass with followups; one blocker inside keeps it changes', async () => {
     const a = await outside(['src/a.ts'], [{ severity: 'major', file: '.github/workflows/ci.yml', issue: 'CI has no install step', fix: 'add npm ci' }, { severity: 'minor', file: 'src/a.ts', issue: 'doc comment' }])
     expect(a.r).toContain('verdict accepted: pass@'); expect((await a.w.dep.store.list({})).some(t => t.title.includes('.github/workflows/ci.yml: CI has no install step'))).toBe(true)
+    const w = await world(), [rv] = await inReview(w), id = w.ids[0]; await w.dep.store.setMeta(id, { 'cadre.paths': JSON.stringify(['src/a.ts']) }, w.dep.actor)   // more than followups() files (5): the rest is said, on the card too (until it lands)
+    const r = await w.rep(rv, { ...CHANGES, coverage: [{ scenario: 'S1', ok: true }], findings: [1, 2, 3, 4, 5, 6, 7].map(n => ({ severity: 'major', file: `ci/${n}.yml`, issue: 'x' })) })
+    expect(r).toContain('pass@'); expect((await w.h.board.read()).tasks.find(x => x.id === id)!.card).toContain('passed with 5 followup(s) outside its files (+2 more not filed)')
     const b = await outside(['src/a.ts'], [{ severity: 'major', file: '.github/workflows/ci.yml', issue: 'no install' }, { severity: 'major', file: 'src/a.ts', issue: 'wrong answer' }]); expect(b.r).toContain('changes (1/')
     const c = await outside(['src/a.ts'], [{ severity: 'major', file: '.github/workflows/ci.yml', issue: 'no install' }], false); expect(c.r).toContain('changes (1/')   // a weak coverage entry still blocks a pass
   })
