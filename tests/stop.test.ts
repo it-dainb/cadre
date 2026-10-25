@@ -2,7 +2,7 @@
 // goes on by the one path: kick -> queueBrief -> main's turn end -> the spawner. No dialog answer, press or timer starts an agent itself.
 import { describe, expect, test } from 'claude-code/testing'
 import { world, type World } from './fixtures/replay/world'
-import { arm, kick, stop, tally, watchdog } from '../core/drive'
+import { arm, idle, kick, stop, tally, watchdog } from '../core/drive'
 import { emit } from '../core/events'
 import { defaults } from '../config/index'
 import { stopped } from '../core/close'
@@ -137,5 +137,14 @@ describe('a step back: the store and the words', () => {
       await w.dep.store.setMeta(id, { 'cadre.worktree': '/wt', 'cadre.specCommit': 'abc' }, 'a')
       expect((await resolveSpec(w.h, id, 'accept')).text).toContain(`${id}: ${text} (new red, amended specCommit)`)
     }
+  })
+  // live (fold-vs-keep-folded): the idle fallback waited for "no bound agent at all"; an agent that is bound but idle makes no turn end, so a task left unstarted behind it was never retried
+  test('idle: work to start and no agent running is idle even while an idle-bound agent keeps its binding; a running agent is not', async () => {
+    const w = await world({ n: 2, type: 'feature', pkg: RED_PKG, drive: 'auto', mode: 'mod' }); await arm(w.h, 'auto'); const [a] = w.ids
+    await w.at('ag1', a, 'worker')
+    const state = (st: string) => w.h.ui.update((u: any) => ({ ...u, runs: { ...u.runs, ag1: { ...u.runs?.ag1, state: { state: st } } } }))
+    await state('running'); expect(await idle(w.h)).toBe(false)
+    await state('idle-bound'); expect(await idle(w.h)).toBe(true)
+    await state('ended'); expect(await idle(w.h)).toBe(true)
   })
 })

@@ -15,7 +15,7 @@ import { queueBrief } from './lanes'
 import { modelText } from './say'
 import { specAsk } from './tdd'
 import { isMs, stopEpic } from './milestone'
-import { modelIssues, tasksFull } from './queue'
+import { modelIssues, running, tasksFull } from './queue'
 
 export const LEASE = 600_000
 export type Mode = 'auto' | 'yolo'
@@ -191,7 +191,8 @@ export const IDLE = "Nothing for you to do: the plan's tasks go on by themselves
 export const canSpawn = (h: Host) => !!h.spawnAgent   // this frame starts agents itself (core/spawner)
 export async function idle(h: Host): Promise<boolean> {
   const s = await h.board.read(), bind = await h.bind.read()
-  return modOn(s) && (s.resumesQueued > 0 || (!Object.keys(bind).some(a => !a.startsWith('~')) && spawnable(modelView(s), bind).length > 0))   // a resume nobody sent: a main turn's end drains it
+  // nothing running: an agent bound but idle (finished, waiting on a dialog) makes no turn end, so it is no reason to wait (live: a spawn that failed left its task unstarted behind such a binding)
+  return modOn(s) && (s.resumesQueued > 0 || (!(await running(h)).length && spawnable(modelView(s), bind).length > 0))   // a resume nobody sent: a main turn's end drains it
 }
 // the timer (5 s): mod mode stalled with work to start (an agent that died without a turn end, a lease that lapsed, a usage limit that reset): the idle fallback once nothing happened for 2 min, counted as a turn (the no-progress bound ends a loop of them)
 export async function watchdog(h: Host): Promise<void> {
