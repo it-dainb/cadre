@@ -160,7 +160,8 @@ if (wantLanded && !drv.some(e => e.kind === 'landed')) fail('not-landed', `dev: 
   // own side requests in an agent's context (source=agent_summary: the progress line) and never relabels main's request that happened at the same moment.
   const src = dlines.filter(l => /\[API REQUEST\] \/v1\/messages source=/.test(l)).map(l => [ts(l), l.match(/source=(\S+)/)[1]])
   const req = read(join(dir, 'effort.jsonl')).split('\n').filter(Boolean).map(l => JSON.parse(l))
-    .filter(r => !src.length || src.some(([t, s]) => Math.abs(t - r.at) < 300 && s === `agent:custom:cadre:${r.role}`))
+    // the NEAREST source decides: an agent_summary 50 ms before a worker request is a side request, not the worker's (2.1.310 timing)
+    .filter(r => { const n = src.filter(([t]) => Math.abs(t - r.at) < 300).sort((a, b) => Math.abs(a[0] - r.at) - Math.abs(b[0] - r.at))[0]; return !src.length || n?.[1] === `agent:custom:cadre:${r.role}` })
     .filter(r => r.role !== 'main')
   if (req.length) {
     const repo = dirname(dirname(new URL(import.meta.url).pathname)), exp = JSON.parse(execFileSync(process.execPath, ['--experimental-transform-types', '--no-warnings', '--import', `${repo}/tests/dev/register.mjs`, `${repo}/harness/expect-routing.mjs`, repo, join(dir, 'cadre-config.json'), join(dir, 'env.json')], { encoding: 'utf8' }))
