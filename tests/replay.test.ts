@@ -193,13 +193,26 @@ describe('replays 12-20: regressions from the log', () => {
     expect(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'again' })).toContain('report accepted'); await w.turn()
     expect(await w.rep(rv, f('src/a.ts'))).toContain('changes (2/'); await w.turn(); expect(w.sent.filter(x => x[0] === 'ag1').map(x => x[1]).at(-1)!).not.toContain('locked spec test')
   })
-  test('a review finding on a file outside the task\'s own files tells the worker to list it under followups, not edit it or block', async () => {
-    const w = await world(), [rv] = await inReview(w), id = w.ids[0]; await w.dep.store.setMeta(id, { 'cadre.paths': JSON.stringify(['src/a.ts', 'test/a.test.js']) }, w.dep.actor)
-    const f = (file: string) => ({ ...CHANGES, findings: [{ severity: 'major', file, issue: 'CI has no install step' }] })
-    expect(await w.rep(rv, f('.github/workflows/ci.yml'))).toContain('changes (1/'); await w.turn(); const asked = w.sent.filter(x => x[0] === 'ag1').map(x => x[1]).at(-1)!
-    expect(asked).toContain('.github/workflows/ci.yml is outside your files: do not edit it and do not block on it; list it under followups')
-    expect(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'again' })).toContain('report accepted'); await w.turn()
-    expect(await w.rep(rv, f('src/a.ts'))).toContain('changes (2/'); await w.turn(); expect(w.sent.filter(x => x[0] === 'ag1').map(x => x[1]).at(-1)!).not.toContain('outside your files')
+  // findings on files outside the task's own files (live: CI and README "needs a scope decision": the worker blocked, and each re-review asked again)
+  const outside = async (paths: string[] | null, findings: Array<Record<string, string>>, cover = true) => {
+    const w = await world(), [rv] = await inReview(w), id = w.ids[0]; if (paths) await w.dep.store.setMeta(id, { 'cadre.paths': JSON.stringify(paths) }, w.dep.actor)
+    const r = await w.rep(rv, { ...CHANGES, coverage: [{ scenario: 'S1', ok: cover }], findings }); await w.turn(); return { w, id, r, asked: w.sent.filter(x => x[0] === 'ag1').map(x => x[1]).at(-1) ?? '' }
+  }
+  test('a changes verdict with findings outside the task\'s files tells the worker to list those under followups (capped at 5 names)', async () => {
+    const a = await outside(['src/a.ts', 'test/a.test.js'], [{ severity: 'major', file: 'src/a.ts', issue: 'weak' }, { severity: 'minor', file: 'README.md', issue: 'stale' }])
+    expect(a.r).toContain('changes (1/'); expect(a.asked).toContain('A finding on README.md is outside your files: do not edit it and do not block on it; list it under followups')
+    const many = await outside(['src/a.ts'], [{ severity: 'major', file: 'src/a.ts', issue: 'weak' }, ...[1, 2, 3, 4, 5, 6, 7].map(n => ({ severity: 'minor', file: `docs/${n}.md`, issue: 'x' }))])
+    expect(many.asked).toContain('docs/1.md, docs/2.md, docs/3.md, docs/4.md, docs/5.md and 2 more are outside your files')
+  })
+  test('a glob in the task\'s files covers its own file (no note); a task with no declared files gets no note', async () => {
+    const g = await outside(['src/*.ts'], [{ severity: 'major', file: 'src/a.ts', issue: 'weak' }, { severity: 'minor', file: 'src/b.ts', issue: 'x' }]); expect(g.asked).not.toContain('outside your files')
+    const n = await outside(null, [{ severity: 'major', file: '.github/workflows/ci.yml', issue: 'no install step' }]); expect(n.r).toContain('changes (1/'); expect(n.asked).not.toContain('outside your files')
+  })
+  test('a changes verdict whose only blocking findings are outside the task\'s files is a pass with followups; one blocker inside keeps it changes', async () => {
+    const a = await outside(['src/a.ts'], [{ severity: 'major', file: '.github/workflows/ci.yml', issue: 'CI has no install step', fix: 'add npm ci' }, { severity: 'minor', file: 'src/a.ts', issue: 'doc comment' }])
+    expect(a.r).toContain('verdict accepted: pass@'); expect((await a.w.dep.store.list({})).some(t => t.title.includes('.github/workflows/ci.yml: CI has no install step'))).toBe(true)
+    const b = await outside(['src/a.ts'], [{ severity: 'major', file: '.github/workflows/ci.yml', issue: 'no install' }, { severity: 'major', file: 'src/a.ts', issue: 'wrong answer' }]); expect(b.r).toContain('changes (1/')
+    const c = await outside(['src/a.ts'], [{ severity: 'major', file: '.github/workflows/ci.yml', issue: 'no install' }], false); expect(c.r).toContain('changes (1/')   // a weak coverage entry still blocks a pass
   })
   test('a task with no spec tests (a lite task) gets no scenario-coverage rule in its reviewer brief: there is no scenario id to name a test after', async () => {
     const w = await world(); expect(w.dep.cfg.review.coverage.enforce).toBe(true)

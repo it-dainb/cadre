@@ -7,7 +7,7 @@ import { pipeOf } from '../task-management/registry'
 import { LIFECYCLE } from './plantools'
 import { ROUTES } from './dispatch'
 import { resolveDeps, type Deps } from './admission'
-import { SPEC_SCENARIO, coverageGaps, pathsOf, specTestsOf } from './validate'
+import { SPEC_SCENARIO, coverageGaps, overlap, pathsOf, specTestsOf } from './validate'
 import { agentsOf, fnv1a64, patchBinding } from './board'
 import { apply, STEP_CAT, transition } from './machine'
 import { emit } from './events'
@@ -143,6 +143,16 @@ async function verdict(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
   if (gaps.length) r = { ...r, verdict: 'changes', findings: [...r.findings, ...gaps.map(g => ({ severity: 'major', file: '', issue: `${g}. Add or strengthen a test named after it; if that test is a locked spec test, report outcome "spec_change" asking for it` }))] }
   const inDiff = new Set((await G.git(h.run, wt, ['diff', '--name-only', `${task.meta['cadre.base'] ?? C}..${C}`])).split('\n'))
   const findings = (r.findings as any[]).map(f => ({ ...f, inDiff: inDiff.has(f.file) }))
+  // findings on spec tests the worker may not edit, and findings on files outside the task's own files (live: CI and README, "needs a scope decision": the worker blocked)
+  const locks = (await policyOf(h)).locks?.[t.id] ?? [], onLocked = [...new Set(findings.filter(f => f.file && locks.includes(`${task.meta['cadre.worktree'] ?? wt}/${f.file}`)).map(f => f.file as string))]
+  const mine = pathsOf(task), outside = new Set(mine.length ? findings.filter(f => f.file && !f.inDiff && !onLocked.includes(f.file) && !mine.some(p => overlap(p, f.file))).map(f => f.file as string) : [])
+  // a `changes` whose every blocking finding is outside the task's files is a pass with followups: the worker cannot fix those, so a re-review would ask forever
+  const blockers = findings.filter(f => !['minor', 'nit'].includes(String(f.severity)))
+  if (r.verdict === 'changes' && blockers.length && blockers.every(f => outside.has(f.file)) && !coverageGaps(d.cfg.review.coverage.enforce, task.acceptance, specTestsOf(task), r.coverage).length) {   // coverage still counts: a pass cannot skip it
+    r = { ...r, verdict: 'pass' }
+    await followups(d, t.id, findings.map(f => ({ title: `${f.file}: ${String(f.issue).split('\n')[0]}`.slice(0, 120), description: `${f.issue}${f.fix ? ` (fix: ${f.fix})` : ''}`.slice(0, 1000) })))
+    await decided(h, 'rework', `${t.id}: passed with its findings outside the task's files as followups`, t.id)
+  }
   const m = await apply(h, { kind: 'verdict', id: t.id, at, actor: 'reviewer', verdict: r.verdict }, pipe(d)); if (!m.ok) throw new Error(m.error)
   await patchBinding(h, agentId, { lastReviewedCommit: C })
   await record(h, d, t.id, 'review', 'reviewer', { verdict: r.verdict, sourceCommit: C, findings: findings.length }, { summary: r.summary, findings, coverage: r.coverage, contractStatus: r.contractStatus })
@@ -165,11 +175,8 @@ async function verdict(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
   await d.store.resume(t.id, d.actor); await d.store.setMeta(t.id, { 'cadre.step': 'worker', 'cadre.review': '', 'cadre.rejected': `review of ${sha7(C)}: ${r.summary}\n${asked}` }, d.actor)   // the handoff's Rejected (briefs.handoffOf)
   await clear(h, t.id, 'rework:'); if (n > max) await raise(h, t.id, `rework:${n}/${max}`)
   const bind = await h.bind.read(), w = ownerOf(bind, t.id, 'worker')
-  const locks = (await policyOf(h)).locks?.[t.id] ?? [], onLocked = [...new Set(findings.filter(f => f.file && locks.includes(`${task.meta['cadre.worktree'] ?? wt}/${f.file}`)).map(f => f.file as string))]   // findings on spec tests the worker may not edit
   const lockedNote = onLocked.length ? `\nA finding on ${onLocked.join(', ')} cannot be fixed by editing it (locked spec test): if it is right, report outcome "spec_change" with scenario: the changed scenario in full; fix the others.` : ''
-  // a finding on a file outside the task's own files (live: CI and README, "needs a scope decision"): the worker may not edit it, and it blocked instead of reporting done
-  const mine = pathsOf(task), outside = mine.length ? [...new Set(findings.filter(f => f.file && !f.inDiff && !onLocked.includes(f.file) && !mine.some(p => { const q = p.replace(/\/\**$/, ''); return f.file === q || f.file.startsWith(`${q}/`) })).map(f => f.file as string))] : []
-  const outNote = outside.length ? `\nA finding on ${outside.join(', ')} is outside your files: do not edit it and do not block on it; list it under followups, fix the others, then report done.` : ''
+  const outNote = outside.size ? `\nA finding on ${[...outside].slice(0, 5).map(f => f.slice(0, 120)).join(', ')}${outside.size > 5 ? ` and ${outside.size - 5} more` : ''} ${outside.size === 1 ? 'is' : 'are'} outside your files: do not edit ${outside.size === 1 ? 'it' : 'them'} and do not block on ${outside.size === 1 ? 'it' : 'them'}; list ${outside.size === 1 ? 'it' : 'them'} under followups, fix the others, then report done.` : ''
   const text = `Review of ${sha7(C)} asks for changes (${n}/${max}):\n${r.summary}\n${asked}${lockedNote}${outNote}\nFix them, then report done again.`.slice(0, 3000)
   if (w) await step(h, w, { type: 'resume', text })
   await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'reviewer', to: 'worker', commit: C, flags: x.flags, next: w ? 'worker resumed' : startNew(t.id, 'worker', 'reviewer') }) }))
