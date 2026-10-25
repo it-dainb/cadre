@@ -138,3 +138,9 @@ test('settings: release.onEpicDone off lands without proposing a release; suites
   const only = await world(), c = await only.h.config(); c.units[0].checks = { test: ['true'], lint: ['false'] }; c.suites.integration = ['test']
   assert.equal(await integrateEpic(only.h, 'p3'), null)
 })
+
+test('integration: a unit setup may write the folders settings.jailWritable names (a package cache), as at admission', async () => {
+  const { d, h } = await world(['true'], 'auto'), cfg = await h.config(), w = mkdtempSync(join(tmpdir(), 'cadre-cache-'))
+  cfg.jailWritable = [w]; cfg.units[0].setup = ['sh', '-c', `echo ok > ${w}/marker`]
+  assert.equal(await integrateEpic(h, 'p3'), null); assert.equal(readFileSync(join(w, 'marker'), 'utf8').trim(), 'ok')
+})
