@@ -24,12 +24,13 @@ const HEAD: Record<Role, string> = {
   worker: 'Worker brief. Do exactly the task below in your working directory. Conform to the contract; locked tests stay as they are; your changes are committed for you. Do not edit CHANGELOG.md: its entry is written when the task merges. Finish with report{role:"worker"}.',
   reviewer: 'Reviewer brief. Disprove the claim that the commit below satisfies its scenarios and contract. Read-only. The changelog entry is written when the task merges; do not look for it in the diff. Finish with report{role:"reviewer"}.',
   explorer: 'Explorer brief. Read-only. Answer with citations. Finish with report{role:"explorer"}.',
+  specifier: 'Specifier brief. Read-only. Write how-to notes for the task below; the scenarios and the contract stay as they are. Finish with report{role:"specifier"}.',
 }
 export interface BriefIn {
   id: string; title: string; type: string; description?: string; scenarios?: string; contract?: string; notes?: string
   paths?: string[]; testPaths?: string[]; locked?: string[]; redCard?: string; greenCard?: string; deps?: { id: string; title: string; out?: string }[]
   findings?: string[]; decisions?: string[]; handoff?: string; others?: string[]; protectedPaths?: string[]; shared?: string; lessons?: string; mission?: string; core?: string; slice?: string; uncovered?: string[]   // uncovered: set when the coverage rule is on (review.coverage.enforce); the scenario ids no locked test name carries
-  runAsk?: boolean; sourceCommit?: string; diffStat?: string; diff?: string; audit?: string; report?: string; changelog?: string; flags?: string[]; question?: string; focus?: string
+  how?: string; runAsk?: boolean; sourceCommit?: string; diffStat?: string; diff?: string; audit?: string; report?: string; changelog?: string; flags?: string[]; question?: string; focus?: string
 }
 // contract JSON ({symbols:[{name,kind,params,returns,errors?,doc?,status}]} | {none,reason}) -> compact lines
 export function renderContract(design?: string): string {
@@ -49,11 +50,15 @@ export const planBlock = (b: Pick<BriefIn, 'mission' | 'protectedPaths' | 'core'
   const body = join([sec('Mission', b.mission), sec('Protected paths (never change them)', b.protectedPaths), sec('Shared core interface (landed; build on it, do not change it)', renderContract(b.core)), sec('Shared notes', cap(b.shared ?? '', 1000))])
   return body ? `# PLAN\nContext shared by every task of this plan; your own task follows.\n\n${body}` : ''
 }
-export function brief(role: Role, b: BriefIn): string {
+// the tester's input has no `how`: what the specifier wrote is the worker's, and the text of a tester brief cannot be built from it
+export type TesterIn = Omit<BriefIn, 'how'>
+export function brief(role: Role, bi: BriefIn): string {
+  const b: BriefIn = role === 'tester' ? (({ how: _how, ...r }: BriefIn): TesterIn => r)(bi) : bi
   const spec = (s: string[]) => cap(join(s), 4096), ctx = (s: string[]) => cap(join(s), 3072)
   const notes = sec('Notes', cap(b.notes ?? '', 500)), head = HEAD[role], plan = planBlock(b), mine = join([sec('Notes on your files', cap(b.slice ?? '', 1000)), sec('Lessons from earlier work', b.lessons)])
   const contract = sec('Contract', renderContract(b.contract)), files = (why: string) => (b.paths?.length ? `\nFiles: ${b.paths.join(', ')}${why}` : '')   // the task's declared paths, in the task block
   if (role === 'explorer') return join([plan, head, `# ${b.question !== undefined ? 'QUESTION' : `TASK-${b.id}`}\n${b.question ?? b.title}`, sec('Scope', 'read-only; no edits, no shell'), mine, notes])
+  if (role === 'specifier') return join([plan, head, `# TASK-${b.id} ${b.title} (${b.type})${files('')}`, spec([sec('Description', b.description), sec('Scenarios', b.scenarios), contract]), sec('Scope', 'read-only; no edits, no shell'), mine, notes])
   if (role === 'tester')
     return join([plan, head, `# SPEC TASK-${b.id}${files(' (the code this task changes)')}`, spec([sec('Scenarios', b.scenarios), contract]), sec('Decided (apply it to the tests)', b.decisions), sec('Test paths', b.testPaths), b.runAsk ? sec('How your tests run', RUN_ASK) : '', mine, sec('Folder', 'tests only; read FILES.md first: it lists what you can see (you cannot list directories)'), notes])
   if (role === 'reviewer')
@@ -63,7 +68,7 @@ export function brief(role: Role, b: BriefIn): string {
       ctx([sec('Red/green cards', [b.redCard ?? '', b.greenCard ?? '']), sec('Tester audit', b.audit), sec('Worker report', b.report), sec('Check', b.focus), sec('Changelog entry (context, written at merge) and commit header', b.changelog), sec('Flags', b.flags)]), mine, notes])
   return join([plan, head, `# TASK-${b.id} ${b.title} (${b.type})${files(' (make your changes there)')}`, spec([sec('Description', b.description), sec('Scenarios', b.scenarios), contract]),
     ctx([sec('Locked spec tests', [...(b.locked ?? []), b.redCard ?? '']), sec('Direct dependencies', (b.deps ?? []).map(d => `- ${d.id} ${d.title}${d.out ? `: ${d.out}` : ''}`)),
-      sec('Findings / checks', [...(b.findings ?? []), b.greenCard ?? '']), sec('Decisions', b.decisions), sec('Handoff', b.handoff),
+      sec('How (the specifier\'s notes; the scenarios stay as written)', b.how), sec('Findings / checks', [...(b.findings ?? []), b.greenCard ?? '']), sec('Decisions', b.decisions), sec('Handoff', b.handoff),
       sec('Paths of other active tasks', (b.others ?? []).slice(0, 10))]), mine, notes])
 }
 // the tester proposes its test command, cadre runs it (ADR 0023): task language only

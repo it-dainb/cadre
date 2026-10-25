@@ -24,6 +24,6 @@ export function spec(role: Role, cfg: { roles: Roles; mcpAllow: readonly string[
 // Prompt-cache TTL per role (A28, S44, ADR 0022): 1h for worker/tester/reviewer (same-role spawns are 5-60 min apart) and the planner (a milestone's planners
 // start minutes apart, ADR 0021; effort high = roles.planner's default, for its first request, before admission binds it); the one-shot explorer an explicit 5m (cheaper writes). Shipped in the files, so it is a fixed row in settings (config/route), not a knob. The explorer also keeps low effort.
 export const TTL = Object.fromEntries(Object.entries(ROLES_DEFAULT).map(([r, x]) => [r, x.ttl])) as Record<Role, '5m' | '1h'>
-export const ROLES: readonly Role[] = ['worker', 'tester', 'reviewer', 'explorer', 'planner']
+export const ROLES: readonly Role[] = ['worker', 'tester', 'reviewer', 'explorer', 'planner', 'specifier']
 export const file = (role: Role): string => ['---', `name: ${role}`, `description: "${DESC[role]}"`, `tools: ${TOOLS[role].join(', ')}`,
   ...(ROLES_DEFAULT[role].effort ? [`effort: ${ROLES_DEFAULT[role].effort}`] : []), ...(ROLES_DEFAULT[role].maxTurns ? [`maxTurns: ${ROLES_DEFAULT[role].maxTurns}`] : []), 'experimental:', `  cacheTtl: ${TTL[role]}`, '---', PROMPTS[role], ''].join('\n')

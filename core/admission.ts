@@ -28,6 +28,7 @@ import { notesOf, pathsOf, sliceNotes, specTestsOf, untested } from './validate'
 import { branchOf, epicOf } from './milestone'
 import { plannerBrief } from './planner'
 import { modelRefusal, inSlot, tasksFull } from './queue'
+import { specMark, specNeeded } from './specifier'
 import { budgetOf, intentOf, reserve, runOf, step as lifeStep, unreserve } from './lifecycle'
 import { ROLES_DEFAULT } from './roles'
 import * as P from './helpers'
@@ -53,14 +54,14 @@ export const admit: Hook = async (h, e, next) => { await warm(h); return admitWi
 
 // model x effort for a run (core/risk.route); env overrides that beat cadre (config/forcedOf) are recorded as forced (Claude Code applies them anyway)
 const rounds = async (h: Host, id: string) => { const b = await budgetOf(h, id); return b.rework + b.rebase }   // escalation (core/risk.route) counts the task's review and rebase rounds
-export const routeOf = (d: Deps, role: Role, risk: Tier, n = 0, unit?: { root: string; routing?: Record<string, any> }) => (role === 'explorer' || role === 'planner' ? route(role, d.cfg.roles[role], '', 0)
+export const routeOf = (d: Deps, role: Role, risk: Tier, n = 0, unit?: { root: string; routing?: Record<string, any> }) => (role === 'explorer' || role === 'planner' || role === 'specifier' ? route(role, d.cfg.roles[role], '', 0)
   : ((r = route(role, { ...d.cfg.roles[role].byRisk[risk], ...unit?.routing?.[role] }, risk, n)) => (unit?.routing?.[role] && !r.escalated ? { ...r, setting: `units ${unit.root}: routing.${role}` } : r))())   // a unit's routing override (H7) wins over the risk cell
 const riskFor = (d: Deps, rt?: Tier, task?: Task) => rt ?? riskOf(d.cfg.review, { paths: pathsOf(task), labels: task?.labels ?? [], coreTask: task?.meta['cadre.core'] === 'true' })
 // the model a pick will run on: launch's own routing, asked before the start (core/queue counts runs by it)
 export async function modelFor(h: Host, d: Deps, id: string, role: string): Promise<string | undefined> {
   const t = (await h.board.read()).tasks.find(x => x.id === id), task = t ? await d.store.get(id).catch(() => undefined) : undefined, step = role === 'claim' && t ? stepsOf(d)(t.type, t.lane)[0] : role
   if (t && !task) return undefined
-  return forcedOf(await h.env()).model || routeOf(d, ROLE[step] ?? (step === 'helper' ? 'explorer' : step as Role), riskFor(d, undefined, task), task ? await rounds(h, id) : 0, task && pkgOf(d, task)).model
+  return forcedOf(await h.env()).model || routeOf(d, ROLE[step] ?? (step === 'helper' ? 'explorer' : step === 'specify' ? 'specifier' : step as Role), riskFor(d, undefined, task), task ? await rounds(h, id) : 0, task && pkgOf(d, task)).model
 }
 const stepsOf = (d: Deps) => (type: string, lane?: string) => { const p = pipeOf(d.reg)(type, lane); return d.view ? p : p.filter(s => s !== 'tester' && s !== 'red') }   // no view builder: tester/red skipped
 
@@ -75,6 +76,7 @@ export async function admitWith(h: Host, d: Deps, e: any, next: ((e: any) => any
     if (r?.agentId) await asked(h, r.agentId, x, told); return r
   }
   if (it?.role === 'explore') return explorer({ ...e, prompt: modelText('agent-brief', it.taskId) }, false)   // main's explore tool (core/plantools): the question rides on the intent; the answer goes to main as a message
+  if (it?.role === 'specify') return specify(h, d, e, next, s, it.taskId)   // roles.specifier.enabled: the how-to notes before a claim (core/specifier)
   if (it?.role === 'helper') return helper(h, d, e, next, s, it.taskId)   // a requester's helper (core/needs): on its task and tree
   if (it && it.role !== 'planner' && !s.tasks.some(x => x.id === it.taskId)) return deny(`${it.taskId} is no longer on the board`)
   if (it?.role === 'planner') return epicOf(s, it.taskId) ? planner(h, d, e, next, s, it.taskId) : deny(`${it.taskId} has no plan to draft now`)   // a ready epic's planner (ADR 0021)
@@ -94,6 +96,18 @@ export async function admitWith(h: Host, d: Deps, e: any, next: ((e: any) => any
   if (t.state === 'active' || t.state === 'blocked') return rebind(h, d, e, next, s, t)
   if (t.state === 'review') return review(h, d, e, next, s, t)
   return deny(`${t.id} is ${t.state}; nothing to spawn`)
+}
+
+// the specifier's one read-only run for a todo task (core/specifier): tracked like an ask, so its stop is observed and its report is the notes. Any failure to start lets the task go on without notes.
+async function specify(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapshot, id: string) {
+  const t = s.tasks.find(x => x.id === id)!, task = await d.store.get(id)
+  if (t.state !== 'todo' || (await specNeeded(h, d, id)) !== 'specify') return deny(`${id} does not need a specifier now`)
+  await specMark(h, d, id)
+  try {
+    const r = await next({ ...e, subagentType: 'cadre:specifier', model: routeOf(d, 'specifier', 'light').model, prompt: modelText('agent-brief', brief('specifier', briefOf(s, t, task, { prompt: '' }, d, 'specifier', await plan(h, d, s, t, task)))) })
+    if (r?.agentId) await asked(h, r.agentId, e, undefined, 'specifier', id); else await specMark(h, d, id, 'done')
+    return r
+  } catch (x) { await specMark(h, d, id, 'done'); throw x }
 }
 
 // a custom role is spawned by main like an ask, only once the engine took its register and from a later turn than that register's (it dispatches from the next turn)
@@ -131,7 +145,7 @@ const noteOf = (said: unknown, id: string): string | undefined => String(said ??
 const briefOf = (s: Snapshot, t: SnapTask, task: Task, e: any, d: Deps, role: Role, extra: Partial<BriefIn> = {}): BriefIn => ({
   paths: pathsOf(task), testPaths: role === 'tester' ? pkgOf(d, task)?.tdd?.paths : undefined, runAsk: role === 'tester' && d.cfg.tdd.testerCommand.use, locked: task.meta['cadre.locked'] ? JSON.parse(task.meta['cadre.locked']) : undefined, redCard: task.meta['cadre.red'],
   id: t.id, title: t.title, type: t.type, description: task.description, scenarios: task.acceptance, contract: task.design, notes: noteOf(e.prompt, t.id), protectedPaths: protectedOf(d),
-  deps: t.deps.filter(x => x.type !== 'conditional-blocks').map(x => ({ id: x.id, title: s.tasks.find(y => y.id === x.id)?.title ?? '' })), ...extra })
+  how: role === 'worker' ? task.meta['cadre.how'] : undefined, deps: t.deps.filter(x => x.type !== 'conditional-blocks').map(x => ({ id: x.id, title: s.tasks.find(y => y.id === x.id)?.title ?? '' })), ...extra })
 
 // what the plan shares with every task brief (ADR 0014 G, 0022): the plan block (mission, the landed core's interface, the notes without paths) is the same
 // for every task; the notes on this task's paths and the paths other running tasks declared go in its task block

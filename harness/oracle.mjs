@@ -284,6 +284,19 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (n < 4) fail('shape', `${n} shape refusals reached the worker (want 4: the script sends four)`)
     if (drv.some(e => e.kind === 'dialog' && /flagged shape|malformed/.test(e.text))) fail('shape', 'the task blocked on malformed reports (a dialog flagged shape)')
   }
+  if (o === 'specifier-off') {   // roles.specifier.enabled is off by default: no specifier is spawned, and the task still runs
+    const sp = subs.filter(x => /Specifier brief/.test(x.brief)).length
+    Object.assign(stats, { specifiers: sp })
+    if (sp) fail(o, `${sp} specifier spawn(s) with the specifier off`)
+    if (!subs.some(x => /Worker brief/.test(x.brief))) fail(o, 'no worker ran')
+  }
+  if (o === 'fold-vs-keep') {   // one run of an arm of the A1 check: what it counts is read by harness/fold-vs-keep.mjs; the arm's own setting must show in the spawns
+    const rw = {}; for (const s of [...snaps.map(x => x.s), ...hist]) for (const [id, b] of Object.entries(pick(s, 'budget'))) rw[id] = Math.max(rw[id] ?? 0, b.rework ?? 0)   // a closed task's budget is pruned: the largest image seen
+    const sp = subs.filter(x => /Specifier brief/.test(x.brief)).length, arm = process.env.ARM
+    stats.foldKeep = { arm, landed: +read(join(dir, 'dev-commits')).trim() || 0, rework: Object.values(rw).reduce((a, b) => a + b, 0), dialogs: others, specifiers: sp }
+    if (arm === 'kept' && !sp) fail(o, 'the kept arm ran no specifier')
+    if (arm === 'folded' && sp) fail(o, `the folded arm ran ${sp} specifier(s)`)
+  }
   if (o === 'limit') {   // the band shows resetAt; the task budget unchanged; after the reset exactly one spawn
     const hit = read(join(dir, 'stubbed.jsonl')).split('\n').filter(l => l.includes('"usage_limit"')).map(l => JSON.parse(l).at)
     if (!hit.length) fail('limit', 'the usage limit was never injected')

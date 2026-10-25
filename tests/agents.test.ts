@@ -20,25 +20,25 @@ describe('prompts (DESIGN 4.1, 7)', () => {
     expect(ROLES.map(file).join()).toBe(ROLES.map(file).join())
   })
   test('each role prompt names its report tool contract', async () => {
-    for (const r of ['worker', 'tester', 'reviewer', 'explorer', 'planner'] as const) expect(PROMPTS[r]).toContain('report')
+    for (const r of ['worker', 'tester', 'reviewer', 'explorer', 'planner', 'specifier'] as const) expect(PROMPTS[r]).toContain('report')
     expect(PROMPTS.worker).toContain('never edit'); expect(PROMPTS.reviewer).toContain('disprove')
   })
 })
 
 describe('roster (DESIGN 4.1, A28)', () => {
-  test('five types in order; tools are the L1 allowlist; no Grep/Glob (S45)', async () => {
-    expect(ROLES).toEqual(['worker', 'tester', 'reviewer', 'explorer', 'planner'])
+  test('six types in order; tools are the L1 allowlist; no Grep/Glob (S45)', async () => {
+    expect(ROLES).toEqual(['worker', 'tester', 'reviewer', 'explorer', 'planner', 'specifier'])
     expect(TOOLS.worker).toEqual(['Read', 'Edit', 'Write', 'NotebookEdit', 'Bash', 'PowerShell', 'Monitor', 'TodoWrite', 'mcp__cadre__report', 'mcp__cadre__run_check'])
     expect(TOOLS.tester).toEqual(['Read', 'Write', 'Edit', 'mcp__cadre__report'])
     expect(TOOLS.reviewer).toEqual(['Read', 'mcp__cadre__inspect', 'mcp__cadre__run_check', 'mcp__cadre__report'])
-    expect(TOOLS.explorer).toEqual(['Read', 'mcp__cadre__inspect', 'mcp__cadre__report']); expect(TOOLS.planner).toEqual(TOOLS.explorer)   // the planner reads and reports; its report drafts the tasks
+    expect(TOOLS.explorer).toEqual(['Read', 'mcp__cadre__inspect', 'mcp__cadre__report']); expect(TOOLS.planner).toEqual(TOOLS.explorer); expect(TOOLS.specifier).toEqual(TOOLS.explorer)   // the planner reads and reports; its report drafts the tasks
     expect([...MAIN_TOOLS, ...Object.values(TOOLS).flat()].some(t => t === 'Grep' || t === 'Glob')).toBe(false)
   })
   test('shipped agents/<role>.md files are byte-equal to file(role): PROMPTS body, TOOLS, 1h TTL except the explorer', async () => {
-    expect(Object.keys(BUDGET.agents)).toEqual(['explorer', 'planner', 'reviewer', 'tester', 'worker'])
+    expect(Object.keys(BUDGET.agents)).toEqual(['explorer', 'planner', 'reviewer', 'specifier', 'tester', 'worker'])
     for (const r of ROLES) expect((BUDGET.agents as Record<string, string>)[r]).toBe(file(r))
     for (const r of ['worker', 'tester', 'reviewer', 'planner'] as const) expect(file(r)).toContain('experimental:\n  cacheTtl: 1h\n')
-    expect(file('explorer')).toContain('experimental:\n  cacheTtl: 5m\n'); expect(file('explorer')).toContain('effort: low'); expect(file('planner')).toContain('effort: high')
+    expect(file('explorer')).toContain('experimental:\n  cacheTtl: 5m\n'); expect(file('specifier')).toContain('cacheTtl: 5m'); expect(file('explorer')).toContain('effort: low'); expect(file('planner')).toContain('effort: high')
     expect(file('worker').endsWith(`---\n${PROMPTS.worker}\n`)).toBe(true)
   })
   test('a prompt names the tools by the name the agent calls (a bare "inspect" was called as such live and refused: no such tool)', async () => {

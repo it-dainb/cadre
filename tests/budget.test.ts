@@ -10,3 +10,4 @@ test('MCP tools = 3, skills = 0', async () => { expect([...TOOLS]).toEqual(['rep
 test('every gating registration has a .catch (validate --json gatingHooks)', async () => { expect(BUDGET.gatingMissing).toBe(0) })
 test('UI v2 files (first line `// UI v2`) hold no literal glyph, theme key or colour: they come from ui/tokens', async () => { expect(BUDGET.uiLiterals).toEqual([]) })
 test('A2: every built-in role prompt <= 2 KB (injected text is capped like LOC)', async () => { for (const [r, n] of Object.entries(BUDGET.promptBytes)) expect([r, n <= 2048]).toEqual([r, true]) })
+test('the specifier prompt <= 1536 B (0.17 plan, slice 7)', async () => { expect(BUDGET.promptBytes.specifier).toBeLessThanOrEqual(1536) })

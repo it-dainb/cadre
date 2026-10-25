@@ -14,6 +14,7 @@ H=$(cd "$(dirname "$0")" && pwd); R=$(dirname "$H"); T=${TUI_DIR:-/tmp/cadre-tui
 if [ "$1" = pins ]; then exec node --experimental-transform-types --no-warnings --import "$R/tests/dev/register.mjs" -e '
 const { REG } = await import(process.argv[1] + "/config/defaults.ts"), o = {}
 for (const k of Object.keys(REG)) if (/^roles\.(?!reviewer\.)\w+\.(byRisk\.\w+\.(escalate\.)?)?model$/.test(k)) { let n = o; const p = k.split("."); for (const s of p.slice(0, -1)) n = n[s] ??= {}; n.model = "haiku" }
+if (process.env.SPECIFIER === "1") (o.roles ??= {}).specifier = { enabled: true, model: "haiku" }   // the kept arm of fold-vs-keep: the specifier runs before each claim
 o.limits = { limitWaitMinutes: 1 }   // a cell waits for the reported reset (90 s in the usage-limit cell), not the 15-min default
 console.log(JSON.stringify(o))' --input-type=module "$R"; fi
 . "$H/check.sh"

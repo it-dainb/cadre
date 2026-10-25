@@ -1,7 +1,7 @@
 // cadre contracts (schemaVersion 1): read model, events, state atoms, Host. Self-contained: the validator refuses imports here. Changes need an ADR note (6.7).
 
 export type Category = 'draft' | 'todo' | 'active' | 'review' | 'blocked' | 'done' | 'cancelled'
-export type Role = 'worker' | 'tester' | 'reviewer' | 'explorer' | 'planner'
+export type Role = 'worker' | 'tester' | 'reviewer' | 'explorer' | 'planner' | 'specifier'
 export type Actor = 'human' | 'main' | Role | 'sync' | 'mod'
 export type Severity = 'info' | 'warn' | 'crit'
 export type Kind = 'code' | 'docs' | 'spike'

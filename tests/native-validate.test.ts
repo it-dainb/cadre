@@ -52,7 +52,7 @@ describe('validateReport: the envelope entry point for wave 3', () => {
   test('example-bearing errors per role; a good envelope passes', () => {
     expect(validateReport(null)).toContain('report: expected {"schemaVersion":1,"role":"worker"')
     expect(validateReport({ schemaVersion: 2 })).toBe('schemaVersion: expected 1, got 2')
-    expect(validateReport({ schemaVersion: 1, role: 'boss' })).toBe('role: expected worker|tester|reviewer|explorer|planner, got "boss"')
+    expect(validateReport({ schemaVersion: 1, role: 'boss' })).toBe('role: expected worker|tester|reviewer|explorer|planner|specifier, got "boss"')
     expect(validateReport({ schemaVersion: 1, role: 'worker', outcome: 'done' })).toBe('summary: required; add it and report again')
     expect(validateReport({ schemaVersion: 1, role: 'worker', outcome: 'meh', summary: 's' })).toBe('outcome: expected one of "done", "blocked", "spec_change", "request", got "meh"; fix it and report again')
     expect(validateReport({ schemaVersion: 1, role: 'worker', outcome: 'done', summary: 'x'.repeat(801) })).toBe('summary: at most 800 characters, got 801; shorten it and report again')

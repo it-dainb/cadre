@@ -20,6 +20,7 @@ import { modelText } from './say'
 import { isMs } from './milestone'
 import { charge, intend, settleIntent } from './lifecycle'
 import { pending, settleSetups } from './needs'
+import { specNeeded } from './specifier'
 import { sessionOf } from './board'
 
 export const FRAMES = ['turn.complete', 'command.run']
@@ -58,7 +59,11 @@ export async function spawnStep(h: Host, event: string): Promise<void> {
   const go = await picking(async () => {   // one frame of this process at a time: read the board, pick within the slots, count them on the drive (a CAS three frames would contend on)
     const need = await pending(h)   // a requester waits for its helper's answer, so no agent takes its step; a request no helper runs gets one, at the head (the requester's slot is lent to it)
     const s = await h.board.read()
-    const cands = [...spawnable(modelView(s), await h.bind.read()).filter(x => !need.hold.includes(x.id)), ...need.start.map(id => ({ id, role: 'helper' }))].filter(x => !Q.has(x.id, x.role) && !(x.role !== 'claim' && Q.has(x.id, 'claim'))).map((x): Q.Want => ({ ...x, head: x.role !== 'claim' }))
+    let cands = [...spawnable(modelView(s), await h.bind.read()).filter(x => !need.hold.includes(x.id)), ...need.start.map(id => ({ id, role: 'helper' }))].filter(x => !Q.has(x.id, x.role) && !(x.role !== 'claim' && Q.has(x.id, 'claim'))).map((x): Q.Want => ({ ...x, head: x.role !== 'claim' }))
+    if (cfg.roles.specifier.enabled) {   // the specifier's turn before a claim: no task slot, and the task waits while it works (core/specifier)
+      const sd = await resolveDeps(h)
+      cands = (await Promise.all(cands.map(async x => { if (x.role !== 'claim') return x; const n = await specNeeded(h, sd, x.id).catch(() => 'claim' as const); return n === 'wait' ? null : n === 'specify' ? { ...x, role: 'specify', head: false } : x }))).filter((x): x is Q.Want => !!x)
+    }
     const keyed = Object.keys(cfg.concurrency.models).length + Object.keys(cfg.concurrency.providers).length > 0, capped = ((cfg.units ?? []) as { concurrency?: number }[]).some(u => u.concurrency)
     const d = keyed || capped ? await resolveDeps(h) : undefined, units: Record<string, string> = {}   // routing and units are read only when a limit asks for them
     const unitOf = async (id: string) => pkgOf(d!, await d!.store.get(id))?.root ?? '.'

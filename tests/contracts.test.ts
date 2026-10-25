@@ -12,7 +12,7 @@ import { FULL, world } from './fixtures/native/world'
 const R = (role: string, o: object) => validateReport({ schemaVersion: 1, role, ...o })
 describe('report contracts: role × outcome', () => {
   test('each role has its contract; a good report of each passes', () => {
-    expect(Object.keys(REPORTS)).toEqual(['worker', 'tester', 'reviewer', 'explorer', 'planner'])
+    expect(Object.keys(REPORTS)).toEqual(['worker', 'tester', 'reviewer', 'explorer', 'planner', 'specifier'])
     expect(R('worker', { outcome: 'done', summary: 's' })).toBeNull(); expect(R('worker', { outcome: 'request', summary: 's', request: { helper: 'explore', ask: 'where is X?', why: 'I change it' } })).toBeNull()
     expect(R('tester', { outcome: 'done', summary: 's', tests: [{ path: 't', name: 'S1', scenario: 'S1' }] })).toBeNull()
     expect(R('reviewer', { verdict: 'pass', summary: 's', findings: [], coverage: [], contractStatus: [] })).toBeNull()

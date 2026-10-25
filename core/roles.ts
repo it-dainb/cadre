@@ -11,6 +11,7 @@ export const ROLES_DEFAULT: Record<Role, RoleSpec> = {
   reviewer: { description: 'reviews one task commit against its scenarios', tools: ['Read', I, C, R], write: [], ttl: '1h' },
   explorer: { description: 'read-only recon, discovery and spikes', tools: ['Read', I, R], write: [], ttl: '5m', effort: 'low', maxTurns: 40 },
   planner: { description: 'drafts the task plan of one epic, read-only', tools: ['Read', I, R], write: [], ttl: '1h', effort: 'high', canRequest: ['explore', 'probe'] },
+  specifier: { description: 'writes how-to notes for one approved task, read-only', tools: ['Read', I, R], write: [], ttl: '5m', effort: 'low', maxTurns: 40 },
 }
 // Exit rule 1 and 6: the engine's exit tools are never refused; no spec may disallow them or list some of them and not all (an allowlist that drops one)
 export const EXIT = ['SubagentHandback', 'StructuredOutput']

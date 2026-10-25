@@ -25,6 +25,7 @@ import { capAsk, coreLanded, refresh, rework, trial } from './rebase'
 import { branchOf, epicOf, goOn } from './milestone'
 import { planStopped } from './planner'
 import { held } from './session'
+import { specSettle } from './specifier'
 import { REPEAT, charge, prune, retry, runOf, settled, step } from './lifecycle'
 import { drop as dropNeed, helperDone, helperStopped, request } from './needs'
 // the worker's report kept for the reviewer and the merge: the report contract caps its fields (validate.REPORTS), so it is kept whole
@@ -297,7 +298,7 @@ async function stallPass(h: Host, me: string): Promise<void> {
 export async function observeWith(h: Host, d: Deps, e: any, next: (e: any) => any): Promise<any> {
   await sweep(h).catch(x => h.log(`sweep failed: ${x}`))
   if (e.agentId) await settled(h, e.agentId).catch(() => {})
-  if (e.agentId) await ((await askOf(h, e.agentId)) ? askStopped(h, e) : stopped(h, d, e)).catch(x => h.log(`observe failed: ${x}`))
+  if (e.agentId) await ((await askOf(h, e.agentId)) ? askStopped(h, e).then(() => specSettle(h, d, e.agentId)) : stopped(h, d, e)).catch(x => h.log(`observe failed: ${x}`))
   return next(e)
 }
 export const observe: Hook = async (h, e, next) => observeWith(h, await resolveDeps(h), e, next)

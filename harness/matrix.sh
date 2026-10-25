@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run a tier of cells (harness/cell.sh) in parallel containers and print the verdict table. See harness/README.md "Matrix".
-#   harness/matrix.sh quick|milestone|clarify|cells|release016|scripted|full [-j N] [-n]      -n: print the cells and the estimate only.   env: SPIKE=<plugin checkout> (default this repo), FILTER=<regex on cell names>
+#   harness/matrix.sh quick|milestone|clarify|cells|release016|release017|scripted|full [-j N] [-n]      -n: print the cells and the estimate only.   env: SPIKE=<plugin checkout> (default this repo), FILTER=<regex on cell names>
 # A cell: name | fixtures (base, then overlays) | scenario | env for tui.sh/cell.sh/oracle.mjs. Env knobs of the matrix itself:
 #   S=1: the scripted model (harness/scripted: a second plugin answers every model request; the stub proxy refuses any request it has no stub for, so
 #        an S cell costs no quota and oracle.mjs fails it on any refused request). An S cell <name> and its L twin <name>-live in one run must agree.
@@ -56,6 +56,8 @@ needs-explore|single ready scripted/needs|needs|MODEL=haiku CC_VERSION=2.1.295 S
 lessons-pass|single ready|lessons|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=150 ORACLE=lessons
 custom-role|single ready scripted/custom-role|custom-role|MODEL=haiku CC_VERSION=2.1.295 S=1 BUDGET=150 ORACLE=custom-role
 planner-probe|single ready scripted/probe|probe|MODEL=haiku CC_VERSION=2.1.295 S=1 BUDGET=150 ORACLE=planner-probe EPIC_PLANNERS=1
+# the 0.17 cells
+specifier-off|single ready scripted/full|every|MODEL=haiku CC_VERSION=2.1.295 S=1 PERM=auto LANDED=1 BUDGET=600 ORACLE=specifier-off
 # needs-setup-s: the setup path with the scripted model; npm installs ms from the real registry (no model, no quota)
 needs-setup-s|single ready deps-node scripted/setup|needs-setup|MODEL=haiku CC_VERSION=2.1.295 S=1 DEPS=1 KIND=s ORACLE_DEP=ms LANDED=1 BUDGET=150 ORACLE=needs-setup
 setup-stray-manifest|single ready deps-node scripted/stray|straymanifest|MODEL=haiku CC_VERSION=2.1.295 S=1 DEPS=1 KIND=s LANDED=1 BUDGET=150 ORACLE=straymanifest
@@ -71,6 +73,12 @@ continue-after-quit|single ready|continue|MODEL=haiku CC_VERSION=2.1.299 LANDED=
 EOF
   cells | grep '^exit-every-role-live|'
   cells | grep '^exit-every-role-live|' | sed -E 's/^exit-every-role-live\|/exit-every-role-live-new|/; s/CC_VERSION=[0-9.]+/CC_VERSION=2.1.310/'
+}
+# the 0.17 A1 gate (L, one batch with the release gate; needs the user's OK): the same milestone folded (no specifier) and kept (the specifier runs), RUNS=3 each on haiku. `node harness/fold-vs-keep.mjs <run dir>` applies the rule fixed in the plan.
+release017() { cat <<'EOF'
+fold-vs-keep-folded|single ready|milestone|MODEL=haiku CC_VERSION=2.1.295 LANDED=1 BUDGET=2700 PROXY=1 EPIC_PLANNERS=2 RUNS=3 ORACLE=fold-vs-keep ARM=folded
+fold-vs-keep-kept|single ready|milestone|MODEL=haiku CC_VERSION=2.1.295 LANDED=1 BUDGET=2700 PROXY=1 EPIC_PLANNERS=2 RUNS=3 SPECIFIER=1 ORACLE=fold-vs-keep ARM=kept
+EOF
 }
 scripted() { cells | grep -E '(^|[| ])S=1( |$)'; }
 full() {   # the cross product, minus cells that cannot exist (user1 needs kit/, continue needs a set-up repo)

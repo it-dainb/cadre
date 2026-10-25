@@ -43,6 +43,7 @@ const PROBES: Record<string, [unknown, (c: Config) => unknown]> = {
     return [[`${at}.model`, ['fable', (c: Config) => R(c, r, k, 0)]], [`${at}.effort`, ['max', (c: Config) => R(c, r, k, 0)]], [`${at}.escalate.after`, [r === 'worker' ? 7 : 1, (c: Config) => R(c, r, k, 1)]],
       [`${at}.escalate.model`, ['fable', up]], [`${at}.escalate.effort`, ['max', up]]]
   }))),
+  'roles.specifier.model': ['opus', c => route('explorer', c.roles.specifier, '', 0)], 'roles.specifier.effort': ['high', c => route('explorer', c.roles.specifier, '', 0)],
   'roles.explorer.model': ['opus', c => route('explorer', c.roles.explorer, '', 0)], 'roles.explorer.effort': ['high', c => route('explorer', c.roles.explorer, '', 0)],
   'roles.planner.model': ['opus', c => route('planner', c.roles.planner, '', 0)], 'roles.planner.effort': ['medium', c => route('planner', c.roles.planner, '', 0)],
   'review.coreTask': ['thorough', c => rv(c, { paths: ['a'] }, { coreTask: true })], 'review.coreDiff': ['core', c => rv(c, { paths: ['core/x.ts'], lines: 1 }, { corePaths: ['core/**'] })],
@@ -108,7 +109,7 @@ describe('validation and provenance (ADR 0019)', () => {
   test('doctor: refused values and env overrides warn; then every key, non-default first; fixed invariants are shown and not editable', async () => {
     const h = Object.assign(fakeHost({ files: { '/hm/u/.claude/cadre.json': '{"concurrency":{"default":5},"drive":{"mode":"fast"}}' }, env: { CLAUDE_CODE_EFFORT_LEVEL: 'low' } }))
     const d = await doctorRows(h), text = d.map(r => `${r[0]} ${r[1]}`)
-    expect(text.slice(0, 3)).toEqual(['warn setting refused: ~/.claude/cadre.json: drive.mode: expected one of: yolo, auto', 'warn CLAUDE_CODE_EFFORT_LEVEL puts every agent on effort low: overrides 26 model/effort settings', 'ok setting concurrency.default = 5 · user'])
+    expect(text.slice(0, 3)).toEqual(['warn setting refused: ~/.claude/cadre.json: drive.mode: expected one of: yolo, auto', 'warn CLAUDE_CODE_EFFORT_LEVEL puts every agent on effort low: overrides 27 model/effort settings', 'ok setting concurrency.default = 5 · user'])
     expect(d.length).toBe(2 + (await settingsRows(h)).length); expect(text).toContain('ok setting fixed.setupLease = 20 turns / 30 min · fixed')
   })
 })

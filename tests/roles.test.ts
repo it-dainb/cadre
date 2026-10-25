@@ -67,7 +67,7 @@ describe('roles as data: zero behaviour change', () => {
     }
   })
   test('write scope: globs under the tree; built-ins are ** or none', async () => {
-    expect(ROLES.map(r => ROLES_DEFAULT[r].write)).toEqual([['**'], ['**'], [], [], []])
+    expect(ROLES.map(r => ROLES_DEFAULT[r].write)).toEqual([['**'], ['**'], [], [], [], []])
     expect([writes(ROLES_DEFAULT.worker, ''), writes(ROLES_DEFAULT.worker, 'a/b/c.ts'), writes(ROLES_DEFAULT.reviewer, 'a.ts')]).toEqual([true, true, false])
     const s = { ...ROLES_DEFAULT.worker, write: ['src/**', '*.md'] }
     expect([writes(s, 'src/a/b.ts'), writes(s, 'README.md'), writes(s, 'docs/README.md'), writes(s, 'a.ts')]).toEqual([true, true, false, false])
@@ -91,7 +91,7 @@ describe('exit rule 6: no spec can drop an exit tool', () => {
     expect(resolve([{ name: 'r', trust: 'repo', value: { roles: { custom: { auditor: AUD } } } }]).config.roles.custom).toEqual({ auditor: AUD })   // read-only: the repo file may add it
   })
   test('fixed rows: the exit tools and the write scopes; REG has roles.custom', async () => {
-    expect(fixedRules().map(r => r[0])).toEqual(['fixed.exitTools', 'fixed.writeScope']); expect(fixedRules()[1][1]).toBe('worker **, tester **, reviewer none, explorer none, planner none'); expect(REG['roles.custom'].open).toBe(true)
+    expect(fixedRules().map(r => r[0])).toEqual(['fixed.exitTools', 'fixed.writeScope']); expect(fixedRules()[1][1]).toBe('worker **, tester **, reviewer none, explorer none, planner none, specifier none'); expect(REG['roles.custom'].open).toBe(true)
   })
 })
 

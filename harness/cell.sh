@@ -136,6 +136,7 @@ cp "$D"/out/debug*.log "$O/" 2>/dev/null; mkdir -p "$O/jsonl"; find "$D/projects
 cp "$D/out/effort.jsonl" "$D/out/env.json" "$O/" 2>/dev/null; cp "$D/work/.cadre/config.json" "$O/cadre-config.json" 2>/dev/null   # PROXY=1: the requests and the repo settings for the routing invariant
 git -C "$D/work" for-each-ref --format='%(refname:short) %(objectname:short)' refs/heads >"$O/refs-after" 2>/dev/null
 git -C "$D/work" worktree list >"$O/worktrees-after" 2>/dev/null
+git -C "$D/work" rev-list --count --no-merges main..dev >"$O/dev-commits" 2>/dev/null   # what cadre landed on dev (fold-vs-keep counts it)
 (cd "$D/work" && find . -name .cadre | grep -v '^./.cadre$' >"$O/stray-state"; true)
 # no credential may reach a mounted dir or the evidence (ccr keeps its copy of the login in the container's own filesystem, gone with --rm)
 TOK=$(node -e 'try{const c=require(process.argv[1]).claudeAiOauth;console.log([c.accessToken,c.refreshToken].filter(Boolean).map(t=>t.slice(0,24)).join("\n"))}catch{}' "${CRED:-$HOME/.claude/.credentials.json}")
