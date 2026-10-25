@@ -213,3 +213,25 @@ test('the git runner: a tree whose .git was swapped for a directory with core.fs
     await sh(f.root, 'git', 'config', 'core.fsmonitor', script); assert.equal((await g(['git', '-C', f.root, 'status'])).exitCode, 0); assert.ok(!existsSync(mark), 'the flags switch the monitor off even in the repo\'s own config')
   } finally { f.done() }
 })
+
+// uv add --no-sync only edits the manifest and lockfile; the reply says the packages are in the folder, so they must be (the fake uv stands in for the registry; the jail is real)
+test('uv add: the reply and its effect agree: "in your folder" only when the packages are in the worktree\'s own .venv (wheels only, from an empty folder)', async () => {
+  const f = await fix(); try {
+    const bin = join(f.d, 'bin'); mkdirSync(bin)
+    writeFileSync(join(bin, 'uv'), `#!/bin/sh
+echo "$PWD $*" >> /tmp/uvlog
+c=$1; shift; P=; for a; do [ "$p" = --prefix ] && P=$a; p=$a; done
+case $c in
+  add) printf 'dependencies = ["six"]\\n' >> pyproject.toml; echo lock > uv.lock;;
+  venv) for a; do d=$a; done; mkdir -p "$d/lib/python3/site-packages"; echo home > "$d/pyvenv.cfg";;
+  pip) [ -n "$FAILPIP" ] && exit 1; for a in "$@"; do case $a in -*|install|/*) ;; *) mkdir -p "$P/lib/python3/site-packages/$a";; esac; done;;
+esac\n`, { mode: 0o755 })
+    f.h.env = async () => ({ PATH: `${bin}:${process.env.PATH}`, LANG: process.env.LANG })
+    const calls = [], orig = f.h.run; f.h.run = async (a, o) => { const r = await orig(a, o); if (a[0] === 'bwrap' && existsSync(join(f.d, 'scratch/uvlog'))) { calls.push(...readFileSync(join(f.d, 'scratch/uvlog'), 'utf8').split('\n').filter(Boolean)); rmSync(join(f.d, 'scratch/uvlog')) } return r }
+    writeFileSync(join(f.wt, 'pyproject.toml'), '[project]\nname = "x"\ndependencies = []\n'); await sh(f.wt, 'git', 'add', '-A'); await sh(f.wt, 'git', 'commit', '-qm', 'py')
+    const r = await P.setup(f.h, f.inp({ argv: ['uv', 'add', 'six'] })), site = join(f.wt, '.venv/lib/python3/site-packages/six')
+    assert.match(r.text, /^Installed and committed on your branch: pyproject\.toml, uv\.lock/, r.text)
+    assert.equal(/in your folder/.test(r.text), existsSync(site), 'the reply claims what happened'); assert.ok(existsSync(site))
+    assert.ok(calls.some(l => l.startsWith('/tmp/cwd pip install --python') && l.includes('--only-binary=:all:') && l.includes(`--prefix ${f.wt}/.venv`) && l.endsWith(' six')), calls.join('\n')); assert.ok(calls.some(l => /^\/tmp\/cwd venv --python \S+ .*\.venv$/.test(l)))
+  } finally { f.done() }
+})
