@@ -326,6 +326,11 @@ test('an install that changed no file: names only from package.json, no claim fo
   assert.match(P.nothingToCommit(['npm', 'ci'], ['ms']), /^Nothing changed: package\.json lists ms, and/); assert.match(P.nothingToCommit(['npm', 'ci'], []), /^Nothing changed: package\.json and the lockfile are as they were/)
   assert.equal(P.nothingToCommit(['uv', 'add', 'six']), 'Nothing changed in the manifest or the lockfile.'); assert.equal(P.nothingToCommit(['cargo', 'add', 'serde'], null, 1), 'Nothing changed in the manifest or the lockfile. 1 other file it changed was discarded.')
   assert.match(P.nothingToCommit(['npm', 'install', 'ms'], ['ms'], 2, ' note'), /2 other files it changed were discarded\. note$/)
+  // only npm, pnpm and yarn own package.json: another tool's request gets no claim even when a package.json was read (a polyglot repo)
+  for (const argv of [['cargo', 'add', 'ms'], ['uv', 'add', 'six'], ['go', 'get', 'ms']]) assert.equal(P.nothingToCommit(argv, ['ms']), 'Nothing changed in the manifest or the lockfile.')
+  // a path or a repo spec (and a dotted name) is no name the check can vouch for: no claim for it
+  assert.match(P.nothingToCommit(['npm', 'install', './loc', 'user/repo', 'lodash.get'], ['pkg']), /^Nothing changed: package\.json lists pkg, and/)   // none of them requested by name: only what package.json holds
+  assert.match(P.nothingToCommit(['npm', 'install', './loc', 'ms'], ['ms']), /^Nothing changed: package\.json already lists ms, and/); assert.doesNotMatch(P.nothingToCommit(['npm', 'install', './loc', 'ms'], ['ms']), /loc/)
   const many = Array.from({ length: 12 }, (_, n) => `pkg${n}`); assert.equal(P.names(many), `${many.slice(0, 10).join(', ')} and 2 more`)
   assert.equal(P.names(['a'.repeat(65), ['', 'home', 'x', 'y'].join('/'), '../z', 'ok-name', '@scope/pkg']), '(a name), (a name), (a name), ok-name, @scope/pkg')
   const host = files => ({ readText: async p => { const k = p.split('/').pop(); if (files[k] instanceof Error) throw files[k]; return files[k] ?? null } })

@@ -74,11 +74,13 @@ const NAME = /^@?[A-Za-z0-9][\w.+-]*(\/[\w.+-]+)?$/
 export const names = (ns: readonly string[]): string => { const u = [...new Set(ns)]; return `${u.slice(0, 10).map(n => (n.length <= 64 && NAME.test(n) ? n : '(a name)')).join(', ')}${u.length > 10 ? ` and ${u.length - 10} more` : ''}` }
 // what the argv asked for: the package names after the subcommand, without versions or flags (npm ms@2); none for npm ci / npm install
 export const requested = (argv: readonly string[]): string[] => argv.slice(argv[0] === 'uv' && argv[1] === 'pip' ? 3 : 2).filter(a => !a.startsWith('-')).map(a => a.replace(/^(@?[^@=<>!~\[;]+).*$/, '$1')).filter(Boolean)
+// a plain registry name (`ms`, `@scope/pkg`): a path, a repo spec (user/repo) or a dotted name is no name this check can vouch for
+const plain = (n: string) => /^(@[\w-]+\/)?[\w-]+$/.test(n)
 export const nothingToCommit = (argv: readonly string[], listed: readonly string[] | null = null, stray = 0, note = ''): string => {
   const tail = `${stray ? ` ${stray} other file${stray === 1 ? '' : 's'} it changed ${stray === 1 ? 'was' : 'were'} discarded.` : ''}${note}`
   if (argv[0] === 'uv' && argv[1] === 'pip') return `The packages are installed in your folder only: uv pip install does not edit the manifest or the lockfile, so they do not list them. To record the dependency, ask again with argv ["uv","add","<package>"].${tail}`
-  if (listed === null) return `Nothing changed in the manifest or the lockfile.${tail}`   // no readable package.json: no claim about names
-  const want = requested(argv), have = new Set(listed), missing = want.filter(n => !have.has(n))
+  if (listed === null || !['npm', 'pnpm', 'yarn'].includes(argv[0])) return `Nothing changed in the manifest or the lockfile.${tail}`   // no readable package.json, or a tool that does not own it (cargo, uv, go in a repo that also has one): no claim about names
+  const want = requested(argv).filter(plain), have = new Set(listed), missing = want.filter(n => !have.has(n))
   if (want.length && missing.length) return `Nothing changed in the manifest or the lockfile, and ${names(missing)} ${missing.length === 1 ? 'is' : 'are'} not listed in package.json. The packages are installed in your folder only; record the dependency with an install command that edits the manifest.${tail}`
   return `Nothing changed: package.json ${want.length ? `already lists ${names(want)}` : listed.length ? `lists ${names(listed)}` : 'and the lockfile are as they were'}, and the packages are installed in your folder.${tail}`
 }
