@@ -67,12 +67,12 @@ const read = async (h: Host): Promise<Record<string, boolean>> => { try { return
 export const approved = async (h: Host, root: string) => (await read(h))[root] === true
 export const approve = async (h: Host, root: string) => h.write(await FILE(h), JSON.stringify({ ...(await read(h)), [root]: true }, null, 1))
 
-// the forms an install request may take (the message a refused argv is sent back with; tests/needs.test.ts keeps it equal to what vet allows)
 // the reply when an install changed no manifest or lockfile. `uv pip install` (like pip) never edits them: saying they list the package was false (live: the worker
 // believed it, found uv.lock without the package, and blocked), so that form says what it did and what records the dependency
 export const nothingToCommit = (argv: readonly string[], note = ''): string =>
   argv[0] === 'uv' && argv[1] === 'pip' ? `The packages are installed in your folder only: uv pip install does not edit the manifest or the lockfile, so they do not list them. To record the dependency, ask again with argv ["uv","add","<package>"].${note}`
   : ['npm', 'pnpm', 'yarn', 'uv'].includes(argv[0]) ? `Nothing to commit: the manifest and lockfile already list them, and the packages are installed in your folder.${note}` : 'Nothing to commit: the manifest already lists them.'
+// the forms an install request may take (the message a refused argv is sent back with; tests/needs.test.ts keeps it equal to what vet allows)
 export const FORMS = 'npm install, add or ci; pnpm or yarn install or add; uv add or uv pip install; cargo add; go get'
 // a proposed install argv, vetted with the interpreters outside the worktree: the vetted argv with its environment, or why it is refused (used at the request and again when it runs)
 export async function vetted(h: Host, argv: unknown, wt: string) {
