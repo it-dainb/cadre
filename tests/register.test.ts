@@ -170,6 +170,22 @@ test('a repo that turns on mid-session: main keeps Agent until its plan tools ar
   await $.turn.start({ turnId: 't2' }); expect((await agent()).deny).toContain('call explore with your question')
 })
 
+// live (quick user1-mono-clear-cd-retype): a /clear arrived while the start was still running, so the new session had no record of the registered tools and arm() returned
+// at every turn: the repo was set up and main never got the plan tool. The tool list is asked instead.
+test('a repo that turns on after a /clear that left no tools record: main\'s plan tools are still registered at its next turn', ENGINE, async ($, on) => {
+  let inited = false; const tools: string[] = [], st: Record<string, any> = {}
+  on('state.get', (_$, e) => ({ value: { value: st[e.key], version: 1 } })); on('state.set', (_$, e) => (st[e.key] = e.value, { value: { isSet: true, version: 2 } }))
+  on('session.start', () => ({ cwd: '/work' })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('env.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined }))
+  on('session.version', () => ({ value: { version: '2.1.299' } })); on('store.get', ($: any, e: any) => ({ value: e.key === 'cadre:setup' ? { cc: '2.1.299' } : undefined }))
+  on('fs.read', () => { if (!inited) throw new Error('ENOENT'); return { value: '{}' } }); on('fs.stat', () => ({ value: undefined })); on('command.register', () => ({ value: undefined })); on('env.set', () => ({ value: undefined }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined })); on('ui.log', () => ({ value: undefined })); on('ui.toast', () => ({ value: undefined }))
+  on('tool.register', ($: any, e: any) => { tools.push(e.name); return { value: undefined } }); on('tool.list', () => ({ value: tools.map(name => ({ name: `mcp__cadre__${name}` })) })); on('tool.call', () => ({ result: 'ran' })); on('turn.start', ($: any, e: any) => e); mock.clock(on)
+  await $.session.start(START); expect(tools).not.toContain('plan')
+  const secretKey = Object.keys(st).find(k => /secret/.test(k))!; st[secretKey] = { ...st[secretKey], tools: undefined }   // the cleared session's secret: no record of what was registered
+  inited = true
+  await $.turn.start({ turnId: 't1' }); expect(tools).toEqual(expect.arrayContaining(MAIN_NAMES))
+})
+
 // slice 5: the HooksError seen under load at session.start was not reproduced (eight starts at once, with the machine's load average at 68 and 24 more busy loops: all returned in about 0.9 s);
 // a step that does throw no longer fails the hook: the session goes on, the log says so, and Doctor has a row (tests/doctor.test.ts)
 test('eight session.start calls at once all return, with one registered command each', ENGINE, async ($, on) => {

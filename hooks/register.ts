@@ -175,12 +175,14 @@ async function roles($, retry = false): Promise<void> {
 // main's tools for a repo that turned on in this session (/cadre init after start): registered at main's next turn start; Agent and the task tools are refused
 // only once they are listed (the model sees a registered tool from its next prompt on), so main always has a way to plan
 async function arm($): Promise<void> {
-  const s = await read($, secret), t = s.tools; if (!t || s.old) return
-  if (t.due?.length) { await update($, secret, x => ({ ...x, tools: { ...x.tools!, on: [...x.tools!.on, ...t.due!], due: undefined } })); return }
+  const s = await read($, secret); if (s.old) return
+  // a /clear that came while the start was still running leaves no record of what was registered (live: the plan tool never came after setup): the tool list says what is there
+  const t = s.tools ?? { on: ((await $.tool.list().catch(() => [])) as { name: string }[]).map(x => String(x.name).replace(/^mcp__cadre__/, '')), refused: [] as string[], due: undefined as string[] | undefined }
+  if (t.due?.length) { await update($, secret, x => ({ ...x, tools: { ...(x.tools ?? t), on: [...(x.tools ?? t).on, ...t.due!], due: undefined } as typeof t })); return }
   if (t.on.includes('plan') || t.refused.includes('plan') || !(await wake(host($)).catch(() => false))) return
   const due: string[] = [], refused: string[] = []
   for (const sp of [...MAIN_SPECS, PREFS_SPEC]) if (!t.on.includes(sp.name)) await $.tool.register(sp).then(() => { due.push(sp.name) }, () => { refused.push(sp.name) })
-  await update($, secret, x => ({ ...x, tools: { ...x.tools!, refused: [...x.tools!.refused, ...refused], due } }))
+  await update($, secret, x => ({ ...x, tools: { ...(x.tools ?? t), refused: [...(x.tools ?? t).refused, ...refused], due } as typeof t }))
 }
 
 export const register: Register = (on, opts) => {
