@@ -4,8 +4,8 @@
 # because the task branch is squashed at landing), deps-final (the manifests on dev), driver.log.
 . "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"; snapshots
 case $KIND in
-  node) GOAL='add parseDuration(s) to the library in src/duration.mjs, with node:test tests: it returns the milliseconds for a text like "2 days" or "1h", using the npm package ms'; MAN=package.json SRC=src/duration.mjs;;
-  py) GOAL='add to_text(value) to the textlib package in src/textlib/text.py, with unittest tests in test/: it returns value as a str, decoding bytes as utf-8, using six.ensure_text from the PyPI package six'; MAN=pyproject.toml SRC=src/textlib/text.py;;
+  node) GOAL='add parseDuration(s) to the library in src/duration.mjs, with node:test tests: it returns the milliseconds for a text like "2 days" or "1h", using the npm package ms; ms must be a dependency of the project (a requirement, not an option)'; MAN=package.json SRC=src/duration.mjs;;
+  py) GOAL='add to_text(value) to the textlib package in src/textlib/text.py, with unittest tests in test/: it returns value as a str, decoding bytes as utf-8, using six.ensure_text from the PyPI package six; six must be a dependency of the project (a requirement, not an option)'; MAN=pyproject.toml SRC=src/textlib/text.py;;
   s) MAN=package.json SRC=src/titleCase.mjs;;   # the S cell (needs-setup-s, the scripted model): the default goal
 esac
 # landed = the dependency is in dev's manifest and the task's own file is on dev (no wording of a title or commit message is relied on); cell.sh calls this again after the scenario
