@@ -67,28 +67,28 @@ const read = async (h: Host): Promise<Record<string, boolean>> => { try { return
 export const approved = async (h: Host, root: string) => (await read(h))[root] === true
 export const approve = async (h: Host, root: string) => h.write(await FILE(h), JSON.stringify({ ...(await read(h)), [root]: true }, null, 1))
 
-// The reply when an install changed no manifest or lockfile, computed from the manifest as it stands: it says "already list them" only for names the manifest really names.
-// `uv pip install` (like pip) never edits them (live: the worker believed a false "already list them", found uv.lock without the package, and blocked). Package names are
-// untrusted text of the repo: each is capped at 64 characters, a path-like one is not quoted, at most 10 are listed.
+// The reply when an install changed no manifest or lockfile. It names packages only for a package.json it could read (the keys of its dependency objects, the repo's own text:
+// each capped at 64 characters, a path-like one not quoted, at most 10 listed); for any other manifest it makes no claim about names and says what the diff shows.
+// `uv pip install` (like pip) never edits a manifest or lockfile: a false "already list them" once sent a worker to block on a lockfile that lacked the package.
 const NAME = /^@?[A-Za-z0-9][\w.+-]*(\/[\w.+-]+)?$/
 export const names = (ns: readonly string[]): string => { const u = [...new Set(ns)]; return `${u.slice(0, 10).map(n => (n.length <= 64 && NAME.test(n) ? n : '(a name)')).join(', ')}${u.length > 10 ? ` and ${u.length - 10} more` : ''}` }
-// what the argv asked for: the package names after the subcommand, without versions or flags (npm ms@2, uv six>=1.17, cargo serde); none for npm ci / npm install / go get
+// what the argv asked for: the package names after the subcommand, without versions or flags (npm ms@2); none for npm ci / npm install
 export const requested = (argv: readonly string[]): string[] => argv.slice(argv[0] === 'uv' && argv[1] === 'pip' ? 3 : 2).filter(a => !a.startsWith('-')).map(a => a.replace(/^(@?[^@=<>!~\[;]+).*$/, '$1')).filter(Boolean)
-export const nothingToCommit = (argv: readonly string[], listed: readonly string[] = [], stray = 0, note = ''): string => {
-  const want = requested(argv), have = new Set(listed), missing = want.filter(n => !have.has(n)), tail = `${stray ? ` ${stray} other file${stray === 1 ? '' : 's'} it changed ${stray === 1 ? 'was' : 'were'} discarded.` : ''}${note}`
+export const nothingToCommit = (argv: readonly string[], listed: readonly string[] | null = null, stray = 0, note = ''): string => {
+  const tail = `${stray ? ` ${stray} other file${stray === 1 ? '' : 's'} it changed ${stray === 1 ? 'was' : 'were'} discarded.` : ''}${note}`
   if (argv[0] === 'uv' && argv[1] === 'pip') return `The packages are installed in your folder only: uv pip install does not edit the manifest or the lockfile, so they do not list them. To record the dependency, ask again with argv ["uv","add","<package>"].${tail}`
-  if (want.length && missing.length) return `Nothing changed in the manifest or the lockfile, and ${names(missing)} ${missing.length === 1 ? 'is' : 'are'} not listed in the manifest. The packages are installed in your folder only; record the dependency with an install command that edits the manifest.${tail}`
-  return `Nothing changed: the manifest ${want.length ? `already lists ${names(want)}` : listed.length ? `lists ${names(listed)}` : 'and lockfile are as they were'}, and the packages are installed in your folder.${tail}`
+  if (listed === null) return `Nothing changed in the manifest or the lockfile.${tail}`   // no readable package.json: no claim about names
+  const want = requested(argv), have = new Set(listed), missing = want.filter(n => !have.has(n))
+  if (want.length && missing.length) return `Nothing changed in the manifest or the lockfile, and ${names(missing)} ${missing.length === 1 ? 'is' : 'are'} not listed in package.json. The packages are installed in your folder only; record the dependency with an install command that edits the manifest.${tail}`
+  return `Nothing changed: package.json ${want.length ? `already lists ${names(want)}` : listed.length ? `lists ${names(listed)}` : 'and the lockfile are as they were'}, and the packages are installed in your folder.${tail}`
 }
-// the dependency names the unit's manifest holds (package.json, pyproject.toml, requirements*.txt): read after the install
-export async function manifestNames(h: Host, dir: string): Promise<string[]> {
-  const out: string[] = [], pj = await h.readText(`${dir}/package.json`)
-  if (pj) try { const j = JSON.parse(pj); for (const k of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) out.push(...Object.keys(j?.[k] ?? {})) } catch { /* not JSON: no names */ }
-  const py = await h.readText(`${dir}/pyproject.toml`)
-  if (py) for (const blk of py.matchAll(/^\s*(?:dependencies|[\w-]+)\s*=\s*\[([^\]]*)\]/gm)) for (const m of blk[1].matchAll(/["']\s*([A-Za-z0-9][\w.-]*)/g)) out.push(m[1])
-  const rq = await h.readText(`${dir}/requirements.txt`)
-  if (rq) for (const l of rq.split('\n')) { const m = /^\s*([A-Za-z0-9][\w.-]*)/.exec(l); if (m) out.push(m[1]) }
-  return out
+// the dependency names of the unit's package.json (the keys of its dependency objects only), or null when it cannot be read: no read, no claim
+export async function manifestNames(h: Host, dir: string): Promise<string[] | null> {
+  try {
+    const pj = await h.readText(`${dir}/package.json`); if (!pj) return null
+    const j = JSON.parse(pj); if (!j || typeof j !== 'object' || Array.isArray(j)) return null
+    return ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'].flatMap(k => (j[k] && typeof j[k] === 'object' && !Array.isArray(j[k]) ? Object.keys(j[k]) : []))
+  } catch { return null }
 }
 // the forms an install request may take (the message a refused argv is sent back with; tests/needs.test.ts keeps it equal to what vet allows)
 export const FORMS = 'npm install, add or ci; pnpm or yarn install or add; uv add or uv pip install; cargo add; go get'

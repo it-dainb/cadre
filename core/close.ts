@@ -155,7 +155,7 @@ async function verdict(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
   if (r.verdict === 'changes' && blockers.length && blockers.every(f => outside.has(f.file)) && !coverageGaps(d.cfg.review.coverage.enforce, task.acceptance, specTestsOf(task), r.coverage).length) {   // coverage still counts: a pass cannot skip it
     r = { ...r, verdict: 'pass' }
     await followups(d, t.id, findings.map(f => ({ title: `${f.file}: ${String(f.issue).split('\n')[0]}`.slice(0, 120), description: `${f.issue}${f.fix ? ` (fix: ${f.fix})` : ''}`.slice(0, 1000) })))
-    filed = ` · passed with ${Math.min(5, findings.length)} followup(s) outside its files${findings.length > 5 ? ` (+${findings.length - 5} more not filed)` : ''}`   // followups() files at most 5
+    filed = ` · passed with ${Math.min(5, findings.length)} followup(s)${findings.length > 5 ? ` (+${findings.length - 5} more not filed)` : ''}`   // followups() files at most 5
     await decided(h, 'rework', `${t.id}: passed with its findings outside the task's files as followups${findings.length > 5 ? ` (+${findings.length - 5} more not filed)` : ''}`, t.id)
   }
   const m = await apply(h, { kind: 'verdict', id: t.id, at, actor: 'reviewer', verdict: r.verdict }, pipe(d)); if (!m.ok) throw new Error(m.error)

@@ -285,7 +285,7 @@ test('npm ci: refused while node_modules exists; in a worktree whose lockfile al
     assert.match((await P.setup(f.h, f.inp({ argv: ['npm', 'ci'] }))).text, /^The install was not run: node_modules is already there, and npm ci would delete it/); assert.ok(existsSync(join(f.wt, 'node_modules/local-dep/package.json')), 'a refused ci leaves node_modules alone')
     rmSync(join(f.wt, 'node_modules'), { recursive: true })
     const r = await P.setup(f.h, f.inp({ argv: ['npm', 'ci'], ask: 'install what the lockfile lists' }))
-    assert.match(r.text, /^Nothing changed: the manifest lists local-dep, and the packages are installed in your folder/, r.text); assert.ok(r.done)
+    assert.match(r.text, /^Nothing changed: package\.json lists local-dep, and the packages are installed in your folder/, r.text); assert.ok(r.done)
     assert.ok(existsSync(join(f.wt, 'node_modules/local-dep/package.json')), 'installed')
   } finally { f.done() }
 })
@@ -317,14 +317,20 @@ test('offline check that throws: before the install it counts as red; after a gr
 })
 
 // live (release016 needs-setup-python): `uv pip install six` changed no file and the reply said the manifest and lockfile already listed six; uv.lock did not.
-// The reply is computed from the manifest as it stands: "already lists" only for names it names; a package name is the repo's text (capped, no path, at most 10)
-test('an install that changed no file says what the manifest really holds, never "already list them" for a name it lacks', () => {
+// Names are claimed only from a readable package.json (the keys of its dependency objects); any other manifest gets no claim, only what the diff shows.
+test('an install that changed no file: names only from package.json, no claim for other manifests, a failed read means no claim', async () => {
   const pipText = P.nothingToCommit(['uv', 'pip', 'install', 'six'])
   assert.match(pipText, /^The packages are installed in your folder only: uv pip install does not edit the manifest or the lockfile/); assert.match(pipText, /"uv","add"/)
-  assert.match(P.nothingToCommit(['uv', 'add', 'six>=1.17'], ['six', 'ms']), /^Nothing changed: the manifest already lists six, and the packages are installed/)
-  const miss = P.nothingToCommit(['npm', 'install', 'ms@2', 'left-pad'], ['ms']); assert.match(miss, /^Nothing changed in the manifest or the lockfile, and left-pad is not listed in the manifest/); assert.doesNotMatch(miss, /already list/)
-  assert.match(P.nothingToCommit(['npm', 'ci'], ['ms']), /^Nothing changed: the manifest lists ms, and/); assert.match(P.nothingToCommit(['npm', 'ci'], []), /^Nothing changed: the manifest and lockfile are as they were/)
-  assert.match(P.nothingToCommit(['npm', 'install', 'ms'], ['ms'], 2, ' note'), /2 other files it changed were discarded\. note$/); assert.match(P.nothingToCommit(['npm', 'install', 'ms'], ['ms'], 1), /1 other file it changed was discarded\./)
+  assert.match(P.nothingToCommit(['npm', 'install', 'ms@2'], ['ms', 'left-pad']), /^Nothing changed: package\.json already lists ms, and the packages are installed/)
+  const miss = P.nothingToCommit(['npm', 'install', 'ms', 'left-pad'], ['ms']); assert.match(miss, /^Nothing changed in the manifest or the lockfile, and left-pad is not listed in package\.json/); assert.doesNotMatch(miss, /already list/)
+  assert.match(P.nothingToCommit(['npm', 'ci'], ['ms']), /^Nothing changed: package\.json lists ms, and/); assert.match(P.nothingToCommit(['npm', 'ci'], []), /^Nothing changed: package\.json and the lockfile are as they were/)
+  assert.equal(P.nothingToCommit(['uv', 'add', 'six']), 'Nothing changed in the manifest or the lockfile.'); assert.equal(P.nothingToCommit(['cargo', 'add', 'serde'], null, 1), 'Nothing changed in the manifest or the lockfile. 1 other file it changed was discarded.')
+  assert.match(P.nothingToCommit(['npm', 'install', 'ms'], ['ms'], 2, ' note'), /2 other files it changed were discarded\. note$/)
   const many = Array.from({ length: 12 }, (_, n) => `pkg${n}`); assert.equal(P.names(many), `${many.slice(0, 10).join(', ')} and 2 more`)
   assert.equal(P.names(['a'.repeat(65), ['', 'home', 'x', 'y'].join('/'), '../z', 'ok-name', '@scope/pkg']), '(a name), (a name), (a name), ok-name, @scope/pkg')
+  const host = files => ({ readText: async p => { const k = p.split('/').pop(); if (files[k] instanceof Error) throw files[k]; return files[k] ?? null } })
+  assert.deepEqual(await P.manifestNames(host({ 'package.json': JSON.stringify({ name: 'x', keywords: ['six'], dependencies: { ms: '^2' }, devDependencies: { tap: '1' }, peerDependencies: 'nope', optionalDependencies: ['a'] }) }), '.'), ['ms', 'tap'])   // other keys and non-objects are not names
+  assert.equal(await P.manifestNames(host({ 'package.json': '{ not json' }), '.'), null); assert.equal(await P.manifestNames(host({ 'package.json': '[1]' }), '.'), null)
+  assert.equal(await P.manifestNames(host({ 'pyproject.toml': '[project]\nkeywords = ["six"]\ndependencies = ["six"]\n' }), '.'), null)   // pyproject: no name claim
+  assert.equal(await P.manifestNames(host({ 'package.json': new Error('EIO') }), '.'), null)   // a failed read is no claim
 })

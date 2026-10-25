@@ -214,7 +214,7 @@ describe('replays 12-20: regressions from the log', () => {
     expect(a.r).toContain('verdict accepted: pass@'); expect((await a.w.dep.store.list({})).some(t => t.title.includes('.github/workflows/ci.yml: CI has no install step'))).toBe(true)
     const w = await world(), [rv] = await inReview(w), id = w.ids[0]; await w.dep.store.setMeta(id, { 'cadre.paths': JSON.stringify(['src/a.ts']) }, w.dep.actor)   // more than followups() files (5): the rest is said, on the card too (until it lands)
     const r = await w.rep(rv, { ...CHANGES, coverage: [{ scenario: 'S1', ok: true }], findings: [1, 2, 3, 4, 5, 6, 7].map(n => ({ severity: 'major', file: `ci/${n}.yml`, issue: 'x' })) })
-    expect(r).toContain('pass@'); expect((await w.h.board.read()).tasks.find(x => x.id === id)!.card).toContain('passed with 5 followup(s) outside its files (+2 more not filed)')
+    expect(r).toContain('pass@'); expect((await w.h.board.read()).tasks.find(x => x.id === id)!.card).toContain('passed with 5 followup(s) (+2 more not filed)')
     const b = await outside(['src/a.ts'], [{ severity: 'major', file: '.github/workflows/ci.yml', issue: 'no install' }, { severity: 'major', file: 'src/a.ts', issue: 'wrong answer' }]); expect(b.r).toContain('changes (1/')
     const c = await outside(['src/a.ts'], [{ severity: 'major', file: '.github/workflows/ci.yml', issue: 'no install' }], false); expect(c.r).toContain('changes (1/')   // a weak coverage entry still blocks a pass
   })
