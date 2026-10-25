@@ -68,6 +68,11 @@ export const approved = async (h: Host, root: string) => (await read(h))[root] =
 export const approve = async (h: Host, root: string) => h.write(await FILE(h), JSON.stringify({ ...(await read(h)), [root]: true }, null, 1))
 
 // the forms an install request may take (the message a refused argv is sent back with; tests/needs.test.ts keeps it equal to what vet allows)
+// the reply when an install changed no manifest or lockfile. `uv pip install` (like pip) never edits them: saying they list the package was false (live: the worker
+// believed it, found uv.lock without the package, and blocked), so that form says what it did and what records the dependency
+export const nothingToCommit = (argv: readonly string[], note = ''): string =>
+  argv[0] === 'uv' && argv[1] === 'pip' ? `The packages are installed in your folder only: uv pip install does not edit the manifest or the lockfile, so they do not list them. To record the dependency, ask again with argv ["uv","add","<package>"].${note}`
+  : ['npm', 'pnpm', 'yarn', 'uv'].includes(argv[0]) ? `Nothing to commit: the manifest and lockfile already list them, and the packages are installed in your folder.${note}` : 'Nothing to commit: the manifest already lists them.'
 export const FORMS = 'npm install, add or ci; pnpm or yarn install or add; uv add or uv pip install; cargo add; go get'
 // a proposed install argv, vetted with the interpreters outside the worktree: the vetted argv with its environment, or why it is refused (used at the request and again when it runs)
 export async function vetted(h: Host, argv: unknown, wt: string) {
@@ -140,7 +145,7 @@ export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
     if (stray.length && o.strays) return await bad('it changed files besides the manifest and lockfile, again')
     await revert(stray)
     const note = o.check && red0!.exitCode ? ' The checks were already failing before it, so the install could not be verified by them.' : ''
-    if (!files.length) return { text: ['npm', 'pnpm', 'yarn', 'uv'].includes(v.argv[0]) ? `Nothing to commit: the manifest and lockfile already list them, and the packages are installed in your folder.${note}` : 'Nothing to commit: the manifest already lists them.', ...flag }
+    if (!files.length) return { text: nothingToCommit(v.argv, note), ...flag }
     const sub = o.ask.split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 60) || 'add dependencies'
     await git('add', '--', ...files); const c = await git('commit', '--no-verify', '-m', `chore(deps): ${sub}`)
     if (c.exitCode) return await bad(`it could not be committed (${scrub(c.stderr)})`)

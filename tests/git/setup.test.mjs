@@ -315,3 +315,10 @@ test('offline check that throws: before the install it counts as red; after a gr
     assert.equal(await sh(g.wt, 'git', 'status', '--porcelain'), ''); assert.ok(!existsSync(join(g.wt, 'node_modules'))); assert.equal(existsSync(ex) ? readFileSync(ex, 'utf8') : null, was, 'the ignore line is put back')
   } finally { g.done() }
 })
+
+// live (release016 needs-setup-python): `uv pip install six` changed no file and the reply said the manifest and lockfile already listed six; uv.lock did not
+test('an install that edits no manifest says so (uv pip install), and names uv add for recording the dependency', () => {
+  const pipText = P.nothingToCommit(['uv', 'pip', 'install', 'six'])
+  assert.match(pipText, /^The packages are installed in your folder only: uv pip install does not edit the manifest or the lockfile/); assert.match(pipText, /"uv","add"/); assert.doesNotMatch(pipText, /already list/)
+  assert.match(P.nothingToCommit(['uv', 'add', 'six']), /^Nothing to commit: the manifest and lockfile already list them/); assert.match(P.nothingToCommit(['npm', 'install', 'ms']), /already list them/)
+})
