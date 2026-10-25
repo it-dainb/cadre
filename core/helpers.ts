@@ -59,7 +59,7 @@ export function vet(argv: unknown, wt: string, sys: { py?: string; rust?: string
 // plant a cache there: `${TMPDIR:-/tmp}/cadre-<uid>`, made 0700 by the prefix itself, used only when it is ours and not a link.
 export const OFFLINE: Record<string, string> = { npm_config_offline: 'true', YARN_ENABLE_OFFLINE_MODE: '1', UV_OFFLINE: '1', PIP_NO_INDEX: '1', CARGO_NET_OFFLINE: 'true', GOPROXY: 'off', npm_config_update_notifier: 'false' }
 export const CACHES: Record<string, string> = { npm_config_cache: 'npm-cache', npm_config_logs_dir: 'npm-logs', UV_CACHE_DIR: 'uv-cache', PIP_CACHE_DIR: 'pip-cache' }
-export const offlinePrefix = (): string => `__cd="\${TMPDIR:-/tmp}/cadre-$(id -u)"; mkdir -p -m 700 "$__cd" 2>/dev/null; if [ -O "$__cd" ] && [ ! -L "$__cd" ]; then export ${Object.entries(CACHES).map(([k, d]) => `${k}="$__cd/${d}"`).join(' ')}; fi; unset __cd; export ${Object.entries(OFFLINE).map(([k, v]) => `${k}=${v}`).join(' ')}; `
+export const offlinePrefix = (): string => `__cd="\${TMPDIR:-/tmp}/cadre-$(id -u)"; mkdir -p -m 700 "$__cd" 2>/dev/null; if [ -O "$__cd" ] && [ ! -L "$__cd" ]; then chmod 700 "$__cd" 2>/dev/null; export ${Object.entries(CACHES).map(([k, d]) => `${k}="$__cd/${d}"`).join(' ')}; fi; unset __cd; export ${Object.entries(OFFLINE).map(([k, v]) => `${k}=${v}`).join(' ')}; `
 
 // the one-time per-repo approval: the user's own layer, keyed by repo root; a committed repo file cannot hold it
 const FILE = async (h: Host) => `${await h.home()}/.claude/cadre/deps.json`

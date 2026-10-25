@@ -101,6 +101,8 @@ export function sliceNotes(notes: Note[], paths: string[], slice: boolean): { sh
   return { shared: txt(notes.filter(n => !pathed(n))), slice: txt(notes.filter(n => pathed(n) && (!paths.length || n.paths!.some(p => paths.some(q => overlap(p, q)))))) }
 }
 // review coverage (ADR 0022): the scenario ids (S1, S2…) of the acceptance that no locked spec test name carries ("test_s3_login" carries S3, "S30" does not)
+// the one-line scenario a worker's spec_change proposes: checked when it reports, and again before cadre writes it into the spec
+export const SPEC_SCENARIO = /^\s*(S\d+)\s*:\s*(\S[^\n]*)$/
 export const scenarioIds = (acceptance?: string): string[] => (acceptance ?? '').split('\n').map(l => /^S\d+/.exec(l.trim())?.[0]).filter(Boolean) as string[]
 // names null: the task has no locked spec tests (no tester step), nothing to check
 export const specTestsOf = (t: Pick<Task, 'meta'>): string[] | null => { try { const v = JSON.parse(t.meta['cadre.specTests'] ?? 'null'); return Array.isArray(v) ? v.map(String) : null } catch { return null } }

@@ -13,7 +13,7 @@ import * as G from './git'
 import { modelText } from './say'
 import { baseOf } from './branches'
 import { auditView, inRepo, matches, modeOf, pkgOf, rootOf, type Pkg } from './specview'
-import { untested } from './validate'
+import { SPEC_SCENARIO, untested } from './validate'
 import { policyOf, setPolicy } from '../policy/guards'
 import { reset, step } from './lifecycle'
 
@@ -310,7 +310,7 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
   if (acc) await reset(h, id, 'red')   // the refusals before the change were for the old tests: the amended ones get their own rounds
   // The scenario the worker proposed goes into the spec as it stands (the tester reads the scenarios, never the worker's reason). The tester's own note holds only
   // what the decider said (main under yolo; the human's dialog has no text): the worker's reason is implementation talk and never crosses to the tester
-  const sc = /^\s*(\S+?)\s*:\s*(\S[\s\S]*)$/.exec(task!.meta['cadre.specScenario'] ?? '')
+  const sc = SPEC_SCENARIO.exec(task!.meta['cadre.specScenario'] ?? '')   // the guard: report time already refused anything else
   if (acc && sc) { const lines = (task!.acceptance ?? '').split('\n'), at = lines.findIndex(l => l.startsWith(`${sc[1]}:`)); at >= 0 ? (lines[at] = `${sc[1]}: ${sc[2].trim()}`) : lines.push(`${sc[1]}: ${sc[2].trim()}`); await d.store.update(id, { acceptance: lines.join('\n') }, d.actor) }
   const note = acc ? `spec change accepted: ${task!.meta['cadre.specChange'] ?? ''}` : 'spec change rejected: the locked tests stay; conform to them'
   await d.store.setMeta(id, { 'cadre.blocked': '', 'cadre.decision': note.slice(0, 1500), ...(acc ? { 'cadre.specDecision': `The spec change was accepted${sc ? ' and the scenarios above are the amended ones' : ''}${reason ? `: ${reason.slice(0, 300)}` : ''}. Change the tests in your test paths to match the scenarios; they must differ from the ones there now.` } : {}) }, d.actor)

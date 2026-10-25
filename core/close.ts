@@ -7,7 +7,7 @@ import { pipeOf } from '../task-management/registry'
 import { LIFECYCLE } from './plantools'
 import { ROUTES } from './dispatch'
 import { resolveDeps, type Deps } from './admission'
-import { coverageGaps, specTestsOf } from './validate'
+import { SPEC_SCENARIO, coverageGaps, specTestsOf } from './validate'
 import { agentsOf, fnv1a64, patchBinding } from './board'
 import { apply, STEP_CAT, transition } from './machine'
 import { emit } from './events'
@@ -208,6 +208,7 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
   if (r.role === 'reviewer') { const err = o.lax ? null : await semantic(h, await d.store.get(t.id), b.worktree, r, d.cfg.review.coverage.enforce); if (err) throw new Error(err); return verdict(h, d, t, b, agentId!, r) }
   if (r.outcome === 'done') return workerDone(h, d, t, b, r)
   const spec = r.outcome === 'spec_change', why = String(r.reason ?? r.summary ?? '').slice(0, 400)
+  if (spec && r.scenario !== undefined && r.scenario !== '' && !SPEC_SCENARIO.test(String(r.scenario))) throw new Error('scenario: expected one line "S<n>: Given … When … Then …"')   // before anything is written: the worker fixes it at once
   if (spec) { await specChange(h, d, t.id, why, String(r.scenario ?? '')); await record(h, d, t.id, 'blocked', t.step, { why }, { summary: r.summary, reason: r.reason }); await raise(h, t.id, 'spec_change') }
   else { await d.store.setMeta(t.id, { 'cadre.question': why }, d.actor); await blockTask(h, d, t, why, 'blocked', { summary: r.summary, reason: r.reason, questions: r.questions }) }   // yolo: main answers it from this (core/drive)
   return spec ? 'spec change recorded; it is decided for you. Stop and wait.' : 'blocked recorded; you are resumed with the answer. Stop and wait.'

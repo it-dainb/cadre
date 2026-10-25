@@ -189,6 +189,19 @@ test('spec_change accept: red rounds restart quietly; the scenario is amended; t
   assert.doesNotMatch(d, /impl\.ts/)   // the worker's reason never reaches the tester
   assert.match(brief('tester', { id: 'm-1', title: 't', type: 'test', decisions: [d] }), /Decided \(apply it to the tests\)\nThe spec change was accepted/)
 })
+test('a spec_change scenario must be one "S<n>: …" line, refused at report time; a malformed one that got stored is never written into the spec', async () => {
+  const w = world({ acceptance: 'S5: Given a When b Then c' }), { wt, view } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']); w.meta['cadre.worktree'] = wt
+  await w.h.board.update(s => ({ ...s, tasks: s.tasks.map(t => ({ ...t, state: 'active', step: 'worker' })) }))
+  await w.h.bind.update(b => ({ ...b, ag1: { taskId: 'm-1', role: 'worker', step: 'worker', worktree: wt, sessionId: 's', ctxTokens: 0, startedAt: 0 } }))
+  const rep = scenario => ({ role: 'worker', outcome: 'spec_change', summary: 's', reason: 'r', scenario })
+  for (const bad of ['foo: bar', 'Given x: when y', 'S5: Given a\nS6: Given injected', 'S5:']) {
+    await assert.rejects(CL.report(w.h, w.d, 'ag1', rep(bad)), /scenario: expected one line "S<n>: Given … When … Then …"/)
+    assert.equal((await w.h.board.read()).tasks[0].state, 'active'); assert.equal(w.meta['cadre.specScenario'], undefined)   // nothing was written
+  }
+  await CL.report(w.h, w.d, 'ag1', rep('S5: Given a When b Then d')); assert.equal(w.meta['cadre.specScenario'], 'S5: Given a When b Then d')
+  w.meta['cadre.specScenario'] = 'foo: bar\nS9: injected'; await T.resolveSpec(w.h, 'm-1', 'accept')   // the guard in resolveSpec: no write
+  assert.equal(w.acceptance(), 'S5: Given a When b Then c')
+})
 test('spec_change accept: the worker commits are dropped, so the amended red is measured on the spec commit tree', async () => {
   const w = world(), { wt } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']), spec = w.meta['cadre.specCommit']; w.meta['cadre.worktree'] = wt
   writeFileSync(join(wt, 'src/impl.ts'), 'export const IMPL = 1\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'worker')

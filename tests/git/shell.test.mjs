@@ -33,3 +33,8 @@ test('a cadre-<uid> that is a link is never used for the caches (the offline set
     assert.equal(e.npm_config_offline, 'true'); assert.equal(e.UV_OFFLINE, '1'); assert.equal(existsSync(join(elsewhere, 'npm-cache')), false)
   } finally { rmSync(tmp, { recursive: true, force: true }) }
 })
+
+test('a cadre-<uid> that already exists with a loose mode is tightened to 0700 when it is ours', () => {
+  const tmp = mkdtempSync(join('/var/tmp', 'cadre-shell-')), dir = join(tmp, `cadre-${uid}`); mkdirSync(dir, { mode: 0o755 })
+  try { run(tmp, 'true'); assert.equal(statSync(dir).mode & 0o777, 0o700) } finally { rmSync(tmp, { recursive: true, force: true }) }
+})
