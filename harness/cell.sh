@@ -11,6 +11,12 @@ GOAL=${GOAL:-add titleCase(s) to the library: capitalise the first letter of eac
 T0=$(date +%s%3N); echo "$T0" >"$O/t0"; echo "${DIALOG_WAIT:-2}" >"$O/dialog_wait"
 log() { echo "$(date +%s%3N) $*" >>"$O/driver.log"; }
 tui() { "$H/tui.sh" "$@"; }
+# hard wall cap: a cell never outlives BUDGET + 300 s (or its parent: the matrix, or the shell that started it); then its container goes and the cell dies. A hung scenario step does not stop at BUDGET by itself.
+PP=$PPID; ( while sleep 5; do
+    [ $(( $(date +%s%3N) - T0 )) -gt $(( (${BUDGET:-600} + 300) * 1000 )) ] && w="wall cap" || { kill -0 "$PP" 2>/dev/null && continue; w="parent gone"; }
+    echo "$(date +%s%3N) $w: stopping $N" >>"$O/driver.log"; "$H/tui.sh" stop "$N" >/dev/null 2>&1; pkill -P $$ 2>/dev/null; kill $$ 2>/dev/null; break
+  done ) & WALL=$!
+trap 'kill $WALL 2>/dev/null' EXIT
 
 # fixtures in order (a base, then overlays), then the machine-setup stamp: users run /cadre setup once per machine
 S=$O/scaffold.sh; { for f in $FIX; do echo "bash '$H/fixtures/$f.sh' || exit 1"; done; echo ". '$H/fixtures/_base.sh'; seed cadre:setup '{\"at\":0}'"; } >"$S"
@@ -69,7 +75,7 @@ watcher() {
   done
 }
 watcher & W=$!
-trap 'kill $W 2>/dev/null' EXIT
+trap 'kill $W $WALL 2>/dev/null' EXIT
 
 # ---- scenario steps (harness/scenarios/<name>.sh is sourced: plain bash with these) ----
 busy() { local p; p=$(tui capture "$N"); grep -q 'esc to interrupt' <<<"$p" || dialog "$p"; }

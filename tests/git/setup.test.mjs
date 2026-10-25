@@ -243,3 +243,13 @@ test('uv add: a .venv that is a link is refused before anything runs', async () 
     assert.match((await P.setup(f.h, f.inp({ argv: ['uv', 'add', 'six'] }))).text, /^The install was not run: \.venv in your folder is a link/); assert.ok(!seen.includes('jail'), 'no jail ran')
   } finally { f.done() }
 })
+
+test('npm install in a repo that does not ignore node_modules: the packages stay in the folder, as the reply says', async () => {
+  const f = await fix(); try {
+    await sh(f.wt, 'git', 'rm', '-q', '.gitignore'); await sh(f.wt, 'git', 'commit', '-qm', 'no ignore'); assert.ok(!existsSync(join(f.wt, '.gitignore')))
+    const r = await P.setup(f.h, f.inp()), dep = join(f.wt, 'node_modules/local-dep/package.json')
+    assert.match(r.text, /^Installed and committed on your branch: package\.json, package-lock\.json/, r.text)
+    assert.equal(/in your folder/.test(r.text), existsSync(dep), 'the reply claims what happened'); assert.ok(existsSync(dep)); assert.ok(r.done && !r.stray)
+    assert.equal(await sh(f.wt, 'git', 'ls-files', 'node_modules'), '', 'node_modules is not committed')
+  } finally { f.done() }
+})

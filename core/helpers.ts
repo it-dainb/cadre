@@ -77,6 +77,11 @@ export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
   }
   await o.checkpoint()
   if ((await dirty()).length) return { text: 'The install was not run: your folder has changes that could not be set aside. Finish or discard them, then ask again.' }
+  // the packages stay in the folder: node_modules is ignored for this repository (the install dir is no stray, and a checkpoint never commits it). uv's venv ignores itself.
+  if (['npm', 'pnpm', 'yarn'].includes(v.argv[0])) {
+    const ex = (await git('rev-parse', '--path-format=absolute', '--git-path', 'info/exclude')).stdout.trim()
+    if (ex && !((await h.readText(ex)) ?? '').split('\n').includes('node_modules/')) await h.run(['sh', '-c', 'printf "\\nnode_modules/\\n" >> "$1"', 'sh', ex])
+  }
   const before = new Set(await ignored()), env = await h.env()   // an ignored file is not in the diff, and the toolchain reads it all the same (not node_modules: packages carry their own)
   const rc = [...new Set([...(await git('diff', '--name-only', o.base ?? 'HEAD')).stdout.split('\n'), ...before].filter(f => RUNS_CODE.test(f) && !/(^|\/)node_modules\//.test(f)))]
   if (SOURCES.test((await git('diff', o.base ?? 'HEAD', '--', ':(glob)**/pyproject.toml')).stdout)) rc.push('pyproject.toml')
