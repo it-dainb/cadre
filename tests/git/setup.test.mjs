@@ -57,7 +57,7 @@ test('every listed form is refused; the plain forms are allowed with scripts off
   for (const a of bad) assert.equal(typeof P.vet(a, W, PY), 'string', `refused: ${JSON.stringify(a)}`)
   assert.equal(typeof P.vet('npm install x', W), 'string'); assert.match(P.vet(['poetry', 'add', 'x'], W), /poetry cannot be run here: it cannot refuse source builds/)
   const ok = (a) => { const v = P.vet(a, W, PY); assert.equal(typeof v, 'object', `allowed: ${JSON.stringify(a)}`); return v }
-  assert.deepEqual(ok(['npm', 'install', '-D', '--no-audit', 'x@>=1', '@scope/y@^2', 'z@latest']), { argv: ['npm', 'install', '-D', '--no-audit', 'x@>=1', '@scope/y@^2', 'z@latest'], env: { npm_config_ignore_scripts: 'true', YARN_ENABLE_SCRIPTS: 'false', YARN_IGNORE_PATH: '1' } })
+  assert.deepEqual(ok(['npm', 'install', '-D', '--no-audit', 'x@>=1', '@scope/y@^2', 'z@latest']), { argv: ['npm', 'install', '-D', '--no-audit', 'x@>=1', '@scope/y@^2', 'z@latest'], env: { npm_config_ignore_scripts: 'true', YARN_ENABLE_SCRIPTS: 'false', YARN_IGNORE_PATH: '1', npm_config_manage_package_manager_versions: 'false', COREPACK_ENABLE_NETWORK: '0', COREPACK_ENABLE_AUTO_PIN: '0' } })
   assert.deepEqual(ok(['pnpm', 'add', 'x']).argv, ['pnpm', 'add', 'x', '--ignore-pnpmfile']); assert.equal(ok(['yarn', 'add', '--dev', 'x']).env.YARN_ENABLE_SCRIPTS, 'false'); assert.equal(ok(['yarn', 'add', 'x']).env.YARN_IGNORE_PATH, '1')
   assert.ok(ok(['uv', 'pip', 'install', 'x']).empty && !ok(['uv', 'add', 'x']).empty && !ok(['npm', 'i', 'x']).empty, 'the pip forms run from an empty folder')
   assert.match(P.vet(['uv', 'add', 'x'], W), /no system python/); assert.match(P.vet(['uv', 'pip', 'install', 'x'], W), /no system python/); assert.match(P.vet([`${W}/.venv/bin/pip`, 'install', 'x'], W, PY), /uv pip install or uv add/)
@@ -155,7 +155,7 @@ test('uv pip runs from an empty folder: a planted archive of the repository is n
 })
 
 test('the jail binds back only real folders strictly inside the home, never the whole home', () => {
-  const j = G.setupJail({ wt: '/h/w', scratch: '/h/s', pkgRoot: '/h/w', argv: ['x'], scratchHome: '/h/s/home', home: '/h', path: '/h:/h/.nvm/versions/node/v1/bin:/h/.cargo/bin:/usr/bin', tools: ['/h', '/h/.nvm/versions/node/v1/bin', '/h/.cargo/bin', '/usr/bin'] })
+  const j = G.setupJail({ wt: '/h/w', scratch: '/h/s', pkgRoot: '/h/w', argv: ['x'], scratchHome: '/h/s/home', home: '/h', path: '/h:/h/.nvm/versions/node/v1/bin:/h/.cargo/bin:/usr/bin', tools: ['/h', '/h/.nvm/versions/node/v1/bin', '/h/.cargo/bin', '/usr/bin', '/h/w/node_modules/.bin', '/h/s/bin'] })
   const ro = j.flatMap((x, i) => (x === '--ro-bind' && j[i + 1] !== '/' ? [j[i + 1]] : [])); assert.deepEqual(ro, ['/h/.nvm/versions/node/v1', '/h/.cargo/bin'])
   for (const f of ['--clearenv', '--unshare-pid', '--unshare-ipc', '--die-with-parent']) assert.ok(j.includes(f), f); assert.deepEqual(j.slice(j.indexOf('--tmpfs'), j.indexOf('--tmpfs') + 2), ['--tmpfs', '/run'])
 })
@@ -184,5 +184,30 @@ test('nothing the toolchain executes comes from the worktree: a planted .venv py
       await P.setup(f.h, f.inp({ argv: ['uv', 'add', 'x'] }))
     } finally { rmSync(outside, { force: true }) }
     assert.match(seen.hid, /No such file/); assert.match(seen.uvenv, /^\/usr\/\S*python3\S* \/tmp\/venv/); assert.match(seen.tools, /npm[\s\S]*node[\s\S]*uv/); assert.ok(!existsSync(mark))
+  } finally { f.done() }
+})
+
+test('an ignored .yarnrc.yml or .cargo/config.toml (not in the diff) stops the install too; one inside node_modules does not', async () => {
+  const f = await fix(); try {
+    const ex = await sh(f.wt, 'git', 'rev-parse', '--path-format=absolute', '--git-path', 'info/exclude'); writeFileSync(ex, '.yarnrc.yml\n.cargo/\n')
+    for (const p of ['.yarnrc.yml', 'sub/.cargo/config.toml']) {
+      mkdirSync(join(f.wt, p, '..'), { recursive: true }); writeFileSync(join(f.wt, p), 'x\n'); if (p.startsWith('sub')) writeFileSync(join(f.wt, '.gitignore'), 'node_modules\n'), writeFileSync(ex, '.yarnrc.yml\n.cargo/\n')
+      assert.equal(await sh(f.wt, 'git', 'status', '--porcelain', '--', p), ''); const r = await P.setup(f.h, f.inp()); assert.match(r.text, new RegExp(`^The install was not run: ${p.replaceAll('.', '\\.')}`), r.text)
+      rmSync(join(f.wt, p), { force: true })
+    }
+    mkdirSync(join(f.wt, 'node_modules/p'), { recursive: true }); writeFileSync(join(f.wt, 'node_modules/p/.npmrc'), 'x\n'); assert.match((await P.setup(f.h, f.inp())).text, /^Installed/)
+  } finally { f.done() }
+})
+
+test('the git runner: a tree whose .git was swapped for a directory with core.fsmonitor is refused and nothing runs; linked worktrees and the repo itself work', async () => {
+  const f = await fix(); try {
+    const g = G.guardedRun(run, async () => f.root), mark = join(f.d, 'MARKER'), script = join(f.d, 'mon.sh'); writeFileSync(script, `#!/bin/sh\necho ran > ${mark}\n`, { mode: 0o755 })
+    assert.equal((await g(['git', '-C', f.wt, 'status', '--porcelain'])).exitCode, 0); assert.equal((await g(['git', '-C', f.root, 'status', '--porcelain'])).exitCode, 0); assert.equal((await g(['git', 'status'], { cwd: f.wt })).exitCode, 0)
+    rmSync(join(f.wt, '.git')); await sh(f.d, 'git', 'init', '-q', f.wt); await sh(f.wt, 'git', 'config', 'core.fsmonitor', script)
+    await run(['git', '-C', f.wt, 'status']); assert.ok(existsSync(mark), 'unguarded, the planted config runs'); rmSync(mark)
+    const r = await g(['git', '-C', f.wt, 'status']); assert.notEqual(r.exitCode, 0); assert.match(r.stderr, /not a working folder/); assert.ok(!existsSync(mark))
+    assert.notEqual((await g(['git', 'status'], { cwd: f.wt })).exitCode, 0); assert.ok(!existsSync(mark))
+    rmSync(join(f.wt, '.git'), { recursive: true }); writeFileSync(join(f.wt, '.git'), `gitdir: ${f.d}\n`); assert.notEqual((await g(['git', '-C', f.wt, 'status'])).exitCode, 0)   // a file that names a git dir elsewhere
+    await sh(f.root, 'git', 'config', 'core.fsmonitor', script); assert.equal((await g(['git', '-C', f.root, 'status'])).exitCode, 0); assert.ok(!existsSync(mark), 'the flags switch the monitor off even in the repo\'s own config')
   } finally { f.done() }
 })

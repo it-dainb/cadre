@@ -14,7 +14,7 @@ const SOURCES = /^\+.*\b(index|sources|find-links|find_links|index-url|index_url
 const NPM = /^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*(@[\w.^~<>=*|, -]+)?$/i, PY = /^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*(\[[\w,.-]+\])?((==|>=|<=|~=|!=|<|>)[\w.*+!-]+(,(==|>=|<=|~=|!=|<|>)[\w.*+!-]+)*)?$/, CRATE = /^[A-Za-z][\w-]*(@[\w.^~<>=*, -]+)?$/, GO = /^[a-z0-9][\w.-]*(\/[\w.-]+)+(@[\w.-]+)?$/i
 // program -> subcommand tokens, known flags (value: the flags that take one word), the spec shape, what cadre adds. The worktree's own virtualenv is never used: nothing the toolchain runs may come from the worktree. No poetry: it cannot refuse source builds.
 interface Eco { subs: string[][]; flags: string[]; value?: string[]; spec: RegExp; add?: string[]; env?: Record<string, string>; empty?: true }   // empty: runs from an empty folder, so no bare name can be a file or folder of the repository
-const JS = { npm_config_ignore_scripts: 'true', YARN_ENABLE_SCRIPTS: 'false', YARN_IGNORE_PATH: '1' }
+const JS = { npm_config_ignore_scripts: 'true', YARN_ENABLE_SCRIPTS: 'false', YARN_IGNORE_PATH: '1', npm_config_manage_package_manager_versions: 'false', COREPACK_ENABLE_NETWORK: '0', COREPACK_ENABLE_AUTO_PIN: '0' }
 const ARCHIVE = /\.(tar(\.\w+)?|tgz|zip|whl|egg|gz|bz2|xz|crate)$/i   // a local archive by its bare name
 const ALLOW: Record<string, Eco> = {
   npm: { subs: [['install'], ['i'], ['add']], flags: ['-D', '--save-dev', '-O', '--save-optional', '-E', '--save-exact', '-P', '--save-prod', '--no-audit', '--no-fund'], spec: NPM, env: JS },
@@ -74,10 +74,10 @@ export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
   }
   await o.checkpoint()
   if ((await dirty()).length) return { text: 'The install was not run: your folder has changes that could not be set aside. Finish or discard them, then ask again.' }
-  const rc = (await git('diff', '--name-only', o.base ?? 'HEAD')).stdout.split('\n').filter(f => RUNS_CODE.test(f))
+  const before = new Set(await ignored()), env = await h.env()   // an ignored file is not in the diff, and the toolchain reads it all the same (not node_modules: packages carry their own)
+  const rc = [...new Set([...(await git('diff', '--name-only', o.base ?? 'HEAD')).stdout.split('\n'), ...before].filter(f => RUNS_CODE.test(f) && !/(^|\/)node_modules\//.test(f)))]
   if (SOURCES.test((await git('diff', o.base ?? 'HEAD', '--', ':(glob)**/pyproject.toml')).stdout)) rc.push('pyproject.toml')
   if (rc.length) return { text: `The install was not run: ${rc.join(', ')} changed in this task, and an install would act on it. Ask the user, or report outcome "blocked".` }
-  const before = new Set(await ignored()), env = await h.env()
   try {
     await h.run(['mkdir', '-p', home, `${o.scratch}/cwd`])
     const path = env.PATH || '/usr/local/bin:/usr/bin:/bin', real = async (...ps: string[]) => (await h.run(['realpath', '-q', '-e', ...ps])).stdout.split('\n').filter(Boolean), rhome = (await real(await h.home()))[0] ?? await h.home()

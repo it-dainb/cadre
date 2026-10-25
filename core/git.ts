@@ -22,6 +22,24 @@ export const ok = async (run: Run, cwd: string, args: readonly string[]): Promis
 export const tip = (run: Run, cwd: string, ref: string) => git(run, cwd, ['rev-parse', '--verify', `${ref}^{commit}`])
 export const exists = (run: Run, cwd: string, ref: string) => ok(run, cwd, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])
 
+// The one git runner (the host's `run` goes through it): git never reads a hook, a monitor or an ssh command from a configuration it finds, and a tree other than the repo's own
+// must be a linked worktree or module of it: its `.git` a plain file naming a git dir under the repo's (a worker can write its tree, and could put a directory with a config there instead).
+const HARD = ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', '-c', 'core.sshCommand=', '-c', 'protocol.ext.allow=never', '-c', 'core.pager=cat', '-c', 'core.editor=true']
+const TREE = `g="$1/.git"; [ -e "$g" ] || [ -L "$g" ] || exit 0; [ "$(realpath -e "$1")" = "$(realpath -e "$3")" ] && exit 0; [ -L "$g" ] && exit 1; [ -f "$g" ] || exit 1
+l=$(head -c 4096 "$g"); case "$l" in "gitdir: "*) ;; *) exit 1;; esac; p=$(cd "$1" && realpath -m "\${l#gitdir: }"); case "$p" in "$2"/worktrees/*|"$2"/modules/*) exit 0;; esac; exit 1`
+export const guardedRun = (run: Run, root: () => Promise<string>): Run => {
+  const commons = new Map<string, string>()   // the repo's own git dir, by root: its own configuration is the user's
+  return async (argv, init) => {
+  if (argv[0] !== 'git') return run(argv, init)
+  const ci = argv.indexOf('-C'), dir = ci > 0 ? argv[ci + 1] : init?.cwd, hard = ['git', ...HARD, ...argv.slice(1)]
+  if (dir) {
+    const r = await root(); let common = commons.get(r); if (common === undefined) { common = (await run(['git', ...HARD, '-C', r, 'rev-parse', '--path-format=absolute', '--git-common-dir'], init)).stdout.trim(); if (common) commons.set(r, common) }
+    if (common && (await run(['sh', '-c', TREE, '_', dir, common, r])).exitCode) return { exitCode: 128, stdout: '', stderr: 'git was not run: this folder is not a working folder of the repository' }
+  }
+  return run(hard, init)
+  }
+}
+
 // git.op: CAS busy=true -> fn -> epoch++ -> busy=false (effect.ts re-baselines on an epoch change). A busy repo refuses; callers retry at the next hook.
 export async function op<T>(h: Host, fn: () => Promise<T>): Promise<T> {
   let got = false
@@ -92,7 +110,7 @@ export const homeScratchJail = (j: J & { scratchHome: string }): string[] => {
 // Own pid and ipc namespaces (a fresh /proc shows no host process), /run and /var/run empty (docker.sock, the user bus, agent sockets), gone with its parent.
 export const setupJail = (j: J & { scratchHome: string; home: string; path: string; tools: string[]}): string[] => {   // home and tools: real paths; tools: the PATH entries that exist
   // the host is not mounted whole: only the system folders and the tool folders on PATH are visible (a file under /opt, /srv, /var is not)
-  const h = j.scratchHome, SYS = ['/usr', '/bin', '/lib', '/lib64', '/lib32', '/etc'], bins = j.tools.filter(p => p !== j.home && !SYS.some(d => p === d || p.startsWith(`${d}/`))).map(p => (p.startsWith(`${j.home}/`) && p.endsWith('/bin') && p.slice(j.home.length + 1).split('/').length > 3 ? p.slice(0, -4) : p))
+  const h = j.scratchHome, SYS = ['/usr', '/bin', '/lib', '/lib64', '/lib32', '/etc'], bins = j.tools.filter(p => p !== j.home && !SYS.some(d => p === d || p.startsWith(`${d}/`)) && ![j.wt, j.scratch].some(d => p === d || p.startsWith(`${d}/`))).map(p => (p.startsWith(`${j.home}/`) && p.endsWith('/bin') && p.slice(j.home.length + 1).split('/').length > 3 ? p.slice(0, -4) : p))
   return ['bwrap', '--clearenv', '--unshare-pid', '--unshare-ipc', '--die-with-parent', ...SYS.flatMap(d => ['--ro-bind-try', d, d]), '--dev', '/dev', '--proc', '/proc', '--bind', j.scratch, '/tmp', '--tmpfs', '/run', '--tmpfs', '/var/run', '--tmpfs', j.home, ...[...new Set(bins)].flatMap(b => ['--ro-bind', b, b]), '--bind', j.wt, j.wt, '--bind', h, h,
     ...tail({ ...j, env: { PATH: j.path, HOME: h, XDG_CACHE_HOME: `${h}/.cache`, XDG_CONFIG_HOME: `${h}/.config`, XDG_DATA_HOME: `${h}/.local/share`, ...j.env } })]
 }

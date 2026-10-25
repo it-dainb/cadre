@@ -1,6 +1,7 @@
 // The only file that calls on() or touches $. Registration ORDER is the chain order (DESIGN 2.2, outermost first).
 // Each slot calls a function in its owner module with a per-hook Host (never a module-level Host, L3). Gating registrations carry a fail-closed .catch (13.3).
 import { modelText } from '../core/say'
+import * as G from '../core/git'
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 import type { Host } from '../types'
@@ -92,7 +93,7 @@ function host($): Host {
     toast: t => { void $.ui.toast(t) },
     options,
     stat: async (p, o) => { try { return await $.fs.stat(p, { resolve: !!o?.resolve }) } catch { return undefined } },
-    run: async (argv, init) => $.process.run(argv, { cwd: await h.cwd(), ...init }),   // the repo root by default: in an agent's turn-end frame the session's cwd is the agent's worktree, which a close removes (ADR 0018)
+    run: G.guardedRun(async (argv, init) => $.process.run(argv, { cwd: await h.cwd(), ...init }), () => h.cwd()),   // the repo root by default: in an agent's turn-end frame the session's cwd is the agent's worktree, which a close removes (ADR 0018)
     settings: () => $.settings.read(),
     spawn: async a => {   // adapter protocol (SA-09): one request, stdin closed after `input`; leaving the loop kills the child
       const it = $.process.spawn({ argv: [...a.argv], input: a.input })[Symbol.asyncIterator](), dead = new Promise<'t'>(r => { void $.clock.after(a.timeoutMs ?? 30_000, () => r('t')) })
