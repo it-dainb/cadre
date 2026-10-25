@@ -165,7 +165,7 @@ test('failure baseline: a test red when the plan started does not fail the green
 })
 test('spec_change: owner report blocks; reject resumes the worker, accept rewinds to the tester; both leave a decision', async () => {
   for (const how of ['reject', 'accept']) {
-    const w = world(), r = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']); assert.ok(r.res.ok, r.res.why)
+    const w = world(), r = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']); assert.ok(r.res.ok, r.res.why); w.meta['cadre.worktree'] = r.wt
     await T.specChange(w.h, w.d, 'm-1', 'the contract needs a second param')
     assert.equal((await w.h.board.read()).tasks[0].state, 'blocked'); assert.equal(w.meta['cadre.blocked'], 'spec_change')
     assert.match((await T.resolveSpec(w.h, 'm-1', 'maybe')).text, /accept\|reject/)
@@ -181,6 +181,19 @@ test('spec_change accept: the worker commits are dropped, so the amended red is 
   writeFileSync(join(wt, 'src/impl.ts'), 'export const IMPL = 1\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'worker')
   await T.specChange(w.h, w.d, 'm-1', 'wrong spec'); await T.resolveSpec(w.h, 'm-1', 'accept')
   assert.equal(sh(wt, 'rev-parse', 'HEAD'), spec); assert.equal(existsSync(join(wt, 'src/impl.ts')), false)
+})
+
+test('spec_change accept keeps a rework merge, drops the worker commit; a failed reset leaves the task blocked', async () => {
+  const w = world(), { wt } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']), spec = w.meta['cadre.specCommit']; w.meta['cadre.worktree'] = wt
+  sh(w.root, 'checkout', '-q', 'epic/e1-x'); writeFileSync(join(w.root, 'landed.txt'), 'x'); sh(w.root, 'add', '-A'); sh(w.root, 'commit', '-qm', 'landed'); const tip = sh(w.root, 'rev-parse', 'HEAD')
+  sh(wt, 'merge', '--no-ff', '--no-edit', '-q', tip); w.meta['cadre.base'] = tip   // core/rebase's rework merge, after the spec
+  writeFileSync(join(wt, 'src/impl.ts'), 'export const IMPL = 1\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'worker')
+  await T.specChange(w.h, w.d, 'm-1', 'wrong spec')
+  w.meta['cadre.worktree'] = join(wt, 'nope'); const bad = await T.resolveSpec(w.h, 'm-1', 'accept')
+  assert.doesNotMatch(bad.text, /accepted/); assert.equal((await w.h.board.read()).tasks[0].state, 'blocked')
+  w.meta['cadre.worktree'] = wt; await T.resolveSpec(w.h, 'm-1', 'accept')
+  assert.equal(existsSync(join(wt, 'src/impl.ts')), false); assert.equal(existsSync(join(wt, 'landed.txt')), true)
+  sh(wt, 'merge-base', '--is-ancestor', tip, 'HEAD'); sh(wt, 'merge-base', '--is-ancestor', spec, 'HEAD')
 })
 
 test('a refused red leaves no copy-in commit; the identical retry reaches the gate again', async () => {

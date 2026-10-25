@@ -291,12 +291,22 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
   if (how !== 'accept' && how !== 'reject') return { text: `/cadre resolve ${id} accept|reject` }
   const pipe = pipeOf(d.reg), acc = how === 'accept', sp = (x: string) => spawnIt(snap, x), snap = await h.board.read()
   if (acc && !pipe(t.type, t.lane).includes('tester')) return { text: `${id}: type ${t.type} has no tester step; reject instead` }
+  // the red gate runs on the worktree: with the worker's commits still in it the amended tests pass (live: "the tests pass at the spec commit" after an Accept), so drop them; the spec commit is the tree the tester amends.
+  // Before the board moves: a refused or failed reset leaves the task blocked, to answer again. A rework merge of the plan tip (core/rebase) came after the spec: it is put back, or the landed tasks vanish from the tree
+  if (acc) {
+    const wt = task!.meta['cadre.worktree'], sc = task!.meta['cadre.specCommit'], base = task!.meta['cadre.base']
+    if (!wt || !sc) return { text: modelText('tool-result', `${id}: its spec tests or its working folder are not recorded, so the spec cannot be amended; reject instead, or cancel the task.`) }
+    try {
+      await G.op(h, async () => {
+        await G.git(h.run, wt, ['reset', '--hard', '-q', sc]); await G.git(h.run, wt, ['clean', '-fdq'])
+        if (base && (await h.run(['git', '-C', wt, 'merge-base', '--is-ancestor', base, 'HEAD'])).exitCode) await G.git(h.run, wt, ['merge', '--no-ff', '--no-edit', '-q', '-m', `merge the plan tip into ${id}`, base])
+      })
+    } catch (e) { h.log(`${id}: reset for the spec change failed: ${e}`); await h.run(['git', '-C', wt, 'merge', '--abort']); return { text: modelText('tool-result', `${id}: the working folder could not be reset right now; answer again in a moment.`) } }
+    await d.store.setMeta(id, { 'cadre.sourceCommit': '' }, d.actor)
+  }
   const r = await apply(h, acc ? { kind: 'rewind', id, at: await h.now(), actor: by, on: 'tester' } : { kind: 'unblock', id, at: await h.now(), actor: by }, pipe)
   if (!r.ok) return { text: r.error }
   await d.store.resume(id, d.actor)   // the store follows the board out of blocked (as unblock does), or the next report cannot move it
-  // the red gate runs on the worktree: with the worker's commits still in it the amended tests pass (live: "the tests pass at the spec commit" after an Accept), so drop them; the spec commit is the tree the tester amends
-  const wt = task!.meta['cadre.worktree'], sc = task!.meta['cadre.specCommit']
-  if (acc && wt && sc) await G.op(h, async () => { await G.git(h.run, wt, ['reset', '--hard', '-q', sc]); await G.git(h.run, wt, ['clean', '-fdq']) })
   const note = acc ? `spec change accepted: ${task!.meta['cadre.specChange'] ?? ''}` : 'spec change rejected: the locked tests stay; conform to them'
   await d.store.setMeta(id, { 'cadre.blocked': '', 'cadre.decision': note.slice(0, 1500) }, d.actor)
   const bind = await h.bind.read(), w = acc ? undefined : Object.keys(bind).find(a => !a.startsWith('~') && bind[a].taskId === id && bind[a].role === 'worker')

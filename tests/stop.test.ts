@@ -133,6 +133,8 @@ describe('a step back: the store and the words', () => {
     for (const [mode, text] of [['mod', 'accepted; the tester amends the spec'], ['main', 'accepted; spawn it for the tester to amend the spec']] as const) {
       const w = await world({ n: 1, type: 'feature', pkg: RED_PKG, drive: 'auto', mode }); await arm(w.h, 'auto'); const [id] = w.ids
       await w.at('ag1', id, 'tester'); await specChange(w.h, w.dep, id, 'why')
+      ;(w.h as any).run = async () => ({ exitCode: 0, stdout: '', stderr: '' })   // Accept resets the worktree to the spec commit: git answers ok
+      await w.dep.store.setMeta(id, { 'cadre.worktree': '/wt', 'cadre.specCommit': 'abc' }, 'a')
       expect((await resolveSpec(w.h, id, 'accept')).text).toContain(`${id}: ${text} (new red, amended specCommit)`)
     }
   })
