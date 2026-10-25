@@ -21,6 +21,11 @@ export const pkgOf = (d: Pick<Deps, 'cfg'>, task: Pick<Task, 'meta'>): Pkg | und
   return ownerOf(all, at)
 }
 // a task's paths lie in one repository: a submodule unit's edits are committed in its own repository, the rest in the parent's, so a task across both is split
+// a task whose own files are all manifests or lockfiles is the install itself, not work to plan: the task that uses the package asks for the install while it works
+// (live: three setup runs planned "Declare six/ms as a dependency" with Files: pyproject.toml, uv.lock, then stalled on a lock step the shell cannot run offline)
+const MANIFEST_FILE = /^(package(-lock)?\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|requirements[\w.-]*\.txt|pyproject\.toml|uv\.lock|poetry\.lock|Cargo\.(toml|lock)|go\.(mod|sum))$/
+export const manifestOnly = (paths: unknown): string | null =>
+  Array.isArray(paths) && paths.length > 0 && paths.every(p => MANIFEST_FILE.test(String(p).split('/').pop() ?? '')) ? 'metadata.paths: these are only manifest and lock files, and a package is not a task: plan the code that uses it (with its tests); that task asks for the install while it works' : null
 export const repoSplit = (cfg: any, paths: unknown): string | null => {
   if (!Array.isArray(paths)) return null
   const us = unitsOf(cfg) as Pkg[], rs = [...new Set(paths.map(p => { const u = ownerOf(us, String(p)); return u?.ownGit ? u.root : '' }))]

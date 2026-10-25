@@ -54,7 +54,7 @@ export const BUDGET = {
     "core/say.ts": 8,
     "core/session.ts": 204,
     "core/spawner.ts": 111,
-    "core/specview.ts": 86,
+    "core/specview.ts": 89,
     "core/tdd.ts": 283,
     "core/validate.ts": 170,
     "hooks/register.ts": 208,

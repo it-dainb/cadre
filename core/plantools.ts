@@ -14,7 +14,7 @@ import { apply } from './machine'
 import { emit } from './events'
 import { settleIf, yoloOn } from './decide'
 import { DRIVE, cfgOf, draftsOf, mirror, registryOf, storeOf, touched } from './dispatch'
-import { repoSplit } from './specview'
+import { manifestOnly, repoSplit } from './specview'
 import { scoped } from '../commands/init'
 import { retouch, roadmapRules } from './lanes'
 import { MS, epicOf, isMs, planEpic } from './milestone'
@@ -88,7 +88,7 @@ type W = { error: string } | { id: string; context: string[] }
 async function create(h: Host, store: TaskStore, reg: TypeRegistry, title: string, description: string, m: In): Promise<W> {
   const key = `create:${title}`
   if (await capped(h, key)) return { error: await refuse(h, key, 'draft refused') }
-  const err = validateFields(m, reg) ?? repoSplit(await cfgOf(h), m.paths); if (err) return { error: await refuse(h, key, err) }
+  const err = validateFields(m, reg) ?? repoSplit(await cfgOf(h), m.paths) ?? manifestOnly(m.paths); if (err) return { error: await refuse(h, key, err) }
   await clearRetries(h, key)
   const s = await h.board.read()
   if (m.kind === 'mission' && (await h.secret.read()).run?.goal) return { error: 'not now: the user\'s goal comes next, and its plan carries the mission (plan mission). Go on with the next setup step.' }   // ADR 0014: one dialog for mission + plan
