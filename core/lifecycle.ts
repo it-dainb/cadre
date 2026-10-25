@@ -132,9 +132,12 @@ const ZERO: Budget = { startFails: 0, silentRuns: 0, nudges: 0, refusals: 0, red
 export const budgetOf = async (h: Host, taskId: string): Promise<Budget> => ({ ...ZERO, ...(await load<Budget>(h, 'budgets', taskId)) })
 export const charge = async (h: Host, taskId: string, k: keyof Budget): Promise<number> => (await put<Budget>(h, 'budgets', taskId, await budgetOf(h, taskId), b => ({ ...ZERO, ...b, [k]: (b?.[k] ?? 0) + 1 })))[k]
 // human.retry{counter}: from any session; it re-reads the mirror before its set, so the newest record wins on every other counter
-export async function retry(h: Host, taskId: string, k: keyof Budget, to = 0): Promise<void> {
+export async function reset(h: Host, taskId: string, k: keyof Budget, to = 0): Promise<void> {   // quiet: a reset the system makes is no human retry (no event, no lesson)
   const fresh = { ...ZERO, ...(await ctlGet<Budget>(h, keyOf('budgets', taskId))) }
   await put<Budget>(h, 'budgets', taskId, fresh, b => ({ ...fresh, ...b, [k]: to }))
+}
+export async function retry(h: Host, taskId: string, k: keyof Budget, to = 0): Promise<void> {
+  await reset(h, taskId, k, to)
   await emit(h, 'task.retried', { taskId }, { taskId })
 }
 // the store is small (ST-15): a closed task's runs and budget go at once; at session start every ended run, or one whose task is no longer in flight, goes

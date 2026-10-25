@@ -115,6 +115,7 @@ const mine = (() => {
 //    main's question call is one dialog however many tabs the watcher logged (one per question), and its one clarify round (ADR 0020: at most
 //    maxQuestions in ONE call) earns its dialog on top of set up, safety settings and the plan: on haiku a clear goal may still score unclear
 //    (main's judgement; the clarify tier's CLARIFY=none judges that, not this budget). custom-role has no goal: main's one Agent call is the whole cell
+{ const g = drv.find(e => e.kind === 'goal-failed'); if (g) fail('goal-not-taken', g.text) }
 if (process.env.ORACLE !== 'custom-role') {
   const plan = drv.find(e => e.kind === 'plan'), until = plan?.t ?? tEnd
   // a fault the cell injected (FAULT=interrupt|kill) earns the setup's one recovery dialog ("… stopped …")

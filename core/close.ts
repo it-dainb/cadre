@@ -208,7 +208,7 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
   if (r.role === 'reviewer') { const err = o.lax ? null : await semantic(h, await d.store.get(t.id), b.worktree, r, d.cfg.review.coverage.enforce); if (err) throw new Error(err); return verdict(h, d, t, b, agentId!, r) }
   if (r.outcome === 'done') return workerDone(h, d, t, b, r)
   const spec = r.outcome === 'spec_change', why = String(r.reason ?? r.summary ?? '').slice(0, 400)
-  if (spec) { await specChange(h, d, t.id, why); await record(h, d, t.id, 'blocked', t.step, { why }, { summary: r.summary, reason: r.reason }); await raise(h, t.id, 'spec_change') }
+  if (spec) { await specChange(h, d, t.id, why, String(r.scenario ?? '')); await record(h, d, t.id, 'blocked', t.step, { why }, { summary: r.summary, reason: r.reason }); await raise(h, t.id, 'spec_change') }
   else { await d.store.setMeta(t.id, { 'cadre.question': why }, d.actor); await blockTask(h, d, t, why, 'blocked', { summary: r.summary, reason: r.reason, questions: r.questions }) }   // yolo: main answers it from this (core/drive)
   return spec ? 'spec change recorded; it is decided for you. Stop and wait.' : 'blocked recorded; you are resumed with the answer. Stop and wait.'
 }
@@ -350,7 +350,7 @@ async function decide(h: Host, d: Deps, id: string, text: string): Promise<strin
     const m = /^\s*(accept|reject)\s*:\s*(\S[\s\S]*)$/i.exec(text); if (!m) return `${id}: decision must be "accept: <reason>" or "reject: <reason>"`   // the exact word and a colon: "acceptable… reject: …" must never read as accept
     const how = m[1].toLowerCase(), n = Number(meta['cadre.specAccepts'] || 0)
     if (how === 'accept' && n >= 2) { const w = `${id} asked to change its locked spec ${n + 1} times`; await stop(h, w, { taskId: id, flag: 'spec_change' }); return `${id}: the run stopped (${w}); the user decides this task in the cadre dialog now. Stop and wait.` }   // accept, rewind, accept… never counts as no progress: cap it
-    const r = await resolveSpec(h, id, how, 'main'); if (!/accepted|rejected/.test(r.text)) return r.text
+    const r = await resolveSpec(h, id, how, 'main', m[2].trim()); if (!/accepted|rejected/.test(r.text)) return r.text
     if (how === 'accept') await d.store.setMeta(id, { 'cadre.specAccepts': String(n + 1) }, d.actor)
     await clear(h, id, 'spec_change'); await decided(h, 'spec', `${id}: spec change ${how}ed: ${m[2].trim()}`, id); return null
   }

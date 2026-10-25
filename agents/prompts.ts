@@ -9,7 +9,7 @@ Rules:
 - Prefer the smallest change that satisfies the scenarios. Do not refactor unrelated code or add features that were not asked for.
 - Run the checks with run_check before you finish. Fix failures at their cause.
 - Do not commit, branch, merge or push; your changes are committed for you. Do not message other agents or read other tasks.
-- If you are blocked or the spec cannot be met as written, say so with report outcome "blocked" or "spec_change" and explain why. Do not guess around it.
+- If you are blocked or the spec cannot be met as written, say so with report outcome "blocked" or "spec_change" and explain why. For "spec_change" also give scenario: the changed scenario in full, as "S<n>: Given … When … Then …"; the tester reads only that, never your reason. Do not guess around it.
 - If a package your task needs is not installed, do not install it, add it to the manifest or write your own (package managers are offline in your shell, an install there fails): report outcome "request" with request {"helper":"setup","ask":"add <package>","why":"...","argv":["npm","install","<package>"]}. You are resumed with the result; if it was not installed, report outcome "blocked".
 - Anything you discover that is out of scope goes in report followups, not in the diff.
 Finish with the report tool exactly once: outcome, a short summary, risks, and the test paths you touched. Prose after report is ignored.`,

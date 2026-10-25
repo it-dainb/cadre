@@ -236,6 +236,16 @@ describe('review spawn', () => {
     expect([b.seen[0].model, (await h.bind.read()).ag2?.effort]).toEqual(['opus', 'xhigh'])
     expect(await bound()).toMatchObject({ model: 'opus', effort: 'xhigh', escalated: true, setting: `roles.${role}.byRisk.${risk}.escalate` })
   })
+  test('a tester hears only the spec change decision, once; a stale decision never reaches it', async () => {
+    const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}), id = ids[0]
+    await w.board(h, epic, ids); d.view = async (_h, _d, t) => `/wt/repo-1.views/${t.id}`; d.cfg.units = [{ root: '.', tdd: { paths: ['test/**'] } }] as any
+    await admitWith(h, d, spawn(id), ok('tt0').next)   // the first tester; its claim stays, as after a spec change Accept rewinds the task to the tester
+    await h.bind.update(() => ({})); await h.board.update(s => ({ ...s, tasks: s.tasks.map(t => ({ ...t, state: 'active', step: 'tester' })) }))
+    await w.store.setMeta(id, { 'cadre.decision': 'use bcrypt (an old answer)', 'cadre.specDecision': 'The spec change was accepted: amend S5.' }, d.actor)
+    const a = ok('tt1'); await admitWith(h, d, spawn(id), a.next)
+    const p = String(a.seen[0].prompt); expect(p).toContain('The spec change was accepted: amend S5.'); expect(p).not.toContain('bcrypt')
+    expect((await w.store.get(id)).meta['cadre.specDecision']).toBe('')   // delivered once
+  })
   test('settings: review.deepLabels sends a labelled change to the thorough review; only CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 overrides the model (ADR 0019)', async () => {
     const { w, h, d, id } = await inReview('reviewer'); await w.store.update(id, { labels: ['ux'] }, d.actor); w.numstat.out = '1\t1\tsrc/a.ts\n'
     const a = ok('rv1'); await admitWith(h, d, spawn(id), a.next); expect(a.seen[0].model).toBe('sonnet')

@@ -103,9 +103,10 @@ send() { local i t; log "send $*"; tui send "$N" "$*"; sleep 2; t=${*//[ $'\302\
 # the user types a goal; a line typed while Claude Code still starts up can vanish without a trace, or reach the model as text: when no command ran within 30 s, type it again (<= 3 times)
 goal() { local i n; for i in 1 2 3; do n=$(cat "$D"/out/debug*.log 2>/dev/null | grep -ac 'answered command\.run'); send "/cadre $*"
   for _ in $(seq 30); do [ "$(cat "$D"/out/debug*.log 2>/dev/null | grep -ac 'answered command\.run')" -gt "$n" ] && return 0; sleep 1; done
-  # Claude Code busy with no command answered is not "taken": a line typed 1-2 s after the plugin loaded reached the model as plain text (live: main began
-  # coding the goal itself, without the goal guide, and was refused three times); 10 s more for a late log line, then stop that turn and type it again
-  busy && { log "goal ran as plain text: stopped, typed again"; key Escape; sleep 2; continue; }; log "goal not taken"; done; }
+  # Claude Code busy with no command answered after the 30 s is not "taken": a line typed 1-2 s after the plugin loaded reached the model as plain text (live: main
+  # began coding the goal itself, without the goal guide, and was refused three times); stop that turn and type it again
+  busy && { log "goal ran as plain text: stopped, typed again"; key Escape; sleep 2; continue; }; log "goal not taken"; done
+  log "goal-failed no command answered it in 3 tries"; return 1; }   # the oracle fails the cell on this line
 clear_() { send "/clear"; sleep 3; }                            # /clear (a name of its own: `clear` is the shell's)
 shell_cd() { send "Run exactly this one Bash command and nothing else: cd $1 && pwd"; idle 120; }   # main's shell moves (a Bash cd)
 hold() { echo "$1" >"$O/dialog_wait"; log "hold dialogs ${1}s"; }   # the human looks away: dialogs stay unanswered that long

@@ -58,10 +58,10 @@ function world(over = {}) {
   const pkg = { root: '.', setup: [], checks: { test: ['node', 'run.mjs'], knownbad: ['false'] }, verify: ['test'], viewInclude: ['docs/**'], tdd: { paths: ['test/**'], report: '/tmp/cadre/r.xml' }, ...over.pkg }
   const cfg = { ...defaults(), units: [pkg], worktrees: { root: join(b, 'wt') }, jail: 'auto', ...over.cfg }
   if (!over.cover) cfg.review = { ...cfg.review, coverage: { enforce: false } }   // the fixtures name tests 'a', 'login ok'; the coverage rule has its own test
-  const meta = {}, comments = [], ctl = { revision: '0', doc: {} }, store = { async setMeta(id, kv) { Object.assign(meta, kv) }, async control() { return ctl }, async setControl(p) { Object.assign(ctl.doc, p); return ctl }, async move() {}, async resume() {}, async get(id) { return { id, title: 't', type: over.type ?? 'feature', meta: { ...meta }, acceptance: over.acceptance ?? 'S1: Given a When b Then c', description: 'page 1 skips the first page', design: over.design ?? JSON.stringify({ symbols: [{ name: 'login', kind: 'function', params: 'u', returns: 'bool', status: 'new' }] }) } } }
+  const meta = {}, comments = [], ctl = { revision: '0', doc: {} }, store = { async setMeta(id, kv) { Object.assign(meta, kv) }, async update(id, p) { if (p.acceptance !== undefined) over.acceptance = p.acceptance },  async control() { return ctl }, async setControl(p) { Object.assign(ctl.doc, p); return ctl }, async move() {}, async resume() {}, async get(id) { return { id, title: 't', type: over.type ?? 'feature', meta: { ...meta }, acceptance: over.acceptance ?? 'S1: Given a When b Then c', description: 'page 1 skips the first page', design: over.design ?? JSON.stringify({ symbols: [{ name: 'login', kind: 'function', params: 'u', returns: 'bool', status: 'new' }] }) } } }
   const h = fakeHost(); Object.assign(h, { run, readText: async p => (existsSync(p) ? readFileSync(p, 'utf8') : null), write: async (p, t) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) }, cwd: async () => root, home: async () => b, config: async () => cfg, taskStore: async () => store })
   const d = { store, cfg, reg: cfg.types, root, home: b, wtRoot: cfg.worktrees.root, key: repoKeyOf(root), actor: 'a', session: 's' }
-  return { b, root, h, d, meta, comments, store, pkg }
+  return { b, root, h, d, meta, comments, store, pkg, acceptance: () => over.acceptance }
 }
 const mkTask = async w => w.store.get('m-1')
 const worktree = async w => { const wt = join(w.d.wtRoot, 'wt1'); mkdirSync(w.d.wtRoot, { recursive: true }); await G.worktreeAdd(run, w.root, wt, 'feat/m-1-x', await G.tip(run, w.root, 'epic/e1-x')); return wt }
@@ -176,13 +176,18 @@ test('spec_change: owner report blocks; reject resumes the worker, accept rewind
   }
 })
 
-test('spec_change accept: the red rounds start over, and the tester brief carries the accepted change', async () => {
+test('spec_change accept: red rounds restart quietly; the scenario is amended; the tester hears only the decider, once', async () => {
   const { brief } = await import('../../core/briefs.ts'), { budgetOf, charge } = await import('../../core/lifecycle.ts')
-  const w = world(), { wt } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']); w.meta['cadre.worktree'] = wt
-  await charge(w.h, 'm-1', 'red'); await charge(w.h, 'm-1', 'red')   // two refusals before the worker's change request
-  await T.specChange(w.h, w.d, 'm-1', 'S5 is true on the base'); await T.resolveSpec(w.h, 'm-1', 'accept')
+  const w = world({ acceptance: 'S5: Given npm test When run Then it passes\nS6: other' }), { wt } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']); w.meta['cadre.worktree'] = wt
+  await charge(w.h, 'm-1', 'red'); await charge(w.h, 'm-1', 'red'); 
+  await T.specChange(w.h, w.d, 'm-1', 'the helper in src/impl.ts cannot do it', 'S5: Given a missing file When run Then it throws')
+  const dlg = (await w.h.board.read()).decisions.map(x => x.lines.join(' ')).join(' '); assert.match(dlg, /new scenario wording: S5: Given a missing file/)
+  await T.resolveSpec(w.h, 'm-1', 'accept', 'main', 'agreed, the file case matters')
   assert.equal((await budgetOf(w.h, 'm-1')).red, 0)
-  assert.match(brief('tester', { id: 'm-1', title: 't', type: 'test', decisions: [w.meta['cadre.decision']] }), /Decided \(apply it to the tests\)\nspec change accepted: S5 is true on the base\. Change the tests/)
+  assert.equal(w.acceptance(), 'S5: Given a missing file When run Then it throws\nS6: other')   // the amended scenario is in the spec; S6 untouched
+  const d = w.meta['cadre.specDecision']; assert.match(d, /^The spec change was accepted and the scenarios above are the amended ones: agreed, the file case matters\./)
+  assert.doesNotMatch(d, /impl\.ts/)   // the worker's reason never reaches the tester
+  assert.match(brief('tester', { id: 'm-1', title: 't', type: 'test', decisions: [d] }), /Decided \(apply it to the tests\)\nThe spec change was accepted/)
 })
 test('spec_change accept: the worker commits are dropped, so the amended red is measured on the spec commit tree', async () => {
   const w = world(), { wt } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']), spec = w.meta['cadre.specCommit']; w.meta['cadre.worktree'] = wt

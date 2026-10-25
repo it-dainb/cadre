@@ -147,7 +147,7 @@ const RS = (n: number) => ({ type: 'string', maxLength: n }), RA = (n: number, i
 const REQ = { type: 'object', required: ['helper', 'ask', 'why'], properties: { helper: RS(40), ask: RS(2000), why: RS(500), paths: RA(20, RS(200)), argv: RA(64, RS(500)) } }   // an outcome "request": the helper to ask, what, and why (setup: argv, the install command)
 const V1 = { schemaVersion: {}, role: {} }
 export const REPORTS: Record<string, Sch> = {
-  worker: { type: 'object', required: ['outcome', 'summary'], properties: { ...V1, outcome: { type: 'string', enum: ['done', 'blocked', 'spec_change', 'request'] }, summary: RS(800), reason: RS(400), request: REQ, risks: RA(5, RS(120)), questions: RA(5, RS(120)), followups: RA(5) } },
+  worker: { type: 'object', required: ['outcome', 'summary'], properties: { ...V1, outcome: { type: 'string', enum: ['done', 'blocked', 'spec_change', 'request'] }, summary: RS(800), reason: RS(400), scenario: RS(300), request: REQ, risks: RA(5, RS(120)), questions: RA(5, RS(120)), followups: RA(5) } },
   tester: { type: 'object', required: ['outcome', 'summary'], properties: { ...V1, outcome: { type: 'string', enum: ['done', 'request'] }, summary: RS(800), tests: RA(50), run: { type: 'object' }, request: REQ } },
   reviewer: { type: 'object', required: ['verdict', 'summary', 'findings', 'coverage', 'contractStatus'], properties: { ...V1, verdict: { type: 'string', enum: ['pass', 'changes'] }, summary: RS(1500), findings: RA(50), coverage: RA(50), contractStatus: RA(100) } },
   explorer: { type: 'object', required: ['answer'], properties: { ...V1, answer: RS(2000), citations: RA(30) } },
