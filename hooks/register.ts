@@ -190,9 +190,9 @@ export const register: Register = (on, opts) => {
 
   // session.start: agents, command, tools env, the one tick. Awaited before turn one (L7).
   on('session.start', async ($, e, next) => {
+    const v = String((await $.session.version().catch(() => ({ version: '' }))).version ?? ''), old = tooOld(v) ? v : undefined   // outside the try: a step that throws never lets cadre run on a Claude Code that is too old
     try {
     await $.command.register({ name: 'cadre', description: 'cadre: plan, approve, status, resolve, release, drive, init, setup, doctor', argumentHint: '<sub> [args]', immediate: true })
-    const v = String((await $.session.version().catch(() => ({ version: '' }))).version ?? ''), old = tooOld(v) ? v : undefined
     await update($, secret, x => ({ ...x, old }))
     if (old) { void $.ui.log(oldLine(old)); void $.ui.toast(oldLine(old)); return next(e) }   // too old: one loud line, /cadre repeats it, no tools, no tick; wake() keeps every other hook a pass-through
     const root = await top($); await update($, secret, x => ({ ...x, root })); await $.store.set('cadre:roots', { ...(((await $.store.get('cadre:roots')) ?? {}) as object), [repoKeyOf(root)]: root })   // the repo root for every hook. Never $.session.cwd(): it follows a Bash `cd` (main in a package folder read its checks and store there after a /clear, live 0.9.1) and in a subagent hook it is the agent's view/worktree
@@ -209,7 +209,8 @@ export const register: Register = (on, opts) => {
     $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void watch(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}); void watchdog(h).catch(() => {}); void h.secret.read().then(s => Promise.all([backstop(h, s.session ?? ''), overdue(h, s.session ?? '')])).catch(() => {}); void autoLand(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
     $.clock.every(30_000, () => { const h = host($); void wake(h).then(act => act && tickUi(h)).catch(() => {}) })   // live timeline cursor (blit, no re-render)
     } catch (x) {   // a step failed (live under load: a session.start HooksError, not reproduced in a test of 8 starts at once): the session goes on, and Doctor says that cadre started only in part
-      void $.ui.log(`session start: ${x}`); await update($, secret, s => ({ ...s, start: { failed: String(x).slice(0, 160) } })).catch(() => {})
+      void $.ui.log(`session start: ${x}`); await update($, secret, s => ({ ...s, old, start: { failed: String(x).slice(0, 160) } })).catch(() => {})
+      void $.ui.toast(old ? oldLine(old) : 'cadre started only in part; restart Claude Code')   // /cadre may be the step that failed: the toast is then the only word the user gets
     }
     return next(e)
   })

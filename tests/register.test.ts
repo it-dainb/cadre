@@ -190,3 +190,19 @@ test('a session.start step that throws does not fail the hook: the session start
   await $.session.start(START)   // resolves: it does not reject
   expect(said.some(t => t.includes('session start:') && t.includes('the host was slow'))).toBe(true)
 })
+
+test('a failed start says so: a toast, secret.start set on the throw and cleared by the next complete start; a throw before the version is recorded still leaves cadre off on an old Claude Code', ENGINE, async ($, on) => {
+  const said: string[] = [], st: Record<string, any> = {}; let fail = true, ver = 1, deny = 0, v = '2.1.299'
+  on('session.start', () => ({ cwd: '/work' })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('store.get', () => ({ value: undefined })); on('store.set', () => ({ value: undefined }))
+  on('session.version', () => ({ value: { version: v } })); on('command.register', () => ({ value: undefined })); on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined }))
+  on('env.set', () => (fail ? { deny: 'the host was slow' } : { value: undefined }))
+  on('state.get', (_$, e) => ({ value: { value: st[e.key], version: ver } }))
+  on('state.set', (_$, e) => (deny-- > 0 ? { deny: 'busy' } : (st[e.key] = e.value, { value: { isSet: true, version: ++ver } })))
+  on('ui.toast', ($, e) => { said.push(String(e.text ?? e)); return { value: undefined } }); on('ui.log', ($, e) => { said.push(String(e.text ?? e)); return { value: undefined } })
+  mock.clock(on)
+  await $.session.start(START)
+  expect(st.secret.start.failed).toContain('the host was slow'); expect(said).toContain('cadre started only in part; restart Claude Code')
+  fail = false; await $.session.start(START); expect(st.secret.start).toBeUndefined()
+  v = '2.1.287'; deny = 1; said.length = 0; await $.session.start(START)   // the first state write (the version) throws
+  expect(st.secret.old).toBe('2.1.287'); expect(said.some(t => t.includes('cadre needs Claude Code'))).toBe(true)
+})
