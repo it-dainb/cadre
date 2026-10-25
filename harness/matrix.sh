@@ -57,6 +57,7 @@ lessons-pass|single ready|lessons|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BU
 custom-role|single ready scripted/custom-role|custom-role|MODEL=haiku CC_VERSION=2.1.295 S=1 BUDGET=150 ORACLE=custom-role
 planner-probe|single ready scripted/probe|probe|MODEL=haiku CC_VERSION=2.1.295 S=1 BUDGET=150 ORACLE=planner-probe EPIC_PLANNERS=1
 # the 0.17 cells
+docs-task|single ready scripted/docs|every|MODEL=haiku CC_VERSION=2.1.295 S=1 PERM=auto LANDED=1 LAND_RE=docs BUDGET=600 ORACLE=docs-task
 specifier-off|single ready scripted/full|every|MODEL=haiku CC_VERSION=2.1.295 S=1 PERM=auto LANDED=1 BUDGET=600 ORACLE=specifier-off
 # needs-setup-s: the setup path with the scripted model; npm installs ms from the real registry (no model, no quota)
 needs-setup-s|single ready deps-node scripted/setup|needs-setup|MODEL=haiku CC_VERSION=2.1.295 S=1 DEPS=1 KIND=s ORACLE_DEP=ms LANDED=1 BUDGET=150 ORACLE=needs-setup

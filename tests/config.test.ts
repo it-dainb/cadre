@@ -112,3 +112,17 @@ describe('layers', () => {
     expect(resolve([{ name: 'u', trust: 'user', value: { maxParallel: 2 } }]).diagnostics).toEqual(['u: maxParallel: renamed: concurrency.default'])
   })
 })
+
+import { kindOf, pipeOf, validate } from '../task-management/registry'
+describe('the docs type (H8, 0.17)', () => {
+  test('built-in docs: kind docs, worker > reviewer > merge with no tester or red, not test-first, the lite drop changes nothing', async () => {
+    const t = (resolve([]).config.types as any), d = t.docs
+    expect([kindOf(d), d.pipeline, d.tdd, d.commit, d.changelog, d.contract]).toEqual(['docs', ['worker', 'reviewer', 'merge'], undefined, 'docs', null, 'none'])
+    expect(pipeOf(t)('docs')).toEqual(pipeOf(t)('docs', 'lite')); expect(validate(t)).toEqual([])
+  })
+  test('a user type with the docs commit is a docs type; one that drops the reviewer before merge is refused at load', async () => {
+    const own = { commit: 'docs', changelog: null, pipeline: ['worker', 'reviewer', 'merge'], contract: 'none' }
+    expect(kindOf(((resolve([user({ types: { notes: own } })]).config.types as any).notes))).toBe('docs')
+    expect(validate({ notes: { ...own, pipeline: ['worker', 'merge'] } } as any)).toEqual(['types.notes: "merge" must be last and after "reviewer"'])
+  })
+})

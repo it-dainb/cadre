@@ -290,6 +290,16 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (sp) fail(o, `${sp} specifier spawn(s) with the specifier off`)
     if (!subs.some(x => /Worker brief/.test(x.brief))) fail(o, 'no worker ran')
   }
+  if (o === 'docs-task') {   // a docs task runs worker > reviewer > merge: no tester, no red; it lands as a docs commit and adds no changelog entry
+    const log = read(join(dir, 'dev-log')).split('\n').filter(Boolean), roles = x => subs.filter(s => new RegExp(`${x} brief`).test(s.brief)).length
+    Object.assign(stats, { devLog: log, testers: roles('Tester'), workers: roles('Worker'), reviewers: roles('Reviewer') })
+    if (!roles('Worker') || !roles('Reviewer')) fail(o, `worker ${roles('Worker')}x, reviewer ${roles('Reviewer')}x (want both)`)
+    if (roles('Tester')) fail(o, `${roles('Tester')} tester run(s) on a docs task`)
+    if (!log.some(l => /^docs(\(|:)/.test(l))) fail(o, `no docs commit on dev: ${log.join(' | ') || 'dev has none'}`)
+    if (log.some(l => /^(feat|fix|refactor)(\(|:)/.test(l))) fail(o, `a code commit on dev: ${log.find(l => /^(feat|fix|refactor)(\(|:)/.test(l))}`)
+    if (/usage/i.test(read(join(dir, 'dev-changelog')))) fail(o, 'the changelog has an entry for a docs task (its changelog decision is none)')
+    if (runs(snaps.at(-1)?.s ?? {}) && Object.values(Object.assign({}, ...snaps.map(x => runs(x.s)), ...hist.map(runs))).some(r => r.role === 'tester')) fail(o, 'a tester run record exists')
+  }
   if (o === 'fold-vs-keep') {   // one run of an arm of the A1 check: what it counts is read by harness/fold-vs-keep.mjs; the arm's own setting must show in the spawns
     const rw = {}; for (const s of [...snaps.map(x => x.s), ...hist]) for (const [id, b] of Object.entries(pick(s, 'budget'))) rw[id] = Math.max(rw[id] ?? 0, b.rework ?? 0)   // a closed task's budget is pruned: the largest image seen
     const sp = subs.filter(x => /Specifier brief/.test(x.brief)).length, arm = process.env.ARM

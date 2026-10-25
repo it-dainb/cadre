@@ -4,7 +4,7 @@
 // cadre in the user tier (load order): cadre's turn.step sees each scripted response come up from beneath (its cost ledger records `model: scripted`).
 // Every line it logs starts with SCRIPTED (debug log). `/s0 <end|hb|wedge>` is the forced-exit / TaskStop probe (RESULTS.md (c), (d)).
 // The script is chosen per cell by the repo's `.git/scripted.json` ({"script": …}, written by a harness/fixtures/scripted overlay), default `lite`:
-//   lite: main plans one lite task; full: a full-lane task (tester, worker, reviewer); loop: lite, the worker calls the same tool forever (the repeat-call breaker, then forced exit);
+//   docs: lite, a docs task (no tester, no red): the worker writes docs/usage.md; lite: main plans one lite task; full: a full-lane task (tester, worker, reviewer); loop: lite, the worker calls the same tool forever (the repeat-call breaker, then forced exit);
 //   limit: lite, the first worker's first step goes to the proxy, which answers a usage limit (stub-proxy.mjs); slow: lite, the worker waits 12 s first;
 //   silent: lite, the worker writes its files and stops without a report, every time (the report-less end);
 //   shape: lite, the worker sends four reports with an over-long summary (a shape refusal each, never the run's tries), then the valid one (shape-refusal-budget);
@@ -82,6 +82,7 @@ function main(rows: Row[]): Act {
     if (!used('task')) return { tool: T('task'), input: TASKS[0] }
     return { text: 'The plan is drafted: approve it in the dialog (key 1 opens it).' }
   }
+  if (!used('plan') && script === 'docs') return { tool: T('plan'), input: { title: 'Document the library in docs/usage.md', description: 'Add docs/usage.md: one section that says what the library is for and how to import it.', lane: 'lite', reason: 'one small document', type: 'docs', changelog: { none: true, reason: 'documentation only' }, ...mission } }
   if (!used('plan')) {
     return { tool: T('plan'), input: { title: 'Add titleCase(s) with tests', description: 'Add titleCase(s) as a named export in src/titleCase.mjs, in the style of src/slug.mjs, with node:test tests in test/titleCase.test.mjs.',
       lane: 'lite', reason: 'one small function and its test', type: 'feature', ...(script === 'sub' ? { package: 'lib' } : {}), changelog: { category: 'Added', entry: 'titleCase(s) capitalises the first letter of each word' }, ...mission } }
@@ -115,7 +116,8 @@ const TASKS = FNS.map(f => ({ title: `${f.name}(s) with node:test tests`, descri
 const taskOf = (brief: string) => brief.match(/TASK-([a-z][\w-]*\w)/)?.[1]   // ids are c-6-1, m-2: a letter first, a word char last
 const WAIT = { tool: 'Bash', input: { command: 'node -e "setTimeout(() => {}, 12000)"', description: 'Wait' } }
 const ROLES: Record<string, (k: number, brief: string, cwd: string, rows: Row[]) => Act> = {
-  worker: (k, b, _c, rows) => { const f = fnOf(b), w = { tool: 'Bash', input: { command: FILES(f), description: `Write ${f.name} and its test` } }
+  worker: (k, b, _c, rows) => { if (script === 'docs') return [{ tool: 'Bash', input: { command: "mkdir -p docs && printf '# Usage\\n\\nImport the helpers from src/ and call them.\\n' > docs/usage.md", description: 'Write docs/usage.md' } }, { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: 'Added docs/usage.md.', risks: [] } }][k] ?? { text: END }
+    const f = fnOf(b), w = { tool: 'Bash', input: { command: FILES(f), description: `Write ${f.name} and its test` } }
     const answered = rows.some(r => isText(r) && /Answer to your request/.test(r.text))   // the answer comes back as a message of its own: after it the worker goes on
     const req = (request: unknown, summary: string) => ({ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'request', summary, request } })
     if (script === 'setup' && !answered) return [{ tool: 'Bash', input: { command: 'env | grep -E "^(npm_config_offline|npm_config_cache|npm_config_logs_dir|UV_OFFLINE|UV_CACHE_DIR|PIP_NO_INDEX|CARGO_NET_OFFLINE|GOPROXY|YARN_ENABLE_OFFLINE_MODE)=" | sort', description: 'Show the package manager settings' } },   // the settings this agent's shell starts with
@@ -130,7 +132,8 @@ const ROLES: Record<string, (k: number, brief: string, cwd: string, rows: Row[])
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: `Added ${f.name}(s) in src/${f.name}.mjs with a node:test test; npm test passes.`, risks: [] } }])[k] ?? { text: END } },
   tester: (k, b, cwd) => { const f = fnOf(b); return [{ tool: 'Write', input: { file_path: `${cwd}/test/${f.name}.test.mjs`, content: TEST(f) } },
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'tester', outcome: 'done', summary: `One test per scenario in test/${f.name}.test.mjs.`, tests: [{ path: `test/${f.name}.test.mjs`, name: f.title, scenario: 'S1' }], run: { command: ['node', '--test', `test/${f.name}.test.mjs`] } } }][k] ?? { text: END } },
-  reviewer: (k, b) => { const f = fnOf(b), full = ['full', 'multi', 'pair', 'probe'].includes(script); return [{ tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
+  reviewer: (k, b) => { if (script === 'docs') return [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'reviewer', verdict: 'pass', summary: 'The commit adds docs/usage.md only.', findings: [], coverage: [], contractStatus: [] } }][k] ?? { text: END }
+    const f = fnOf(b), full = ['full', 'multi', 'pair', 'probe'].includes(script); return [{ tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'reviewer', verdict: 'pass', summary: `The commit adds ${f.name} and its test only; npm test passes.`, findings: [], coverage: full ? [{ scenario: 'S1', test: f.title, ok: true }] : [], contractStatus: full ? [{ name: f.name, ok: true }] : [] } }][k] ?? { text: END } },
   planner: (k, _b, _c, rows) => rows.some(r => isText(r) && /Answer to your request/.test(r.text))
     ? [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'planner', summary: 'One task.', tasks: [{ subject: 'wordCount(s) with node:test tests', description: 'Create src/words.mjs exporting wordCount: the number of whitespace-separated words in s.',
