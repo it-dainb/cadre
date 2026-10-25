@@ -39,7 +39,7 @@ export type RunEvent =
   | { type: 'retire' }   // context or cache over: a fresh agent takes over
   | { type: 'end'; cause: End | 'lost'; reason: string }
 export interface Run { taskId: string; role: Role; step: string; state: RunState | null; epoch: number; log: { state: string; event: string; cause?: string }[]   // state null: a binding with no record
-  mode?: string; model?: string; tools?: string[]; calls?: { sig: string; n: number }; exit?: 'loop'; deadline?: number; session?: string }   // exit: its budget is spent (forced exit) · deadline: a forced exit not ended by then is stopped, by session's process only
+  mode?: string; model?: string; tools?: string[]; calls?: { sig: string; n: number }; exit?: 'loop'; deadline?: number; session?: string; stag?: number; prog?: boolean }   // stag: nudges since its last tool call (limits.stagnantNudges) · prog: a call since the last nudge · exit: its budget is spent (forced exit) · deadline: a forced exit not ended by then is stopped, by session's process only
 export type Effect = { kind: 'unbind'; reason: string } | { kind: 'wake'; text: string; step?: string } | { kind: 'retire' }
 // ponytail: fixed bounds; registered settings when a cell shows they need tuning
 export const REPEAT = 20, BACKSTOP = 60_000
@@ -58,7 +58,7 @@ export function next(run: Run, e: RunEvent): { run: Run; effects: Effect[] } {
   if (e.type === 'answered') return { run, effects: [] }
   if (e.type === 'end') return go({ state: 'ended', cause: e.cause }, [{ kind: 'unbind', reason: e.reason }])   // a forced exit's deadline outlives its task: only its turn's end or the backstop clears it
   if (e.type === 'call') {
-    const calls = { sig: e.sig, n: run.calls?.sig === e.sig ? run.calls.n + 1 : 1 }, r: Run = { ...run, calls, tools: [...new Set([...(run.tools ?? []), e.tool])] }, trip = calls.n >= REPEAT && !run.exit
+    const calls = { sig: e.sig, n: run.calls?.sig === e.sig ? run.calls.n + 1 : 1 }, r: Run = { ...run, calls, prog: true, tools: [...new Set([...(run.tools ?? []), e.tool])] }, trip = calls.n >= REPEAT && !run.exit
     return { run: trip || !run.tools?.includes(e.tool) ? { ...r, ...(trip ? { exit: 'loop' as const } : {}), log: [...run.log, { state: s!, event: trip ? 'loop' : `call ${e.tool}` }].slice(-LOG) } : r, effects: [] }
   }
   if (e.type === 'resume') return go(s === 'waiting' || s === 'idle-bound' || s === 'retired' ? { state: 'running' } : run.state, [wake(e)], e.step ? { ...run, step: e.step } : run)   // an answer or a rework ends the wait
@@ -66,7 +66,7 @@ export function next(run: Run, e: RunEvent): { run: Run; effects: Effect[] } {
   if (s === 'waiting') return { run, effects: [] }   // invariant 2: a parked run is never retired, nudged or refused into another state
   if (e.type === 'retire') return go({ state: 'retired' }, [{ kind: 'retire' }])
   if (e.type === 'report.ok') return go(e.wait ? { state: 'waiting', on: 'decision' } : { state: 'idle-bound' })
-  return e.type === 'report.refused' ? go({ state: 'refused', n: n(run.state, 'refused') + 1 }) : go({ state: 'silent', n: n(run.state, 'silent') + 1 }, [wake(e)])
+  return e.type === 'report.refused' ? go({ state: 'refused', n: n(run.state, 'refused') + 1 }) : go({ state: 'silent', n: n(run.state, 'silent') + 1 }, [wake(e)], { ...run, stag: run.prog ? 1 : (run.stag ?? 0) + 1, prog: false })   // ponytail: any tool call counts as progress; "changed the tree" needs the effect audit
 }
 
 // one $.state map per kind (CAS) mirrored key by key to the control doc: the mirror always sets what $.state holds after the update, never a local copy.

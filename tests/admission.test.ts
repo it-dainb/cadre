@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { charge, step } from '../core/lifecycle'
+import { charge, runOf, step } from '../core/lifecycle'
 import { admitWith, beat } from '../core/admission'
 import { leaseLive } from '../core/board'
 import type { Deps } from '../core/admission'
@@ -162,6 +162,16 @@ describe('next step / rebind (lease staleness, 8.4)', () => {
     const rr: any = await admitWith(h, d, spawn(id), ok('ag2').next); expect(rr.agentId).toBe('ag2')
     expect(Object.keys(await h.bind.read())).toEqual(['ag2'])
     expect(ofEpic(await h.events.read(), (await h.board.read()).epic!).find(e => e.type === 'agent.unbound')?.data).toEqual({ agentId: 'ag1', reason: 'rebind' })
+  })
+  test('revival (B5): a fresh agent for a retired run runs on the model routing gives; if routing now says another one the task waits and nothing is spawned', async () => {
+    const w = world(), { h, d } = await w.mk('a'), id = await active(w, h, d)
+    await h.bind.update(b => ({ ...b, ag1: { ...b.ag1, retired: true } }))
+    const was = (await runOf(h, 'ag1'))!.model!, alt = was === 'opus' ? 'sonnet' : 'opus'
+    for (const c of Object.values(d.cfg.roles.worker.byRisk)) (c as any).model = alt
+    const rr: any = await admitWith(h, d, spawn(id), ok('ag2').next); expect(rr.deny).toContain(`ran on ${was}`); expect(rr.deny).toContain(alt)
+    expect(Object.keys(await h.bind.read())).toEqual(['ag1'])
+    for (const c of Object.values(d.cfg.roles.worker.byRisk)) (c as any).model = was
+    expect(((await admitWith(h, d, spawn(id), ok('ag2').next)) as any).agentId).toBe('ag2')
   })
   test('expired lease: stale -> rebind: unbound(stale), same actor + worktree, computed handoff, new agent bound', async () => {
     const w = world(), { h, d } = await w.mk('a'), id = await active(w, h, d)

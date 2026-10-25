@@ -24,6 +24,7 @@ import { ask, yoloOn } from './decide'
 import { capAsk, coreLanded, refresh, rework, trial } from './rebase'
 import { branchOf, epicOf, goOn } from './milestone'
 import { planStopped } from './planner'
+import { held } from './session'
 import { REPEAT, charge, prune, retry, runOf, settled, step } from './lifecycle'
 import { drop as dropNeed, helperDone, helperStopped, request } from './needs'
 // the worker's report kept for the reviewer and the merge: the report contract caps its fields (validate.REPORTS), so it is kept whole
@@ -253,8 +254,8 @@ export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
   if (b && t && (await runOf(h, e.agentId))?.exit) { await end(h, e.agentId, 'loop', 'blocked'); return blockTask(h, d, t, `its agent made the same call ${REPEAT} times in a row`, 'loop', {}) }   // the breaker spent it (exit rule 4): one dialog
   if (!b || !t || !(t.step === b.step && STEP_CAT[b.step] === t.state)) return   // no binding, or it reported/moved on
   if (e.reason === 'answer') {
-    const s = (await runOf(h, e.agentId))?.state, k = s?.state === 'silent' ? s.n : 0   // this run's nudges so far
-    if (k < d.cfg.limits.nudges) {
+    const run = await runOf(h, e.agentId), k = run?.state?.state === 'silent' ? run.state.n : 0, stag = (run?.stag ?? 0) >= d.cfg.limits.stagnantNudges   // this run's nudges so far · nudged that often with no tool call between
+    if (!stag && k < d.cfg.limits.nudges) {
       await step(h, e.agentId, { type: 'turn.end', text: NUDGE[b.role] }); await charge(h, t.id, 'nudges')
       await patch(h, t.id, x => ({ ...x, card: noReportCard(x, b.role, b.step) }))   // (wrap builds the same card for the Agent result, which returns before this stop is observed)
       return
@@ -262,11 +263,29 @@ export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
     if (b.role === 'reviewer') { await patch(h, t.id, x => ({ ...x, owner: undefined })); return end(h, e.agentId, 'stopped', 'released') }   // a verdict is never invented; main spawns a fresh reviewer
     if (b.worktree) await checkpoint(h, d.store, d.actor, t.id, b.worktree).catch(() => {})   // its edits are kept for whoever goes on, never accepted as its result
     await end(h, e.agentId, 'stopped', 'blocked')   // it ends (exit rule 1): the stop itself is never refused
-    return blockTask(h, d, t, `its ${b.role} ended without a report; nothing it did was accepted as a result`, 'no-report', {})
+    return blockTask(h, d, t, stag ? `its ${b.role} stopped ${run!.stag} times in a row without a report or a tool call; nothing it did was accepted as a result` : `its ${b.role} ended without a report; nothing it did was accepted as a result`, stag ? 'stagnant' : 'no-report', {})
   }
   if (await limited(h, e)) { await end(h, e.agentId, 'stopped', 'released'); if (b.role === 'reviewer') return patch(h, t.id, x => ({ ...x, owner: undefined })); await apply(h, { kind: 'release', id: t.id, at: await h.now(), actor: 'mod' }, pipe(d)); return void (await d.store.release(t.id, d.actor, 'usage limit')) }   // not an attempt: the drive waits for the reset
   if (b.role === 'reviewer') { await patch(h, t.id, x => ({ ...x, owner: undefined })); return end(h, e.agentId, 'stopped', 'released') }
   await release(h, d, t, b, e.agentId, String(e.reason ?? 'stopped'))
+}
+// the 5 s tick: the stall timers (ADR 0024 B2). first: no model request since its start; stale: no activity for lifecycle.staleMin (the run is cancelled and its task blocks, never replaced by itself);
+// gone: its session is gone. Each ends the run, so each fires once. first and stale only by the session that holds the agent; gone by any session.
+export async function stalls(h: Host, me: string): Promise<void> {
+  const d = await resolveDeps(h), now = await h.now(), bind = await h.bind.read(), tasks = (await h.board.read()).tasks
+  for (const [a, b] of Object.entries(bind)) {
+    const r = a.startsWith('~') || b.parent || b.retired || b.role === 'planner' ? undefined : await runOf(h, a), t = tasks.find(x => x.id === b.taskId)
+    if (!r || r.exit || !['running', 'refused', 'silent'].includes(r.state?.state ?? '') || !t || !(t.step === b.step && STEP_CAT[b.step] === t.state) || (await askOf(h, a))) continue
+    const idle = now - (b.lastAt ?? b.startedAt), hd = await held(h, b.sessionId), mine = hd === 'here' || b.sessionId === me
+    const kind = hd === 'gone' && !mine ? (idle > d.cfg.lifecycle.goneSec * 1000 ? 'gone' : null) : !mine ? null : idle > d.cfg.lifecycle.staleMin * 60_000 ? 'stale' : !b.lastAt && idle > d.cfg.lifecycle.firstOutputSec * 1000 ? 'first' : null
+    if (!kind) continue
+    if (b.worktree) await checkpoint(h, d.store, d.actor, t.id, b.worktree).catch(() => {})
+    if (kind === 'stale') await end(h, a, 'stalled', 'cancelled')
+    else if (b.role === 'reviewer') { await patch(h, t.id, x => ({ ...x, owner: undefined })); await end(h, a, 'stalled', 'released') }   // a verdict is never invented; main spawns a fresh reviewer
+    else await release(h, d, t, b, a, `stalled (${kind})`)
+    if (kind !== 'gone') await h.stopAgent?.(a).catch(() => {})
+    if (kind === 'stale') await blockTask(h, d, t, `its ${b.role} did nothing for ${d.cfg.lifecycle.staleMin} minutes and was stopped`, 'stale', {})
+  }
 }
 export async function observeWith(h: Host, d: Deps, e: any, next: (e: any) => any): Promise<any> {
   await sweep(h).catch(x => h.log(`sweep failed: ${x}`))

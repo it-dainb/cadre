@@ -1142,6 +1142,7 @@ export default {
      "reportRetries": 3,
      "shapeRetries": 6,
      "nudges": 1,
+     "stagnantNudges": 3,
      "silentRuns": 3,
      "startFails": 3,
      "limitWaitMinutes": 15,
@@ -1151,6 +1152,11 @@ export default {
       "perTask": 3,
       "minutes": 10
      }
+    },
+    "lifecycle": {
+     "firstOutputSec": 90,
+     "staleMin": 45,
+     "goneSec": 60
     },
     "lanes": {
      "fullAt": 3,
@@ -1521,6 +1527,7 @@ export default {
      "reportRetries": 3,
      "shapeRetries": 6,
      "nudges": 1,
+     "stagnantNudges": 3,
      "silentRuns": 3,
      "startFails": 3,
      "limitWaitMinutes": 15,
@@ -1530,6 +1537,11 @@ export default {
       "perTask": 3,
       "minutes": 10
      }
+    },
+    "lifecycle": {
+     "firstOutputSec": 90,
+     "staleMin": 45,
+     "goneSec": 60
     },
     "lanes": {
      "fullAt": 3,
@@ -1907,6 +1919,7 @@ export default {
      "reportRetries": 3,
      "shapeRetries": 6,
      "nudges": 1,
+     "stagnantNudges": 3,
      "silentRuns": 3,
      "startFails": 3,
      "limitWaitMinutes": 15,
@@ -1916,6 +1929,11 @@ export default {
       "perTask": 3,
       "minutes": 10
      }
+    },
+    "lifecycle": {
+     "firstOutputSec": 90,
+     "staleMin": 45,
+     "goneSec": 60
     },
     "lanes": {
      "fullAt": 3,

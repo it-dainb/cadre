@@ -12,7 +12,7 @@ import { goal, watchdog } from '../core/drive'
 import { FRAMES, spawnStep, syncMode } from '../core/spawner'
 import { awake, quit, wake, warm } from '../core/session'
 import '../config/route'   // registers ROUTES.config
-import { observe } from '../core/close'
+import { observe, stalls } from '../core/close'
 import '../core/integrate'   // registers ROUTES.release
 import { admit, tick as heartbeat } from '../core/admission'
 import { contain, heal } from '../policy/containment'
@@ -206,7 +206,7 @@ export const register: Register = (on, opts) => {
     { const h = host($); if (await wake(h).catch(() => false)) { await nudge(h).catch(() => {}); await sweepProbes(h).catch(() => {}); await autoLand(h).catch(x => $.ui.log(`land: ${x}`)) } }   // a landing that waited for the user's checkout   // active repos only: no setup stamp for this Claude Code build -> one toast
     await update($, secret, x => ({ ...x, roles: undefined, turn: 0, start: undefined }))   // a secret that survived a resume holds registers of an earlier engine: register again; a complete start clears an earlier failure
     if (await wake(host($)).catch(() => false)) await roles($).catch(x => $.ui.log(`roles: ${x}`))   // active repos only; a repo turned on later gets them next session
-    $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void watch(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}); void watchdog(h).catch(() => {}); void h.secret.read().then(s => Promise.all([backstop(h, s.session ?? ''), overdue(h, s.session ?? '')])).catch(() => {}); void autoLand(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
+    $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void watch(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}); void watchdog(h).catch(() => {}); void h.secret.read().then(s => Promise.all([backstop(h, s.session ?? ''), overdue(h, s.session ?? ''), stalls(h, s.session ?? '').catch(x => h.log(`stalls: ${x}`))])).catch(() => {}); void autoLand(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
     $.clock.every(30_000, () => { const h = host($); void wake(h).then(act => act && tickUi(h)).catch(() => {}) })   // live timeline cursor (blit, no re-render)
     } catch (x) {   // a step failed (live under load: a session.start HooksError, not reproduced in a test of 8 starts at once): the session goes on, and Doctor says that cadre started only in part
       void $.ui.log(`session start: ${x}`); await update($, secret, s => ({ ...s, old, start: { failed: String(x).slice(0, 160) } })).catch(() => {})

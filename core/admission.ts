@@ -28,7 +28,7 @@ import { notesOf, pathsOf, sliceNotes, specTestsOf, untested } from './validate'
 import { branchOf, epicOf } from './milestone'
 import { plannerBrief } from './planner'
 import { modelRefusal, inSlot, tasksFull } from './queue'
-import { budgetOf, intentOf, reserve, step as lifeStep, unreserve } from './lifecycle'
+import { budgetOf, intentOf, reserve, runOf, step as lifeStep, unreserve } from './lifecycle'
 import { ROLES_DEFAULT } from './roles'
 import * as P from './helpers'
 import { needOf, question, running, undelivered, delivered } from './needs'
@@ -223,6 +223,11 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
       return deny(`${t.id}: its branch is gone; it was released, spawn it again for a fresh start`)
     }
     if (how === 'readd') await setup(h, d, task, wt)
+  }
+  const was = (await Promise.all(mine.filter(a => bind[a].role === role).map(a => runOf(h, a)))).find(r => r?.model)?.model   // revival (B5): the run it takes over ran on this model; a fresh agent gets exactly the model routing gives now, or the task waits (never another one)
+  if (was && !forcedOf(await h.env()).model) {
+    const r0 = routeOf(d, role, riskFor(d, undefined, task), await rounds(h, t.id), pkgOf(d, task))
+    if (!r0.escalated && r0.model !== was) return deny(`${t.id}: its ${role} ran on ${was} and ${r0.setting} now says ${r0.model}; set it back to ${was} and ask again (the task waits)`)
   }
   for (const a of mine) await lifeStep(h, a, { type: 'end', cause: 'released', reason: live ? 'rebind' : 'stale' })
   if (!(await reserve(h, t.id, role, d.session))) return deny(`${t.id} is already being spawned; wait`)
