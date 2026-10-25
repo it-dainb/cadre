@@ -13,7 +13,7 @@ import * as G from './git'
 import { modelText } from './say'
 import { baseOf } from './branches'
 import { auditView, inRepo, matches, modeOf, pkgOf, rootOf, type Pkg } from './specview'
-import { SPEC_SCENARIO, carries, holdsOf, untested } from './validate'
+import { SPEC_SCENARIO, carries, holdsOf, scenarioIds, untested } from './validate'
 import { policyOf, setPolicy } from '../policy/guards'
 import { reset, step } from './lifecycle'
 
@@ -96,8 +96,10 @@ export async function red(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, te
 // the install the task already has makes a scenario about the dependency true now. A normal red (only unset) is unchanged: every test fails.
 const lenient = (name: string, only?: string) => !!only && !carries(only, name)
 // `holds` (the plan's: scenarios whose behaviour already exists): their tests must PASS at red, the rest fail as always; each held scenario needs a test named after it
-const held = (task: Task, name: string) => holdsOf(task).find(id => carries(id, name))
-const holdsGapOf = (task: Task, tests: { name: string }[]) => { const x = holdsOf(task).find(id => !tests.some(t => carries(id, t.name))); return x ? `no test is named after ${x}, which the plan says already holds: write a test for it that passes now` : null }
+// a test is held only when EVERY scenario id its name carries is held: "S1 and S2 combined" (S1 not held) is an unheld test and must fail like any other
+const heldIds = (task: Task, name: string): string[] => { const c = scenarioIds(task.acceptance).filter(id => carries(id, name)), hs = holdsOf(task); return c.length && c.every(id => hs.includes(id)) ? c : [] }
+const held = (task: Task, name: string) => heldIds(task, name)[0]
+const holdsGapOf = (task: Task, tests: { name: string }[]) => { const x = holdsOf(task).find(id => !tests.some(t => heldIds(task, t.name).includes(id))); return x ? `no test is named after ${x} alone, which the plan says already holds: write a test for it that passes now` : null }
 const mustFail = (task: Task, tests: { name: string }[], only?: string) => tests.filter(t => !held(task, t.name) && !lenient(t.name, only))
 const heldNow = (t: { name: string }, c: { status: string }, id: string) => `test "${t.name}" ${c.status === 'passed' ? 'passes' : c.status === 'skipped' ? 'was skipped' : 'fails'}; ${id} already holds, so it must pass now`
 const amendedGap = (tests: { name: string }[], only?: string): string | null => only && !tests.some(t => carries(only, t.name)) ? `no test is named after ${only}, the scenario that was amended: write a test for it, named after ${only}, that fails now` : null

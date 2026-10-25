@@ -260,3 +260,19 @@ test('settings: review.maxRework 1 flags non-progress after the 2nd changes verd
   assert.match(await w.rep('ag2', ch), /changes \(1\/1\)/); edit(wt, 'b.txt', 'b1\n'); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'r1' })
   await w.rep('ag2', ch); assert.ok((await h.board.read()).tasks[0].flags.includes('rework:2/1'))
 })
+
+// holds: a base that moved under a running task. The held tests are re-run on the merged tree; red (or no answer) blocks the task with the flag `holds`, green goes on
+test('refresh: a landed commit that breaks a held test blocks the running task with the flag holds; a harmless one does not; a check that cannot run blocks too (fail closed)', async () => {
+  for (const [what, tipFile, tdd] of [['breaks', 'broken.flag', {}], ['harmless', 'other.txt', {}], ['cannot run', 'other.txt', { check: 'nope' }]]) {
+    const w = await world(), id = w.ids[0], { h, dep, store, d } = w
+    dep.cfg.units = [{ root: '.', verify: ['verify'], checks: { verify: ['true'], test: ['sh', '-c', 'test ! -f broken.flag'] }, tdd: { paths: ['test/**'], check: 'test', ...tdd } }]
+    await w.spawn(id); const meta = (await store.get(id)).meta, wt = meta['cadre.worktree']
+    await store.setMeta(id, { 'cadre.holds': '["S1"]', 'cadre.specTests': '["S1 held"]' }, dep.actor)
+    const board = await h.board.read(); assert.deepEqual([board.tasks[0].state, board.tasks[0].step], ['active', 'worker'])
+    sh(d, 'checkout', '-q', 'epic/p1-x'); writeFileSync(join(d, tipFile), 'x\n'); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'another task landed'); const tip = sh(d, 'rev-parse', 'HEAD'); sh(d, 'checkout', '-q', 'main')
+    await R.refresh(h, dep, tip, 'other')
+    const t = (await h.board.read()).tasks[0], m = (await store.get(id)).meta
+    if (what === 'harmless') { assert.equal(t.state, 'active'); assert.deepEqual(t.flags, []); assert.equal(existsSync(join(wt, 'other.txt')), true) }
+    else { assert.equal(t.state, 'blocked', what); assert.ok(t.flags.includes('holds'), what); assert.equal(m['cadre.blocked'], 'holds') }
+  }
+})

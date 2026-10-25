@@ -255,7 +255,13 @@ test('holds: an unmarked scenario that passes at red is refused; a marked one th
 })
 test('holds: a marked scenario whose test fails is refused (the plan said it holds); one with no test named after it is refused naming it', async () => {
   const red = await held({ 'test/s.json': tc('S1 new', 'failure'), 'test/s2.json': tc('S2 held', 'failure') }, ['S1 new', 'S2 held']); assert.equal(red.res.ok, false); assert.match(red.res.why, /test "S2 held" fails; S2 already holds, so it must pass now/)
-  const none = await held({ 'test/s.json': tc('S1 new', 'failure') }, ['S1 new']); assert.equal(none.res.ok, false); assert.match(none.res.why, /no test is named after S2, which the plan says already holds/)
+  const none = await held({ 'test/s.json': tc('S1 new', 'failure') }, ['S1 new']); assert.equal(none.res.ok, false); assert.match(none.res.why, /no test is named after S2 alone, which the plan says already holds/)
+})
+test('holds: one test named after a held and an unheld scenario is an unheld test: it must fail (the combined-name probe), with or without holds set', async () => {
+  const probe = await held({ 'test/s.json': tc('S1 and S2 combined', 'passed'), 'test/s2.json': tc('S2 held', 'passed') }, ['S1 and S2 combined', 'S2 held']); assert.equal(probe.res.ok, false); assert.match(probe.res.why, /pass at the spec commit/)   // S1 never fails
+  const noHolds = world({ acceptance: ACC }), r = await tester(noHolds, { 'test/s.json': tc('S1 and S2 combined', 'passed') }, ['S1 and S2 combined']); assert.equal(r.res.ok, false)
+  const alone = await held({ 'test/s.json': tc('S1 and S2 combined', 'failure'), 'test/s2.json': tc('S2 held', 'passed') }, ['S1 and S2 combined', 'S2 held']); assert.ok(alone.res.ok, alone.res.why)   // the combined one fails, S2 has its own passing test
+  const missing = await held({ 'test/s.json': tc('S1 and S2 combined', 'failure') }, ['S1 and S2 combined']); assert.equal(missing.res.ok, false); assert.match(missing.res.why, /no test is named after S2 alone/)
 })
 test('holds: a task whose scenarios all hold needs no failing test', async () => {
   const all = await held({ 'test/s.json': tc('S2 held', 'passed') }, ['S2 held'], { acceptance: 'S2: Given x When y Then z' }); assert.ok(all.res.ok, all.res.why)

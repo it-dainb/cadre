@@ -92,11 +92,11 @@ export async function refresh(h: Host, d: Deps, tip: string, from: string, only?
     if (!moved) continue
     await d.store.setMeta(x.id, { 'cadre.base': tip }, d.actor)
     // the scenarios the plan said already hold are re-run on the moved tree: one that no longer passes blocks the task with a decision, it is never demoted to an unmarked scenario
-    const red = await holdsRed(h, d, await d.store.get(x.id), wt).catch(() => [] as string[])
+    const red = await holdsRed(h, d, await d.store.get(x.id), wt).catch((e: Error) => { h.log(`${x.id}: its held tests could not be re-run: ${e.message}`); return ['(the check could not run)'] })   // fail closed: no answer is no pass
     if (red.length) {
       await apply(h, { kind: 'block', id: x.id, at: await h.now(), actor: 'mod' }, pipeOf(d.reg)); await d.store.move(x.id, 'blocked', d.actor); await d.store.setMeta(x.id, { 'cadre.blocked': 'holds' }, d.actor)
       await h.board.update(b => ({ ...b, tasks: b.tasks.map(t => (t.id === x.id && !t.flags.includes('holds') ? { ...t, flags: [...t.flags, 'holds'] } : t)) })); await emit(h, 'flag.raised', { taskId: x.id, flag: 'holds' }, { taskId: x.id })
-      await decided(h, 'rebase', `${x.id}: after ${from} landed, ${red.slice(0, 3).join(', ')} no longer pass, and the plan said they already hold; the plan's author decides`, x.id); continue
+      await decided(h, 'rebase', `${x.id}: after ${from} landed, the scenarios the plan says already hold could not be confirmed (${red.slice(0, 3).join(', ')}); the plan's author decides`, x.id); continue
     }
     if (w) await pushDelta(h, w, modelText('context', `${from} landed; your branch now includes it (plan tip ${sha7(tip)}). Your edits are kept.`))
   }
