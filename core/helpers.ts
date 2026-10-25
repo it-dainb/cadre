@@ -17,7 +17,7 @@ interface Eco { subs: string[][]; flags: string[]; value?: string[]; spec: RegEx
 const JS = { npm_config_ignore_scripts: 'true', YARN_ENABLE_SCRIPTS: 'false', YARN_IGNORE_PATH: '1', npm_config_manage_package_manager_versions: 'false', COREPACK_ENABLE_NETWORK: '0', COREPACK_ENABLE_AUTO_PIN: '0' }
 const ARCHIVE = /\.(tar(\.\w+)?|tgz|zip|whl|egg|gz|bz2|xz|crate)$/i   // a local archive by its bare name
 const ALLOW: Record<string, Eco> = {
-  npm: { subs: [['install'], ['i'], ['add']], flags: ['-D', '--save-dev', '-O', '--save-optional', '-E', '--save-exact', '-P', '--save-prod', '--no-audit', '--no-fund'], spec: NPM, env: JS },
+  npm: { subs: [['install'], ['i'], ['add'], ['ci']], flags: ['-D', '--save-dev', '-O', '--save-optional', '-E', '--save-exact', '-P', '--save-prod', '--no-audit', '--no-fund'], spec: NPM, env: JS },
   pnpm: { subs: [['add'], ['install'], ['i']], flags: ['-D', '--save-dev', '-O', '--save-optional', '-E', '--save-exact', '-P', '--save-prod'], spec: NPM, add: ['--ignore-pnpmfile'], env: JS },
   yarn: { subs: [['add'], ['install']], flags: ['-D', '--dev', '-O', '--optional', '-E', '--exact'], spec: NPM, env: JS },
   uv: { subs: [['add']], flags: ['--dev'], value: ['--group', '--optional'], spec: PY, add: ['--no-build', '--no-sync'] },
@@ -120,7 +120,7 @@ export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
     const all = await dirty(), stray = all.filter(p => !manifest(p.path, roots)), files = all.filter(p => manifest(p.path, roots)).map(p => p.path), flag = stray.length ? { stray: true as const } : { done: true as const }
     if (stray.length && o.strays) return await bad('it changed files besides the manifest and lockfile, again')
     await revert(stray)
-    if (!files.length) return { text: 'Nothing changed: the dependencies are already there.', ...flag }
+    if (!files.length) return { text: 'Nothing to commit: the manifest and lockfile already list them, and the packages are installed in your folder.', ...flag }
     const sub = o.ask.split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 60) || 'add dependencies'
     await git('add', '--', ...files); const c = await git('commit', '--no-verify', '-m', `chore(deps): ${sub}`)
     if (c.exitCode) return await bad(`it could not be committed (${scrub(c.stderr)})`)

@@ -9,7 +9,7 @@
 //   silent: lite, the worker writes its files and stops without a report, every time (the report-less end);
 //   pair: full lane, two independent tasks (concurrency-fifo, with concurrency.default 1 in the repo's config);
 //   needs: lite, the worker first asks the explore helper (report outcome request), and writes its files once it is answered (needs-explore);
-//   setup: needs, but the helper asked is setup: the explorer proposes [npm install ms], cadre installs it from the real registry (needs-setup-s);
+//   setup: needs, but the helper asked is setup: the explorer first forgets argv (refused, it reports again), then proposes [npm install ms]; cadre installs it from the real registry (needs-setup-s);
 //   multi: full lane, two tasks (kebabCase after titleCase), an amend on a stale revision refused then retried (plan-tools-full);
 //   probe: a milestone of two epics (the second after the first); the epic's planner asks the probe helper first, and drafts its tasks once it is answered (planner-probe);
 //   sub: lite, the task in the `lib` submodule unit (submodule-unit); cont: lite, the reviewer waits 14 s first (continue-after-quit-s kills before or during it).
@@ -126,7 +126,8 @@ const ROLES: Record<string, (k: number, brief: string, cwd: string, rows: Row[])
       metadata: { type: 'feature', package: '.', paths: ['src/words.mjs', 'test/words.test.mjs'], scenarios: ["S1: Given 'a b c' When wordCount is called Then it returns 3"], changelog: { category: 'Added', entry: 'wordCount(s): the number of words in s' },
         interface: { symbols: [{ name: 'wordCount', kind: 'function', params: ['s: string'], returns: 'number', status: 'new' }] } } }] } }][k] ?? { text: END }   // after the probe's answer: the plan
     : [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'planner', outcome: 'request', summary: 'I look at the project before I plan.', request: { helper: 'probe', ask: 'Where do the string helpers live and how are they tested?', why: 'I plan the tasks next to them', paths: ['src/'] } } }][k] ?? { text: END },
-  explorer: k => script === 'setup' ? [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'explorer', answer: 'ms is a plain npm package; npm install adds it.', argv: ['npm', 'install', 'ms'], citations: [{ path: 'package.json', line: 1 }] } }][k] ?? { text: END } : [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'explorer', answer: 'One string helper, slug, in src/slug.mjs as a named ESM export; tests in test/ use node:test; npm test runs node --test.', citations: [{ path: 'src/slug.mjs', line: 1 }, { path: 'package.json', line: 1 }] } }][k] ?? { text: END },
+  explorer: k => script === 'setup' ? [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'explorer', answer: 'Run ["npm","install","ms"].' } },   // first without argv: refused, the helper reports again with it
+    { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'explorer', answer: 'ms is a plain npm package; npm install adds it.', argv: ['npm', 'install', 'ms'], citations: [{ path: 'package.json', line: 1 }] } }][k] ?? { text: END } : [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'explorer', answer: 'One string helper, slug, in src/slug.mjs as a named ESM export; tests in test/ use node:test; npm test runs node --test.', citations: [{ path: 'src/slug.mjs', line: 1 }, { path: 'package.json', line: 1 }] } }][k] ?? { text: END },
 }
 function agent(rows: Row[], cwd: string): [string, Act] {
   const brief = rows.find(isText)?.text ?? '', probe = brief.match(/S0-PROBE tag=(\w+)/)?.[1]

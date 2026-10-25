@@ -25,7 +25,7 @@ That one call creates the plan and its task. Then tell the user to approve it in
 
 **If the goal says "There is no mission yet"** (lite and full): also put `"mission": "Goal: …\nConstraints: …\nNon-goals: …"` in the plan call. Draft it from the goal, what you read in the project and the user's answers. They approve the mission together with the plan.
 
-**full**: plan with `"lane": "full", "reason": "<one line>"`, then one task call per task, as the plan rules in its answer say (scenarios, interface, changelog, package). Fill what the "missing:" line names. Then tell the user to approve the plan in the dialog (key 1 opens it).
+**full**: plan with `"lane": "full", "reason": "<one line>"`, then one task call per task, as the plan rules in its answer say (scenarios, interface, changelog, package). Fill what the "missing:" line names. A package the work needs is not a task of its own: the task that uses it asks for the install while it works. Then tell the user to approve the plan in the dialog (key 1 opens it).
 
 **milestone**: plan with `"lane": "milestone", "reason": "<one line>"`, then one epic call per epic, as the roadmap rules in its answer say. Fill what the "missing:" line names (last: the critic review). Then tell the user to approve the roadmap in the dialog (key 1 opens it). After that, each epic's tasks are planned when the "next:" line names the epic; cadre approves them itself. Complete each epic when its tasks are done; the milestone lands on dev with its last epic. Shared code found mid-run: task with `"core": true`, no epic.
 

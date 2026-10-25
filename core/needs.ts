@@ -24,7 +24,7 @@ export interface Need { task: string; needId: string; n: number; requester: stri
 export const needOf = (h: Host, task: string) => ctlGet<Need>(h, `need:${task}`)
 const put = (h: Host, n: Need) => ctlSet(h, { [`need:${n.task}`]: n })
 const HELPERS = ['explore', 'setup', 'probe']
-const SETUP = '\nFind the one command that adds what is asked: read the manifests, lockfiles and CI files. Report role "explorer" with a short answer and argv, the command as a list, e.g. ["npm","install","left-pad"]. You only propose it; it is run for you and committed. No sudo, no global or user-wide installs, no pipes.'
+const SETUP = '\nFind the one command that adds what is asked: read the manifests, lockfiles and CI files. Report role "explorer" with a short answer and argv, the command as a list, e.g. ["npm","install","left-pad"]. Allowed: npm, pnpm or yarn install, add or ci; uv add or uv pip install; cargo add; go get. You only propose it; it is run for you and committed. No sudo, no global or user-wide installs, no pipes.'
 export const question = (n: Need) => `${n.ask}\n\nWhy it is asked: ${n.why}${n.paths?.length ? `\nLook at: ${n.paths.join(', ')}` : ''}${n.helper === 'setup' ? SETUP : n.helper === 'probe' ? '\nYour folder is a scratch copy of the project: look around freely and answer the question.' : ''}`
 const FAILED = 'The helper could not answer your request. Go on without it, or report outcome "blocked" with what you need.'
 export const reply = (n: Need) => (n.ok ? `Answer to your request:\n${n.answer}\nGo on with your task.` : FAILED)
@@ -61,6 +61,7 @@ async function answer(h: Host, n: Need, text: string | null, fail = false): Prom
 export async function helperDone(h: Host, d: Deps, b: Binding, r: { role: string; answer?: string; argv?: unknown; citations?: { path?: string; line?: number }[] }): Promise<string> {
   if (r.role !== 'explorer') throw new Error('role: you are a helper; report role "explorer" with answer and citations')
   const n = await needOf(h, b.taskId); if (!n || n.needId !== b.needId) return 'this request is closed. Stop.'
+  if (n.helper === 'setup' && !Array.isArray(r.argv)) throw new Error('argv: this question asks for an install command: give it in argv as a list of arguments (e.g. ["npm","install","left-pad"]), not in the answer, and report again')
   await answer(h, n, n.helper === 'setup' ? await setupAnswer(h, d, n, r.argv) : [String(r.answer), ...(r.citations ?? []).slice(0, 10).map(c => `${c.path}:${c.line ?? ''}`)].join('\n').slice(0, 2500))
   return 'answer recorded. Stop.'
 }

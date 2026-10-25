@@ -278,3 +278,12 @@ test('checkRun: .venv/bin of the folder is first on PATH, in the jail (overlay o
     rmSync(join(f.wt, '.venv'), { recursive: true }); assert.notEqual((await G.checkRun(run, 'none', { wt: f.wt, scratch: sc, pkgRoot: f.wt, argv: ['venvtool'] })).exitCode, 0)
   } finally { f.done() }
 })
+
+test('npm ci: a worktree whose lockfile already lists the package gets it installed; the reply says so and nothing is committed', async () => {
+  const f = await fix(); try {
+    const first = await P.setup(f.h, f.inp()); assert.match(first.text, /^Installed and committed/); rmSync(join(f.wt, 'node_modules'), { recursive: true })
+    const r = await P.setup(f.h, f.inp({ argv: ['npm', 'ci'], ask: 'install what the lockfile lists' }))
+    assert.match(r.text, /^Nothing to commit: the manifest and lockfile already list them, and the packages are installed in your folder/, r.text); assert.ok(r.done)
+    assert.ok(existsSync(join(f.wt, 'node_modules/local-dep/package.json')), 'installed')
+  } finally { f.done() }
+})

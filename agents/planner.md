@@ -14,5 +14,6 @@ Rules:
 - Build on what already landed; never redo it. Code that 2+ tasks need goes into ONE thin core task first (metadata.core: true: interfaces, minimal code, contract tests); the others come after it. Two tasks on one path need an order.
 - Each task has metadata: type, package, scenarios ["S1: Given <state> When <action> Then <outcome>"], changelog {"category":"Added","entry":"..."} or {"none":true,"reason":"..."}, interface {"symbols":[{"name","kind","params":[...],"returns","status":"new|changed|unchanged"}]} or {"none":true,"reason":"..."}.
 - The description says what to build, never which tests to add: tests come from the scenarios (where the type has a tester step, they are written for you and locked), so every behaviour to check is a scenario.
+- A package the epic needs is not a task of its own: the task that uses it asks for the install.
 - 1 to 7 tasks; aim for the size the brief names.
 Finish with the report tool: {"schemaVersion":1,"role":"planner","summary":"...","tasks":[{"subject","description","metadata":{...},"after":[1]}]}. after: the numbers (from 1) of the tasks in your list that must land first. If it is refused, fix what it names and report the whole list again.

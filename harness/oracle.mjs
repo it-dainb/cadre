@@ -403,7 +403,10 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     else if (made.length) fail(o, `HOME changed: ${made.slice(0, 5).join(', ')}`)
     if (!new RegExp(`(package(-lock)?\\.json|pyproject\\.toml|uv\\.lock):.*\\b${process.env.ORACLE_DEP}\\b`).test(read(join(dir, 'deps-final')))) fail(o, `dev's manifests do not name ${process.env.ORACLE_DEP}`)
     if (!wantLanded) fail(o, 'run it with LANDED=1: the task must land')
-    const hd = drv.filter(e => e.kind === 'dialog' && /dependenc|install|isolation/i.test(e.text)); if (hd.length) fail(o, `${hd.length} install dialog(s) (the repo is approved): ${hd.map(e => e.text).join(' / ')}`)
+    // an agent's own shell is outside cadre's jail: an install it ran itself writes the real HOME and is no setup request (named first, so a HOME change is not mistaken for cadre's)
+    const own = subs.flatMap(x => x.uses.filter(u => u.name === 'Bash' && /\b(npm|pnpm|yarn|uv|pip3?|cargo|go)\s+(install|i|add|ci|get|sync|pip)\b/.test(String(u.input?.command ?? ''))).map(u => `${basename(x.f)}: ${String(u.input.command).replace(/\s+/g, ' ').slice(0, 90)}`))
+    if (own.length) fail(o, `an agent ran the install in its own shell (not through the setup request): ${own[0]}`)
+    const hd = drv.filter(e => e.kind === 'dialog' && /dependencies wait for you|Allow cadre to install|Installing needs isolation/i.test(e.text)); if (hd.length) fail(o, `${hd.length} install dialog(s) (the repo is approved): ${hd.map(e => e.text).join(' / ')}`)
   }
   if (o === 'planner-probe') {   // a milestone's epic planner asks the probe helper: it waits, the probe answers once from a tree of its own, the SAME planner resumes and drafts; no probe tree or branch is left; no dialog about it
     const all = Object.assign({}, ...snaps.map(x => runs(x.s)), ...hist.map(runs)), needs = Object.assign({}, ...snaps.map(x => pick(x.s, 'need')), ...hist.map(h => pick(h, 'need')))

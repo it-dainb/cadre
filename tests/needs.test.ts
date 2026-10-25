@@ -74,6 +74,12 @@ describe('the setup helper: cadre vets and runs its proposal, the answer wakes t
     await w.rep('ag2', ARGV(['sudo', 'npm', 'install', 'left-pad'])); await w.stop('ag2')
     expect(w.sent).toHaveLength(1); expect(w.sent[0][1]).toContain('The install was refused'); expect((await w.h.board.read()).decisions ?? []).toEqual([]); expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'running' })
   })
+  test('an install answer without argv is sent back to the helper (the command belongs in argv, not the answer); the requester keeps waiting; npm ci is an allowed form', async () => {
+    const { w } = await start(); await w.rep('ag1', SETUP); await w.turn()
+    const r = await w.rep('ag2', { role: 'explorer', answer: 'Run ["npm","ci"]' }).catch((e: Error) => e.message); expect(String(r)).toContain('argv: this question asks for an install command')
+    expect(w.sent).toEqual([]); expect((await runOf(w.h, 'ag1'))?.state).toMatchObject({ state: 'waiting' })
+    expect(w.spawned[1][1]).toContain('Allowed: npm, pnpm or yarn install, add or ci')
+  })
   test('settings: deps.auto false: a good argv is not run, the requester is told, and the human gets exactly one dialog', async () => {
     const { w, id } = await start(); w.cfg.deps.auto = false; await w.rep('ag1', SETUP); await w.turn(); await w.rep('ag2', ARGV(['npm', 'install', 'left-pad'])); await w.stop('ag2')
     expect(w.sent[0][1]).toContain('waits for the user'); expect((await w.h.board.read()).decisions?.map(d => d.id)).toEqual([`deps:${id}:n1`]); expect((await events(w, 'help.done')).map(e => e.data.ok)).toEqual([true])
