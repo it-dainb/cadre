@@ -58,6 +58,13 @@ describe('stall timers', () => {
     w.clock.now += w.cfg.lifecycle.staleMin * 60_000 * 2; await step(w.h, 'ag1', { type: 'resume', text: 'findings' })
     await stalls(w.h, 's1'); expect(s).toEqual([]); expect((await runOf(w.h, 'ag1'))!.state).toEqual({ state: 'running' })
   })
+  test('an answer to its request is a return to running: a worker that waited 90 minutes on a helper is not stale-killed', async () => {
+    const w = await world(), [id] = w.ids, s = stops(w); await bound(w, 'ag1', id, { lastAt: w.clock.now }); const epoch = (await runOf(w.h, 'ag1'))!.epoch
+    await step(w.h, 'ag1', { type: 'request', needId: 'n1' }); expect((await runOf(w.h, 'ag1'))!.state).toMatchObject({ state: 'waiting' })
+    w.clock.now += w.cfg.lifecycle.staleMin * 60_000 * 2; await stalls(w.h, 's1'); expect(s).toEqual([])   // parked: never stalled
+    await step(w.h, 'ag1', { type: 'answered', needId: 'n1', epoch, text: 'the answer' }); expect((await runOf(w.h, 'ag1'))!.state).toEqual({ state: 'running' })
+    await stalls(w.h, 's1'); expect(s).toEqual([])
+  })
   test('a tool call is a sign of life, and one that has not returned holds the stale clock (a long test run is work) until 4x staleMin', async () => {
     const w = await world(), [id] = w.ids, s = stops(w), min = w.cfg.lifecycle.staleMin * 60_000; await bound(w, 'ag1', id, { lastAt: w.clock.now })
     await guard(w.h, { tool: 'Read', agentId: 'ag1', input: { file_path: 'a' } }, async (e: any) => e)   // the guard's call event stamps lastAt and opens the call

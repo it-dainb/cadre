@@ -94,7 +94,7 @@ export async function step(h: Host, agentId: string, e: RunEvent): Promise<Run |
   if (e.type === 'spawn.ok') e = { ...e, epoch: await charge(h, b!.taskId, 'epoch') }
   let fx: Effect[] = []
   const now = await put<Run>(h, 'runs', agentId, cur, r => { const x = next(r!, e); fx = x.effects; return x.run }, r => e.type === 'call' && r.log === had?.log)
-  if (e.type === 'resume') { const t = await h.now(); await h.bind.update(b => (b[agentId] ? { ...b, [agentId]: { ...b[agentId], lastAt: t } } : b)) }   // a woken run is alive from now (the stall clock, core/close stalls)
+  if (e.type === 'resume' || (e.type !== 'spawn.ok' && now.state?.state === 'running' && had?.state?.state !== 'running')) { const t = await h.now(); await h.bind.update(b => (b[agentId] ? { ...b, [agentId]: { ...b[agentId], lastAt: t } } : b)) }   // every wake and every return to `running` (an answer to a request, a resume) is alive from now: the stall clock (core/close stalls); a spawn is not stamped: `lastAt` unset is what `first` looks for
   for (const f of fx) {
     if (f.kind === 'unbind') { await h.bind.update(({ [agentId]: _gone, ...rest }) => rest); await emit(h, 'agent.unbound', { agentId, reason: f.reason }, { agentId, taskId: now.taskId }) }
     else if (f.kind === 'retire') await h.bind.update(t => (t[agentId] ? { ...t, [agentId]: { ...t[agentId], retired: true } } : t))
