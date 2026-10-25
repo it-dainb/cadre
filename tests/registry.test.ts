@@ -49,4 +49,16 @@ describe('pipeline validation: every illegal order is refused', () => {
   test('validate(registry) names the offending type', async () => {
     expect(validate({ ...defaults(), nope: { commit: 'x', changelog: null, pipeline: ['merge'], contract: 'none' } })).toEqual(['types.nope: "merge" must be last and after "reviewer"'])
   })
+  test('a test-first type with a worker keeps tester and red; the built-ins load unchanged', async () => {
+    expect(validate(defaults())).toEqual([])
+    expect(Object.entries(defaults()).filter(([, s]) => s.tdd).map(([t]) => t).sort()).toEqual(['bug', 'feature'])
+    const f = defaults().feature
+    expect(validate({ feature: { ...f, pipeline: ['worker', 'reviewer', 'merge'] } })).toEqual(['types.feature: a test-first type ("tdd": true) with a worker keeps "tester" and "red"'])
+    expect(validate({ feature: { ...f, pipeline: ['tester', 'worker', 'reviewer', 'merge'] } })).toHaveLength(1)
+    expect(validate({ feature: { ...f, tdd: false, pipeline: ['worker', 'reviewer', 'merge'] } })).toEqual([])
+    expect(validate({ x: { ...f, pipeline: ['tester', 'reviewer', 'merge'] } })).toEqual([])
+  })
+  test('the per-task lite drop still works', async () => {
+    expect(pipeOf(defaults())('feature', 'lite')).not.toContain('red')
+  })
 })

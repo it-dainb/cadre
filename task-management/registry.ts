@@ -7,14 +7,15 @@ export interface TypeSpec {
   pipeline: string[]
   contract: 'required' | 'none'
   kind?: Kind                           // custom types may declare it
+  tdd?: boolean                         // a test-first type: with a worker it keeps `tester` and `red` (validate); the built-in feature and bug declare it, refactor, docs, test and spike do not
 }
 export type TypeRegistry = Record<string, TypeSpec>
 
 export const STEPS = ['tester', 'red', 'worker', 'green', 'reviewer', 'merge', 'explorer', 'report']
 
 export const defaults = (): TypeRegistry => ({
-  feature: { commit: 'feat', changelog: 'Added', pipeline: ['tester', 'red', 'worker', 'green', 'reviewer', 'merge'], contract: 'required' },
-  bug: { commit: 'fix', changelog: 'Fixed', pipeline: ['tester', 'red', 'worker', 'green', 'reviewer', 'merge'], contract: 'required' },
+  feature: { commit: 'feat', changelog: 'Added', pipeline: ['tester', 'red', 'worker', 'green', 'reviewer', 'merge'], contract: 'required', tdd: true },
+  bug: { commit: 'fix', changelog: 'Fixed', pipeline: ['tester', 'red', 'worker', 'green', 'reviewer', 'merge'], contract: 'required', tdd: true },
   refactor: { commit: 'refactor', changelog: null, pipeline: ['worker', 'green', 'reviewer', 'merge'], contract: 'required' },
   docs: { commit: 'docs', changelog: null, pipeline: ['worker', 'reviewer', 'merge'], contract: 'none' },
   test: { commit: 'test', changelog: null, pipeline: ['tester', 'reviewer', 'merge'], contract: 'none' },
@@ -36,8 +37,10 @@ export function validatePipeline(p: readonly string[]): string | null {
   return null
 }
 
+// a test-first type (`tdd: true`) that has a worker keeps the step that writes the tests and the one that proves them red: dropping them is refused here, as any illegal order is
+export const tddRule = (s: Pick<TypeSpec, 'pipeline' | 'tdd'>): string | null => (s.tdd && s.pipeline.includes('worker') && !(s.pipeline.includes('tester') && s.pipeline.includes('red')) ? 'a test-first type ("tdd": true) with a worker keeps "tester" and "red"' : null)
 export const validate = (reg: TypeRegistry): string[] =>
-  Object.entries(reg).flatMap(([t, s]) => { const e = validatePipeline(s.pipeline); return e ? [`types.${t}: ${e}`] : [] })
+  Object.entries(reg).flatMap(([t, s]) => { const e = validatePipeline(s.pipeline) ?? tddRule(s); return e ? [`types.${t}: ${e}`] : [] })
 
 export const kindOf = (s: TypeSpec): Kind => s.kind ?? (s.pipeline.includes('explorer') ? 'spike' : s.commit === 'docs' ? 'docs' : 'code')
 export const merges = (s: TypeSpec): boolean => s.pipeline.includes('merge')

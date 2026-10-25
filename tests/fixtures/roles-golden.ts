@@ -1015,7 +1015,8 @@ export default {
        "reviewer",
        "merge"
       ],
-      "contract": "required"
+      "contract": "required",
+      "tdd": true
      },
      "bug": {
       "commit": "fix",
@@ -1028,7 +1029,8 @@ export default {
        "reviewer",
        "merge"
       ],
-      "contract": "required"
+      "contract": "required",
+      "tdd": true
      },
      "refactor": {
       "commit": "refactor",
@@ -1392,7 +1394,8 @@ export default {
        "reviewer",
        "merge"
       ],
-      "contract": "required"
+      "contract": "required",
+      "tdd": true
      },
      "bug": {
       "commit": "fix",
@@ -1405,7 +1408,8 @@ export default {
        "reviewer",
        "merge"
       ],
-      "contract": "required"
+      "contract": "required",
+      "tdd": true
      },
      "refactor": {
       "commit": "refactor",
@@ -1769,7 +1773,8 @@ export default {
        "reviewer",
        "merge"
       ],
-      "contract": "required"
+      "contract": "required",
+      "tdd": true
      },
      "bug": {
       "commit": "fix",
@@ -1782,7 +1787,8 @@ export default {
        "reviewer",
        "merge"
       ],
-      "contract": "required"
+      "contract": "required",
+      "tdd": true
      },
      "refactor": {
       "commit": "refactor",
