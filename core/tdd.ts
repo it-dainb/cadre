@@ -294,6 +294,9 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
   const r = await apply(h, acc ? { kind: 'rewind', id, at: await h.now(), actor: by, on: 'tester' } : { kind: 'unblock', id, at: await h.now(), actor: by }, pipe)
   if (!r.ok) return { text: r.error }
   await d.store.resume(id, d.actor)   // the store follows the board out of blocked (as unblock does), or the next report cannot move it
+  // the red gate runs on the worktree: with the worker's commits still in it the amended tests pass (live: "the tests pass at the spec commit" after an Accept), so drop them; the spec commit is the tree the tester amends
+  const wt = task!.meta['cadre.worktree'], sc = task!.meta['cadre.specCommit']
+  if (acc && wt && sc) await G.op(h, async () => { await G.git(h.run, wt, ['reset', '--hard', '-q', sc]); await G.git(h.run, wt, ['clean', '-fdq']) })
   const note = acc ? `spec change accepted: ${task!.meta['cadre.specChange'] ?? ''}` : 'spec change rejected: the locked tests stay; conform to them'
   await d.store.setMeta(id, { 'cadre.blocked': '', 'cadre.decision': note.slice(0, 1500) }, d.actor)
   const bind = await h.bind.read(), w = acc ? undefined : Object.keys(bind).find(a => !a.startsWith('~') && bind[a].taskId === id && bind[a].role === 'worker')

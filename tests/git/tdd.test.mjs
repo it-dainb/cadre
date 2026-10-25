@@ -176,6 +176,13 @@ test('spec_change: owner report blocks; reject resumes the worker, accept rewind
   }
 })
 
+test('spec_change accept: the worker commits are dropped, so the amended red is measured on the spec commit tree', async () => {
+  const w = world(), { wt } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']), spec = w.meta['cadre.specCommit']; w.meta['cadre.worktree'] = wt
+  writeFileSync(join(wt, 'src/impl.ts'), 'export const IMPL = 1\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'worker')
+  await T.specChange(w.h, w.d, 'm-1', 'wrong spec'); await T.resolveSpec(w.h, 'm-1', 'accept')
+  assert.equal(sh(wt, 'rev-parse', 'HEAD'), spec); assert.equal(existsSync(join(wt, 'src/impl.ts')), false)
+})
+
 test('a refused red leaves no copy-in commit; the identical retry reaches the gate again', async () => {
   const w = world(), files = { 'test/s.json': tc('a', 'passed') }, { wt, view, res } = await tester(w, files, ['a']), pre = sh(wt, 'rev-parse', 'HEAD')
   assert.equal(res.ok, false); assert.match(res.why, /pass at the spec commit/); assert.equal(sh(wt, 'rev-parse', 'HEAD'), pre); assert.equal(existsSync(join(wt, 'test/s.json')), false); assert.equal(sh(wt, 'status', '--porcelain'), '')
