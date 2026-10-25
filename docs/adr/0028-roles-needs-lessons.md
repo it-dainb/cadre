@@ -6,8 +6,16 @@ Status: accepted (release/0.16.0). Design source: `.omc/plans/cadre-0.16.0.md`. 
 - **Drivers:** §1.
 - **Alternatives considered:** B (fallback), C, D; a live model probe; warn-only write limits; run-owned slots with lending (new lifecycle edge); setup by agent Bash (decorative check); rebinding fresh on every `needs` (loses context, overrides the user); `helpers.usd` (no per-agent cost).
 - **Why chosen:** the zero-change refactor lands first, under a differential test. Every helper is an ordinary run that must end. The slot rule cannot cycle. Lessons come last and can be cut.
-- **Consequences:** `request` replaces `needs`; `maxParallel`/`packages` configs refused until edited; per-model limits inexact while a helper runs on another model; FIFO order per process; setup needs a jail; side-model spend counted; `fixed.*` rows visible.
+- **Consequences:** `request` replaces `needs`; `maxParallel`/`packages` keys are ignored (clean break; Doctor names each as "renamed" until it is edited); per-model limits inexact while a helper runs on another model; FIFO order per process; setup needs a jail; side-model spend counted; `fixed.*` rows visible.
 - **Follow-ups (0.17):** the specifier; lessons feed specs; full stall timers, the stagnation cap and revival (B2/B5/B6); `maxCalls`; pipelines as data; caps re-measured.
+
+## Setup helper security (slice 4)
+
+- **Jail:** bwrap with `--clearenv`, a tmpfs home, only `/usr /bin /lib* /etc` and the PATH tool dirs bound read-only, `--unshare-pid/ipc`, `--die-with-parent`, tmpfs `/run`.
+- **What may run:** an argv allowlist per tool with strict flags and specs; archive, URL and oddly named specs refused; install scripts off through env; corepack/pnpm version switching off; pip/uv from an empty cwd with the system python, `--no-build --no-sync`. Only manifests and lockfiles of the unit roots may change.
+- **Repo inputs:** refused when a file that runs code at install changed since the task base or is ignored on disk; registry config the repo committed unchanged is honoured as its own choice. Host git calls go through one runner (`fsmonitor` off, no `sshCommand`, `protocol.ext` never) and refuse a swapped `.git`; the user's own hooks still run.
+- **Residual risk:** the install has network (it must reach the registry), so loopback services, abstract unix sockets and a cloud metadata endpoint are reachable from it (README, Requirements).
+- **Helpers get no lessons:** a helper is short-lived and read-only, and its question carries the requester's context; lessons feed task briefs only.
 
 ## Lessons (slice 7, H10)
 
