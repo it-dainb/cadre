@@ -273,6 +273,11 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (ex > 1) fail('underscore', `${ex} explorers (main's one allowed)`)
     if (!wk) fail('underscore', 'no worker spawned in a repo folder with `_`')
   }
+  if (o === 'straymanifest') {   // the second install of ms changes no file: its reply says the manifest lists ms (computed from it), never the old blanket "already list them"
+    const all = subs.filter(x => /Worker brief/.test(x.brief)).map(x => read(x.f)).join('\n')   // the worker's own transcript: what cadre answered it
+    if (/already list them/.test(all)) fail('straymanifest', 'a reply said "already list them" (the blanket claim)')
+    if (!/Nothing changed: the manifest already lists ms/.test(all)) fail('straymanifest', 'the second install\'s reply never said what the manifest holds ("the manifest already lists ms")')
+  }
   if (o === 'shape') {   // four malformed reports of one task: each refused for its form and counted on the task, the task still lands, nothing blocks
     const wk = subs.filter(x => /Worker brief/.test(x.brief)), n = wk.flatMap(x => [...x.results.values()]).filter(t => /malformed report \d+\/\d+/.test(t)).length
     Object.assign(stats, { shapeRefusals: n })

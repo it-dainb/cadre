@@ -10,6 +10,7 @@
 //   shape: lite, the worker sends four reports with an over-long summary (a shape refusal each, never the run's tries), then the valid one (shape-refusal-budget);
 //   pair: full lane, two independent tasks (concurrency-fifo, with concurrency.default 1 in the repo's config);
 //   needs: lite, the worker first asks the explore helper (report outcome request), and writes its files once it is answered (needs-explore);
+//   stray: lite, the worker asks for [npm install ms] twice: the second changes no file, and its reply says what the manifest holds (setup-stray-manifest);
 //   setup: the worker asks for an install with its argv (a global one first: refused at once; then [npm install ms]); cadre installs it from the real registry, no helper (needs-setup-s);
 //   multi: full lane, two tasks (kebabCase after titleCase), an amend on a stale revision refused then retried (plan-tools-full);
 //   probe: a milestone of two epics (the second after the first); the epic's planner asks the probe helper first, and drafts its tasks once it is answered (planner-probe);
@@ -120,6 +121,8 @@ const ROLES: Record<string, (k: number, brief: string, cwd: string, rows: Row[])
     if (script === 'setup' && !answered) return [{ tool: 'Bash', input: { command: 'env | grep -E "^(npm_config_offline|npm_config_cache|npm_config_logs_dir|UV_OFFLINE|UV_CACHE_DIR|PIP_NO_INDEX|CARGO_NET_OFFLINE|GOPROXY|YARN_ENABLE_OFFLINE_MODE)=" | sort', description: 'Show the package manager settings' } },   // the settings this agent's shell starts with
       req({ helper: 'setup', ask: 'add ms', why: `${f.name} needs the ms package`, argv: ['npm', 'install', '-g', 'ms'] }, 'I need the ms package installed.'),   // refused at once (a global install): the report comes back with the allowed forms
       req({ helper: 'setup', ask: 'add ms', why: `${f.name} needs the ms package`, argv: ['npm', 'install', 'ms'] }, 'I need the ms package installed.')][k] ?? { text: END }
+    const nAnswers = rows.filter(r => isText(r) && /Answer to your request/.test(r.text)).length
+    if (script === 'stray' && nAnswers < 2) return [req({ helper: 'setup', ask: 'add ms', why: `${f.name} needs the ms package`, argv: ['npm', 'install', 'ms'] }, 'I need the ms package installed.')][k] ?? { text: END }   // asked again after the first answer: nothing left to change
     if (script === 'needs' && !answered) return [req({ helper: 'explore', ask: 'Where do the string helpers live and how are they exported?', why: `I add ${f.name} next to them`, paths: ['src/'] }, 'I need to know where string helpers live.')][k] ?? { text: END }
     const BAD = { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: 'x'.repeat(801) } }
     if (script === 'shape') return [w, BAD, BAD, BAD, BAD, { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } }, { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: `Added ${f.name}(s) in src/${f.name}.mjs with a node:test test; npm test passes.`, risks: [] } }][k] ?? { text: END }

@@ -67,11 +67,29 @@ const read = async (h: Host): Promise<Record<string, boolean>> => { try { return
 export const approved = async (h: Host, root: string) => (await read(h))[root] === true
 export const approve = async (h: Host, root: string) => h.write(await FILE(h), JSON.stringify({ ...(await read(h)), [root]: true }, null, 1))
 
-// the reply when an install changed no manifest or lockfile. `uv pip install` (like pip) never edits them: saying they list the package was false (live: the worker
-// believed it, found uv.lock without the package, and blocked), so that form says what it did and what records the dependency
-export const nothingToCommit = (argv: readonly string[], note = ''): string =>
-  argv[0] === 'uv' && argv[1] === 'pip' ? `The packages are installed in your folder only: uv pip install does not edit the manifest or the lockfile, so they do not list them. To record the dependency, ask again with argv ["uv","add","<package>"].${note}`
-  : ['npm', 'pnpm', 'yarn', 'uv'].includes(argv[0]) ? `Nothing to commit: the manifest and lockfile already list them, and the packages are installed in your folder.${note}` : 'Nothing to commit: the manifest already lists them.'
+// The reply when an install changed no manifest or lockfile, computed from the manifest as it stands: it says "already list them" only for names the manifest really names.
+// `uv pip install` (like pip) never edits them (live: the worker believed a false "already list them", found uv.lock without the package, and blocked). Package names are
+// untrusted text of the repo: each is capped at 64 characters, a path-like one is not quoted, at most 10 are listed.
+const NAME = /^@?[A-Za-z0-9][\w.+-]*(\/[\w.+-]+)?$/
+export const names = (ns: readonly string[]): string => { const u = [...new Set(ns)]; return `${u.slice(0, 10).map(n => (n.length <= 64 && NAME.test(n) ? n : '(a name)')).join(', ')}${u.length > 10 ? ` and ${u.length - 10} more` : ''}` }
+// what the argv asked for: the package names after the subcommand, without versions or flags (npm ms@2, uv six>=1.17, cargo serde); none for npm ci / npm install / go get
+export const requested = (argv: readonly string[]): string[] => argv.slice(argv[0] === 'uv' && argv[1] === 'pip' ? 3 : 2).filter(a => !a.startsWith('-')).map(a => a.replace(/^(@?[^@=<>!~\[;]+).*$/, '$1')).filter(Boolean)
+export const nothingToCommit = (argv: readonly string[], listed: readonly string[] = [], stray = 0, note = ''): string => {
+  const want = requested(argv), have = new Set(listed), missing = want.filter(n => !have.has(n)), tail = `${stray ? ` ${stray} other file${stray === 1 ? '' : 's'} it changed ${stray === 1 ? 'was' : 'were'} discarded.` : ''}${note}`
+  if (argv[0] === 'uv' && argv[1] === 'pip') return `The packages are installed in your folder only: uv pip install does not edit the manifest or the lockfile, so they do not list them. To record the dependency, ask again with argv ["uv","add","<package>"].${tail}`
+  if (want.length && missing.length) return `Nothing changed in the manifest or the lockfile, and ${names(missing)} ${missing.length === 1 ? 'is' : 'are'} not listed in the manifest. The packages are installed in your folder only; record the dependency with an install command that edits the manifest.${tail}`
+  return `Nothing changed: the manifest ${want.length ? `already lists ${names(want)}` : listed.length ? `lists ${names(listed)}` : 'and lockfile are as they were'}, and the packages are installed in your folder.${tail}`
+}
+// the dependency names the unit's manifest holds (package.json, pyproject.toml, requirements*.txt): read after the install
+export async function manifestNames(h: Host, dir: string): Promise<string[]> {
+  const out: string[] = [], pj = await h.readText(`${dir}/package.json`)
+  if (pj) try { const j = JSON.parse(pj); for (const k of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) out.push(...Object.keys(j?.[k] ?? {})) } catch { /* not JSON: no names */ }
+  const py = await h.readText(`${dir}/pyproject.toml`)
+  if (py) for (const blk of py.matchAll(/^\s*(?:dependencies|[\w-]+)\s*=\s*\[([^\]]*)\]/gm)) for (const m of blk[1].matchAll(/["']\s*([A-Za-z0-9][\w.-]*)/g)) out.push(m[1])
+  const rq = await h.readText(`${dir}/requirements.txt`)
+  if (rq) for (const l of rq.split('\n')) { const m = /^\s*([A-Za-z0-9][\w.-]*)/.exec(l); if (m) out.push(m[1]) }
+  return out
+}
 // the forms an install request may take (the message a refused argv is sent back with; tests/needs.test.ts keeps it equal to what vet allows)
 export const FORMS = 'npm install, add or ci; pnpm or yarn install or add; uv add or uv pip install; cargo add; go get'
 // a proposed install argv, vetted with the interpreters outside the worktree: the vetted argv with its environment, or why it is refused (used at the request and again when it runs)
@@ -145,7 +163,7 @@ export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
     if (stray.length && o.strays) return await bad('it changed files besides the manifest and lockfile, again')
     await revert(stray)
     const note = o.check && red0!.exitCode ? ' The checks were already failing before it, so the install could not be verified by them.' : ''
-    if (!files.length) return { text: nothingToCommit(v.argv, note), ...flag }
+    if (!files.length) return { text: nothingToCommit(v.argv, await manifestNames(h, cwd), stray.length, note), ...flag }
     const sub = o.ask.split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 60) || 'add dependencies'
     await git('add', '--', ...files); const c = await git('commit', '--no-verify', '-m', `chore(deps): ${sub}`)
     if (c.exitCode) return await bad(`it could not be committed (${scrub(c.stderr)})`)

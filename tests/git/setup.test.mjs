@@ -285,7 +285,7 @@ test('npm ci: refused while node_modules exists; in a worktree whose lockfile al
     assert.match((await P.setup(f.h, f.inp({ argv: ['npm', 'ci'] }))).text, /^The install was not run: node_modules is already there, and npm ci would delete it/); assert.ok(existsSync(join(f.wt, 'node_modules/local-dep/package.json')), 'a refused ci leaves node_modules alone')
     rmSync(join(f.wt, 'node_modules'), { recursive: true })
     const r = await P.setup(f.h, f.inp({ argv: ['npm', 'ci'], ask: 'install what the lockfile lists' }))
-    assert.match(r.text, /^Nothing to commit: the manifest and lockfile already list them, and the packages are installed in your folder/, r.text); assert.ok(r.done)
+    assert.match(r.text, /^Nothing changed: the manifest lists local-dep, and the packages are installed in your folder/, r.text); assert.ok(r.done)
     assert.ok(existsSync(join(f.wt, 'node_modules/local-dep/package.json')), 'installed')
   } finally { f.done() }
 })
@@ -316,9 +316,15 @@ test('offline check that throws: before the install it counts as red; after a gr
   } finally { g.done() }
 })
 
-// live (release016 needs-setup-python): `uv pip install six` changed no file and the reply said the manifest and lockfile already listed six; uv.lock did not
-test('an install that edits no manifest says so (uv pip install), and names uv add for recording the dependency', () => {
+// live (release016 needs-setup-python): `uv pip install six` changed no file and the reply said the manifest and lockfile already listed six; uv.lock did not.
+// The reply is computed from the manifest as it stands: "already lists" only for names it names; a package name is the repo's text (capped, no path, at most 10)
+test('an install that changed no file says what the manifest really holds, never "already list them" for a name it lacks', () => {
   const pipText = P.nothingToCommit(['uv', 'pip', 'install', 'six'])
-  assert.match(pipText, /^The packages are installed in your folder only: uv pip install does not edit the manifest or the lockfile/); assert.match(pipText, /"uv","add"/); assert.doesNotMatch(pipText, /already list/)
-  assert.match(P.nothingToCommit(['uv', 'add', 'six']), /^Nothing to commit: the manifest and lockfile already list them/); assert.match(P.nothingToCommit(['npm', 'install', 'ms']), /already list them/)
+  assert.match(pipText, /^The packages are installed in your folder only: uv pip install does not edit the manifest or the lockfile/); assert.match(pipText, /"uv","add"/)
+  assert.match(P.nothingToCommit(['uv', 'add', 'six>=1.17'], ['six', 'ms']), /^Nothing changed: the manifest already lists six, and the packages are installed/)
+  const miss = P.nothingToCommit(['npm', 'install', 'ms@2', 'left-pad'], ['ms']); assert.match(miss, /^Nothing changed in the manifest or the lockfile, and left-pad is not listed in the manifest/); assert.doesNotMatch(miss, /already list/)
+  assert.match(P.nothingToCommit(['npm', 'ci'], ['ms']), /^Nothing changed: the manifest lists ms, and/); assert.match(P.nothingToCommit(['npm', 'ci'], []), /^Nothing changed: the manifest and lockfile are as they were/)
+  assert.match(P.nothingToCommit(['npm', 'install', 'ms'], ['ms'], 2, ' note'), /2 other files it changed were discarded\. note$/); assert.match(P.nothingToCommit(['npm', 'install', 'ms'], ['ms'], 1), /1 other file it changed was discarded\./)
+  const many = Array.from({ length: 12 }, (_, n) => `pkg${n}`); assert.equal(P.names(many), `${many.slice(0, 10).join(', ')} and 2 more`)
+  assert.equal(P.names(['a'.repeat(65), ['', 'home', 'x', 'y'].join('/'), '../z', 'ok-name', '@scope/pkg']), '(a name), (a name), (a name), ok-name, @scope/pkg')
 })
