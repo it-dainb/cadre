@@ -404,7 +404,7 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (!new RegExp(`(package(-lock)?\\.json|pyproject\\.toml|uv\\.lock):.*\\b${process.env.ORACLE_DEP}\\b`).test(read(join(dir, 'deps-final')))) fail(o, `dev's manifests do not name ${process.env.ORACLE_DEP}`)
     if (!wantLanded) fail(o, 'run it with LANDED=1: the task must land')
     // an agent's own shell is outside cadre's jail: an install it ran itself writes the real HOME and is no setup request (named first, so a HOME change is not mistaken for cadre's)
-    const own = subs.flatMap(x => x.uses.filter(u => u.name === 'Bash' && /\b(npm|pnpm|yarn|uv|pip3?|cargo|go)\s+(install|i|add|ci|get|sync|pip)\b/.test(String(u.input?.command ?? ''))).map(u => `${basename(x.f)}: ${String(u.input.command).replace(/\s+/g, ' ').slice(0, 90)}`))
+    const own = subs.flatMap(x => x.uses.filter(u => u.name === 'Bash' && /(^|&&|;|\|\|?|\n)\s*(sudo\s+)?(npm\s+(install|i|add|ci)|pnpm\s+(install|i|add)|yarn\s+(install|add)|uv\s+(add|sync|pip\s+install)|pip3?\s+install|python3?\s+-m\s+pip\s+install|cargo\s+(add|install)|go\s+(get|install))\b/.test(String(u.input?.command ?? ''))).map(u => `${basename(x.f)}: ${String(u.input.command).replace(/\s+/g, ' ').slice(0, 90)}`))
     if (own.length) fail(o, `an agent ran the install in its own shell (not through the setup request): ${own[0]}`)
     const hd = drv.filter(e => e.kind === 'dialog' && /dependencies wait for you|Allow cadre to install|Installing needs isolation/i.test(e.text)); if (hd.length) fail(o, `${hd.length} install dialog(s) (the repo is approved): ${hd.map(e => e.text).join(' / ')}`)
   }

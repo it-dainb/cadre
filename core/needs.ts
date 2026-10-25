@@ -24,7 +24,7 @@ export interface Need { task: string; needId: string; n: number; requester: stri
 export const needOf = (h: Host, task: string) => ctlGet<Need>(h, `need:${task}`)
 const put = (h: Host, n: Need) => ctlSet(h, { [`need:${n.task}`]: n })
 const HELPERS = ['explore', 'setup', 'probe']
-const SETUP = '\nFind the one command that adds what is asked: read the manifests, lockfiles and CI files. Report role "explorer" with a short answer and argv, the command as a list, e.g. ["npm","install","left-pad"]. Allowed: npm, pnpm or yarn install, add or ci; uv add or uv pip install; cargo add; go get. You only propose it; it is run for you and committed. No sudo, no global or user-wide installs, no pipes.'
+const SETUP = '\nFind the one command that adds what is asked: read the manifests, lockfiles and CI files. Report role "explorer" with a short answer and argv, the command as a list, e.g. ["npm","install","left-pad"]. Allowed: npm install, add or ci; pnpm or yarn install or add; uv add or uv pip install; cargo add; go get. You only propose it; it is run for you and committed. No sudo, no global or user-wide installs, no pipes.'
 export const question = (n: Need) => `${n.ask}\n\nWhy it is asked: ${n.why}${n.paths?.length ? `\nLook at: ${n.paths.join(', ')}` : ''}${n.helper === 'setup' ? SETUP : n.helper === 'probe' ? '\nYour folder is a scratch copy of the project: look around freely and answer the question.' : ''}`
 const FAILED = 'The helper could not answer your request. Go on without it, or report outcome "blocked" with what you need.'
 export const reply = (n: Need) => (n.ok ? `Answer to your request:\n${n.answer}\nGo on with your task.` : FAILED)

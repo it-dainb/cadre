@@ -83,6 +83,7 @@ export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
   if (rc.length) return { text: `The install was not run: ${rc.join(', ')} changed in this task, and an install would act on it. Ask the user, or report outcome "blocked".` }
   try {
     if (!(await h.run(['test', '-L', `${o.wt}/.venv`])).exitCode) return { text: 'The install was not run: .venv in your folder is a link. Ask the user, or report outcome "blocked".' }
+    if (v.argv[0] === 'npm' && v.argv[1] === 'ci' && !(await h.run(['test', '-e', `${cwd}/node_modules`])).exitCode) return { text: 'The install was not run: node_modules is already there, and npm ci would delete it first. Use npm install with the package name instead.' }
     // the packages stay in the folder: node_modules is ignored for this repository (the install dir is no stray, and a checkpoint never commits it); uv's venv ignores itself.
     // Only the common git dir's own info/exclude is written, and put back as it was when the install fails.
     let restore: (() => Promise<unknown>) | undefined
@@ -120,7 +121,7 @@ export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
     const all = await dirty(), stray = all.filter(p => !manifest(p.path, roots)), files = all.filter(p => manifest(p.path, roots)).map(p => p.path), flag = stray.length ? { stray: true as const } : { done: true as const }
     if (stray.length && o.strays) return await bad('it changed files besides the manifest and lockfile, again')
     await revert(stray)
-    if (!files.length) return { text: 'Nothing to commit: the manifest and lockfile already list them, and the packages are installed in your folder.', ...flag }
+    if (!files.length) return { text: ['npm', 'pnpm', 'yarn', 'uv'].includes(v.argv[0]) ? 'Nothing to commit: the manifest and lockfile already list them, and the packages are installed in your folder.' : 'Nothing to commit: the manifest already lists them.', ...flag }
     const sub = o.ask.split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 60) || 'add dependencies'
     await git('add', '--', ...files); const c = await git('commit', '--no-verify', '-m', `chore(deps): ${sub}`)
     if (c.exitCode) return await bad(`it could not be committed (${scrub(c.stderr)})`)

@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { MAIN, sameTask } from '../tools/index'
+import { MAIN, SPECS, sameTask } from '../tools/index'
 import { viaEngine } from './fixtures/engine'
 import { handleWith } from '../tools/index'
 import { mainAgent } from '../core/plantools'
-import { checkInput } from '../core/validate'
+import { REPORTS, checkInput } from '../core/validate'
 import { toolsRow } from '../commands/doctor'
 import { scoped } from '../commands/init'
 import { fakeHost } from './support'
@@ -204,5 +204,15 @@ describe('sameTask: the brief heading reads TASK-<id>, but an id may itself begi
     expect(sameTask('c-8-1', 'c-8-1')).toBe(true); expect(sameTask('TASK-c-8-1', 'c-8-1')).toBe(true)
     expect(sameTask('task-1', 'task-1')).toBe(true); expect(sameTask('TASK-task-1', 'task-1')).toBe(true)
     expect(sameTask('c-8-2', 'c-8-1')).toBe(false); expect(sameTask('TASK-c-8-2', 'c-8-1')).toBe(false); expect(sameTask('task-1', 'c-8-1')).toBe(false); expect(sameTask(undefined, 'c-8-1')).toBe(false)
+  })
+})
+
+describe('the report tool schema and the report contracts name the same fields', () => {
+  test('every field a role may report is a property of the tool schema (additionalProperties is false), and the schema has no field no role accepts; shared fields agree on type', () => {
+    const tool = (SPECS as any[]).find(x => x.name === 'report').inputSchema.properties as Record<string, { type?: string }>
+    const per = Object.values(REPORTS).flatMap(r => Object.entries((r as any).properties as Record<string, { type?: string }>))
+    const accepted = new Set(per.map(([k]) => k))
+    expect([...accepted].filter(k => !(k in tool))).toEqual([]); expect(Object.keys(tool).filter(k => !accepted.has(k))).toEqual([])
+    for (const [k, v] of per) if (v.type && tool[k].type) expect([k, tool[k].type]).toEqual([k, v.type])
   })
 })

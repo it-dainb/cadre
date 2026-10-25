@@ -1,5 +1,6 @@
 // A need (core/needs): a run that asks for help waits on it as a lifecycle state, and its helper's one answer wakes it. The state × event rows of next(), then the flow
 // on the replay world: request -> helper -> answer -> resume, every way a helper ends, the refusals, the caps, and a process death in between.
+import { vet } from '../core/helpers'
 import { describe, expect, test } from 'claude-code/testing'
 import { backstop, intend, next, runOf, step, type Run, type RunEvent, type RunState } from '../core/lifecycle'
 import { needOf, overdue, pending, undelivered } from '../core/needs'
@@ -78,7 +79,11 @@ describe('the setup helper: cadre vets and runs its proposal, the answer wakes t
     const { w } = await start(); await w.rep('ag1', SETUP); await w.turn()
     const r = await w.rep('ag2', { role: 'explorer', answer: 'Run ["npm","ci"]' }).catch((e: Error) => e.message); expect(String(r)).toContain('argv: this question asks for an install command')
     expect(w.sent).toEqual([]); expect((await runOf(w.h, 'ag1'))?.state).toMatchObject({ state: 'waiting' })
-    expect(w.spawned[1][1]).toContain('Allowed: npm, pnpm or yarn install, add or ci')
+    expect(w.spawned[1][1]).toContain('Allowed: npm install, add or ci; pnpm or yarn install or add; uv add or uv pip install; cargo add; go get')
+    // every form the text names passes vet, and the ones it does not name are refused (pnpm ci, yarn ci)
+    const py = { py: '/usr/bin/python3' }
+    for (const f of [['npm', 'install', 'x'], ['npm', 'add', 'x'], ['npm', 'ci'], ['pnpm', 'install', 'x'], ['pnpm', 'add', 'x'], ['yarn', 'install', 'x'], ['yarn', 'add', 'x'], ['uv', 'add', 'x'], ['uv', 'pip', 'install', 'x'], ['cargo', 'add', 'x'], ['go', 'get', 'github.com/a/b']]) expect(typeof vet(f, '/w', py)).toBe('object')
+    for (const f of [['pnpm', 'ci'], ['yarn', 'ci'], ['pip', 'install', 'x'], ['python', '-m', 'pip', 'install', 'x']]) expect(typeof vet(f, '/w', py)).toBe('string')
   })
   test('settings: deps.auto false: a good argv is not run, the requester is told, and the human gets exactly one dialog', async () => {
     const { w, id } = await start(); w.cfg.deps.auto = false; await w.rep('ag1', SETUP); await w.turn(); await w.rep('ag2', ARGV(['npm', 'install', 'left-pad'])); await w.stop('ag2')
