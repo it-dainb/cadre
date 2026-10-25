@@ -19,7 +19,7 @@ import { scoped } from '../commands/init'
 import { retouch, roadmapRules } from './lanes'
 import { MS, epicOf, isMs, planEpic } from './milestone'
 import { epicBranch, slug } from './branches'
-import { capped, clearRetries, missingLine, questionsOf, refuse, validateFields } from './validate'
+import { capped, clearRetries, holdsGap, holdsOf, missingLine, questionsOf, refuse, validateFields } from './validate'
 import { nextAction, subject, taskText } from './render'
 import { clarifyTool } from './clarify'
 import { idsIn } from './briefs'
@@ -31,11 +31,12 @@ export const planRules = (reg: TypeRegistry): string => [
   '- Task fields: type, scope?, breaking?, package, scenarios ["S1: Given <state> When <action> Then <outcome>"], changelog {"category":"Added","entry":"…"} or {"none":true,"reason":"…"}, interface {"symbols":[{"name","kind","params":[…],"returns","status":"new|changed|unchanged"}]} or {"none":true,"reason":"…"}.',
   `- Types and pipelines: ${Object.entries(reg).map(([t, s]) => `${t} ${s.pipeline.join('>')}`).join('; ')}.`,
   '- Each task is a vertical slice: shown working on its own, fits one fresh context, has its wiring and one smoke assertion.',
-  '- With 2+ tasks: paths per task (files or folders it changes). Code 2+ tasks need: ONE thin core task first (core:true; interfaces, minimal code, contract tests) that the others wait for (after). Two tasks on one path need an after dependency.',
+  '- With 2+ tasks: paths per task. Code 2+ tasks need: ONE thin core task first (core:true; interfaces, minimal code, contract tests) that the others wait for (after). Two tasks on one path need an after dependency.',
   '- Exploration 2+ tasks need: one explore before the plan; its findings go in the plan\'s notes as [{"paths":[…],"text":"…"}] (no paths: all tasks).',
-  '- A package the work needs is not a task of its own: the task that uses it asks for the install while it works.',
-  '- A draft may be incomplete: the "missing:" line says what approval still needs.',
-  '- Only the human approves, in the dialog. An approved task changes only through amend, with reason and evidence.',
+  '- A package the work needs is not a task of its own: the task that uses it asks for the install.',
+  '- holds ["S2"]: scenarios whose behaviour already exists; their tests pass at red.',
+  '- A draft may be incomplete: "missing:" says what approval needs.',
+  '- Only the human approves. An approved task changes only through amend, with reason and evidence.',
 ].join('\n')
 
 const NATIVE = { draft: 'pending', todo: 'pending', active: 'in_progress', review: 'in_progress', blocked: 'in_progress', done: 'completed', cancelled: 'completed' } as const
@@ -58,6 +59,7 @@ export function fieldsOf(m: Record<string, any>): { patch: Parameters<TaskStore[
   if (has('breaking')) meta['cadre.breaking'] = String(m.breaking ?? false)
   if (has('changelog')) meta['cadre.changelog'] = m.changelog === null ? '' : canon(m.changelog)
   for (const k of ['repro', 'core']) if (has(k)) meta[`cadre.${k}`] = m[k] ? 'true' : ''
+  if (has('holds')) meta['cadre.holds'] = m.holds === null ? '' : JSON.stringify(m.holds)
   if (has('paths')) meta['cadre.paths'] = m.paths === null ? '' : JSON.stringify(m.paths)
   if (has('size')) meta['cadre.size'] = m.size === null ? '' : String(m.size)
   return { patch, meta }
@@ -88,7 +90,7 @@ type W = { error: string } | { id: string; context: string[] }
 async function create(h: Host, store: TaskStore, reg: TypeRegistry, title: string, description: string, m: In): Promise<W> {
   const key = `create:${title}`
   if (await capped(h, key)) return { error: await refuse(h, key, 'draft refused') }
-  const err = validateFields(m, reg) ?? repoSplit(await cfgOf(h), m.paths) ?? manifestOnly(m.paths); if (err) return { error: await refuse(h, key, err) }
+  const err = validateFields(m, reg) ?? repoSplit(await cfgOf(h), m.paths) ?? manifestOnly(m.paths) ?? (m.holds ? holdsGap(m.holds, (m.scenarios as string[] | undefined)?.join('\n')) : null); if (err) return { error: await refuse(h, key, err) }
   await clearRetries(h, key)
   const s = await h.board.read()
   if (m.kind === 'mission' && (await h.secret.read()).run?.goal) return { error: 'not now: the user\'s goal comes next, and its plan carries the mission (plan mission). Go on with the next setup step.' }   // ADR 0014: one dialog for mission + plan
@@ -126,7 +128,7 @@ async function edit(h: Host, store: TaskStore, reg: TypeRegistry, id: string, i:
   const { title, description, after = [], ...m } = i, s = await h.board.read()
   const no2 = async (why: string): Promise<W> => ({ error: await refuse(h, id, why) })
   if (m.critique !== undefined && !Object.values(((await h.ui.read()).asks ?? {}) as Record<string, { answer?: string }>).some(a => a.answer !== undefined)) return no2('critique: ask the critic first (explore with the whole roadmap) and use its answer')
-  const err = validateFields(m, reg) ?? repoSplit(await cfgOf(h), m.paths) ?? manifestOnly(m.paths) ?? (m.type !== undefined && m.type !== t.type ? `type: fixed at creation (${t.type}); remove the draft and add a new task` : null); if (err) return no2(err)
+  const err = validateFields(m, reg) ?? repoSplit(await cfgOf(h), m.paths) ?? manifestOnly(m.paths) ?? (m.holds !== undefined || m.scenarios !== undefined ? holdsGap(m.holds !== undefined ? m.holds : holdsOf(t), m.scenarios ? (m.scenarios as string[]).join('\n') : t.acceptance) : null) ?? (m.type !== undefined && m.type !== t.type ? `type: fixed at creation (${t.type}); remove the draft and add a new task` : null); if (err) return no2(err)
   const isEpic = id === s.epic, draft = t.category === 'draft' && !(isEpic && s.plan && s.plan.state !== 'draft')   // approval leaves the epic itself draft: its board state is the truth
   if (!draft) {
     if (isEpic) return { error: REFUSED }

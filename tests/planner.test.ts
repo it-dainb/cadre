@@ -84,6 +84,11 @@ describe("the planner's report: main's draft checks, rounds, auto-approval", () 
     const r = await w.rep('ag1', { tasks: [task('Declare six', 'pyproject.toml', { metadata: { ...FULL, paths: ['pyproject.toml', 'uv.lock'] } })] })
     expect(r).toContain('task 1: metadata.paths: these are only manifest and lock files, and a package is not a task'); expect(await w.store.list({ parent: a })).toEqual([])
   })
+  test('a planner\'s task whose holds names a scenario it does not have is refused with the round', async () => {
+    const w = await ms(), [a] = w.es; await w.turn()
+    const r = await w.rep('ag1', { tasks: [task('Writer', 'src/export/w.ts', { metadata: { ...FULL, paths: ['src/export/w.ts'], holds: ['S9'] } })] })
+    expect(r).toContain('task 1: metadata.holds: S9 is not a scenario of this task'); expect(await w.store.list({ parent: a })).toEqual([])
+  })
   test('the path overlap of main\'s missing list: two tasks on one file need an order', async () => {
     const w = await ms(), [, b] = w.es; await w.turn()
     expect(await w.rep('ag2', { tasks: [task('Reader', 'src/import/r.ts'), task('Command', 'src/import/r.ts')] })).toContain('task 1+task 2 both change src/import/r.ts')

@@ -34,7 +34,7 @@ const IDS = { type: 'array', maxItems: 20, items: L(64) }, LIST = (n: number, k:
 const CHANGELOG = { type: 'object', properties: { category: L(20), entry: L(500), none: B, reason: L(300) } }   // the shape itself: validate.validateFields
 const SYMBOL = { type: 'object', properties: { name: L(200), kind: L(40), params: LIST(20, 300), returns: L(300), status: L(20) } }
 const INTERFACE = { type: 'object', properties: { symbols: { type: 'array', maxItems: 50, items: SYMBOL }, none: B, reason: L(300) } }
-const TASK = { type: L(40), package: L(200), scope: L(80), breaking: B, scenarios: LIST(20, 500), changelog: CHANGELOG, interface: INTERFACE, paths: LIST(20, 200), core: B, repro: B }
+const TASK = { type: L(40), package: L(200), scope: L(80), breaking: B, scenarios: LIST(20, 500), changelog: CHANGELOG, interface: INTERFACE, paths: LIST(20, 200), core: B, repro: B, holds: LIST(10, 8) }
 const { paths: _p, core: _c, ...ONE } = TASK   // a one-step plan's task fields: paths and core belong to plans of 2+ tasks
 export const MAIN_SPECS = [
   { name: 'plan', isDeferred: false, description: 'Start a plan (a draft the user approves): title, description, how big the work is (pick the value that fits), reason (one line). A one-step plan carries its task\'s fields here. Answer: {id, plan, revision}.',

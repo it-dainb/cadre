@@ -25,6 +25,13 @@ describe('shape refusals have their own per-task budget', () => {
     const v = (o: object) => reportRefusal({ schemaVersion: 1, ...o }); expect(v(LONG)?.code).toBe('shape'); expect(v({ ...OK, extra: 1 })?.code).toBe('shape'); expect(v({ ...OK, summary: 5 })?.code).toBe('shape')
     expect(v(NOWHY)?.code).toBe('semantic'); expect(v(OK)).toBeNull()
   })
+  test('a spec_change with no scenario is refused in every shape of the report (absent, empty, blank, wrong type)', async () => {
+    const base = { schemaVersion: 1, role: 'worker', outcome: 'spec_change', summary: 's', reason: 'r' }
+    expect(reportRefusal(base)?.msg).toContain('scenario: required with outcome spec_change')
+    for (const scenario of ['', '   ']) expect(reportRefusal({ ...base, scenario })?.msg).toContain('scenario: required with outcome spec_change')
+    expect(reportRefusal({ ...base, scenario: 5 })?.code).toBe('shape'); expect(reportRefusal({ ...base, scenario: 'S4: Given a When b Then c' })).toBeNull()
+    const w = await world(), [id] = w.ids; await w.at('ag1', id, 'worker'); expect(await w.rep('ag1', base)).toContain('scenario: required with outcome spec_change')
+  })
   test('3 shape refusals, then a valid report lands', async () => {
     const w = await world(), [id] = w.ids; await w.at('ag1', id, 'worker')
     for (const n of [1, 2, 3]) expect(await w.rep('ag1', LONG)).toContain(`(malformed report ${n}/6)`)

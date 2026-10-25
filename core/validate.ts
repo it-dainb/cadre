@@ -6,7 +6,7 @@ import { kindOf } from '../task-management/registry'
 import type { TypeRegistry } from '../task-management/registry'
 import { matches } from './specview'
 
-export const FIELDS = ['kind', 'amend', 'type', 'scope', 'breaking', 'package', 'scenarios', 'changelog', 'interface', 'lane', 'reason', 'repro', 'mission', 'paths', 'core', 'notes', 'epic', 'size', 'planned', 'critique', 'assumed'] as const
+export const FIELDS = ['kind', 'amend', 'type', 'scope', 'breaking', 'package', 'scenarios', 'changelog', 'interface', 'lane', 'reason', 'repro', 'mission', 'paths', 'core', 'notes', 'epic', 'size', 'planned', 'critique', 'assumed', 'holds'] as const
 export const CATEGORIES = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security']
 const SCENARIO = /^S\d+: Given .+ When .+ Then .+$/
 const STATUS = ['new', 'changed', 'unchanged']
@@ -28,6 +28,7 @@ export function validateFields(m: Record<string, unknown>, reg: TypeRegistry): s
   if (f('reason') !== undefined && !str(m.reason)) return bad('metadata.reason', 'one line, e.g. "one small fix in src/a.ts"', m.reason)
   if (f('mission') !== undefined && (m.kind !== 'plan' || typeof m.mission !== 'string' || !m.mission.trim() || m.mission.length > 1000)) return bad('metadata.mission', 'on the plan call, one string "Goal: …\\nConstraints: …\\nNon-goals: …"', m.mission)   // ADR 0014: approved with the plan
   if (f('paths') !== undefined && (m.kind !== undefined || !Array.isArray(m.paths) || !m.paths.length || m.paths.length > 20 || m.paths.some((p: unknown) => !str(p) || (p as string).length > 200))) return bad('metadata.paths', 'on a task, the files or folders it will change, e.g. ["src/auth/login.ts", "test/auth/**"]', m.paths)
+  if (f('holds') !== undefined && (m.kind !== undefined || !Array.isArray(m.holds) || m.holds.length > 10 || m.holds.some(x => typeof x !== 'string' || !/^S\d+$/.test(x)))) return bad('metadata.holds', 'on a task, the ids of the scenarios whose behaviour already exists, e.g. ["S2"]', m.holds)
   if (f('core') !== undefined && (m.kind !== undefined || typeof m.core !== 'boolean')) return bad('metadata.core', 'true on the one task with the code other tasks share', m.core)
   if (f('assumed') !== undefined && (m.kind !== 'plan' || !Array.isArray(m.assumed) || !m.assumed.length || m.assumed.length > 5 || !m.assumed.every(x => str(x) && (x as string).length <= 200))) return bad('metadata.assumed', 'on the plan call, a list of 1-5 lines "<point>: what you assumed"', m.assumed)   // yolo clarify (ADR 0020): shown in the approval dialog
   if (f('notes') !== undefined && (m.kind !== 'plan' || !(str(m.notes) ? m.notes.length <= 1500 : noteList(m.notes) && noteShape(m.notes)))) return bad('metadata.notes', 'on the plan call, what an explorer found, keyed by the paths it concerns: [{"paths":["src/auth/"],"text":"…"}] (no paths = every task; at most 3000 characters in all)', m.notes)
@@ -106,6 +107,12 @@ export function sliceNotes(notes: Note[], paths: string[], slice: boolean): { sh
 // review coverage (ADR 0022): the scenario ids (S1, S2…) of the acceptance that no locked spec test name carries ("test_s3_login" carries S3, "S30" does not)
 // the one-line scenario a worker's spec_change proposes: checked when it reports, and again before cadre writes it into the spec
 export const SPEC_SCENARIO = /^\s*(S\d+)\s*:\s*(\S[^\n]*)$/
+// `holds`: scenario ids whose behaviour already exists (the planner's call, kept in meta cadre.holds). Each must be a scenario of the task
+export const holdsOf = (t?: Pick<Task, 'meta'>): string[] => { try { const v = JSON.parse(t?.meta['cadre.holds'] || '[]'); return Array.isArray(v) ? v.map(String) : [] } catch { return [] } }
+export const holdsGap = (holds: unknown, acceptance?: string): string | null => {
+  const ids = Array.isArray(holds) ? holds.map(String) : [], have = new Set(scenarioIds(acceptance)), bad = ids.filter(x => !have.has(x))
+  return bad.length ? `metadata.holds: ${bad.join(', ')} ${bad.length === 1 ? 'is' : 'are'} not ${bad.length === 1 ? 'a scenario' : 'scenarios'} of this task (its scenarios: ${[...have].join(', ') || 'none yet'}); fix holds or the scenarios` : null
+}
 export const scenarioIds = (acceptance?: string): string[] => (acceptance ?? '').split('\n').map(l => /^S\d+/.exec(l.trim())?.[0]).filter(Boolean) as string[]
 // names null: the task has no locked spec tests (no tester step), nothing to check
 export const specTestsOf = (t: Pick<Task, 'meta'>): string[] | null => { try { const v = JSON.parse(t.meta['cadre.specTests'] ?? 'null'); return Array.isArray(v) ? v.map(String) : null } catch { return null } }
@@ -175,6 +182,7 @@ export function reportRefusal(r: any): Coded | null {
   if (!(r.role in REPORTS)) return shape(bad('role', 'worker|tester|reviewer|explorer|planner|specifier', r.role))
   const e = checkInput(REPORTS[r.role], r); if (e) return shape(e.replace('call again', 'report again'))
   const k = WHY[r.outcome]; if (k && !str(r[k])) return sem(`${k}: required with outcome ${r.outcome}; say what is in the way, then report again`)
+  if (r.outcome === 'spec_change' && !str(r.scenario)) return sem('scenario: required with outcome spec_change; give the changed scenario in full as "S<n>: Given … When … Then …", then report again')
   if (r.request && r.outcome !== 'request') return sem('request: only with outcome request; drop it or change the outcome, then report again')
   if (r.outcome === 'request' && !r.request) return sem('request: required with outcome request, e.g. {"helper":"explore","ask":"where is X handled?","why":"I must change it"}; add it and report again')
   if (r.role === 'tester' && r.outcome !== 'request' && r.tests === undefined) return sem('tests: required; add it and report again')

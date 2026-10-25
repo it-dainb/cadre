@@ -101,3 +101,12 @@ describe('reminder suppression + resume card', () => {
     expect(renderCard({ mission: null, epic: null, decisions: ['1', '2', '3', '4', '5', '6', '7'], questions: [], inflight: [], drive: 'off', next: 'wait' })).not.toContain('\n1\n')
   })
 })
+
+describe('holds in the tester brief', () => {
+  test('a held scenario adds one short rule to the tester brief only (<= 200 bytes); the other roles read nothing of it', () => {
+    const t = (holds?: string[]) => brief('tester', { id: 'm-1', title: 't', type: 'feature', scenarios: 'S1: a\nS2: b', holds } as any), bytes = (x: string) => new TextEncoder().encode(x).length
+    expect(t()).not.toContain('Already holding'); expect(t(['S2'])).toContain('## Already holding\nS2: this behaviour exists already: write its test so it PASSES now')
+    expect(bytes(t(['S2'])) - bytes(t())).toBeLessThanOrEqual(200)
+    for (const role of ['worker', 'reviewer', 'explorer'] as const) expect(brief(role, { id: 'm-1', title: 't', type: 'feature', holds: ['S2'] } as any)).not.toContain('Already holding')
+  })
+})

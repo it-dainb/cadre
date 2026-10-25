@@ -277,6 +277,12 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     const all = subs.filter(x => /Worker brief/.test(x.brief)).map(x => read(x.f)).join('\n')   // the worker's own transcript: what cadre answered it
     if (/already list them/.test(all)) fail('straymanifest', 'a reply said "already list them" (the blanket claim)')
     if (!/Nothing changed: package\.json already lists ms/.test(all)) fail('straymanifest', 'the second install\'s reply never said what the manifest holds ("package.json already lists ms")')
+
+  if (o === 'holds') {   // the held scenario's test passed at red (its card line says so), the other failed, and nothing blocked
+    const tr = subs.filter(x => /Tester brief/.test(x.brief)).flatMap(x => [...x.results.values()]).join('\n')
+    if (!/\(S2 holds\)/.test(tr)) fail('holds', 'the red card never showed the held S2 test passing ("(S2 holds)")')
+    if (!/red ✓ 1 failing/.test(tr)) fail('holds', 'the red card never showed exactly one failing test (S1)')
+    if (drv.some(e => e.kind === 'dialog' && /flagged/.test(e.text))) fail('holds', 'a task flag raised a dialog')
   }
   if (o === 'shape') {   // four malformed reports of one task: each refused for its form and counted on the task, the task still lands, nothing blocks
     const wk = subs.filter(x => /Worker brief/.test(x.brief)), n = wk.flatMap(x => [...x.results.values()]).filter(t => /malformed report \d+\/\d+/.test(t)).length

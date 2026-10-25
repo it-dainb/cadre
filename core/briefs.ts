@@ -29,7 +29,7 @@ const HEAD: Record<Role, string> = {
 export interface BriefIn {
   id: string; title: string; type: string; description?: string; scenarios?: string; contract?: string; notes?: string
   paths?: string[]; testPaths?: string[]; locked?: string[]; redCard?: string; greenCard?: string; deps?: { id: string; title: string; out?: string }[]
-  findings?: string[]; decisions?: string[]; handoff?: string; others?: string[]; protectedPaths?: string[]; shared?: string; lessons?: string; mission?: string; core?: string; slice?: string; uncovered?: string[]   // uncovered: set when the coverage rule is on (review.coverage.enforce); the scenario ids no locked test name carries
+  findings?: string[]; decisions?: string[]; holds?: string[]; handoff?: string; others?: string[]; protectedPaths?: string[]; shared?: string; lessons?: string; mission?: string; core?: string; slice?: string; uncovered?: string[]   // uncovered: set when the coverage rule is on (review.coverage.enforce); the scenario ids no locked test name carries
   how?: string; runAsk?: boolean; sourceCommit?: string; diffStat?: string; diff?: string; audit?: string; report?: string; changelog?: string; flags?: string[]; question?: string; focus?: string
 }
 // contract JSON ({symbols:[{name,kind,params,returns,errors?,doc?,status}]} | {none,reason}) -> compact lines
@@ -57,7 +57,7 @@ export function brief(role: Role, b: BriefIn): string {
   if (role === 'explorer') return join([plan, head, `# ${b.question !== undefined ? 'QUESTION' : `TASK-${b.id}`}\n${b.question ?? b.title}`, sec('Scope', 'read-only; no edits, no shell'), mine, notes])
   if (role === 'specifier') return join([plan, head, `# TASK-${b.id} ${b.title} (${b.type})${files('')}`, spec([sec('Description', b.description), sec('Scenarios', b.scenarios), contract]), sec('Scope', 'read-only; no edits, no shell'), mine, notes])
   if (role === 'tester')   // no `how` here: what the specifier wrote is the worker's, and this template never reads it (tests/specifier.test.ts)
-    return join([plan, head, `# SPEC TASK-${b.id}${files(' (the code this task changes)')}`, spec([sec('Scenarios', b.scenarios), contract]), sec('Decided (apply it to the tests)', b.decisions), sec('Test paths', b.testPaths), b.runAsk ? sec('How your tests run', RUN_ASK) : '', mine, sec('Folder', 'tests only; read FILES.md first: it lists what you can see (you cannot list directories)'), notes])
+    return join([plan, head, `# SPEC TASK-${b.id}${files(' (the code this task changes)')}`, spec([sec('Scenarios', b.scenarios), contract]), sec('Decided (apply it to the tests)', b.decisions), sec('Already holding', b.holds?.length ? `${b.holds.join(', ')}: this behaviour exists already: write its test so it PASSES now (named after the id). The other scenarios' tests must fail now.` : ''), sec('Test paths', b.testPaths), b.runAsk ? sec('How your tests run', RUN_ASK) : '', mine, sec('Folder', 'tests only; read FILES.md first: it lists what you can see (you cannot list directories)'), notes])
   if (role === 'reviewer')
     return join([plan, head, `# REVIEW TASK-${b.id}${files(' (a change outside these files is a finding, not a fail on its own)')}`, sec('Source commit', b.sourceCommit), sec('Diff', [b.diffStat ?? '', cap(b.diff ?? '', 3072)]),
       spec([sec('Scenarios', b.scenarios), contract, sec('Spec tests', b.locked)]),

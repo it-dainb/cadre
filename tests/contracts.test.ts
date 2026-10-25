@@ -87,6 +87,15 @@ describe('the amendment ledger', () => {
     expect((await tool(w, 'amend', { id: a, expectedRevision: 3, scenarios: ['S1: Given x When y Then z'], reason: 'r', evidence: 'e' })).result).toBe('error: scenario S1: changed once already; a second change to it is the user\'s: ask them')
     expect((await tool(w, 'amend', { id: a, expectedRevision: 3, description: 'impl, one session', reason: 'r', evidence: 'e' })).result.revision).toBe(4)   // another criterion: fine
   })
+  test('holds: an id outside the task\'s scenarios is refused at plan time; a change to it is a ledger entry (original kept), and a second change is the user\'s', async () => {
+    const { w, a } = await approved()
+    expect((await tool(w, 'amend', { id: a, expectedRevision: 2, holds: ['S9'], reason: 'r', evidence: 'e' })).result).toContain('holds: S9 is not a scenario of this task')
+    expect((await tool(w, 'task', { title: 'Other', description: 'd', type: FULL.type, package: FULL.package, scenarios: FULL.scenarios, changelog: FULL.changelog, interface: FULL.interface, paths: ['src/x.ts'], holds: ['S7'] })).result).toContain('holds: S7 is not a scenario of this task')
+    const r = await tool(w, 'amend', { id: a, expectedRevision: 2, holds: ['S1'], reason: 'S1 is already true', evidence: 'src/login.ts:3' }); expect(r.result.revision).toBe(3)
+    expect(JSON.parse((await w.store.get(a)).meta['cadre.amendments'])).toEqual([{ criterion: 'holds', original: '(none)', reason: 'S1 is already true', evidence: 'src/login.ts:3', at: expect.any(Number) }]); expect((await w.store.get(a)).meta['cadre.holds']).toBe('["S1"]')
+    await w.text({ cmd: 'approve', args: ['m-1'] })
+    expect((await tool(w, 'amend', { id: a, expectedRevision: 3, holds: [], reason: 'r', evidence: 'e' })).result).toBe('error: holds: changed once already; a second change to it is the user\'s: ask them')   // removing one is the same entry, no back door
+  })
   test('yolo: no dialog; main\'s change stands and is recorded', async () => {
     const { w, a } = await approved('yolo')
     await tool(w, 'amend', { id: a, expectedRevision: 2, scenarios: [S1], reason: 'r', evidence: 'e' })

@@ -13,7 +13,7 @@ import { cfgOf, draftsOf, registryOf } from './dispatch'
 import { manifestOnly, repoSplit } from './specview'
 import { retouch } from './lanes'
 import { epicOf, planEpic, stopEpic } from './milestone'
-import { notesOf, pathsOf, sliceNotes, validateFields } from './validate'
+import { holdsGap, notesOf, pathsOf, sliceNotes, validateFields } from './validate'
 import { fieldsOf, twinOf } from './plantools'
 import { limited } from './drive'
 
@@ -67,7 +67,7 @@ async function draft(h: Host, store: TaskStore, reg: TypeRegistry, id: string, t
     if (typeof t?.subject !== 'string' || !t.subject.trim() || typeof t.description !== 'string') return no(`${at}: needs a subject and a description (strings)`)
     if (typeof m !== 'object' || Array.isArray(m)) return no(`${at}: metadata: expected an object`)
     const { epic, ...meta } = m; if (epic !== undefined && epic !== id) return no(`${at}: metadata.epic: omit it (every task is of ${id})`)
-    const err = validateFields(meta, reg) ?? repoSplit(await cfgOf(h), meta.paths) ?? manifestOnly(meta.paths) ?? (meta.kind !== undefined ? 'metadata.kind: omit it' : null); if (err) return no(`${at}: ${err}`)
+    const err = validateFields(meta, reg) ?? repoSplit(await cfgOf(h), meta.paths) ?? manifestOnly(meta.paths) ?? (meta.holds ? holdsGap(meta.holds, (meta.scenarios as string[] | undefined)?.join('\n')) : null) ?? (meta.kind !== undefined ? 'metadata.kind: omit it' : null); if (err) return no(`${at}: ${err}`)
     const f = fieldsOf(meta), tw = await twinOf(store, id, t.subject, t.description, f.meta['cadre.paths']); if (tw) return no(`${at} repeats ${tw.id} (${tw.why}): make them one task`)
     made.push((await store.createDraft({ title: t.subject, description: t.description, acceptance: f.patch.acceptance, design: f.patch.design, type: meta.type ?? 'feature', parent: id, meta: f.meta })).id)
   }

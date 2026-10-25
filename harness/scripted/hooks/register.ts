@@ -7,6 +7,7 @@
 //   docs: lite, a docs task (no tester, no red): the worker writes docs/usage.md; lite: main plans one lite task; full: a full-lane task (tester, worker, reviewer); loop: lite, the worker calls the same tool forever (the repeat-call breaker, then forced exit);
 //   limit: lite, the first worker's first step goes to the proxy, which answers a usage limit (stub-proxy.mjs); slow: lite, the worker waits 12 s first;
 //   silent: lite, the worker writes its files and stops without a report, every time (the report-less end);
+//   holds: full lane, one task with S1 (new) and S2 (already true, metadata.holds): the tester's S2 test passes at red, S1's fails (holds-scenario);
 //   shape: lite, the worker sends four reports with an over-long summary (a shape refusal each, never the run's tries), then the valid one (shape-refusal-budget);
 //   pair: full lane, two independent tasks (concurrency-fifo, with concurrency.default 1 in the repo's config);
 //   needs: lite, the worker first asks the explore helper (report outcome request), and writes its files once it is answered (needs-explore);
@@ -77,9 +78,9 @@ function main(rows: Row[]): Act {
     if (calls.filter(c => c.tool === T('task')).length < 2) return { tool: T('task'), input: TASKS[calls.filter(c => c.tool === T('task')).length] }
     return { text: 'The plan is drafted: approve it in the dialog (key 1 opens it).' }
   }
-  if (script === 'full') {
+  if (script === 'full' || script === 'holds') {
     if (!used('plan')) return { tool: T('plan'), input: { title: 'Add titleCase(s) to the library', description: 'A new public function titleCase(s) with node:test tests.', lane: 'full', reason: 'a new public function', ...mission } }
-    if (!used('task')) return { tool: T('task'), input: TASKS[0] }
+    if (!used('task')) return { tool: T('task'), input: script === 'holds' ? { ...TASKS[0], scenarios: [...TASKS[0].scenarios, "S2: Given ' Hello World ' When slug is called Then it returns 'hello-world'"], holds: ['S2'] } : TASKS[0] }
     return { text: 'The plan is drafted: approve it in the dialog (key 1 opens it).' }
   }
   if (!used('plan') && script === 'docs') return { tool: T('plan'), input: { title: 'Document the library in docs/usage.md', description: 'Add docs/usage.md: one section that says what the library is for and how to import it.', lane: 'lite', reason: 'one small document', type: 'docs', changelog: { none: true, reason: 'documentation only' }, ...mission } }
@@ -130,11 +131,14 @@ const ROLES: Record<string, (k: number, brief: string, cwd: string, rows: Row[])
     if (script === 'shape') return [w, BAD, BAD, BAD, BAD, { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } }, { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: `Added ${f.name}(s) in src/${f.name}.mjs with a node:test test; npm test passes.`, risks: [] } }][k] ?? { text: END }
     return script === 'silent' ? [w][k] ?? { text: END } : script === 'loop' ? { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } } : (script === 'slow' ? [WAIT] : []).concat([w, { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: `Added ${f.name}(s) in src/${f.name}.mjs with a node:test test; npm test passes.`, risks: [] } }])[k] ?? { text: END } },
-  tester: (k, b, cwd) => { const f = fnOf(b); return [{ tool: 'Write', input: { file_path: `${cwd}/test/${f.name}.test.mjs`, content: TEST(f) } },
+  tester: (k, b, cwd) => { const f = fnOf(b)
+    if (script === 'holds') return [{ tool: 'Write', input: { file_path: `${cwd}/test/${f.name}.test.mjs`, content: `import { test } from 'node:test'\nimport assert from 'node:assert/strict'\nimport { slug } from '../src/slug.mjs'\ntest('S1: ${f.name} capitalises each word', async () => { const m = await import('../src/${f.name}.mjs'); assert.equal(m.${f.name}('${f.input}'), '${f.out}') })\ntest('S2: slug still trims and lowercases', () => assert.equal(slug(' Hello World '), 'hello-world'))\n` } },
+      { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'tester', outcome: 'done', summary: 'S1 fails now, S2 holds already.', tests: [{ path: `test/${f.name}.test.mjs`, name: `S1: ${f.name} capitalises each word`, scenario: 'S1' }, { path: `test/${f.name}.test.mjs`, name: 'S2: slug still trims and lowercases', scenario: 'S2' }], run: { command: ['node', '--test', '--test-reporter=junit', '--test-reporter-destination=$CADRE_JUNIT', `test/${f.name}.test.mjs`], junit: '$CADRE_JUNIT' } } }][k] ?? { text: END }
+    return [{ tool: 'Write', input: { file_path: `${cwd}/test/${f.name}.test.mjs`, content: TEST(f) } },
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'tester', outcome: 'done', summary: `One test per scenario in test/${f.name}.test.mjs.`, tests: [{ path: `test/${f.name}.test.mjs`, name: f.title, scenario: 'S1' }], run: { command: ['node', '--test', `test/${f.name}.test.mjs`] } } }][k] ?? { text: END } },
   reviewer: (k, b) => { if (script === 'docs') return [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'reviewer', verdict: 'pass', summary: 'The commit adds docs/usage.md only.', findings: [], coverage: [], contractStatus: [] } }][k] ?? { text: END }
-    const f = fnOf(b), full = ['full', 'multi', 'pair', 'probe'].includes(script); return [{ tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
-    { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'reviewer', verdict: 'pass', summary: `The commit adds ${f.name} and its test only; npm test passes.`, findings: [], coverage: full ? [{ scenario: 'S1', test: f.title, ok: true }] : [], contractStatus: full ? [{ name: f.name, ok: true }] : [] } }][k] ?? { text: END } },
+    const f = fnOf(b), full = ['full', 'multi', 'pair', 'probe', 'holds'].includes(script); return [{ tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
+    { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'reviewer', verdict: 'pass', summary: `The commit adds ${f.name} and its test only; npm test passes.`, findings: [], coverage: full ? [{ scenario: 'S1', test: f.title, ok: true }, ...(script === 'holds' ? [{ scenario: 'S2', test: 'S2: slug still trims and lowercases', ok: true }] : [])] : [], contractStatus: full ? [{ name: f.name, ok: true }] : [] } }][k] ?? { text: END } },
   planner: (k, _b, _c, rows) => rows.some(r => isText(r) && /Answer to your request/.test(r.text))
     ? [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'planner', summary: 'One task.', tasks: [{ subject: 'wordCount(s) with node:test tests', description: 'Create src/words.mjs exporting wordCount: the number of whitespace-separated words in s.',
       metadata: { type: 'feature', package: '.', paths: ['src/words.mjs', 'test/words.test.mjs'], scenarios: ["S1: Given 'a b c' When wordCount is called Then it returns 3"], changelog: { category: 'Added', entry: 'wordCount(s): the number of words in s' },
