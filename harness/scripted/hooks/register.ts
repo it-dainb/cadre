@@ -7,6 +7,7 @@
 //   lite: main plans one lite task; full: a full-lane task (tester, worker, reviewer); loop: lite, the worker calls the same tool forever (the repeat-call breaker, then forced exit);
 //   limit: lite, the first worker's first step goes to the proxy, which answers a usage limit (stub-proxy.mjs); slow: lite, the worker waits 12 s first;
 //   silent: lite, the worker writes its files and stops without a report, every time (the report-less end);
+//   shape: lite, the worker sends four reports with an over-long summary (a shape refusal each, never the run's tries), then the valid one (shape-refusal-budget);
 //   pair: full lane, two independent tasks (concurrency-fifo, with concurrency.default 1 in the repo's config);
 //   needs: lite, the worker first asks the explore helper (report outcome request), and writes its files once it is answered (needs-explore);
 //   setup: the worker asks for an install with its argv (a global one first: refused at once; then [npm install ms]); cadre installs it from the real registry, no helper (needs-setup-s);
@@ -120,6 +121,8 @@ const ROLES: Record<string, (k: number, brief: string, cwd: string, rows: Row[])
       req({ helper: 'setup', ask: 'add ms', why: `${f.name} needs the ms package`, argv: ['npm', 'install', '-g', 'ms'] }, 'I need the ms package installed.'),   // refused at once (a global install): the report comes back with the allowed forms
       req({ helper: 'setup', ask: 'add ms', why: `${f.name} needs the ms package`, argv: ['npm', 'install', 'ms'] }, 'I need the ms package installed.')][k] ?? { text: END }
     if (script === 'needs' && !answered) return [req({ helper: 'explore', ask: 'Where do the string helpers live and how are they exported?', why: `I add ${f.name} next to them`, paths: ['src/'] }, 'I need to know where string helpers live.')][k] ?? { text: END }
+    const BAD = { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: 'x'.repeat(801) } }
+    if (script === 'shape') return [w, BAD, BAD, BAD, BAD, { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } }, { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: `Added ${f.name}(s) in src/${f.name}.mjs with a node:test test; npm test passes.`, risks: [] } }][k] ?? { text: END }
     return script === 'silent' ? [w][k] ?? { text: END } : script === 'loop' ? { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } } : (script === 'slow' ? [WAIT] : []).concat([w, { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: `Added ${f.name}(s) in src/${f.name}.mjs with a node:test test; npm test passes.`, risks: [] } }])[k] ?? { text: END } },
   tester: (k, b, cwd) => { const f = fnOf(b); return [{ tool: 'Write', input: { file_path: `${cwd}/test/${f.name}.test.mjs`, content: TEST(f) } },

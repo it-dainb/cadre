@@ -32,7 +32,7 @@ export const defaults = () => ({
   // ADR 0023: the tester proposes the command that runs its tests, cadre runs it for red (and green); with no test check it becomes the package's
   tdd: { testerCommand: { use: true, adopt: true }, collectErrors: ['ERROR collecting', 'errors? during collection', 'ImportError', 'ModuleNotFoundError', 'Cannot find module', 'ERR_MODULE_NOT_FOUND', 'SyntaxError', 'Test suite failed to run', '\\[build failed\\]', '\\[setup failed\\]', 'no tests ran', 'No tests found'] },
   review: { coverage: { enforce: true }, deepLabels: ['security', 'breaking'], maxRework: 3, coreTask: 'core', coreDiff: 'thorough', tiers: { light: { files: 5, lines: 100, paths: 2 }, thorough: { files: 20, lines: 500 }, risky: ['**/auth/**', '**/security/**', '**/crypto/**', '**/permission*/**', '**/migrations/**', '.github/**', '.gitlab-ci.yml', 'Dockerfile', '**/package.json', '**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/go.mod', '**/Cargo.toml', '**/pyproject.toml', '**/requirements*.txt'] } },
-  limits: { reportRetries: 3, nudges: 1, silentRuns: 3, startFails: 3, limitWaitMinutes: 15, rebaseRounds: 2, testerRounds: 3, helpers: { perTask: 3, minutes: 10 } },
+  limits: { reportRetries: 3, shapeRetries: 6, nudges: 1, silentRuns: 3, startFails: 3, limitWaitMinutes: 15, rebaseRounds: 2, testerRounds: 3, helpers: { perTask: 3, minutes: 10 } },
   lanes: { fullAt: 3, milestoneAt: 8 },
   planning: { clarify: { enabled: true, maxQuestions: 3, threshold: 0.7 }, deep: { maxRounds: 8 } },   // ADR 0020: explorer + clarity before a goal's plan; /cadre deep
   branches: { main: '', dev: 'dev', epicPrefix: 'epic/' }, release: { onEpicDone: 'propose' }, landing: { mode: 'direct' as 'direct' | 'pr', review: false, remote: 'origin' },
@@ -97,6 +97,7 @@ export const REG: Record<string, Meta> = {
   'review.coreTask': m(R, 'the risk of a task in the core epic', { opts: RISK }), 'review.coreDiff': m(R, "the risk of a change that touches the landed core's paths", { opts: RISK }),
   'review.tiers.risky': m(R, 'paths whose change always gets the thorough review', { tighten: 'grow', ok: strs }),
   'limits.reportRetries': m(R, 'refused reports before one is accepted unvalidated and flagged', N(1, 3)),
+  'limits.shapeRetries': m(R, 'malformed reports (an over-long value, an unknown field, a wrong type) of one task before it blocks for you; they never count against the 3 tries', N(1, 10)),
   'lanes.fullAt': m(PL, 'a plan of this many tasks takes the full lane', N(2, 50)), 'lanes.milestoneAt': m(PL, 'a plan of this many tasks should be a milestone', N(2, 100)),
   types: m(PL, 'task types and their pipelines', { open: true }),
   'planning.clarify.enabled': m(PL, 'before a goal is planned: one explorer, then a clarity check; a vague goal gets a few questions (yolo: assumptions instead)'),

@@ -1138,6 +1138,7 @@ export default {
     },
     "limits": {
      "reportRetries": 3,
+     "shapeRetries": 6,
      "nudges": 1,
      "silentRuns": 3,
      "startFails": 3,
@@ -1514,6 +1515,7 @@ export default {
     },
     "limits": {
      "reportRetries": 3,
+     "shapeRetries": 6,
      "nudges": 1,
      "silentRuns": 3,
      "startFails": 3,
@@ -1897,6 +1899,7 @@ export default {
     },
     "limits": {
      "reportRetries": 3,
+     "shapeRetries": 6,
      "nudges": 1,
      "silentRuns": 3,
      "startFails": 3,

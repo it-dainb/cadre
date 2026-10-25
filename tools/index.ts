@@ -3,12 +3,12 @@
 import { modelText } from '../core/say'
 import type { Hook, Host } from '../types'
 import { resolveDeps, type Deps } from '../core/admission'
-import { raise, report, runCheck } from '../core/close'
+import { raise, report, runCheck, shapeBlock } from '../core/close'
 import { warm } from '../core/session'
 import { askAnswer, askOf } from '../core/asks'
 import { planned } from '../core/planner'
 import { request } from '../core/needs'
-import { checkInput, refuse, tried, validateReport } from '../core/validate'
+import { Refusal, checkInput, refuse, reportRefusal, tried } from '../core/validate'
 import * as G from '../core/git'
 import { charge, runOf, step } from '../core/lifecycle'
 import { PLAN_TOOLS } from '../core/plantools'
@@ -74,7 +74,14 @@ async function onReport(h: Host, d: Deps, agentId: string | undefined, r: any): 
     if (s?.state !== 'refused') return bad(await refuse(h, key, m))
     await charge(h, (await runOf(h, agentId))!.taskId, 'refusals'); return bad(tried(m, s.n, key))
   }
-  const env = validateReport(r); if (env) return no(env)
+  // a refusal for the form of the report (an over-long value, an unknown field, a wrong type) is counted on the task, never on the run's tries (planners and unbound agents: unchanged)
+  const noShape = async (m: string) => {
+    const b = (await h.bind.read())[agentId]; if (!b || b.role === 'planner') return no(m)
+    const n = await charge(h, b.taskId, 'shapeRefusals'), max = d.cfg.limits.shapeRetries
+    if (n >= max) { await shapeBlock(h, d, b.taskId, n); return bad(`${m}\nThe task now waits for the user after ${n} malformed reports. Stop.`) }
+    return bad(`${m} (malformed report ${n}/${max})`)
+  }
+  const env = reportRefusal(r); if (env) return env.code === 'shape' ? noShape(env.msg) : no(env.msg)
   if ((await runOf(h, agentId))?.state?.state === 'waiting' && (await runOf(h, agentId))!.state!.on === 'need') return bad('wait for the answer to your request: it arrives as a message. Stop and wait.')   // a requester has nothing to report until then
   if (!(await h.bind.read())[agentId] && (await askOf(h, agentId))) return r.role === 'explorer' ? askAnswer(h, agentId, r) : bad('role: you are an explorer; report role "explorer" with answer and citations')
   if ((await h.bind.read())[agentId]?.role === 'planner' && !(await h.bind.read())[agentId].parent) return r.role === 'planner' ? r.outcome === 'request' ? request(h, agentId, (await h.bind.read())[agentId], r) : planned(h, d, agentId, r).then(async t => (await step(h, agentId, { type: t.startsWith('error') ? 'report.refused' : 'report.ok' }), t)) : bad('role: you are the planner; report role "planner" with tasks')   // a ready epic's planner (core/planner)
@@ -83,8 +90,8 @@ async function onReport(h: Host, d: Deps, agentId: string | undefined, r: any): 
     const text = await report(h, d, agentId, r); await ok(); return text
   } catch (x) {
     const msg = (x as Error).message, s = (await runOf(h, agentId))?.state, n = s?.state === 'refused' ? s.n : 0   // refusals so far, on its run
-    // semantic (6.3) failures only; after limits.reportRetries the report is accepted unvalidated + flagged
-    if (n >= d.cfg.limits.reportRetries && /^(findings|coverage|contractStatus|verdict)/.test(msg)) {
+    // a reviewer's semantic (6.3) refusal is declared (core/validate Refusal), never read from its text; after limits.reportRetries the report is accepted unvalidated + flagged
+    if (n >= d.cfg.limits.reportRetries && x instanceof Refusal && x.code === 'semantic') {
       await raise(h, b.taskId, 'report-unvalidated'); const text = await report(h, d, agentId, r, { lax: true }); await ok(); return text
     }
     return no(msg)

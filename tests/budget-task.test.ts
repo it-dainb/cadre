@@ -16,7 +16,7 @@ describe('the task budget', () => {
   test('human.retry{red} resets red only; the rebase Retry sets rebase only', async () => {
     const w = await world(), [id] = w.ids
     for (const k of ['red', 'red', 'rework', 'rebase', 'rebase', 'startFails', 'nudges'] as const) await charge(w.h, id, k)
-    await retry(w.h, id, 'red'); expect(await budgetOf(w.h, id)).toEqual({ startFails: 1, silentRuns: 0, nudges: 1, refusals: 0, red: 0, rework: 1, rebase: 2, epoch: 0 })
+    await retry(w.h, id, 'red'); expect(await budgetOf(w.h, id)).toEqual({ startFails: 1, silentRuns: 0, nudges: 1, refusals: 0, shapeRefusals: 0, red: 0, rework: 1, rebase: 2, epoch: 0 })
     await retry(w.h, id, 'rebase', 1); expect((await budgetOf(w.h, id)).rebase).toBe(1); expect((await budgetOf(w.h, id)).rework).toBe(1)
   })
   test('a Retry from another session re-reads the newest record: it resets its counter and keeps every other', async () => {

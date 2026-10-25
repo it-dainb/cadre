@@ -7,7 +7,7 @@ import { pipeOf } from '../task-management/registry'
 import { LIFECYCLE } from './plantools'
 import { ROUTES } from './dispatch'
 import { resolveDeps, type Deps } from './admission'
-import { SPEC_SCENARIO, coverageGaps, overlap, pathsOf, specTestsOf } from './validate'
+import { Refusal, SPEC_SCENARIO, coverageGaps, overlap, pathsOf, specTestsOf } from './validate'
 import { agentsOf, fnv1a64, patchBinding } from './board'
 import { apply, STEP_CAT, transition } from './machine'
 import { emit } from './events'
@@ -130,6 +130,10 @@ export async function followups(d: Deps, from: string, fs: unknown) {
   const backlog = (await d.store.list({})).find(x => x.type === 'epic' && x.title === 'cadre-backlog')?.id ?? await d.store.createEpic('cadre-backlog', 'discovered work, not yet planned')
   for (const f of list as any[]) await d.store.createDraft({ title: f.title.slice(0, 120), description: String(f.description ?? '').slice(0, 1000), type: 'feature', parent: backlog, discoveredFrom: from })
 }
+// the task's cap of malformed reports (limits.shapeRetries): the agent was refused every time and is not told to stop trying, so the task waits for the user (flag `shape`)
+export async function shapeBlock(h: Host, d: Deps, taskId: string, n: number): Promise<void> {
+  const t = (await h.board.read()).tasks.find(x => x.id === taskId); if (t && t.state !== 'blocked') await blockTask(h, d, t, `${n} reports were refused for their form`, 'shape', {})
+}
 async function blockTask(h: Host, d: Deps, t: SnapTask, why: string, flag: string, claimed: Record<string, unknown>) {
   const m = await apply(h, { kind: 'block', id: t.id, at: await h.now(), actor: 'mod' }, pipe(d)); if (!m.ok) throw new Error(m.error)
   await d.store.move(t.id, 'blocked', d.actor); await d.store.setMeta(t.id, { 'cadre.blocked': flag }, d.actor)   // the flag survives /clear (core/session.reask)
@@ -217,7 +221,7 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
     return `${g.card}\nred accepted; stop.`
   }
   if (r.role === 'explorer') return explorerDone(h, d, t, agentId!, r)
-  if (r.role === 'reviewer') { const err = o.lax ? null : await semantic(h, await d.store.get(t.id), b.worktree, r, d.cfg.review.coverage.enforce); if (err) throw new Error(err); return verdict(h, d, t, b, agentId!, r) }
+  if (r.role === 'reviewer') { const err = o.lax ? null : await semantic(h, await d.store.get(t.id), b.worktree, r, d.cfg.review.coverage.enforce); if (err) throw new Refusal(err, 'semantic'); return verdict(h, d, t, b, agentId!, r) }
   if (r.outcome === 'done') return workerDone(h, d, t, b, r)
   const spec = r.outcome === 'spec_change', why = String(r.reason ?? r.summary ?? '').slice(0, 400)
   if (spec && r.scenario !== undefined && r.scenario !== '' && !SPEC_SCENARIO.test(String(r.scenario))) throw new Error('scenario: expected one line "S<n>: Given … When … Then …"')   // before anything is written: the worker fixes it at once
@@ -430,6 +434,11 @@ ROUTES.resolve = async (h, c) => {
     await dropNeed(h, a); for (const x of agentsOf(await h.bind.read(), a)) await end(h, x, 'retry', 'retry')   // the tester that waited on it is done: a new one writes the tests
     const b = await h.board.read(), lifted = b.drive.cause?.taskId === a && !!b.drive.cause.flag?.startsWith('red')   // this answer lifts the stop it caused: the run goes on, so the mode counts as it will be
     return { text: `${a}: back to the tester${spawnIt(lifted ? { drive: { ...b.drive, stopped: undefined } } : b, 'spawn it')}` }
+  }
+  if (t && b === 'retry' && t.flags.includes('shape')) {   // the shape dialog's Retry: back to its step, its count of malformed reports starts over
+    const r = await apply(h, { kind: 'unblock', id: a, at: await h.now(), actor: 'human' }, pipe(d)); if (!r.ok) return { text: r.error }
+    await d.store.resume(a, d.actor); await d.store.setMeta(a, { 'cadre.blocked': '' }, d.actor); await retry(h, a, 'shapeRefusals'); await clear(h, a, 'shape')
+    return { text: `${a}: its agent starts again${spawnIt(await h.board.read(), 'spawn it')}` }
   }
   if (!t || !['keep', 'accept', 'reject', 'cancel'].includes(b)) return { text: 'usage: /cadre resolve <taskId> keep|accept|reject|cancel · /cadre resolve git keep|restore' }
   const out = async (e: Promise<string | null>) => ({ text: (await e) ?? `${a}: ${b} done` })

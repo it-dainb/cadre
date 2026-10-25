@@ -4,7 +4,7 @@ import { scoped } from '../commands/init'
 import { defaults } from '../config/index'
 import { settle } from '../core/decide'
 import { banned } from './fixtures/wording'
-import { fakeHost } from './support'
+import { fakeHost, task } from './support'
 import { contain, heal } from '../policy/containment'
 import { setPolicy } from '../policy/guards'
 import type { Host } from '../types'
@@ -141,6 +141,10 @@ describe('doctor', () => {
     expect(log).toContain('init incomplete: '); expect(log).toContain('fix: /cadre init'); expect(log).not.toMatch(/\/cadre init \w/)
     expect(log).toContain('no open flags'); expect(h.writes).toEqual([])
     expect(log).not.toContain('.gitignore')
+  })
+  test('a task blocked by malformed reports (flag shape) has its own row naming Retry', async () => {
+    const h = mk({ repo: true }); await h.board.update(b => ({ ...b, tasks: [task('c-8-1', { state: 'blocked', flags: ['shape'] })] })); await doctor(h)
+    const rows = JSON.stringify((await h.ui.read())['doctor.rows']); expect(rows).toContain('blocked by malformed reports (over limits.shapeRetries): c-8-1'); expect(rows).toContain('Retry starts the agent again')
   })
   test('landing.mode pr: a Doctor row for gh missing, signed out, or ready', async () => {
     const rows = async (tools: Record<string, string>, auth: number) => { const c = defaults() as any; c.landing.mode = 'pr'; const h = mk({ repo: true, tools: { git: 'git version 2.43.0', bwrap: 'bubblewrap 0.11.0', socat: 'x', ...tools } }), r0 = h.run

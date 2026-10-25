@@ -272,6 +272,12 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (ex > 1) fail('underscore', `${ex} explorers (main's one allowed)`)
     if (!wk) fail('underscore', 'no worker spawned in a repo folder with `_`')
   }
+  if (o === 'shape') {   // four malformed reports of one task: each refused for its form and counted on the task, the task still lands, nothing blocks
+    const wk = subs.filter(x => /Worker brief/.test(x.brief)), n = wk.flatMap(x => [...x.results.values()]).filter(t => /malformed report \d+\/\d+/.test(t)).length
+    Object.assign(stats, { shapeRefusals: n })
+    if (n < 4) fail('shape', `${n} shape refusals reached the worker (want 4: the script sends four)`)
+    if (drv.some(e => e.kind === 'dialog' && /flagged shape|malformed/.test(e.text))) fail('shape', 'the task blocked on malformed reports (a dialog flagged shape)')
+  }
   if (o === 'limit') {   // the band shows resetAt; the task budget unchanged; after the reset exactly one spawn
     const hit = read(join(dir, 'stubbed.jsonl')).split('\n').filter(l => l.includes('"usage_limit"')).map(l => JSON.parse(l).at)
     if (!hit.length) fail('limit', 'the usage limit was never injected')

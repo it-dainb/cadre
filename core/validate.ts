@@ -11,7 +11,9 @@ export const CATEGORIES = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed',
 const SCENARIO = /^S\d+: Given .+ When .+ Then .+$/
 const STATUS = ['new', 'changed', 'unchanged']
 const str = (v: unknown): v is string => typeof v === 'string' && v.trim() !== ''
-const show = (v: unknown) => { const s = JSON.stringify(v); return s === undefined ? String(v) : s.length > 60 ? `${s.slice(0, 57)}...` : s }
+// a refusal quotes what the agent sent only without a host path in it (a path is the agent's own text; the boundary lint refuses it)
+const noPath = (x: string) => x.replace(/(?:file:\/\/)?\/(?:[\w.~@+-]+\/)+[\w.~@+-]*/g, '(a path)')
+const show = (v: unknown) => { const s = noPath(JSON.stringify(v) ?? String(v)); return s.length > 60 ? `${s.slice(0, 57)}...` : s }
 const bad = (path: string, want: string, got: unknown) => `${path}: expected ${want}, got ${show(got)}`
 
 // first malformed present task field (the plan tools, a planner's task metadata), else null. null values clear a field and are fine.
@@ -158,20 +160,27 @@ export const REPORTS: Record<string, Sch> = {
   planner: { type: 'object', properties: { ...V1, outcome: { type: 'string', enum: ['request'] }, summary: RS(1500), tasks: RA(20), request: REQ } },
 }
 const WHY: Record<string, string> = { blocked: 'reason', spec_change: 'reason' }   // the field an outcome cannot go without
-export function validateReport(r: any): string | null {
-  if (!r || typeof r !== 'object') return bad('report', '{"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"}', r)
-  if (r.schemaVersion !== 1) return bad('schemaVersion', '1', r.schemaVersion)
-  if (!(r.role in REPORTS)) return bad('role', 'worker|tester|reviewer|explorer|planner', r.role)
-  const e = checkInput(REPORTS[r.role], r); if (e) return e.replace('call again', 'report again')
-  const k = WHY[r.outcome]; if (k && !str(r[k])) return `${k}: required with outcome ${r.outcome}; say what is in the way, then report again`
-  if (r.request && r.outcome !== 'request') return 'request: only with outcome request; drop it or change the outcome, then report again'
-  if (r.outcome === 'request' && !r.request) return 'request: required with outcome request, e.g. {"helper":"explore","ask":"where is X handled?","why":"I must change it"}; add it and report again'
-  if (r.role === 'tester' && r.outcome !== 'request' && r.tests === undefined) return 'tests: required; add it and report again'
-  if (r.role === 'planner' && r.outcome !== 'request' && r.tasks === undefined) return 'tasks: required; add it and report again'
-  if (r.role === 'explorer' && !str(r.answer)) return 'answer: required for role explorer'
-  if (r.role === 'tester' && r.run !== undefined) { const x = runShape(r.run); if (x) return x }
+// every refusal carries a declared code (never read from its text): `shape` = the report's own form (an over-cap value, an unknown field, a wrong type, a missing envelope field);
+// `semantic` = the rest. A shape refusal is counted on the task (Budget.shapeRefusals), not on the run's tries.
+export type Code = 'shape' | 'semantic'
+export interface Coded { msg: string; code: Code }
+export class Refusal extends Error { constructor(msg: string, readonly code: Code) { super(msg) } }
+const shape = (msg: string): Coded => ({ msg, code: 'shape' }), sem = (msg: string): Coded => ({ msg, code: 'semantic' })
+export function reportRefusal(r: any): Coded | null {
+  if (!r || typeof r !== 'object') return shape(bad('report', '{"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"}', r))
+  if (r.schemaVersion !== 1) return shape(bad('schemaVersion', '1', r.schemaVersion))
+  if (!(r.role in REPORTS)) return shape(bad('role', 'worker|tester|reviewer|explorer|planner', r.role))
+  const e = checkInput(REPORTS[r.role], r); if (e) return shape(e.replace('call again', 'report again'))
+  const k = WHY[r.outcome]; if (k && !str(r[k])) return sem(`${k}: required with outcome ${r.outcome}; say what is in the way, then report again`)
+  if (r.request && r.outcome !== 'request') return sem('request: only with outcome request; drop it or change the outcome, then report again')
+  if (r.outcome === 'request' && !r.request) return sem('request: required with outcome request, e.g. {"helper":"explore","ask":"where is X handled?","why":"I must change it"}; add it and report again')
+  if (r.role === 'tester' && r.outcome !== 'request' && r.tests === undefined) return sem('tests: required; add it and report again')
+  if (r.role === 'planner' && r.outcome !== 'request' && r.tasks === undefined) return sem('tasks: required; add it and report again')
+  if (r.role === 'explorer' && !str(r.answer)) return sem('answer: required for role explorer')
+  if (r.role === 'tester' && r.run !== undefined) { const x = runShape(r.run); if (x) return shape(x) }
   return null
 }
+export const validateReport = (r: any): string | null => reportRefusal(r)?.msg ?? null
 
 // Main's tool input (tools/index MAIN): the strict schema checked in code before anything is stored. Unknown fields, wrong types and caps are refused, naming
 // the field and how to retry; nothing is truncated. The schema subset: type object|string|integer|number|boolean|array, enum, required, maxLength, maxItems, items.
@@ -189,7 +198,7 @@ export function checkInput(s: Sch, v: unknown, path = ''): string | null {
   }
   if (s.type === 'object' && s.properties) {
     const o = v as Record<string, unknown>, dot = path ? `${path}.` : ''
-    for (const k of Object.keys(o)) if (!(k in s.properties)) return `${dot}${k}: unknown field (allowed: ${Object.keys(s.properties).join(', ')}); remove it and call again`
+    for (const k of Object.keys(o)) if (!(k in s.properties)) return `${dot}${noPath(k).slice(0, 40)}: unknown field (allowed: ${Object.keys(s.properties).join(', ')}); remove it and call again`
     for (const k of s.required ?? []) if (o[k] === undefined) return `${dot}${k}: required; add it and call again`
     for (const [k, p] of Object.entries(s.properties)) if (o[k] !== undefined) { const e = checkInput(p, o[k], `${dot}${k}`); if (e) return e }
   }

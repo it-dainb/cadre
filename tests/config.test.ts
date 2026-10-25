@@ -2,6 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { classOf, defaults, envLayer, load, resolve, tighten } from '../config/index'
 import type { Layer } from '../config/index'
 import { fakeHost } from './support'
+import { REG } from '../config/defaults'
 
 const user = (value: unknown, name = 'home'): Layer => ({ name, trust: 'user', value })
 const repo = (value: unknown): Layer => ({ name: 'repo', trust: 'repo', value })
@@ -15,6 +16,10 @@ describe('defaults (DESIGN 12)', () => {
       .toEqual([3, 3, { maxContextPct: 60, cacheTtlMs: 3_600_000 }, { ...d.review }, 3, { model: 'opus', effort: 'high', escalate: { after: 0, model: 'opus', effort: 'high' } }, 'unicode', 'dev', 'epic/', 'propose', 'CHANGELOG.md'])
     expect(Object.keys((d.types as object))).toEqual(['feature', 'bug', 'refactor', 'docs', 'test', 'spike'])
     expect(d.roles.explorer).toEqual({ model: 'haiku', effort: 'low' })
+  })
+  test('limits.shapeRetries: a row beside limits.reportRetries, default 6, whole numbers 1..10', async () => {
+    expect(defaults().limits.shapeRetries).toBe(6); expect(Object.keys(REG).indexOf('limits.shapeRetries')).toBe(Object.keys(REG).indexOf('limits.reportRetries') + 1)
+    expect([REG['limits.shapeRetries'].min, REG['limits.shapeRetries'].max]).toEqual([1, 10]); expect(REG['limits.shapeRetries'].desc).toContain('never count against the 3 tries')
   })
   test('defaults() returns a fresh object each time', async () => { const a = defaults(); a.mcpAllow.push('x'); expect(defaults().mcpAllow).toEqual([]) })
 })

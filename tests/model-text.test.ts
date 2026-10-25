@@ -11,6 +11,7 @@ import { brief } from '../core/briefs'
 import { NUDGE } from '../core/close'
 import { NUDGE as ASK_NUDGE, askCard, askTask } from '../core/asks'
 import { noReportCard } from '../core/render'
+import { reportRefusal } from '../core/validate'
 import type { Task } from '../task-management/store'
 
 const code = (md: string) => md.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '')   // prose only: commands and paths in code spans are the reader's to run
@@ -52,6 +53,16 @@ describe('what agents read', () => {
     expect(bannedFor('nudge', ...Object.values(NUDGE), ASK_NUDGE)).toEqual([])
     expect(bannedFor('card', noReportCard({ id: 'p-1.1', title: 'T' }, 'worker', 'worker'), askCard({ id: 'ask-1', q: 'what?', k: 0 } as any), askCard({ id: 'ask-1', q: 'what?', answer: 'x', auto: true, k: 2 } as any))).toEqual([])
     expect(bannedFor('taskget', askTask({ id: 'ask-1', q: 'what?', answer: 'x', auto: true } as any))).toEqual([])
+  })
+})
+
+describe('what a refused report says back', () => {
+  test('a shape refusal never echoes a host path the agent sent (a value or a field name), and the lint passes it', () => {
+    const base = { schemaVersion: 1, role: 'worker', outcome: 'done', summary: 'ok' }
+    const at = (...p: string[]) => ['', ...p].join('/')   // built, so the source scan finds no host path
+    for (const r of [{ ...base, summary: [at('home', 'dainb', 'secret', 'file.ts')] }, { ...base, [at('home', 'dainb', 'field')]: 1 }, { ...base, outcome: at('tmp', 'x', 'y') }]) {
+      const m = reportRefusal(r)!; expect(m.code).toBe('shape'); expect(m.msg).not.toMatch(/\/(home|tmp)\//); expect(leaks('tool-result', m.msg)).toEqual([])
+    }
   })
 })
 

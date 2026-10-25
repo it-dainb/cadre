@@ -127,8 +127,8 @@ export async function restore(h: Host, a: string, b: Binding): Promise<boolean> 
 
 // ---- one budget per task (ADR 0024 §2.5): it only grows, across agents and recoveries; only the human's Retry resets one counter. drive resume never touches it.
 // epoch counts the task's spawns (the wake key). ----
-export interface Budget { startFails: number; silentRuns: number; nudges: number; refusals: number; red: number; rework: number; rebase: number; epoch: number }
-const ZERO: Budget = { startFails: 0, silentRuns: 0, nudges: 0, refusals: 0, red: 0, rework: 0, rebase: 0, epoch: 0 }
+export interface Budget { startFails: number; silentRuns: number; nudges: number; refusals: number; shapeRefusals: number; red: number; rework: number; rebase: number; epoch: number }
+const ZERO: Budget = { startFails: 0, silentRuns: 0, nudges: 0, refusals: 0, shapeRefusals: 0, red: 0, rework: 0, rebase: 0, epoch: 0 }
 export const budgetOf = async (h: Host, taskId: string): Promise<Budget> => ({ ...ZERO, ...(await load<Budget>(h, 'budgets', taskId)) })
 export const charge = async (h: Host, taskId: string, k: keyof Budget): Promise<number> => (await put<Budget>(h, 'budgets', taskId, await budgetOf(h, taskId), b => ({ ...ZERO, ...b, [k]: (b?.[k] ?? 0) + 1 })))[k]
 // human.retry{counter}: from any session; it re-reads the mirror before its set, so the newest record wins on every other counter
