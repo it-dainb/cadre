@@ -106,7 +106,9 @@ export const SPEC_SCENARIO = /^\s*(S\d+)\s*:\s*(\S[^\n]*)$/
 export const scenarioIds = (acceptance?: string): string[] => (acceptance ?? '').split('\n').map(l => /^S\d+/.exec(l.trim())?.[0]).filter(Boolean) as string[]
 // names null: the task has no locked spec tests (no tester step), nothing to check
 export const specTestsOf = (t: Pick<Task, 'meta'>): string[] | null => { try { const v = JSON.parse(t.meta['cadre.specTests'] ?? 'null'); return Array.isArray(v) ? v.map(String) : null } catch { return null } }
-export const untested = (acceptance: string | undefined, names: string[] | null): string[] => !names ? [] : scenarioIds(acceptance).filter(id => !names.some(n => new RegExp(`(?<![A-Za-z0-9])${id}(?![0-9])`, 'i').test(n)))
+// a test name carries a scenario id ("test_s3_login" carries S3, "S30" does not)
+export const carries = (id: string, name: string): boolean => new RegExp(`(?<![A-Za-z0-9])${id}(?![0-9])`, 'i').test(name)
+export const untested = (acceptance: string | undefined, names: string[] | null): string[] => !names ? [] : scenarioIds(acceptance).filter(id => !names.some(n => carries(id, n)))
 // what blocks a pass: untested scenarios, and coverage entries the reviewer did not mark ok:true (missing or weak). Off: nothing.
 export function coverageGaps(enforce: boolean, acceptance: string | undefined, names: string[] | null, coverage: unknown): string[] {
   if (!enforce) return []

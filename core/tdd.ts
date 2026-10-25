@@ -13,7 +13,7 @@ import * as G from './git'
 import { modelText } from './say'
 import { baseOf } from './branches'
 import { auditView, inRepo, matches, modeOf, pkgOf, rootOf, type Pkg } from './specview'
-import { SPEC_SCENARIO, untested } from './validate'
+import { SPEC_SCENARIO, carries, untested } from './validate'
 import { policyOf, setPolicy } from '../policy/guards'
 import { reset, step } from './lifecycle'
 
@@ -70,23 +70,29 @@ const secs = (ms: number) => `${(ms / 1000).toFixed(1)}s`
 // a unit whose runner is `text` has no JUnit report: its tests are read from the output
 const reportOf = (pkg: Pkg) => (pkg.runner === 'text' ? undefined : pkg.tdd?.report)
 // ---- red (5): tdd.check at specCommit must fail; with a report every listed test is a <failure>. `pass`: the `test` type has no red; its tests must pass instead ----
-export async function red(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, tests: { name: string }[], pass = false): Promise<Gate> {
+// only: the scenario a spec_change Accept amended: the first red after it requires failing only for the tests named after it (the others must still run), see `lenient`
+export async function red(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, tests: { name: string }[], pass = false, only?: string): Promise<Gate> {
   const r = await runCheck(h, d, task, wt, pkg, redOf(pkg), pass ? 'pass' : 'red'), no = (why: string): Gate => ({ ok: false, why, card: `red ✗ ${why}` })
   const mis = r.exit ? missing(r.exit, r.tail, symbolsOf(task.design), !!pkg.tdd?.skeleton) : null; if (mis) return { ok: false, setup: true, why: mis, card: `red ✗ ${mis}` }
   if (pass) return r.exit ? no(`its tests must pass (test task) but exit=${r.exit}: ${r.tail.slice(-300)}`) : { ok: true, card: `tests ✓ pass (${secs(r.ms)})`, tests: r.cases?.map(c => c.name) ?? tests.map(t => t.name) }
   if (!r.exit) return no('the tests pass at the spec commit; red needs them failing')
   if (!reportOf(pkg)) return { ok: true, card: `red ✓ exit=${r.exit} (${secs(r.ms)})`, tests: tests.map(t => t.name) }
   if (!r.cases) return no('no JUnit report was produced; fix test setup')
-  const syms = symbolsOf(task.design), lines: string[] = []
+  const syms = symbolsOf(task.design), lines: string[] = [], bad = amendedGap(tests, only); if (bad) return no(bad)
   for (const t of tests) {
     const c = find(r.cases, t.name)
     if (!c) return no(`test "${t.name}" is not in the report`)
+    if (lenient(t.name, only)) { if (c.status === 'skipped') return no(`test "${t.name}" was skipped; it must run`); if (c.status === 'error' && !errorOk(c.text, syms, !!pkg.tdd.skeleton)) return no(`errors, not failures: fix test setup ("${t.name}": ${c.text.slice(0, 160)})`); lines.push(`- ${t.name}: ${c.status}`); continue }
     if (c.status === 'passed' || c.status === 'skipped') return no(`test "${t.name}" ${c.status} at red; it must fail`)
     if (c.status === 'error' && !errorOk(c.text, syms, !!pkg.tdd.skeleton)) return no(`errors, not failures: fix test setup ("${t.name}": ${c.text.slice(0, 160)})`)
     lines.push(`- ${t.name}: ${c.text.slice(0, 120)}`)
   }
-  return { ok: true, card: `red ✓ ${tests.length} failing (${secs(r.ms)})\n${lines.join('\n')}`, tests: tests.map(t => find(r.cases!, t.name)!.name) }
+  return { ok: true, card: `red ✓ ${tests.filter(t => !lenient(t.name, only)).length} failing (${secs(r.ms)})\n${lines.join('\n')}`, tests: tests.map(t => find(r.cases!, t.name)!.name) }
 }
+// after a spec_change Accept the amended scenario's tests must fail (at least one, named after it); the tests of the unchanged scenarios must still run, and may pass:
+// the install the task already has makes a scenario about the dependency true now. A normal red (only unset) is unchanged: every test fails.
+const lenient = (name: string, only?: string) => !!only && !carries(only, name)
+const amendedGap = (tests: { name: string }[], only?: string): string | null => only && !tests.some(t => carries(only, t.name)) ? `no test is named after ${only}, the scenario that was amended: write a test for it, named after ${only}, that fails now` : null
 
 // ---- the tester's own command (ADR 0023: the tester proposes, cadre verifies). Run like a check (offline sandbox, writes discarded, timeout), at the spec
 // commit; $CADRE_JUNIT (env, and substituted in the argv: no shell expands it) is where a runner writes JUnit, read back from the scratch ----
@@ -113,27 +119,29 @@ export const collectLine = (out: string, pats: readonly string[]): string | null
 // ponytail: a word match on the runner's text; a runner that prints neither the name nor a failure word needs JUnit
 const FAILED = /\bnot ok\b|\bFAIL(?:ED|URE|S)?\b|\bfail(?:ed|ing|ure|s)?\b|✕|✗|×/
 const failsIn = (out: string, name: string) => { const tail = name.split(/::|[#>]/).pop()!.trim(); return out.split('\n').some(l => (l.includes(name) || (tail.length > 2 && l.includes(tail))) && FAILED.test(l)) }
-async function redRun(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, tests: { name: string }[], run: TestRun, pass: boolean): Promise<Gate> {
+async function redRun(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, tests: { name: string }[], run: TestRun, pass: boolean, only?: string): Promise<Gate> {
   const r = await runTests(h, d, task, wt, pkg, run, pass ? 'pass' : 'red'), no = (why: string): Gate => ({ ok: false, why, card: `red ✗ ${why}` })
   const col = collectLine(r.out, d.cfg.tdd?.collectErrors ?? []), syms = symbolsOf(task.design), sk = !!pkg.tdd?.skeleton
   const didNot = col && !errorOk(col, syms, sk) ? no(`the tests did not run: ${col}`) : null   // an import of a status:new symbol (no skeleton) is the right red, as an <error> is
   const mis = r.exit ? missing(r.exit, r.out, syms, sk) : null; if (mis) return { ok: false, setup: true, why: mis, card: `red ✗ ${mis}` }
   if (pass) return r.exit ? didNot ?? no(`its tests must pass (test task) but exit=${r.exit}: ${r.tail.slice(-300)}`) : { ok: true, card: `tests ✓ pass (${secs(r.ms)})`, tests: r.cases?.map(c => c.name) ?? tests.map(t => t.name) }
   if (!r.exit) return no('the tests pass at the spec commit; red needs them failing')
+  const gap = amendedGap(tests, only); if (gap) return no(gap)
   if (r.cases) {
     const lines: string[] = []
     for (const t of tests) {
       const c = find(r.cases, t.name)
       if (!c) return didNot ?? no(`test "${t.name}" is not in the JUnit report (the name must be written exactly as the runner prints it)`)
+      if (lenient(t.name, only)) { if (c.status === 'skipped') return no(`test "${t.name}" was skipped; it must run`); if (c.status === 'error' && !errorOk(c.text, syms, sk)) return didNot ?? no(`errors, not failures: fix test setup ("${t.name}": ${c.text.slice(0, 160)})`); lines.push(`- ${t.name}: ${c.status}`); continue }
       if (c.status === 'passed' || c.status === 'skipped') return no(`test "${t.name}" ${c.status} at red; it must fail`)
       if (c.status === 'error' && !errorOk(c.text, syms, sk)) return didNot ?? no(`errors, not failures: fix test setup ("${t.name}": ${c.text.slice(0, 160)})`)
       lines.push(`- ${t.name}: ${c.text.slice(0, 120)}`)
     }
-    return { ok: true, card: `red ✓ ${tests.length} failing (${secs(r.ms)})\n${lines.join('\n')}`, tests: tests.map(t => find(r.cases!, t.name)!.name) }
+    return { ok: true, card: `red ✓ ${tests.filter(t => !lenient(t.name, only)).length} failing (${secs(r.ms)})\n${lines.join('\n')}`, tests: tests.map(t => find(r.cases!, t.name)!.name) }
   }
   if (col) return didNot ?? { ok: true, card: `red ✓ exit=${r.exit}: ${col} (${secs(r.ms)})`, tests: tests.map(t => t.name) }
   if (run.junit) return no('no JUnit report was written to $CADRE_JUNIT; make the runner write it there, or leave junit out')
-  const miss = tests.find(t => !failsIn(r.out, t.name)); if (miss) return no(`the output does not show test "${miss.name}" failing (exit=${r.exit}): ${r.tail.slice(-300)}`)
+  const miss = tests.find(t => !lenient(t.name, only) && !failsIn(r.out, t.name)); if (miss) return no(`the output does not show test "${miss.name}" failing (exit=${r.exit}): ${r.tail.slice(-300)}`)
   return { ok: true, card: `red ✓ exit=${r.exit}, ${tests.length} failing (${secs(r.ms)})`, tests: tests.map(t => t.name) }
 }
 
@@ -252,13 +260,13 @@ export async function testerDone(h: Host, d: Deps, task: Task, wt: string, view:
   const pre = await G.tip(h.run, wt, 'HEAD'), undo = () => G.op(h, async () => { await G.git(h.run, wt, ['reset', '--hard', '-q', pre]); await G.git(h.run, wt, ['clean', '-fdq']) }).catch(() => {})   // a refused gate must not leave the copy-in behind (a retry would see "identical")
   let spec: string
   try { spec = await copyIn(h, d, task, wt, view, pkg) } catch (e) { await undo(); return { ok: false, why: String((e as Error).message), card: `red ✗ ${(e as Error).message}` } }
-  const g = use ? await redRun(h, d, task, wt, pkg, tests, use, !hasRed) : await red(h, d, task, wt, pkg, tests, !hasRed), card = `${g.card}\n${au.text}`
+  const only = hasRed ? task.meta['cadre.amended'] || undefined : undefined, g = use ? await redRun(h, d, task, wt, pkg, tests, use, !hasRed, only) : await red(h, d, task, wt, pkg, tests, !hasRed, only), card = `${g.card}\n${au.text}`
   if (!g.ok) { await undo(); return { ...g, card } }
   const miss = d.cfg.review.coverage.enforce ? untested(task.acceptance, g.tests ?? []) : []   // ADR 0022: a scenario no test is named after never reaches the worker
   if (miss.length) { await undo(); return { ok: false, why: `no test is named after ${miss.join(', ')}: write a test for every scenario and name it after the scenario id (e.g. "${miss[0]}: …")`, card: `red ✗ no test for ${miss.join(', ')}` } }
   const base = task.meta['cadre.base'] ?? spec, locked = await lockedOf(h.run, wt, base, spec, pkg)
   await setLocks(h, task.id, locked.map(p => `${wt}/${p}`))
-  await d.store.setMeta(task.id, { 'cadre.specCommit': spec, 'cadre.red': card, 'cadre.specTests': JSON.stringify(g.tests ?? []), 'cadre.locked': JSON.stringify(locked), 'cadre.testRun': use ? JSON.stringify(use) : '', ...(steps.includes('worker') ? {} : { 'cadre.sourceCommit': spec }) }, d.actor)
+  await d.store.setMeta(task.id, { 'cadre.specCommit': spec, 'cadre.amended': '', 'cadre.red': card, 'cadre.specTests': JSON.stringify(g.tests ?? []), 'cadre.locked': JSON.stringify(locked), 'cadre.testRun': use ? JSON.stringify(use) : '', ...(steps.includes('worker') ? {} : { 'cadre.sourceCommit': spec }) }, d.actor)
   const adopted = use && noTest && !pkg.checks.test && d.cfg.tdd?.testerCommand.adopt !== false ? await adopt(h, d, pkg, use, tests.map(t => t.path), task.id) : null
   for (let i = 0; i < (hasRed ? 2 : 1); i++) await apply(h, { kind: 'advance', id: task.id, at: await h.now(), actor: 'mod' }, pipe)   // tester -> red -> worker
   const nx = (await h.board.read()).tasks.find(x => x.id === task.id)?.step; if (nx) await d.store.setMeta(task.id, { 'cadre.step': nx }, d.actor)   // the store keeps the step: a /clear rebuilds the board from it (a worker's report was refused 'active·tester')
@@ -321,7 +329,7 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
   const sc = SPEC_SCENARIO.exec(task!.meta['cadre.specScenario'] ?? '')   // the guard: report time already refused anything else
   if (acc && sc) { const lines = (task!.acceptance ?? '').split('\n'), at = lines.findIndex(l => l.startsWith(`${sc[1]}:`)); at >= 0 ? (lines[at] = `${sc[1]}: ${sc[2].trim()}`) : lines.push(`${sc[1]}: ${sc[2].trim()}`); await d.store.update(id, { acceptance: lines.join('\n') }, d.actor) }
   const note = acc ? `spec change accepted: ${task!.meta['cadre.specChange'] ?? ''}` : 'spec change rejected: the locked tests stay; conform to them'
-  await d.store.setMeta(id, { 'cadre.blocked': '', 'cadre.decision': note.slice(0, 1500), ...(acc ? { 'cadre.specDecision': `The spec change was accepted${sc ? ' and the scenarios above are the amended ones' : ''}${reason ? `: ${reason.slice(0, 300)}` : ''}. Change the tests in your test paths to match the scenarios; they must differ from the ones there now.` } : {}) }, d.actor)
+  await d.store.setMeta(id, { 'cadre.blocked': '', 'cadre.decision': note.slice(0, 1500), ...(acc ? { 'cadre.amended': sc ? sc[1] : '', 'cadre.specDecision': `The spec change was accepted${sc ? ' and the scenarios above are the amended ones' : ''}${reason ? `: ${reason.slice(0, 300)}` : ''}. Change the tests in your test paths to match the scenarios; they must differ from the ones there now. A test named after ${sc ? sc[1] : 'the amended scenario'} must fail now; the other tests must still run, and may pass.` } : {}) }, d.actor)
   const bind = await h.bind.read(), w = acc ? undefined : Object.keys(bind).find(a => !a.startsWith('~') && bind[a].taskId === id && bind[a].role === 'worker')
   if (w) await step(h, w, { type: 'resume', text: 'The spec change was rejected: the locked tests stay. Make them pass, then report done.' })   // as unblock does: the worker that asked is waiting
   return { text: acc ? `${id}: accepted${modOn(snap) ? '; the tester amends' : '; spawn it for the tester to amend'} the spec (new red, amended specCommit)` : w ? `${id}: rejected; the worker is resumed to conform to the locked tests` : `${id}: rejected${sp('spawn it to resume the worker')}` }
