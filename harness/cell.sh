@@ -50,6 +50,8 @@ watcher() {
     if dialog "$p"; then
       lastt=$cur; tnew=0   # what asked for a dialog (shown before or with it) got one
       t=$(title "$p"); [ -z "$t" ] && grep -q 'Ready to submit your answers' <<<"$(flat "$p")" && t='submit answers'   # the review screen: Enter submits (not a dialog of its own)
+      # a toast docked over the dialog's top rows hides its title (live: "╰───╯ library: capitalise…"); a draft plan alone offers "Lane →", so that names it
+      grep -qiE '^approve ' <<<"$t" || { grep -q '[0-9]\. Lane → ' <<<"$(flat "$p")" && t="approve the plan (title covered)"; }
       if grep -qiE '^approve (the mission|mission|plan|milestone)' <<<"$t"; then
         if [ "$seen" != "plan:$t" ]; then log "plan $t"; seen="plan:$t"; since=$now; [ -n "$LANDED" ] && { sleep 1; key Enter; log "answer $t"; }
         elif [ -n "$LANDED" ] && [ $((now - since)) -ge 15000 ]; then key Enter; log "answer $t"; since=$now   # re-asked (the draft changed under the first press: "it changed; review again")
