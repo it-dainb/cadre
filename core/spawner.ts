@@ -41,7 +41,28 @@ export async function syncMode(h: Host): Promise<void> {
 }
 
 DRIVE.sync = syncMode
+DRIVE.wanted = async h => (await wanted(h, await cfgOf(h))).go.length   // the idle fallback (core/drive) asks this, never an import: drive and spawner would load each other
 
+// what the spawner would start right now, before anything is held: the board's wants and the helpers', the specifier's turn before a claim, each want's unit and model, then the
+// same grant (task, unit, model and provider caps). spawnStep starts these; the idle fallback asks the same question, so the two can never disagree about "work to start"
+export async function wanted(h: Host, cfg: Awaited<ReturnType<typeof cfgOf>>): Promise<{ go: Q.Want[]; cands: Q.Want[] }> {
+  const need = await pending(h)   // a requester waits for its helper's answer, so no agent takes its step; a request no helper runs gets one, at the head (the requester's slot is lent to it)
+  const s = await h.board.read()
+  let cands = [...spawnable(modelView(s), await h.bind.read()).filter(x => !need.hold.includes(x.id)), ...need.start.map(id => ({ id, role: 'helper' }))].filter(x => !Q.has(x.id, x.role) && !(x.role !== 'claim' && Q.has(x.id, 'claim'))).map((x): Q.Want => ({ ...x, head: x.role !== 'claim' }))
+  if (cfg.roles.specifier.enabled) {   // the specifier's turn before a claim: no task slot, and the task waits while it works (core/specifier)
+    const sd = await resolveDeps(h)
+    cands = (await Promise.all(cands.map(async x => { if (x.role !== 'claim') return x; const n = await specNeeded(h, sd, x.id).catch(() => 'claim' as const); return n === 'wait' ? null : n === 'specify' ? { ...x, role: 'specify', head: false } : x }))).filter((x): x is Q.Want => !!x)
+  }
+  const keyed = Object.keys(cfg.concurrency.models).length + Object.keys(cfg.concurrency.providers).length > 0, capped = ((cfg.units ?? []) as { concurrency?: number }[]).some(u => u.concurrency)
+  const d = keyed || capped ? await resolveDeps(h) : undefined, units: Record<string, string> = {}   // routing and units are read only when a limit asks for them
+  const unitOf = async (id: string) => pkgOf(d!, await d!.store.get(id))?.root ?? '.'
+  if (d) {
+    if (capped) for (const t of s.tasks.filter(Q.inSlot)) units[t.id] = await unitOf(t.id).catch(() => '.')
+    for (const w of cands) { if (capped && w.role === 'claim') w.unit = await unitOf(w.id).catch(() => '.'); if (keyed) w.model = await modelFor(h, d, w.id, w.role).catch(() => undefined) }
+  }
+  const go = Q.grant(cfg, Q.providerOf(await h.env()), s, d ? await Q.running(h) : [], cands, units)
+  return { go, cands }
+}
 // the picks in flight are core/queue's `held`: two turn ends at once never start one task's step twice (admission's CAS holds across sessions)
 let gate: Promise<unknown> = Promise.resolve()
 const picking = <T>(f: () => Promise<T>): Promise<T> => { const r = gate.then(f, f); gate = r.catch(() => {}); return r }   // ponytail: one process-wide queue; across sessions the drive CAS still decides
@@ -57,21 +78,7 @@ export async function spawnStep(h: Host, event: string): Promise<void> {
   await sendQueued(h)   // a rework a close queued (a conflict on the plan tip): its worker is resumed now
   const cfg = await cfgOf(h), usd = (await h.usage?.().catch(() => undefined))?.cost?.usd
   const go = await picking(async () => {   // one frame of this process at a time: read the board, pick within the slots, count them on the drive (a CAS three frames would contend on)
-    const need = await pending(h)   // a requester waits for its helper's answer, so no agent takes its step; a request no helper runs gets one, at the head (the requester's slot is lent to it)
-    const s = await h.board.read()
-    let cands = [...spawnable(modelView(s), await h.bind.read()).filter(x => !need.hold.includes(x.id)), ...need.start.map(id => ({ id, role: 'helper' }))].filter(x => !Q.has(x.id, x.role) && !(x.role !== 'claim' && Q.has(x.id, 'claim'))).map((x): Q.Want => ({ ...x, head: x.role !== 'claim' }))
-    if (cfg.roles.specifier.enabled) {   // the specifier's turn before a claim: no task slot, and the task waits while it works (core/specifier)
-      const sd = await resolveDeps(h)
-      cands = (await Promise.all(cands.map(async x => { if (x.role !== 'claim') return x; const n = await specNeeded(h, sd, x.id).catch(() => 'claim' as const); return n === 'wait' ? null : n === 'specify' ? { ...x, role: 'specify', head: false } : x }))).filter((x): x is Q.Want => !!x)
-    }
-    const keyed = Object.keys(cfg.concurrency.models).length + Object.keys(cfg.concurrency.providers).length > 0, capped = ((cfg.units ?? []) as { concurrency?: number }[]).some(u => u.concurrency)
-    const d = keyed || capped ? await resolveDeps(h) : undefined, units: Record<string, string> = {}   // routing and units are read only when a limit asks for them
-    const unitOf = async (id: string) => pkgOf(d!, await d!.store.get(id))?.root ?? '.'
-    if (d) {
-      if (capped) for (const t of s.tasks.filter(Q.inSlot)) units[t.id] = await unitOf(t.id).catch(() => '.')
-      for (const w of cands) { if (capped && w.role === 'claim') w.unit = await unitOf(w.id).catch(() => '.'); if (keyed) w.model = await modelFor(h, d, w.id, w.role).catch(() => undefined) }
-    }
-    const go = Q.grant(cfg, Q.providerOf(await h.env()), s, d ? await Q.running(h) : [], cands, units)
+    const { go, cands } = await wanted(h, cfg)
     await h.ui.update(u => (u.queued === cands.length - go.length ? u : { ...u, queued: cands.length - go.length }))   // the band's "queued n"
     for (const x of go) Q.hold(x)
     let ok = false; try { ok = go.length > 0 && (await tally(h, cfg, usd, go.length, go.some(x => x.role !== 'specify'))) } finally { if (!ok) for (const x of go) Q.drop(x.id, x.role) }   // refused or thrown: the picks go back

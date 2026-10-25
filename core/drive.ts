@@ -190,9 +190,11 @@ export { modOn }
 export const IDLE = "Nothing for you to do: the plan's tasks go on by themselves. Reply in one line and stop."
 export const canSpawn = (h: Host) => !!h.spawnAgent   // this frame starts agents itself (core/spawner)
 export async function idle(h: Host): Promise<boolean> {
-  const s = await h.board.read(), bind = await h.bind.read(), cfg = await cfgOf(h)
-  // nothing running: an agent bound but idle (finished, waiting on a dialog) makes no turn end, so it is no reason to wait (live: a spawn that failed left its task unstarted behind such a binding)
-  return modOn(s) && (s.resumesQueued > 0 || (!(await running(h)).length && spawnable(modelView(s), bind).some(x => x.role !== 'claim' || !tasksFull(cfg, s))))   // a claim counts only when a slot is free (a full house is no stall); a resume nobody sent: a main turn's end drains it
+  const s = await h.board.read()
+  if (!modOn(s)) return false
+  if (s.resumesQueued > 0) return true   // a resume nobody sent: a main turn's end drains it
+  // nothing running (an agent bound but idle makes no turn end) and the spawner would start something: the very question spawnStep asks, caps and the specifier's wait included
+  return !(await running(h)).length && ((await DRIVE.wanted?.(h)) ?? 0) > 0
 }
 // the timer (5 s): mod mode stalled with work to start (an agent that died without a turn end, a lease that lapsed, a usage limit that reset): the idle fallback once nothing happened for 2 min, counted as a turn (the no-progress bound ends a loop of them)
 export async function watchdog(h: Host): Promise<void> {

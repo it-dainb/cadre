@@ -159,4 +159,24 @@ describe('a step back: the store and the words', () => {
     }
     w.dep.cfg.concurrency.default = 3; await state('idle-bound'); expect(await idle(w.h)).toBe(true)   // a free slot: B is work to start
   })
+  // idle() asks the spawner's own question (core/spawner wanted: caps by task, unit, model and provider, and the specifier's wait), so nothing it holds back counts as work to start
+  const capped = async (setup: (w: any) => void | Promise<void>) => {
+    const w = await world({ n: 2, type: 'feature', pkg: RED_PKG, drive: 'auto', mode: 'mod' }); await arm(w.h, 'auto'); await setup(w); const [a] = w.ids
+    await w.at('ag1', a, 'worker'); await w.h.ui.update((u: any) => ({ ...u, runs: { ...u.runs, ag1: { ...u.runs?.ag1, state: { state: 'waiting' } } } })); return w
+  }
+  const quiet = async (w: any) => { expect(await idle(w.h)).toBe(false); for (let i = 0; i < 4; i++) { w.clock.now += 125_000; await watchdog(w.h) } expect((await w.h.board.read()).drive.turns).toBe(0); expect((await w.h.ui.read()).goal).toBeUndefined() }
+  test('idle: a per-unit cap of 1 holds task B back behind A (global cap 3): idle is false and the watchdog never kicks; another unit would be free', async () => {
+    const w = await capped(w => { w.dep.cfg.concurrency.default = 3; w.dep.cfg.units[0].concurrency = 1 }); await quiet(w)
+    w.dep.cfg.units[0].concurrency = 2; expect(await idle(w.h)).toBe(true)   // a free slot in the unit: B is work to start
+  })
+  test('idle: a claim that would only wait for its specifier is not work to start', async () => {
+    const w = await capped(w => { w.dep.cfg.roles.specifier.enabled = true }); const [, b] = w.ids
+    await w.dep.store.setMeta(b, { 'cadre.specified': `running@${await w.h.now()}` }, w.dep.actor); await quiet(w)
+    await w.dep.store.setMeta(b, { 'cadre.specified': 'done' }, w.dep.actor); expect(await idle(w.h)).toBe(true)
+  })
+  test('kick (the resume and lift path) queues no idle prompt while nothing can start', async () => {
+    const w = await capped(w => { w.dep.cfg.concurrency.default = 1 })
+    await kick(w.h, true); expect((await w.h.ui.read()).goal).toBeUndefined(); expect((await w.h.board.read()).drive.turns).toBe(0)
+    w.dep.cfg.concurrency.default = 3; await kick(w.h, true); expect((await w.h.ui.read()).goal).toBeDefined()   // a free slot: it does
+  })
 })
