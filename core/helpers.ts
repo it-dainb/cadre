@@ -99,6 +99,10 @@ export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
   try {
     if (!(await h.run(['test', '-L', `${o.wt}/.venv`])).exitCode) return { text: 'The install was not run: .venv in your folder is a link. Ask the user, or report outcome "blocked".' }
     if (v.argv[0] === 'npm' && v.argv[1] === 'ci' && !(await h.run(['test', '-e', `${cwd}/node_modules`])).exitCode) return { text: 'The install was not run: node_modules is already there, and npm ci would delete it first. Use npm install with the package name instead.' }
+    await h.run(['mkdir', '-p', home, `${o.scratch}/cwd`])
+    // the unit's check, run offline before and after the install (before anything is written): an install that turns a passing check red is undone; one that finds it red already (a task's locked spec tests
+    // are red until the work is done) is not judged by it, and says so. A check that cannot even run counts as red: nothing has been changed yet.
+    const chk = () => G.checkRun(h.run, mode, { wt: o.wt, scratch: o.scratch, pkgRoot: cwd, argv: o.check! }), red0 = o.check ? await chk().catch(() => ({ exitCode: 1 })) : undefined
     // the packages stay in the folder: node_modules is ignored for this repository (the install dir is no stray, and a checkpoint never commits it); uv's venv ignores itself.
     // Only the common git dir's own info/exclude is written, and put back as it was when the install fails.
     let restore: (() => Promise<unknown>) | undefined
@@ -112,9 +116,6 @@ export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
         before = new Set(await ignored())
       }
     }
-    await h.run(['mkdir', '-p', home, `${o.scratch}/cwd`])
-    // the unit's check, run offline before and after: an install that turns a passing check red is undone; one that finds it red already (a task's locked spec tests are red until the work is done) is not judged by it
-    const chk = () => G.checkRun(h.run, mode, { wt: o.wt, scratch: o.scratch, pkgRoot: cwd, argv: o.check! }), red0 = o.check ? await chk() : undefined
     const path = env.PATH || '/usr/local/bin:/usr/bin:/bin', real = async (...ps: string[]) => (await h.run(['realpath', '-q', '-e', ...ps])).stdout.split('\n').filter(Boolean), rhome = (await real(await h.home()))[0] ?? await h.home()
     const tools = await real(...path.split(':').filter(Boolean)), jail = (argv: string[], empty?: true) => h.run(G.setupJail({ wt: o.wt, scratch: o.scratch, pkgRoot: empty ? '/tmp/cwd' : cwd, argv, scratchHome: home, home: rhome, path, tools, env: { ...(env.LANG ? { LANG: env.LANG } : {}), ...v.env } }), { timeoutMs: 600000 })   // an empty cwd: the scratch's own folder
     // uv: the packages must be usable in the folder afterwards, so a venv is made when there is none (an existing .venv is never run: only its site-packages is written into)
@@ -128,21 +129,22 @@ export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
       for (const f of (await h.run(['find', bin, '-maxdepth', '1', '-type', 'f', '-print0'])).stdout.split('\0')) if (f.startsWith(`${bin}/`) && !f.includes('\n') && (await h.readText(f))?.startsWith(`#!${py}\n`)) await h.run(['sed', '-i', `1s|^#!${esc(py)}$|#!${esc(bin)}/python|`, f])
     }
     const bad = async (why: string) => {   // a failed run leaves nothing: the paths it changed, the ignored ones it created, the ignore line it added
-      await restore?.()
       await revert(await dirty()); const dirs = new Set([...before].flatMap(f => f.split('/').slice(0, -1).map((_, i, a) => a.slice(0, i + 1).join('/')))), made = [...new Set((await ignored()).filter(f => !before.has(f) && !f.startsWith('/') && !f.split('/').includes('..')).map(f => { const p = f.split('/'), i = p.findIndex((_, k) => !dirs.has(p.slice(0, k + 1).join('/'))); return p.slice(0, i + 1).join('/') }))]   // each new file, or the top of the new folder it is in
       for (let i = 0; i < made.length; i += 400) await h.run(['rm', '-rf', '--', ...made.slice(i, i + 400).map(f => `${o.wt}/${f}`)])
+      await restore?.()   // last: while the ignore line stands, what the run created in node_modules is listed as ignored and removed whole
       return { text: `The install changed nothing: ${why}` }
     }
     if (r.exitCode) return await bad(`it failed (${scrub(r.stderr || r.stdout)})`)
-    if (o.check && !red0!.exitCode) { const c = await chk(); if (c.exitCode) return await bad(`the offline check passed before it and failed after it (${scrub(c.stderr || c.stdout)})`) }
+    if (o.check && !red0!.exitCode) { const c = await chk().catch((e: Error) => ({ exitCode: 1, stderr: String(e), stdout: '' })); if (c.exitCode) return await bad(`the offline check passed before it and failed after it (${scrub(c.stderr || c.stdout)})`) }
     const all = await dirty(), stray = all.filter(p => !manifest(p.path, roots)), files = all.filter(p => manifest(p.path, roots)).map(p => p.path), flag = stray.length ? { stray: true as const } : { done: true as const }
     if (stray.length && o.strays) return await bad('it changed files besides the manifest and lockfile, again')
     await revert(stray)
-    if (!files.length) return { text: ['npm', 'pnpm', 'yarn', 'uv'].includes(v.argv[0]) ? 'Nothing to commit: the manifest and lockfile already list them, and the packages are installed in your folder.' : 'Nothing to commit: the manifest already lists them.', ...flag }
+    const note = o.check && red0!.exitCode ? ' The checks were already failing before it, so the install could not be verified by them.' : ''
+    if (!files.length) return { text: ['npm', 'pnpm', 'yarn', 'uv'].includes(v.argv[0]) ? `Nothing to commit: the manifest and lockfile already list them, and the packages are installed in your folder.${note}` : 'Nothing to commit: the manifest already lists them.', ...flag }
     const sub = o.ask.split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 60) || 'add dependencies'
     await git('add', '--', ...files); const c = await git('commit', '--no-verify', '-m', `chore(deps): ${sub}`)
     if (c.exitCode) return await bad(`it could not be committed (${scrub(c.stderr)})`)
-    return { text: `Installed and committed on your branch: ${files.join(', ')}. The installed packages are in your folder.`, ...flag }
+    return { text: `Installed and committed on your branch: ${files.join(', ')}. The installed packages are in your folder.${note}`, ...flag }
   } finally { await h.run(['rm', '-rf', o.scratch]) }
 }
 

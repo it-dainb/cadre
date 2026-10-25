@@ -293,11 +293,25 @@ test('npm ci: refused while node_modules exists; in a worktree whose lockfile al
 // the unit's offline check after an install: a check that was red already (a task's locked spec tests are red until the work is done) does not undo the install; one that turns red because of it does
 test('offline check: red before and after: the install stays; green before, red after: it is undone and nothing is left', async () => {
   const f = await fix(); try {
-    const kept = await P.setup(f.h, f.inp({ check: ['sh', '-c', 'exit 1'] })); assert.match(kept.text, /^Installed and committed on your branch: package\.json, package-lock\.json/, kept.text); assert.ok(kept.done)
+    const kept = await P.setup(f.h, f.inp({ check: ['sh', '-c', 'exit 1'] })); assert.match(kept.text, /^Installed and committed on your branch: package\.json, package-lock\.json\. The installed packages are in your folder\. The checks were already failing before it, so the install could not be verified by them\.$/, kept.text); assert.ok(kept.done)
     assert.ok(existsSync(join(f.wt, 'node_modules/local-dep/package.json')))
   } finally { f.done() }
   const g = await fix(); try {
     const r = await P.setup(g.h, g.inp({ check: ['sh', '-c', 'test ! -d node_modules'] })); assert.match(r.text, /^The install changed nothing: the offline check passed before it and failed after it/, r.text)
     assert.ok(!existsSync(join(g.wt, 'node_modules')), 'nothing left'); assert.equal(await sh(g.wt, 'git', 'status', '--porcelain'), '')
+  } finally { g.done() }
+})
+
+// a check run that throws: before the install it counts as red (nothing was changed yet, the install goes on and says it was not verified); after it, it undoes the install through the same path as a failed check
+test('offline check that throws: before the install it counts as red; after a green before-run it undoes the install and restores the tree', async () => {
+  const check = (f, throwFrom) => { let n = 0; const orig = f.h.run; f.h.run = async (a, o) => { if (a.includes('--unshare-net') && ++n >= throwFrom) throw new Error('the sandbox died'); return orig(a, o) } }
+  const f = await fix(); try {
+    check(f, 1); const r = await P.setup(f.h, f.inp({ check: ['true'] })); assert.match(r.text, /^Installed and committed on your branch.*could not be verified by them\.$/, r.text)
+  } finally { f.done() }
+  const g = await fix(); try {
+    const ex = await sh(g.wt, 'git', 'rev-parse', '--path-format=absolute', '--git-path', 'info/exclude'); mkdirSync(join(ex, '..'), { recursive: true }); const was = existsSync(ex) ? readFileSync(ex, 'utf8') : null
+    await sh(g.wt, 'git', 'rm', '-q', '.gitignore'); await sh(g.wt, 'git', 'commit', '-qm', 'no ignore')
+    check(g, 2); const r = await P.setup(g.h, g.inp({ check: ['true'] })); assert.match(r.text, /^The install changed nothing: the offline check passed before it and failed after it \(Error: the sandbox died\)/, r.text)
+    assert.equal(await sh(g.wt, 'git', 'status', '--porcelain'), ''); assert.ok(!existsSync(join(g.wt, 'node_modules'))); assert.equal(existsSync(ex) ? readFileSync(ex, 'utf8') : null, was, 'the ignore line is put back')
   } finally { g.done() }
 })
