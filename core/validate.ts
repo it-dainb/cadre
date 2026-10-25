@@ -12,7 +12,8 @@ const SCENARIO = /^S\d+: Given .+ When .+ Then .+$/
 const STATUS = ['new', 'changed', 'unchanged']
 const str = (v: unknown): v is string => typeof v === 'string' && v.trim() !== ''
 // a refusal quotes what the agent sent only without a host path in it (a path is the agent's own text; the boundary lint refuses it)
-const noPath = (x: string) => x.replace(/(?:file:\/\/)?\/(?:[\w.~@+-]+\/)+[\w.~@+-]*/g, '(a path)')
+// only an ABSOLUTE path: at the start or after a space, quote, = ( [ ("src/a/b.ts" and "http://x.io/a/b" stay as they are)
+const noPath = (x: string) => x.replace(/(^|[\s"'=(\[])(?:file:\/\/)?\/(?:[\w.~@+-]+\/)+[\w.~@+-]*/g, '$1(a path)')
 const show = (v: unknown) => { const s = noPath(JSON.stringify(v) ?? String(v)); return s.length > 60 ? `${s.slice(0, 57)}...` : s }
 const bad = (path: string, want: string, got: unknown) => `${path}: expected ${want}, got ${show(got)}`
 

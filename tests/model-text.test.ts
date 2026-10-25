@@ -66,6 +66,14 @@ describe('what a refused report says back', () => {
   })
 })
 
+describe('a refusal scrubs absolute host paths only', () => {
+  test('a relative path and a URL stay as sent; an absolute path (alone, quoted, or after =) is replaced', () => {
+    const at = (...p: string[]) => ['', ...p].join('/'), q = (v: unknown) => reportRefusal({ schemaVersion: 1, role: 'worker', outcome: 'done', summary: v })!.msg
+    expect(q(['src/a/b.ts'])).toContain('src/a/b.ts'); expect(q(['http://x.io/a/b'])).toContain('http://x.io/a/b')
+    expect(q([at('home', 'u', 'f.ts')])).toContain('(a path)'); expect(q([`x=${at('tmp', 'a', 'b')}`])).toContain('x=(a path)'); expect(q([`see ${at('home', 'u', 'f.ts')} now`])).toContain('see (a path) now')
+  })
+})
+
 describe('what main reads', () => {
   test('the guides it is handed (prose outside code spans)', () => {
     for (const [name, md] of Object.entries(BUDGET.guides)) expect([name, banned(code(md))]).toEqual([name, []])
