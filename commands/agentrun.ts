@@ -9,6 +9,7 @@ import { initItems, scoped, type Item } from './init'
 import { setupItems } from './doctor'
 import { LIMIT } from '../policy/guards'
 import { RUN } from '../core/dispatch'
+import { intentsOf } from '../core/lifecycle'
 import { GOAL_TAG, goal as goalBrief, queueBrief, replaced, sendBrief } from '../core/lanes'
 import { cfgOf, storeOf } from '../core/dispatch'
 import { diff as jdiff } from '../policy/settings'
@@ -197,7 +198,10 @@ async function goalMissing(h: Host): Promise<string | null> {
 }
 async function goalStop(h: Host): Promise<string | null> {
   const g = (await h.secret.read()).goalRun; if (!g?.on || g.last === 'AskUserQuestion') return null   // it asked the user: their answer comes next
-  if (g.explored && !g.spawned && Object.values(((await h.ui.read()).asks ?? {}) as Record<string, { answer?: string }>).some(a => a.answer === undefined)) return null   // its explorer is still answering: the answer brings the next turn
+  const u = await h.ui.read()
+  // its explorer is still answering: the answer brings the next turn. The explorer starts when main's turn ends (core/spawner.explores), so at this stop it is the queued question or
+  // the start's intent, not yet an ask. A start that fails or is refused drops both (a refused start settles its intent; a failed intent write re-queues for the next tick), so no stale hold
+  if (g.explored && !g.spawned && (((u.explore as string[] | undefined) ?? []).length || Object.values(await intentsOf(h)).some(i => i.role === 'explore') || Object.values((u.asks ?? {}) as Record<string, { answer?: string }>).some(a => a.answer === undefined))) return null
   const miss = g.spawned ? null : await goalMissing(h)
   const f = miss && g.missed !== miss ? 0 : g.follow   // a new missing step (it moved on: drafted the plan, still no task) gets its own refusals; the clarify step adds a stop point (live: a lazy main spent both on "not planned")
   if (miss && f < GOAL_FOLLOW) { await h.secret.update(s => (s.goalRun ? { ...s, goalRun: { ...s.goalRun, follow: f + 1, missed: miss } } : s)); return miss }

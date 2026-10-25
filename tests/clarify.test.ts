@@ -4,6 +4,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { clarifyCall, clarifyCheck, deepLine, guideOf, nextStep } from '../core/clarify'
 import { goal, sendBrief } from '../core/lanes'
 import { ran, seen, stopCheck } from '../commands/agentrun'
+import { intend, settleIntent } from '../core/lifecycle'
 import { parse, status } from '../commands/cadre'
 import { taskCall } from './fixtures/native/world'
 import { warm } from '../core/session'
@@ -84,6 +85,12 @@ describe('clarify gate (default on)', () => {
     for (let i = 0; i < 2; i++) expect(await stopCheck(w.h, {})).toMatch(/^The goal is not planned yet/)
     await w.call({ tool: 'TaskCreate', subject: 'Add a Timeline section', description: 'd', metadata: { kind: 'plan', lane: 'full', reason: 'a feature' } })
     expect(await stopCheck(w.h, {})).toMatch(/^Plan \S+ has no tasks yet/)
+  })
+  test('a stop between the explore call and the explorer\'s start passes; a start that never happens does not hold the goal', async () => {
+    const w = await on(); await seen(w.h, { name: 'mcp__cadre__explore', ask: true })   // the call only queued the question: no ask exists yet
+    await w.h.ui.update(u => ({ ...u, explore: ['what does it touch'] })); expect(await stopCheck(w.h, {})).toBeNull()
+    await w.h.ui.update(u => ({ ...u, explore: undefined })); const n = await intend(w.h, 't', 'explore', 's'); expect(await stopCheck(w.h, {})).toBeNull()   // the spawner took the question: its intent holds until the admission
+    await settleIntent(w.h, n); expect(await stopCheck(w.h, {})).toMatch(/^The goal is not planned yet/)   // the start was refused or failed: nothing is pending, the goal is asked for its plan
   })
   test('the ask step: a second explore (the goal\'s own question) ends the goal run\'s check; with clarify off the first one does', async () => {
     const w = await on(); await w.explore(); await w.answered(); expect(await stopCheck(w.h, {})).toMatch(/^The goal is not planned yet/)
