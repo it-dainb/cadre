@@ -39,9 +39,15 @@ band() { awk "$AWK_BAND" <<<"$1"; }
 key() { for i in 1 2 3; do docker exec "cadre-tui-$N" tmux send-keys -t q "$@" 2>&1 | grep -q "OCI runtime exec failed" || break; sleep 1; done; }
 comp() { awk '/^─{20}/{b[++nb]=NR} {L[NR]=$0} END{x=L[b[nb-1]+1]; sub(/^❯/,"",x); gsub(/[ \302\240]/,"",x); print x}' <<<"$1"; }   # what is typed in the composer
 # Claude Code keeps only the last ~2 min of a debug log once a run idles for long (live: a 28 min stall left 03:31-03:33 of a run that began 03:05): the watcher
-# appends every line newer than the last kept one to keep-<log> every 10 s, so the stall window survives (about the size of the log itself per cell)
-keeplogs() { local f n t; for f in "$D"/out/debug*.log; do [ -f "$f" ] || continue; n=${f##*/}; t=$(cat "$O/.ts-$n" 2>/dev/null)
-  awk -v t="$t" '$1 ~ /^20[0-9-]+T/ && $1 > t' "$f" >>"$O/keep-$n"; t=$(awk '$1 ~ /^20[0-9-]+T/ {x=$1} END{print x}' "$f"); [ -n "$t" ] && echo "$t" >"$O/.ts-$n"; done; }
+# appends the lines newer than the last kept one to keep-<log> every 10 s, so the stall window survives (about the size of the log itself per cell).
+# One awk pass reads the log once: it prints the new lines (a continuation line follows its timestamped line) and writes its state in END: the last timestamp and
+# the lines kept at it (>= with a dedupe: two lines in one millisecond are neither lost nor kept twice)
+keeplogs() { local f n; for f in "$D"/out/debug*.log; do [ -f "$f" ] || continue; n=${f##*/}; touch "$O/.ts-$n"
+  awk -v st="$O/.ts-$n" 'BEGIN { getline t < st; while ((getline l < st) > 0) seen[l] = 1; close(st); m = t; delete at }
+    /^20[0-9-]+T/ { keep = ($1 > t) || ($1 == t && !($0 in seen)); if (keep) { if ($1 > m) { m = $1; delete at } if ($1 == m) at[$0] = 1 } }
+    keep { print }
+    END { if (m != "") { print m > st ".new"; for (l in at) print l >> st ".new"; if (m == t) for (l in seen) if (!(l in at)) print l >> st ".new" } close(st ".new") }' "$f" >>"$O/keep-$n"
+  [ -f "$O/.ts-$n.new" ] && mv "$O/.ts-$n.new" "$O/.ts-$n"; done; }
 watcher() {
   local prev= seen= since=0 last1=0 lastt= tnew=0 bsince=0 bask= fault= kept=0 cur p t now
   while :; do
@@ -109,7 +115,7 @@ landed() { while [ "$(left)" -gt 0 ]; do git -C "$D/work" log --oneline dev 2>/d
 
 . "$H/scenarios/$SCEN.sh"
 [ -n "$LANDED" ] && landed
-pause1; sleep 7; kill $W 2>/dev/null; wait $W 2>/dev/null; log "end"   # no press in the last 7 s: a press before it gets its 5 s to bring a dialog up
+pause1; sleep 7; kill $W 2>/dev/null; wait $W 2>/dev/null; keeplogs; log "end"   # no press in the last 7 s: a press before it gets its 5 s to bring a dialog up
 
 # ---- evidence (harness/out is gitignored), then the verdict ----
 cp "$D"/out/debug*.log "$O/" 2>/dev/null; mkdir -p "$O/jsonl"; find "$D/projects" -name '*.jsonl' -exec cp --parents {} "$O/jsonl" \; 2>/dev/null
