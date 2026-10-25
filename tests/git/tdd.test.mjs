@@ -210,6 +210,15 @@ const { ROUTES } = await import('../../core/dispatch.ts')
 const bindTester = async (w, wt, view) => { w.meta['cadre.worktree'] = wt; await w.h.bind.update(b => ({ ...b, ag1: { taskId: 'm-1', role: 'tester', step: 'tester', worktree: view, sessionId: 's', ctxTokens: 0, startedAt: 0 } })) }
 const rep = { role: 'tester', outcome: 'done', summary: 's', tests: [{ path: 'test/s.json', name: 'a' }] }
 
+test('a test task (tester -> reviewer): after the accepted tests no owner is left, so the reviewer is spawnable', async () => {
+  const { spawnable } = await import('../../core/render.ts')
+  const w = world({ type: 'test' }), wt = await worktree(w), view = await V.buildView(w.h, w.d, await mkTask(w), wt)
+  mkdirSync(join(view, 'test'), { recursive: true }); writeFileSync(join(view, 'test/s.json'), tc('a', 'passed')); w.meta['cadre.base'] = sh(wt, 'rev-parse', 'HEAD')
+  await w.h.board.update(s => ({ ...s, epic: 'e1', tasks: [snap('m-1', { type: 'test', state: 'active', step: 'tester', owner: 'a' })] }))   // as the claim left it
+  await bindTester(w, wt, view); await CL.report(w.h, w.d, 'ag1', rep)
+  const t = (await w.h.board.read()).tasks[0]; assert.equal(t.state, 'review'); assert.equal(t.step, 'reviewer'); assert.equal(t.owner, undefined)
+  assert.deepEqual(spawnable(await w.h.board.read(), {}).map(x => x.role), ['reviewer'])
+})
 test('a package with no test check: red would run only "compile" and call it green; the first tester report blocks the task with one dialog naming the missing check', async () => {
   const w = world({ pkg: { checks: { compile: ['true'] }, verify: undefined, tdd: { paths: ['test/**'] } } }), { wt, view, res } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a'])
   assert.equal(res.ok, false); assert.equal(res.setup, true); assert.match(res.why, /no test check/)
