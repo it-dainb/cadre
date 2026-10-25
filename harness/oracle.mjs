@@ -393,8 +393,9 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     Object.assign(stats, { setupNeeds: ns.length, depsCommits: cs, homeNew: made.length })
     if (!ns.length) fail(o, 'no setup request was made (the worker never asked for the install)')
     else if (ns.some(n => n.ok !== true || n.fails !== 0)) fail(o, `the setup request was not answered ok: ${JSON.stringify(ns[0])}`)
-    // no chore(deps) commit is fine when the worker had already put the package in the manifest and lockfile: the helper then installed and found nothing to commit
-    if (!cs.length && !ns.some(n => /^Nothing to commit/.test(n.answer ?? ''))) fail(o, 'no chore(deps) commit on any branch')
+    // no chore(deps) commit is acceptable only when nothing else touched a manifest or lockfile either (the helper installed what was already declared and found nothing to commit); a worker that edited the manifest itself is not this cell
+    const others = read(join(dir, 'manifest-commits')).split('\n').filter(Boolean).map(l => l.split('\t')).filter(([sha]) => !cs.some(c => sha.startsWith(c.sha)))
+    if (!cs.length && (others.length || !ns.some(n => /^Nothing to commit/.test(n.answer ?? '')))) fail(o, `no chore(deps) commit on any branch${others.length ? `, and other commit(s) touched a manifest or lockfile: ${others.slice(0, 3).map(([s, m]) => `${s.slice(0, 7)} ${m}`).join('; ')}` : ''}`)
     for (const c of cs) {
       if (!/^chore\(deps\): \S/.test(c.subject)) fail(o, `commit ${c.sha} subject: ${c.subject}`)
       if (!c.files.length || c.files.some(f => !MAN.test(f))) fail(o, `commit ${c.sha} touches more than a manifest and lockfile: ${c.files.join(', ')}`)
@@ -405,7 +406,7 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (!new RegExp(`(package(-lock)?\\.json|pyproject\\.toml|uv\\.lock):.*\\b${process.env.ORACLE_DEP}\\b`).test(read(join(dir, 'deps-final')))) fail(o, `dev's manifests do not name ${process.env.ORACLE_DEP}`)
     if (!wantLanded) fail(o, 'run it with LANDED=1: the task must land')
     // an agent's own shell is outside cadre's jail: an install it ran itself writes the real HOME and is no setup request (named first, so a HOME change is not mistaken for cadre's)
-    const own = subs.flatMap(x => x.uses.filter(u => u.name === 'Bash' && /(^|&&|;|\|\|?|\n)\s*(sudo\s+)?(npm\s+(install|i|add|ci)|pnpm\s+(install|i|add)|yarn\s+(install|add)|uv\s+(add|sync|pip\s+install)|pip3?\s+install|python3?\s+-m\s+pip\s+install|cargo\s+(add|install)|go\s+(get|install))\b/.test(String(u.input?.command ?? ''))).map(u => `${basename(x.f)}: ${String(u.input.command).replace(/\s+/g, ' ').slice(0, 90)}`))
+    const own = subs.flatMap(x => x.uses.filter(u => u.name === 'Bash' && /(^|&&|;|\|\|?|\n)\s*(sudo\s+)?(npm\s+(install|i|add|ci)|pnpm\s+(install|i|add)|yarn\s+(install|add)|uv\s+(add|sync|lock|pip\s+install)|pip-compile|poetry\s+lock|pip3?\s+install|python3?\s+-m\s+pip\s+install|cargo\s+(add|install)|go\s+(get|install))\b/.test(String(u.input?.command ?? ''))).map(u => `${basename(x.f)}: ${String(u.input.command).replace(/\s+/g, ' ').slice(0, 90)}`))
     if (own.length) fail(o, `an agent ran the install in its own shell (not through the setup request): ${own[0]}`)
     const hd = drv.filter(e => e.kind === 'dialog' && /dependencies wait for you|Allow cadre to install|Installing needs isolation/i.test(e.text)); if (hd.length) fail(o, `${hd.length} install dialog(s) (the repo is approved): ${hd.map(e => e.text).join(' / ')}`)
   }
