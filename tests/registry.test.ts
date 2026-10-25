@@ -55,7 +55,11 @@ describe('pipeline validation: every illegal order is refused', () => {
     const f = defaults().feature
     expect(validate({ feature: { ...f, pipeline: ['worker', 'reviewer', 'merge'] } })).toEqual(['types.feature: a test-first type ("tdd": true) with a worker keeps "tester" and "red"'])
     expect(validate({ feature: { ...f, pipeline: ['tester', 'worker', 'reviewer', 'merge'] } })).toHaveLength(1)
-    expect(validate({ feature: { ...f, tdd: false, pipeline: ['worker', 'reviewer', 'merge'] } })).toEqual([])
+    const { tdd: _t, ...noTdd } = f
+    expect(validate({ feature: { ...noTdd, pipeline: ['worker', 'reviewer', 'merge'] } })).toEqual(['types.feature: a test-first type ("tdd": true) with a worker keeps "tester" and "red"'])
+    expect(validate({ feature: { ...f, tdd: false } })).toEqual(['types.feature: test-first is fixed for this type'])
+    expect(validate({ feature: { ...f, tdd: false, pipeline: ['worker', 'reviewer', 'merge'] } })).toEqual(['types.feature: test-first is fixed for this type'])
+    expect(validate({ chore: { ...noTdd, pipeline: ['worker', 'reviewer', 'merge'] } })).toEqual([])
     expect(validate({ x: { ...f, pipeline: ['tester', 'reviewer', 'merge'] } })).toEqual([])
   })
   test('the per-task lite drop still works', async () => {

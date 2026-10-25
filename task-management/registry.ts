@@ -37,10 +37,15 @@ export function validatePipeline(p: readonly string[]): string | null {
   return null
 }
 
-// a test-first type (`tdd: true`) that has a worker keeps the step that writes the tests and the one that proves them red: dropping them is refused here, as any illegal order is
-export const tddRule = (s: Pick<TypeSpec, 'pipeline' | 'tdd'>): string | null => (s.tdd && s.pipeline.includes('worker') && !(s.pipeline.includes('tester') && s.pipeline.includes('red')) ? 'a test-first type ("tdd": true) with a worker keeps "tester" and "red"' : null)
-export const validate = (reg: TypeRegistry): string[] =>
-  Object.entries(reg).flatMap(([t, s]) => { const e = validatePipeline(s.pipeline) ?? tddRule(s); return e ? [`types.${t}: ${e}`] : [] })
+// a test-first type (`tdd: true`) that has a worker keeps the step that writes the tests and the one that proves them red: dropping them is refused here, as any illegal order is.
+// A built-in test-first name stays test-first whatever the config says: an override that omits `tdd` is covered, `tdd: false` is refused.
+export const tddRule = (builtin: TypeRegistry, t: string, s: Pick<TypeSpec, 'pipeline' | 'tdd'>): string | null =>
+  builtin[t]?.tdd && s.tdd === false ? 'test-first is fixed for this type'
+  : (builtin[t]?.tdd || s.tdd) && s.pipeline.includes('worker') && !(s.pipeline.includes('tester') && s.pipeline.includes('red')) ? 'a test-first type ("tdd": true) with a worker keeps "tester" and "red"' : null
+export const validate = (reg: TypeRegistry): string[] => {
+  const builtin: TypeRegistry = defaults()
+  return Object.entries(reg).flatMap(([t, s]) => { const e = validatePipeline(s.pipeline) ?? tddRule(builtin, t, s); return e ? [`types.${t}: ${e}`] : [] })
+}
 
 export const kindOf = (s: TypeSpec): Kind => s.kind ?? (s.pipeline.includes('explorer') ? 'spike' : s.commit === 'docs' ? 'docs' : 'code')
 export const merges = (s: TypeSpec): boolean => s.pipeline.includes('merge')
