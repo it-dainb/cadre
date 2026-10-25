@@ -193,6 +193,11 @@ describe('replays 12-20: regressions from the log', () => {
     expect(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'again' })).toContain('report accepted'); await w.turn()
     expect(await w.rep(rv, f('src/a.ts'))).toContain('changes (2/'); await w.turn(); expect(w.sent.filter(x => x[0] === 'ag1').map(x => x[1]).at(-1)!).not.toContain('locked spec test')
   })
+  test('a task with no spec tests (a lite task) gets no scenario-coverage rule in its reviewer brief: there is no scenario id to name a test after', async () => {
+    const w = await world(); expect(w.dep.cfg.review.coverage.enforce).toBe(true)
+    const [rv] = await inReview(w), p = w.spawned.find(x => x[0] === rv)![1]
+    expect(p).toContain('# REVIEW TASK-'); expect(p).not.toContain('Scenario coverage'); expect(p).not.toContain('named after its id'); expect(p).not.toContain('confirm each scenario has a test')
+  })
   test('#20 a reworked task keeps its reviewer: resumed, never a second one', async () => {
     const w = await world(), [rv] = await inReview(w)
     expect(await w.rep(rv, CHANGES)).toContain('changes (1/')

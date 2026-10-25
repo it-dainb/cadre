@@ -24,7 +24,7 @@ export function riskOf(c: RiskCfg, o: { paths: string[]; lines?: number; labels:
 }
 // what the reviewer is told to check, in task language (no tier names)
 export const FOCUS: Record<Tier, string> = {
-  light: 'Small change: confirm each scenario has a test that really checks it, and that nothing outside the task changed.',
+  light: 'Small change: confirm it does what the task says, that any scenario it has is checked by a test that really checks it, and that nothing outside the task changed.',
   standard: '',
   core: 'Shared core code other tasks build on: besides the scenarios, check that its public interface is complete, stable and documented, and that nothing task-specific leaked into it.',
   thorough: 'Large or sensitive change: besides the scenarios, check security (input handling, permissions, secrets, unsafe defaults) and fit with the existing structure (boundaries, duplicated logic, public contracts, migrations).',
