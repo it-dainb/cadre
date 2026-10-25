@@ -203,6 +203,8 @@ test('the git runner: a tree whose .git was swapped for a directory with core.fs
   const f = await fix(); try {
     const g = G.guardedRun(run, async () => f.root), mark = join(f.d, 'MARKER'), script = join(f.d, 'mon.sh'); writeFileSync(script, `#!/bin/sh\necho ran > ${mark}\n`, { mode: 0o755 })
     assert.equal((await g(['git', '-C', f.wt, 'status', '--porcelain'])).exitCode, 0); assert.equal((await g(['git', '-C', f.root, 'status', '--porcelain'])).exitCode, 0); assert.equal((await g(['git', 'status'], { cwd: f.wt })).exitCode, 0)
+    const hook = join(f.root, '.git/hooks/pre-commit'), hm = join(f.d, 'HOOK'); writeFileSync(hook, `#!/bin/sh\necho ran > ${hm}\n`, { mode: 0o755 }); writeFileSync(join(f.root, 'b.txt'), 'b\n'); await sh(f.root, 'git', 'add', 'b.txt')
+    assert.equal((await g(['git', '-C', f.root, 'commit', '-qm', 'b'])).exitCode, 0); assert.ok(existsSync(hm), "the repo's own hook still runs")
     rmSync(join(f.wt, '.git')); await sh(f.d, 'git', 'init', '-q', f.wt); await sh(f.wt, 'git', 'config', 'core.fsmonitor', script)
     await run(['git', '-C', f.wt, 'status']); assert.ok(existsSync(mark), 'unguarded, the planted config runs'); rmSync(mark)
     const r = await g(['git', '-C', f.wt, 'status']); assert.notEqual(r.exitCode, 0); assert.match(r.stderr, /not a working folder/); assert.ok(!existsSync(mark))

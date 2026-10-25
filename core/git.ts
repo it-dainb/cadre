@@ -22,9 +22,9 @@ export const ok = async (run: Run, cwd: string, args: readonly string[]): Promis
 export const tip = (run: Run, cwd: string, ref: string) => git(run, cwd, ['rev-parse', '--verify', `${ref}^{commit}`])
 export const exists = (run: Run, cwd: string, ref: string) => ok(run, cwd, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])
 
-// The one git runner (the host's `run` goes through it): git never reads a hook, a monitor or an ssh command from a configuration it finds, and a tree other than the repo's own
+// The one git runner (the host's `run` goes through it): git never runs a monitor or an ssh command from a configuration it finds, and a tree other than the repo's own
 // must be a linked worktree or module of it: its `.git` a plain file naming a git dir under the repo's (a worker can write its tree, and could put a directory with a config there instead).
-const HARD = ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', '-c', 'core.sshCommand=', '-c', 'protocol.ext.allow=never', '-c', 'core.pager=cat', '-c', 'core.editor=true']
+const HARD = ['-c', 'core.fsmonitor=false', '-c', 'core.sshCommand=', '-c', 'protocol.ext.allow=never', '-c', 'core.pager=cat', '-c', 'core.editor=true']
 const TREE = `g="$1/.git"; [ -e "$g" ] || [ -L "$g" ] || exit 0; [ "$(realpath -e "$1")" = "$(realpath -e "$3")" ] && exit 0; [ -L "$g" ] && exit 1; [ -f "$g" ] || exit 1
 l=$(head -c 4096 "$g"); case "$l" in "gitdir: "*) ;; *) exit 1;; esac; p=$(cd "$1" && realpath -m "\${l#gitdir: }"); case "$p" in "$2"/worktrees/*|"$2"/modules/*) exit 0;; esac; exit 1`
 export const guardedRun = (run: Run, root: () => Promise<string>): Run => {
