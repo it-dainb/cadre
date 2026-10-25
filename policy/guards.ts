@@ -1,5 +1,6 @@
 // L1 capability allowlist, file fence (DESIGN 13.1-13.2), tool.check allow, session.send isolation (4.6), config.set guard. Slots #4, #5, #7, config.set.
 import { modelText } from '../core/say'
+import { OFFLINE } from '../core/helpers'
 import type { Binding, Host, Hook } from '../types'
 import { MAIN_TOOLS, allowlist } from '../agents/index'
 import { repoKeyOf, scoped } from '../commands/init'
@@ -132,6 +133,11 @@ async function watchCall(h: Host, e: any, role: string): Promise<string | undefi
   if (r && !seen.includes(e.tool) && !e.tool.startsWith('mcp__') && !allowlist(role as any).includes(e.tool)) { const k = await scoped(h, 'injected'), x = ((await h.store.get(k)) as string[] | undefined) ?? []; if (!x.includes(e.tool)) await h.store.set(k, [...x, e.tool]) }
   return r?.exit ? 'you have made the same call over and over; stop now' : undefined
 }
+// A cadre agent's Bash call goes on with the package managers offline for that one shell (core/helpers.OFFLINE); main's, other tools' and non-cadre agents' calls are unchanged
+export async function shelled(h: Host, e: any): Promise<any> {
+  if (e.tool !== 'Bash' || !e.agentId || typeof e.input?.command !== 'string' || !(await h.bind.read())[e.agentId]) return e
+  return { ...e, input: { ...e.input, command: `export ${Object.entries(OFFLINE).map(([k, v]) => `${k}=${v}`).join(' ')}; ${e.input.command}` } }
+}
 // #5 tool.call guards: L1 allowlist, fence. Judge before next. Advisory: denies become warnings.
 export const guard: Hook = async (h, e, next) => {
   if (EXIT.includes(e.tool)) return next(exitCall(e))
@@ -146,11 +152,11 @@ export const guard: Hook = async (h, e, next) => {
     return f === 'allow' || f === 'tmp' ? undefined : f
   }
   const why = await deny()
-  if (!why) return next(e)
+  if (!why) return next(await shelled(h, e))
   const tb = e.agentId && (await h.bind.read())[e.agentId]
   if (tb && tb.role === 'tester') await logCall(h, e.agentId, { tool: e.tool, path: inputPath(e.tool, e.input ?? e, tb.worktree), outcome: why })   // the view audit counts refusals too (3.5.2)
   if (await strict(h)) return { deny: modelText('deny', why) }
-  h.log(`advisory: ${why}`); return next(e)
+  h.log(`advisory: ${why}`); return next(await shelled(h, e))
 }
 
 // #4 tool.check allow mirrors fence rule 2 (tester) and rule 3 (owner); anything else is the engine's call. Fail-closed answer is {decision:'deny'}.

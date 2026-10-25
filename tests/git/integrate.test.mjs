@@ -11,7 +11,7 @@ const { fakeHost } = await import('../support.ts')
 const { defaults } = await import('../../config/index.ts')
 const { integrateEpic, releaseDev } = await import('../../core/integrate.ts')
 const { skeleton } = await import('../../core/changelog.ts')
-const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: o.cwd, env: o.env ? { ...process.env, ...o.env } : undefined }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
+const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: o.cwd }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()
 const commit = (d, f, body, msg) => { writeFileSync(join(d, f), body); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', msg) }
 
@@ -143,15 +143,4 @@ test('integration: a unit setup may write the folders settings.jailWritable name
   const { d, h } = await world(['true'], 'auto'), cfg = await h.config(), w = mkdtempSync(join(tmpdir(), 'cadre-cache-'))
   cfg.jailWritable = [w]; cfg.units[0].setup = ['sh', '-c', `echo ok > ${w}/marker`]
   assert.equal(await integrateEpic(h, 'p3'), null); assert.equal(readFileSync(join(w, 'marker'), 'utf8').trim(), 'ok')
-})
-
-test('integration: a unit setup runs online while the session (the agents\' shells) is offline; in the jail and with the jail off', async () => {
-  process.env.npm_config_offline = 'true'; process.env.UV_OFFLINE = '1'
-  try {
-    for (const jail of ['auto', 'off']) {
-      const { h } = await world(['true'], jail), cfg = await h.config(), w = mkdtempSync(join(tmpdir(), 'cadre-env-')); cfg.jailWritable = [w]
-      cfg.units[0].setup = ['sh', '-c', `echo "$npm_config_offline $UV_OFFLINE $GOPROXY" > ${w}/env`]
-      const r = await integrateEpic(h, 'p3'); assert.equal(r, null, String(r)); assert.equal(readFileSync(join(w, 'env'), 'utf8').trim(), 'false 0 https://proxy.golang.org,direct', jail)
-    }
-  } finally { delete process.env.npm_config_offline; delete process.env.UV_OFFLINE }
 })

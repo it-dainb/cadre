@@ -52,11 +52,10 @@ export function vet(argv: unknown, wt: string, sys: { py?: string; rust?: string
   return { argv: [...(argv as string[]), ...(e.add ?? []), ...(key === 'uv pip' ? ['--python', sys.py!, '--prefix', `${wt}/.venv`] : [])], env, ...(e.empty ? { empty: true as const } : {}), ...(steps ? { steps } : {}) }
 }
 
-// An agent's own shell starts from the session's environment, which is set before each agent starts (hooks/register, `agent.spawn`): package managers there are offline, so a self-install
-// fails fast and the setup request is the only way to add a package. Names are spelled one by one in hooks/register (the engine lists the names a module sets); tests/roles.test.ts keeps them equal.
-// Cadre's own setup runs (admission, integration, init) need the network: they run with `online`.
+// What an agent's Bash starts with (policy/guards `shelled`: an `export …;` in front of that one command, never a parse of it): package managers offline, so a self-install fails fast and the
+// setup request is the way to add a package. A speed bump only: a warm cache or an inline override (`npm_config_offline=false npm i x`) goes around it; the oracle's own-shell check is the gate.
+// Bash only: PowerShell and Monitor are not prefixed.
 export const OFFLINE: Record<string, string> = { npm_config_offline: 'true', YARN_ENABLE_OFFLINE_MODE: '1', UV_OFFLINE: '1', PIP_NO_INDEX: '1', CARGO_NET_OFFLINE: 'true', GOPROXY: 'off' }
-export const online = async (h: Host): Promise<Record<string, string>> => ({ npm_config_offline: 'false', YARN_ENABLE_OFFLINE_MODE: '0', UV_OFFLINE: '0', PIP_NO_INDEX: '0', CARGO_NET_OFFLINE: 'false', GOPROXY: (await h.env()).CADRE_GOPROXY0 || 'https://proxy.golang.org,direct' })
 
 // the one-time per-repo approval: the user's own layer, keyed by repo root; a committed repo file cannot hold it
 const FILE = async (h: Host) => `${await h.home()}/.claude/cadre/deps.json`

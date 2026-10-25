@@ -146,7 +146,7 @@ export async function setup(h: Host, d: Deps, task: Task, wt: string) {   // `se
   const pkgRoot = !rootOf(pkg) ? wt : `${wt}/${pkg.root}`, scratch = `${d.wtRoot}/${d.key}.scratch/${task.id}`
   for (const argv of pkg?.setup?.length ? [pkg.setup as string[]] : []) {   // Pkg.setup is one argv (discover.ts)
     await h.run(['mkdir', '-p', scratch])
-    const env = await P.online(h), r = d.cfg.jail === 'off' ? await h.run(argv, { cwd: pkgRoot, env }) : await h.run(G.writableJail({ wt, scratch, pkgRoot, argv, writable: d.cfg.jailWritable, env }))
+    const r = d.cfg.jail === 'off' ? await h.run(argv, { cwd: pkgRoot }) : await h.run(G.writableJail({ wt, scratch, pkgRoot, argv, writable: d.cfg.jailWritable }))
     if (r.exitCode) throw new Error(`setup failed: ${argv.join(' ')}: ${r.stderr.slice(-300)}`)
   }
 }

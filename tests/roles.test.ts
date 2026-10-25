@@ -1,11 +1,11 @@
-import { OFFLINE } from '../core/helpers'
 import { describe, expect, mock, test } from 'claude-code/testing'
 import { MAIN_TOOLS, ROLES, TOOLS, TTL, allowlist, file, spec } from '../agents/index'
 import { REG, defaults, resolve } from '../config/index'
 import { fixedRules, ROLES_DEFAULT, EXIT, PROMPT_CAP, agentSpec, customIssue, exitIssue, writes } from '../core/roles'
 import { routeOf } from '../core/admission'
 import { REPORTS } from '../core/validate'
-import { fence, guard, setPolicy } from '../policy/guards'
+import { fence, guard, setPolicy, shelled } from '../policy/guards'
+import { OFFLINE } from '../core/helpers'
 import { fence as frozen } from './fixtures/fence-v0.15.0'
 import GOLD from './fixtures/roles-golden'
 import { fakeHost, task } from './support'
@@ -133,11 +133,11 @@ describe('custom roles: the load checks', () => {
 
 // ---- registration: session.start -> a rejection retried once on the first turn -> a Doctor line; a role is spawned from a later turn than its register's ----
 const START = { surface: 'terminal', isInteractive: true, cwd: '/work' } as const, ENGINE = { timeoutMs: 30_000 }
-async function boot($: any, on: any, reject: number, envSink?: string[]) {
+async function boot($: any, on: any, reject: number) {
   const regs: any[] = [], spawned: any[] = []; let n = 0
   on('session.start', () => ({ cwd: '/work' })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('store.set', () => ({ value: undefined }))
   on('env.get', ($: any, e: any) => ({ value: e.name === 'CADRE_STORE' ? 'memory' : undefined })); on('session.version', () => ({ value: { version: '2.1.299' } })); on('store.get', ($: any, e: any) => ({ value: e.key === 'cadre:setup' ? { cc: '2.1.299' } : undefined }))
-  on('fs.read', ($: any, e: any) => ({ value: String(e.path).endsWith('.claude/cadre.json') ? JSON.stringify({ roles: { custom: { auditor: AUD } } }) : '{}' })); on('fs.stat', () => ({ value: undefined })); on('command.register', () => ({ value: undefined })); on('env.set', ($: any, e: any) => { envSink?.push(`${e.name}=${e.value}`); return { value: undefined } })
+  on('fs.read', ($: any, e: any) => ({ value: String(e.path).endsWith('.claude/cadre.json') ? JSON.stringify({ roles: { custom: { auditor: AUD } } }) : '{}' })); on('fs.stat', () => ({ value: undefined })); on('command.register', () => ({ value: undefined })); on('env.set', () => ({ value: undefined }))
   on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined })); on('ui.log', () => ({ value: undefined })); on('ui.toast', () => ({ value: undefined })); on('tool.register', () => ({ value: undefined })); on('tool.list', () => ({ value: [] }))
   on('agent.register', ($: any, e: any) => { regs.push(e); if (n++ < reject) throw new Error('not bound yet'); return { value: undefined } })
   on('agent.spawn', ($: any, e: any) => { spawned.push(e); return { model: 'haiku' } }); on('turn.start', ($: any, e: any) => e); mock.clock(on)
@@ -145,16 +145,6 @@ async function boot($: any, on: any, reject: number, envSink?: string[]) {
   const spawn = async () => $.agent.spawn({ prompt: 'check the diff', subagentType: 'cadre:auditor' }) as Promise<any>
   return { regs, spawned, spawn }
 }
-describe('agents\' shells start from an environment with the package managers offline', () => {
-  test('every agent spawn sets them first (a self-install fails fast; the setup request is the way); the list is core/helpers.OFFLINE', ENGINE, async ($, on) => {
-    const env: string[] = []
-    const { spawned, spawn } = await boot($, on, 0, env); await $.turn.start({ turnId: 't1' })
-    expect(env.some(x => x.startsWith('npm_config_offline'))).toBe(false)   // not at start: only once an agent is about to run
-    await spawn()
-    for (const [k, v] of Object.entries(OFFLINE)) expect(env).toContain(`${k}=${v}`)
-    expect(spawned.length).toBe(1)
-  })
-})
 describe('custom roles: registration and spawn', () => {
   test('registered at session start with the whitelisted fields; a same-turn spawn is denied, one from a later turn is started as cadre:auditor', ENGINE, async ($, on) => {
     const { regs, spawned, spawn } = await boot($, on, 0)
@@ -206,5 +196,16 @@ describe('custom roles: the guard enforces the role\'s own spec', () => {
     const ro = await mk(AUD); expect((await ro({ tool: 'Write', file_path: '/x/repo/src/a.ts' })).deny).toContain('not available'); expect((await ro({ tool: 'WebFetch' })).deny).toContain('not available')
     expect(await (await mk(WEB))({ tool: 'WebFetch' })).toEqual({ ok: 'WebFetch' })
     expect((await (await mk({ ...WEB, network: 'off' }))({ tool: 'WebFetch' })).deny).toContain('not available')   // a spec that slipped past load is still refused
+  })
+})
+
+describe('a cadre agent\'s Bash call goes on with the package managers offline, for that one shell', () => {
+  const host = async () => { const h: any = fakeHost(); await h.bind.update((b: any) => ({ ...b, ag1: { role: 'worker', taskId: 'c-1-1', worktree: '/x/wt' } })); return h }
+  test('a bound agent\'s Bash gets `export K=V …; ` in front of its own command, untouched; main, other tools and agents cadre did not start are unchanged', async () => {
+    const h = await host(), e = { tool: 'Bash', agentId: 'ag1', input: { command: 'npm install ms && npm test', description: 'x', timeout: 5 } }, r = await shelled(h, e)
+    expect(r.input.command.endsWith('; npm install ms && npm test')).toBe(true); expect(r.input).toMatchObject({ description: 'x', timeout: 5 })
+    const ex = r.input.command.slice('export '.length, r.input.command.indexOf('; ')).split(' ').sort(); expect(ex).toEqual(Object.entries(OFFLINE).map(([k, v]) => `${k}=${v}`).sort())
+    expect(e.input.command).toBe('npm install ms && npm test')   // the original object is not edited
+    for (const x of [{ tool: 'Bash', input: { command: 'ls' } }, { tool: 'Bash', agentId: 'stranger', input: { command: 'ls' } }, { tool: 'Read', agentId: 'ag1', input: { file_path: 'a' } }, { tool: 'PowerShell', agentId: 'ag1', input: { command: 'ls' } }, { tool: 'Bash', agentId: 'ag1', input: {} }]) expect(await shelled(h, x)).toBe(x)
   })
 })
