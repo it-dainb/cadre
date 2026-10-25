@@ -55,6 +55,8 @@ needs-explore|single ready scripted/needs|needs|MODEL=haiku CC_VERSION=2.1.295 S
 lessons-pass|single ready|lessons|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=150 ORACLE=lessons
 custom-role|single ready scripted/custom-role|custom-role|MODEL=haiku CC_VERSION=2.1.295 S=1 BUDGET=150 ORACLE=custom-role
 planner-probe|single ready scripted/probe|probe|MODEL=haiku CC_VERSION=2.1.295 S=1 BUDGET=150 ORACLE=planner-probe EPIC_PLANNERS=1
+# needs-setup-s: the setup path with the scripted model; npm installs ms from the real registry (no model, no quota)
+needs-setup-s|single ready deps-node scripted/setup|needs-setup|MODEL=haiku CC_VERSION=2.1.295 S=1 DEPS=1 KIND=s ORACLE_DEP=ms LANDED=1 BUDGET=150 ORACLE=needs-setup
 EOF
 }
 # the 0.16 release gate (L, needs the user's OK; the quick tier runs apart): the two setup cells, the restart cell, exit-every-role live on 2.1.295 and on the newest build.

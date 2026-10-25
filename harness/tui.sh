@@ -43,7 +43,7 @@ start)
     CCB=$HOME/.local/share/claude/versions/$CC_VERSION; [ -f "$CCB" ] || CCB=$H/claude-$CC_VERSION
     [ -f "$CCB" ] || { echo "no Claude Code $CC_VERSION on the host or in harness/claude-$CC_VERSION" >&2; exit 1; }
     VOL="-v $CCB:/opt/claude/claude:ro"; fi
-  [ -n "$DEPS" ] && VOL="$VOL -v $(readlink -f "$(command -v uv)"):/usr/local/bin/uv:ro"   # DEPS=1: the install cells (needs-setup-*) need uv in the container
+  [ -n "$DEPS" ] && VOL="$VOL -v $(readlink -f "$(command -v uv)"):/usr/local/bin/uv:ro -v $H/python-shim:/usr/local/bin/python:ro"   # DEPS=1: the install cells (needs-setup-*) need uv in the container, and `python` (the image has python3 only; a tester may write either)
   [ "$1" = --scenario ] && { node --experimental-transform-types --no-warnings "$R/scripts/ui-dev.mjs" --dump "$2" >"$D/work/.cadre-dev-scenario.json" || exit 1; EXTRA_ENV="$EXTRA_ENV -e CADRE_DEV=1 -e CADRE_DEV_SCENARIO=/work/run/.cadre-dev-scenario.json"; }   # dev: seed the pane atoms from scenarios/<name>.ts (docs/dev/ui-dev.md)
   [ -n "$SCAFFOLD" ] && (cd "$D/work" && bash "$SCAFFOLD" >"$D/out/scaffold.log" 2>&1 || { cat "$D/out/scaffold.log"; exit 1; })
   git -C "$D/work" config user.email q@x 2>/dev/null
