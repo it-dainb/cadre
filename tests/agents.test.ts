@@ -41,6 +41,9 @@ describe('roster (DESIGN 4.1, A28)', () => {
     expect(file('explorer')).toContain('experimental:\n  cacheTtl: 5m\n'); expect(file('explorer')).toContain('effort: low'); expect(file('planner')).toContain('effort: high')
     expect(file('worker').endsWith(`---\n${PROMPTS.worker}\n`)).toBe(true)
   })
+  test('a prompt names the tools by the name the agent calls (a bare "inspect" was called as such live and refused: no such tool)', async () => {
+    for (const r of ROLES) { const body = PROMPTS[r]; expect(body).not.toMatch(/(?<!mcp__cadre__)\b(inspect|run_check)\b/) }
+  })
   test('capabilities: only the worker has a shell; reviewer/explorer cannot write; the tester cannot shell', async () => {
     const has = (r: keyof typeof TOOLS, t: string) => TOOLS[r].includes(t)
     expect(has('worker', 'Bash')).toBe(true)
