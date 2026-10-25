@@ -3,8 +3,8 @@
 import '../dev/register.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const { CACHES, OFFLINE, offlinePrefix } = await import('../../core/helpers.ts')
@@ -37,4 +37,14 @@ test('a cadre-<uid> that is a link is never used for the caches (the offline set
 test('a cadre-<uid> that already exists with a loose mode is tightened to 0700 when it is ours', () => {
   const tmp = mkdtempSync(join('/var/tmp', 'cadre-shell-')), dir = join(tmp, `cadre-${uid}`); mkdirSync(dir, { mode: 0o755 })
   try { run(tmp, 'true'); assert.equal(statSync(dir).mode & 0o777, 0o700) } finally { rmSync(tmp, { recursive: true, force: true }) }
+})
+
+test('scripts/test-wall.mjs: with TEST_WALL_S=2 a 5 s file fails and a 0 s file passes (the timer costs seconds)', () => {
+  const tmp = mkdtempSync(join('/var/tmp', 'cadre-wall-')), wall = file => spawnSync('node', ['scripts/test-wall.mjs', file], { cwd: new URL('../..', import.meta.url).pathname, env: { ...process.env, NODE_TEST_CONTEXT: undefined, TEST_WALL_S: '2' }, encoding: 'utf8' })
+  try {
+    const slow = join(tmp, 'slow.mjs'), fast = join(tmp, 'fast.mjs')
+    writeFileSync(slow, "import { test } from 'node:test'\ntest('slow', async () => { await new Promise(r => setTimeout(r, 5000)) })\n"); writeFileSync(fast, "import { test } from 'node:test'\ntest('fast', () => {})\n")
+    const s = wall(slow); assert.equal(s.status, 1); assert.match(s.stdout, /TIMEOUT/)
+    const f = wall(fast); assert.equal(f.status, 0, f.stdout)
+  } finally { rmSync(tmp, { recursive: true, force: true }) }
 })

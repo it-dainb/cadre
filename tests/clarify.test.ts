@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { clarifyCall, clarifyCheck, deepLine, guideOf, nextStep } from '../core/clarify'
 import { goal, sendBrief } from '../core/lanes'
-import { seen, stopCheck } from '../commands/agentrun'
+import { ran, seen, stopCheck } from '../commands/agentrun'
 import { parse, status } from '../commands/cadre'
 import { taskCall } from './fixtures/native/world'
 import { warm } from '../core/session'
@@ -92,7 +92,8 @@ describe('clarify gate (default on)', () => {
     const u = await on(); await seen(u.h, { name: 'mcp__cadre__explore' }); expect((await u.h.secret.read()).goalRun?.explored).toBeUndefined()   // reading an answer again ({id}) is no explorer
   })
   test('main\'s explorer started with the Agent tool is the goal\'s clarify explorer (a clarity record after it is not refused)', async () => {
-    const w = await on(); await seen(w.h, { name: 'Agent', ask: false, sub: 'cadre:explorer' }); expect((await w.h.secret.read()).goalRun?.explored).toBe(true)
+    const w = await on(); await seen(w.h, { name: 'Agent', ask: false, sub: 'cadre:explorer', ran: true }); expect((await w.h.secret.read()).goalRun?.explored).toBe(true)
+    const d = await on(); await seen(d.h, { name: 'Agent', sub: 'cadre:explorer', ran: ran({ deny: 'no' }) }); expect((await d.h.secret.read()).goalRun?.explored).toBeUndefined()   // a denied run is not the clarify explore
     const o = await on(); await seen(o.h, { name: 'Agent', sub: 'general-purpose' }); expect((await o.h.secret.read()).goalRun?.explored).toBeUndefined()   // another agent type is no explore
   })
 })

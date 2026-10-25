@@ -107,6 +107,11 @@ describe('claim (3.4)', () => {
     expect(seen[0]).toMatchObject({ subagentType: 'cadre:explorer', model: 'haiku' }); expect(seen[0].prompt).toContain('# QUESTION\nwhere is the parser?')
     await admitWith(h, d, spawn('x', { fork: true }), next); expect(seen[1].subagentType).toBe('general-purpose')
   })
+  test('a denied explorer spawn is no explorer: no ask card is recorded for it', async () => {
+    const w = world(), { h, d } = await w.mk('a')
+    await admitWith(h, d, spawn('where is the parser?'), async () => ({ deny: 'no' })); expect((await h.ui.read()).asks ?? {}).toEqual({})
+    await admitWith(h, d, spawn('where is the parser?'), ok('ag9').next); expect(Object.keys((await h.ui.read()).asks as object)).toEqual(['ag9'])
+  })
   test('the task limit, not-ready (blocking dep), flags, and a type that needs the tester step are refused', async () => {
     const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}, { deps: [{ id: '0', type: 'blocks' }] }, { type: 'test' }, {}); await w.board(h, epic, ids)
     const { next, seen } = ok()

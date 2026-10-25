@@ -28,7 +28,7 @@ import { handle, MAIN_SPECS, PREFS_SPEC, SPECS } from '../tools/index'
 import { context, attachment } from '../core/briefs'
 import { decide, run } from '../commands/cadre'
 import { nudge, oldLine, setupDue, tooOld } from '../commands/doctor'
-import { pump, resume, turnEnd, seen, stopCheck, redNote, watch, halt } from '../commands/agentrun'
+import { pump, resume, turnEnd, seen, ran, stopCheck, redNote, watch, halt } from '../commands/agentrun'
 import { tick } from '../task-management/sync-engine/loop'
 import { autoAsk, onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapCard, resumeBanner } from '../ui/index'
 import { load } from '../config/index'
@@ -231,7 +231,7 @@ export const register: Register = (on, opts) => {
   // 6. wrap (L3 per-call fingerprint, delta drain, result card, tester log); then our own MCP tools answer innermost
   on('tool.call', { tool: /^/ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return wrap(host($), e, next) }).catch(denyCall)
   // agent-run setup/init: main's tool results carry what is still red; its stop is refused while a check it owns is red; turn.start feeds the watchdog (commands/agentrun). Outside cadre's own tools, which answer without next: main's explore must reach seen (a goal's clarify step)
-  on('tool.call', { tool: /./ }, async ($, e, next) => { const h = host($); if (!e.agentId) await seen(h, { name: e.tool, ask: e.question !== undefined, sub: e.subagent_type }).catch(() => {}); const r = await next(e); if (e.agentId) return r; await seen(h, { tool: true }).catch(() => {}); const t = r?.result !== undefined ? await redNote(h).catch(() => null) : null; return t ? { ...r, context: [...(r.context ?? []), modelText('context', t)] } : r }).catch(passOn)   // a note only: on failure the result goes through as it is
+  on('tool.call', { tool: /./ }, async ($, e, next) => { const h = host($); if (!e.agentId) await seen(h, { name: e.tool, ask: e.question !== undefined, sub: e.subagent_type }).catch(() => {}); const r = await next(e); if (e.agentId) return r; if (e.subagent_type === 'cadre:explorer') await seen(h, { name: e.tool, sub: e.subagent_type, ran: ran(r) }).catch(() => {}); await seen(h, { tool: true }).catch(() => {}); const t = r?.result !== undefined ? await redNote(h).catch(() => null) : null; return t ? { ...r, context: [...(r.context ?? []), modelText('context', t)] } : r }).catch(passOn)   // a note only: on failure the result goes through as it is
   on('tool.call', { tool: /^mcp__cadre__/ }, ($, e, next) => handle(host($), e, next)).catch(denyCall)
   on('classic.Stop', async ($, e, next) => { const r = await next(e); const t = await stopCheck(host($), e).catch(() => null); return t ? { ...r, block: modelText('nudge', t) } : r }).catch(passOn)
   on('turn.start', async ($, e, next) => { await update($, secret, x => ({ ...x, turn: (x.turn ?? 0) + 1 })); await roles($, true).catch(() => {}); await arm($).catch(() => {}); const r = await next(e); await seen(host($), { start: true }).catch(() => {}); await mainTurn(host($), true).catch(() => {}); return r })   // only main raises turn.start: its plan card waits for its turn end (core/dispatch.mainTurn)

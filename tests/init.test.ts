@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { clearKnownRed, confirm, initItems, repoKeyOf, rootFor, wire } from '../commands/init'
 import { load } from '../config/index'
-import { GOAL_FOLLOW, QUIET, cancel, halt, pump, recheck, resume, redNote, seen, start, stopCheck, turnEnd, watch } from '../commands/agentrun'
+import { GOAL_FOLLOW, QUIET, cancel, halt, pump, recheck, resume, redNote, ran, seen, start, stopCheck, turnEnd, watch } from '../commands/agentrun'
 import { band2 } from '../ui/v2/band'
 import { txt } from '../ui/model'
 import { HINT, SETTING_UP, decide, parse, route, run as cadreRun, status as statusLine } from '../commands/cadre'
@@ -623,6 +623,11 @@ describe('a goal run: main does not stop before the lane\'s step', () => {
     const { h } = await on(); expect(await stopCheck(h, {})).not.toBeNull()
     await taskCall(h, lite, async () => 'NEXT'); expect(await stopCheck(h, {})).toBeNull(); expect((await h.secret.read()).goalRun).toBeUndefined()
     const a = await on(); await seen(a.h, { name: 'mcp__cadre__explore', ask: true }); await seen(a.h, { name: 'mcp__cadre__explore', ask: true }); expect(await stopCheck(a.h, {})).toBeNull()   // the first is the clarify explorer
+  })
+  test('a denied Agent explorer is neither the clarify explorer nor the ask step: the goal still owes its plan', async () => {
+    const { h } = await on(); for (let i = 0; i < 2; i++) await seen(h, { name: 'Agent', sub: 'cadre:explorer', ran: ran({ deny: 'no' }) })
+    expect((await h.secret.read()).goalRun?.explored).toBeUndefined(); expect(await stopCheck(h, {})).toMatch(/^The goal is not planned yet/)
+    await seen(h, { name: 'Agent', sub: 'cadre:explorer', ran: ran({ result: 'ok' }) }); expect((await h.secret.read()).goalRun?.explored).toBe(true)
   })
   test('the lite plan\'s own task counts even while its approval turns it open and the board still says draft (live: main drafted it again)', async () => {
     const m = await on(); await taskCall(m.h, lite, async () => 'NEXT'); await seen(m.h, { name: 'Read' })

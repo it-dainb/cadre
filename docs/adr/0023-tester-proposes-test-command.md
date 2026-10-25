@@ -28,11 +28,11 @@ The test type keeps its rule: the command must pass.
 
 ## Settings (registered, ADR 0019)
 
-`tdd.testerCommand.use` (on), `tdd.testerCommand.adopt` (on), `tdd.collectErrors` (pytest, node, jest, go setup-failure patterns; must be valid regular expressions). Proved in `tests/git/tdd.test.mjs`.
+`tdd.testerCommand.use` (on), `tdd.testerCommand.adopt` (on), `tdd.collectErrors` (pytest, node, jest, go setup-failure patterns; must be valid regular expressions). Proved in `tests/git/tdd-red.test.mjs`.
 
 ## Tests
 
-Kit: `tests/testcmd.test.ts` (schema, envelope refusals, brief section, collect lines, Settings source). Real git + real sandbox, node:test fixture: `tests/git/tdd.test.mjs` (JUnit red + adoption once + decision + green; red without JUnit; collection error named, no host path, through `report`; passing tests refused; the three settings). The test file unsets `NODE_TEST_CONTEXT`: under `node --test` a nested `node --test` reports to the parent and exits 0.
+Kit: `tests/testcmd.test.ts` (schema, envelope refusals, brief section, collect lines, Settings source). Real git + real sandbox, node:test fixture: `tests/git/tdd-red.test.mjs` (JUnit red + adoption once + decision + green; red without JUnit; collection error named, no host path, through `report`; passing tests refused; the three settings). The test file unsets `NODE_TEST_CONTEXT`: under `node --test` a nested `node --test` reports to the parent and exits 0.
 
 ## Owed (live)
 
