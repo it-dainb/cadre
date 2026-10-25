@@ -216,7 +216,7 @@ test('a test task (tester -> reviewer): after the accepted tests no owner is lef
   mkdirSync(join(view, 'test'), { recursive: true }); writeFileSync(join(view, 'test/s.json'), tc('a', 'passed')); w.meta['cadre.base'] = sh(wt, 'rev-parse', 'HEAD')
   await w.h.board.update(s => ({ ...s, epic: 'e1', tasks: [snap('m-1', { type: 'test', state: 'active', step: 'tester', owner: 'a' })] }))   // as the claim left it
   await bindTester(w, wt, view); await CL.report(w.h, w.d, 'ag1', rep)
-  const t = (await w.h.board.read()).tasks[0]; assert.equal(t.state, 'review'); assert.equal(t.step, 'reviewer'); assert.equal(t.owner, undefined)
+  const t = (await w.h.board.read()).tasks[0]; assert.equal(t.state, 'review'); assert.equal(t.step, 'reviewer'); assert.equal(t.owner, undefined); assert.match(t.card, /tester → reviewer.*NEW agent for the reviewer step/)   // the card main reads names the real next step
   assert.deepEqual(spawnable(await w.h.board.read(), {}).map(x => x.role), ['reviewer'])
 })
 test('a package with no test check: red would run only "compile" and call it green; the first tester report blocks the task with one dialog naming the missing check', async () => {

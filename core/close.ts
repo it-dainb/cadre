@@ -200,8 +200,9 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
       await blockTask(h, d, t, `red: ${g.why}`, 'red', { summary: r.summary, tests: r.tests })
       return 'Your tests are kept, but they cannot be made to fail for the right reason here; the task now waits for the user. Stop.'
     }
-    await record(h, d, t.id, 'red', 'tester', { gate: 'red ✓' }, { summary: r.summary, tests: r.tests }); await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'tester', to: 'worker', flags: x.flags, next: startNew(t.id, 'worker', 'tester') }) }))
-    if ((await h.board.read()).tasks.find(x => x.id === t.id)?.state === 'review') await patch(h, t.id, x => ({ ...x, owner: undefined }))   // a task with no worker step goes tester -> reviewer: the claim's owner would keep spawnable from starting that reviewer (live: the run sat idle after the tester's accepted tests)
+    const nx = (await h.board.read()).tasks.find(x => x.id === t.id), rv = nx?.state === 'review'   // no worker step (a test task): the reviewer is next
+    await record(h, d, t.id, 'red', 'tester', { gate: 'red ✓' }, { summary: r.summary, tests: r.tests }); await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'tester', to: rv ? 'reviewer' : 'worker', flags: x.flags, next: startNew(t.id, rv ? 'reviewer' : 'worker', 'tester') }) }))
+    if (rv) await patch(h, t.id, x => ({ ...x, owner: undefined }))   // no worker step (a test task): the claim's owner would keep the reviewer from being spawned (live: the run sat idle after the tester's accepted tests); no reviewer is bound yet
     return `${g.card}\nred accepted; stop.`
   }
   if (r.role === 'explorer') return explorerDone(h, d, t, agentId!, r)

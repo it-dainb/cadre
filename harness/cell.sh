@@ -38,11 +38,16 @@ plantitle() { if grep -qiE '^approve ' <<<"$1"; then printf '%s' "$1"; elif grep
 band() { awk "$AWK_BAND" <<<"$1"; }
 key() { for i in 1 2 3; do docker exec "cadre-tui-$N" tmux send-keys -t q "$@" 2>&1 | grep -q "OCI runtime exec failed" || break; sleep 1; done; }
 comp() { awk '/^─{20}/{b[++nb]=NR} {L[NR]=$0} END{x=L[b[nb-1]+1]; sub(/^❯/,"",x); gsub(/[ \302\240]/,"",x); print x}' <<<"$1"; }   # what is typed in the composer
+# Claude Code keeps only the last ~2 min of a debug log once a run idles for long (live: a 28 min stall left 03:31-03:33 of a run that began 03:05): the watcher
+# appends every line newer than the last kept one to keep-<log> every 10 s, so the stall window survives (about the size of the log itself per cell)
+keeplogs() { local f n t; for f in "$D"/out/debug*.log; do [ -f "$f" ] || continue; n=${f##*/}; t=$(cat "$O/.ts-$n" 2>/dev/null)
+  awk -v t="$t" '$1 ~ /^20[0-9-]+T/ && $1 > t' "$f" >>"$O/keep-$n"; t=$(awk '$1 ~ /^20[0-9-]+T/ {x=$1} END{print x}' "$f"); [ -n "$t" ] && echo "$t" >"$O/.ts-$n"; done; }
 watcher() {
-  local prev= seen= since=0 last1=0 lastt= tnew=0 bsince=0 bask= fault= cur p t now
+  local prev= seen= since=0 last1=0 lastt= tnew=0 bsince=0 bask= fault= kept=0 cur p t now
   while :; do
     p=$(docker exec "cadre-tui-$N" tmux capture-pane -t q -p 2>/dev/null) || { sleep 2; continue; }
-    now=$(date +%s%3N); [ "$p" != "$prev" ] && { printf '%s\n' "$p" >"$O/panes/$now.txt"; prev=$p; }
+    now=$(date +%s%3N); [ $((now - kept)) -ge 10000 ] && { keeplogs; kept=$now; }
+    [ "$p" != "$prev" ] && { printf '%s\n' "$p" >"$O/panes/$now.txt"; prev=$p; }
     cur=$(grep -E 'press 1|answer the dialog|1: answer' <<<"$p" | tail -1 | sed 's/  */ /g; s/^ //' | cut -c1-120)
     if [ -n "$FAULT" ] && [ -z "$fault" ] && grep -q 'init is running' <<<"$p" && [ "$(cat "$D"/out/debug*.log 2>/dev/null | grep -c 'tool_dispatch_start tool=Bash')" -ge 2 ]; then
       fault=1; case $FAULT in
