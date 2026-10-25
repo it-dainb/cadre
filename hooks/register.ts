@@ -10,7 +10,7 @@ import { emptyRing, subscribe } from '../core/events'
 import { drain, meter, compact, submit } from '../core/reuse'
 import { goal, watchdog } from '../core/drive'
 import { FRAMES, spawnStep, syncMode } from '../core/spawner'
-import { quit, wake, warm } from '../core/session'
+import { awake, quit, wake, warm } from '../core/session'
 import '../config/route'   // registers ROUTES.config
 import { observe } from '../core/close'
 import '../core/integrate'   // registers ROUTES.release
@@ -244,5 +244,5 @@ export const register: Register = (on, opts) => {
   // ui (UI-DESIGN): every ui.render hook names its component (U7); render is pure, state is written from handlers only
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => { const old = (await read($, secret)).old; if (!old) return renderBand(host($), e, next); const E = $.ui.resolve(e); return E.Box({ flexDirection: 'column', children: [E.Text({ bold: true, children: oldLine(old) }), await next(e)] }) })   // too old: the line, in elements every build draws   // not gated: a pending init/setup code draws here even while the repo is dormant; with nothing pending the band draws nothing
   on('ui.render', { component: 'Pane', requestId: 'cadre' }, async ($, e) => { const old = (await read($, secret)).old; if (!old) return renderPane(host($), e); return $.ui.resolve(e).Text({ bold: true, children: oldLine(old) }) })
-  on('ui.render', { component: 'ToolUse', props: { tool: 'Agent' } }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return renderCard(host($), e, next) })
+  on('ui.render', { component: 'ToolUse', props: { tool: 'Agent' } }, async ($, e, next) => { if (!(await awake(host($)))) return next(e); return renderCard(host($), e, next) })
 }

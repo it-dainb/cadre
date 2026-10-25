@@ -8,6 +8,7 @@ import { type Line, at, attention, read, txt } from '../ui/model'
 import { levelOf, onEvent, textOf } from '../ui/notify'
 import { acts, openPane, renderBand, renderCard, renderPane, resumeBanner, tickUi } from '../ui/index'
 import { fakeHost, task } from './support'
+import { awake } from '../core/session'
 import { BASE, MIN, NOOP, approval, planDec, ring, view } from './fixtures/ui/epic'
 import { SCENARIOS } from '../scenarios/index'
 
@@ -262,5 +263,16 @@ describe('replay entry and blocked tasks (0.9.0 review)', () => {
     expect(mk({ tasks: blocked, decisions: [] })).toHaveLength(1)
     expect(mk({ tasks: blocked, decisions: [{ id: 'flag:a2:spec_change', kind: 'flag', title: 't', lines: [], hash: 'h', options: [], sel: 'a2' }] })).toHaveLength(0)
     expect(mk({ tasks: blocked, decisions: [], drive: { ...b.drive, on: true, mode: 'yolo' } })).toHaveLength(0)
+  })
+})
+
+// live: the Agent result card's render called wake(), whose state write a render may not make ("state.set: denied … drawing is pure"); render only reads
+describe('render reads whether the repo is on', () => {
+  test('awake never writes: off stays off, on is on, an old Claude Code or a store fault is off', async () => {
+    const h = fakeHost({ t0: 0 }); let writes = 0; const upd = h.secret.update; h.secret.update = (async (f: any) => { writes++; return upd(f) }) as any
+    await h.secret.update(() => ({ active: false })); writes = 0
+    expect(await awake(h)).toBe(false); await h.secret.update(() => ({ active: true })); writes = 0
+    expect(await awake(h)).toBe(true); await h.secret.update(() => ({ active: true, old: true })); expect(await awake(h)).toBe(false)
+    await h.secret.update(() => ({ active: true, storeOff: 'x' })); expect(await awake(h)).toBe(false); expect(writes).toBe(2)   // only the test's own two setups
   })
 })
