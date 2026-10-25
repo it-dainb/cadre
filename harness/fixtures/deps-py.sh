@@ -17,7 +17,13 @@ build-backend = "hatchling.build"
 packages = ["src/textlib"]
 T
 printf '"""textlib: small text helpers."""\n\n\ndef shout(s):\n    return s.upper() + "!"\n' >src/textlib/__init__.py
-printf 'import sys, os\nsys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))\n' >test/__init__.py
+# the tests find the src layout and the project's own .venv (where the dependency lands) without an install of the project itself
+cat >test/__init__.py <<'T'
+import glob, os, sys
+
+ROOT = os.path.join(os.path.dirname(__file__), "..")
+sys.path[:0] = [os.path.join(ROOT, "src"), *glob.glob(os.path.join(ROOT, ".venv", "lib", "python*", "site-packages"))]
+T
 printf 'import unittest\nfrom textlib import shout\n\n\nclass T(unittest.TestCase):\n    def test_shout(self):\n        self.assertEqual(shout("hi"), "HI!")\n' >test/test_shout.py
 printf '# textlib\n' >README.md
 uv lock -q --python python3 || exit 1
