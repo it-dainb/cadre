@@ -33,7 +33,7 @@ const WORD = /^\w[\w.-]*$/
 export function vet(argv: unknown, wt: string, sys: { py?: string; rust?: string } = {}): { argv: string[]; env: Record<string, string>; empty?: true; steps?: { argv: string[]; empty?: true }[] } | string {
   if (!Array.isArray(argv) || !argv.length || argv.length > 64 || !argv.every(a => typeof a === 'string' && a && a.length < 500)) return 'argv: expected the install command as a list of arguments, e.g. ["npm","install","left-pad"]'
   const [p, ...rest] = argv as string[]
-  if (p === 'poetry') return 'poetry cannot be run here: it cannot refuse source builds; use uv or pip (wheels only)'
+  if (p === 'poetry') return 'poetry cannot be run here: it cannot refuse source builds; use uv add or uv pip install (wheels only)'
   const key = p === 'uv' && rest[0] === 'pip' ? 'uv pip' : p
   const e = Object.hasOwn(ALLOW, key) ? ALLOW[key] : undefined, sub = e?.subs.find(s => s.every((t, i) => rest[i] === t))
   if (!e || !sub) return `${p} ${rest[0] ?? ''} is not an install command that may be run here; use npm, pnpm, yarn, uv, cargo add, go get, uv pip install or uv add`
