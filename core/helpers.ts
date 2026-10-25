@@ -55,7 +55,9 @@ export function vet(argv: unknown, wt: string, sys: { py?: string; rust?: string
 // What an agent's Bash starts with (policy/guards `shelled`: an `export …;` in front of that one command, never a parse of it): package managers offline, so a self-install fails fast and the
 // setup request is the way to add a package. A speed bump only: a warm cache or an inline override (`npm_config_offline=false npm i x`) goes around it; the oracle's own-shell check is the gate.
 // Bash only: PowerShell and Monitor are not prefixed.
-export const OFFLINE: Record<string, string> = { npm_config_offline: 'true', YARN_ENABLE_OFFLINE_MODE: '1', UV_OFFLINE: '1', PIP_NO_INDEX: '1', CARGO_NET_OFFLINE: 'true', GOPROXY: 'off' }
+// The caches and logs of the tools that matter go to /tmp too, so a refused attempt writes nothing under HOME (npm's logs, update check and cache; uv's and pip's caches).
+export const OFFLINE: Record<string, string> = { npm_config_offline: 'true', YARN_ENABLE_OFFLINE_MODE: '1', UV_OFFLINE: '1', PIP_NO_INDEX: '1', CARGO_NET_OFFLINE: 'true', GOPROXY: 'off',
+  npm_config_cache: '/tmp/cadre-npm-cache', npm_config_logs_dir: '/tmp/cadre-npm-logs', npm_config_update_notifier: 'false', UV_CACHE_DIR: '/tmp/cadre-uv-cache', PIP_CACHE_DIR: '/tmp/cadre-pip-cache' }
 
 // the one-time per-repo approval: the user's own layer, keyed by repo root; a committed repo file cannot hold it
 const FILE = async (h: Host) => `${await h.home()}/.claude/cadre/deps.json`
