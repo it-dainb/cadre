@@ -237,14 +237,24 @@ const reTester = async (w, wt, files, names) => {
 // ---- the amended red: after a spec_change Accept only the tests named after the amended scenario must fail; the others must run and may pass ----
 const amended = async (files, names, wrote = { 'test/s.json': tc('S1 dep declared', 'failure') }) => {
   const w = world({ acceptance: 'S1: Given a When b Then c\nS4: Given x When y Then z' }), { wt } = await tester(w, wrote, Object.values(wrote).map(c => JSON.parse(c).name)); w.meta['cadre.worktree'] = wt
-  await T.specChange(w.h, w.d, 'm-1', 'S4 was missing', 'S4: Given soon When parsed Then NaN'); await T.resolveSpec(w.h, 'm-1', 'accept'); assert.equal(w.meta['cadre.amended'], 'S4')
+  await T.specChange(w.h, w.d, 'm-1', 'S4 was missing', 'S4: Given soon When parsed Then NaN'); await T.resolveSpec(w.h, 'm-1', 'accept'); assert.equal(w.meta['cadre.redOnly'], 'S4')
   return { w, wt, g: await reTester(w, wt, files, names) }
 }
 test('amended red: an unchanged test that passes and an amended S4 that fails is accepted, and the next red is strict again', async () => {
   const { w, g } = await amended({ 'test/s.json': tc('S1 dep declared', 'passed'), 'test/s2.json': tc('S4 soon is NaN', 'failure') }, ['S1 dep declared', 'S4 soon is NaN'])
-  assert.ok(g.ok, g.why); assert.match(g.card, /red ✓ 1 failing/); assert.equal(w.meta['cadre.amended'], '')
+  assert.ok(g.ok, g.why); assert.match(g.card, /red ✓ 1 failing/); assert.equal(w.meta['cadre.redOnly'], '')
   const strict = world({ acceptance: 'S1: Given a When b Then c\nS4: Given x When y Then z' }), r = await tester(strict, { 'test/s.json': tc('S1 dep declared', 'passed'), 'test/s2.json': tc('S4 soon is NaN', 'failure') }, ['S1 dep declared', 'S4 soon is NaN'])
   assert.equal(r.res.ok, false); assert.match(r.res.why, /passed at red; it must fail/)   // no amended marker: every test must fail
+})
+test('a plan amendment flag (cadre.amended = 1) is not the amended scenario: the red stays strict', async () => {
+  const w = world({ acceptance: 'S1: Given a When b Then c' }); w.meta['cadre.amended'] = '1'
+  const r = await tester(w, { 'test/s.json': tc('S1 dep declared', 'passed'), 'test/s2.json': tc('S4 soon', 'failure') }, ['S1 dep declared', 'S4 soon'])
+  assert.equal(r.res.ok, false); assert.match(r.res.why, /passed at red; it must fail/); assert.equal(w.meta['cadre.amended'], '1')   // untouched
+})
+test('an Accept without a valid scenario leaves the red strict and the tester\'s note without the "may pass" sentence', async () => {
+  const w = world(), { wt } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']); w.meta['cadre.worktree'] = wt
+  await T.specChange(w.h, w.d, 'm-1', 'wrong spec'); await T.resolveSpec(w.h, 'm-1', 'accept')
+  assert.equal(w.meta['cadre.redOnly'], ''); assert.doesNotMatch(w.meta['cadre.specDecision'], /may pass/)
 })
 test('amended red: the amended S4 test passing is refused', async () => {
   const { g } = await amended({ 'test/s.json': tc('S1 dep declared', 'failure'), 'test/s2.json': tc('S4 soon is NaN', 'passed') }, ['S1 dep declared', 'S4 soon is NaN'])
