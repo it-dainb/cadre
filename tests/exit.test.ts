@@ -143,8 +143,8 @@ describe('review fixes: the backstop holds', () => {
     expect(stops).toEqual(['ag1']); expect((await runOf(w.h, 'ag1'))!.deadline).toBeUndefined(); expect((await runOf(w.h, 'ag1'))!.state).toEqual({ state: 'ended', cause: 'lost' })
     expect((await w.h.board.read()).decisions ?? []).toEqual([])
   })
-  test('the failure path rewrites the hand-back too: main never reads the agent\'s prose', () => {
+  test('the failure path decides from the event alone: nothing says the agent is cadre\'s, so the hand-back goes on as it is', () => {
     const next = Object.assign((e: any) => e, { called: false, error: { kind: 'thrown', message: 'boom' } })
-    expect(denyCall({ ui: { log: () => {} } }, { tool: 'SubagentHandback', agentId: 'ag1', message: 'my long prose' }, next).message).not.toContain('prose')
+    expect(denyCall({ ui: { log: () => {} } }, { tool: 'SubagentHandback', agentId: 'ag1', message: 'my long prose' }, next).message).toBe('my long prose')
   })
 })

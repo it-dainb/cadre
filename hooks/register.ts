@@ -141,7 +141,8 @@ function spawner($, next): Host {
 // Fail-closed handlers (G1, G2). On re-entry every $ rejects, so decide from the event alone.
 const FAIL = 'refused: temporary failure; retry once, then ask the human'
 const why = ($, next) => { if (next.error && next.error.kind !== 're-entry') void $.ui.log(`hook failed: ${next.error.kind}: ${next.error.message}`); return FAIL }   // the engine redacts the error in its own log: keep the reason in ours
-export function denyCall($, e, next) { return EXIT.includes(e.tool) ? next(exitCall(e)) : next.error?.kind === 're-entry' ? (judge(e) ? { deny: modelText('deny', judge(e)!) } : next(e)) : next.called ? next(e) : { deny: modelText('deny', why($, next)) } }
+export function denyCall($, e, next) { return EXIT.includes(e.tool) ? next(exitCall(e, false)) :   // from the event alone nothing says the agent is cadre's: its hand-back goes on as it is
+    next.error?.kind === 're-entry' ? (judge(e) ? { deny: modelText('deny', judge(e)!) } : next(e)) : next.called ? next(e) : { deny: modelText('deny', why($, next)) } }
 function denySpawn($, e, next) { return next.error?.kind === 're-entry' ? (judgeSpawn(e) ? { deny: modelText('deny', judgeSpawn(e)!) } : next(e)) : next.called ? next(e) : { deny: modelText('deny', why($, next)) } }
 function denyCheck($, e, next) { return next.error?.kind === 're-entry' || !next.called ? { decision: 'deny', reason: modelText('deny', why($, next)) } : next(e) }
 // prompt.submit / session.compact only add context or a summary: on failure fall back to the engine's own (deliberate fail-open). /cadre never acts on failure.

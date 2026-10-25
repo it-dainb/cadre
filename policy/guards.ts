@@ -125,7 +125,8 @@ export const judge = (e: any): string | undefined => {
 export { EXIT }   // core/roles: rule 6 refuses a spec that drops them
 const HANDED = 'This agent has stopped; its task goes on without you. Nothing to do for it.'
 // pure (the failure path has no $): the exit call as it goes on, the hand-back's prose replaced
-export const exitCall = (e: any) => (e.tool === 'SubagentHandback' ? { ...e, message: modelText('context', HANDED) } : e)   // the tool's arguments sit beside `tool` in the event (live: the old `input.message` never replaced anything, main read each agent's prose)
+// only a cadre agent's (bound) hand-back: a user's own Explore or general agent keeps its result. The tool's arguments sit beside `tool` in the event (live: the old `input.message` never replaced anything, main read each agent's prose)
+export const exitCall = (e: any, bound: boolean) => (bound && e.tool === 'SubagentHandback' ? { ...e, message: modelText('context', HANDED) } : e)
 // exit rules 3 and 4 on an agent's call: a tool first seen on its run is journaled, and one that is no cadre tool, not its role's, not an MCP server's is noted for
 // Doctor (observation only: the verdict below is the same); the same call REPEAT times in a row spends the run, which then ends at its next step
 async function watchCall(h: Host, e: any, role: string): Promise<string | undefined> {
@@ -140,7 +141,7 @@ export async function shelled(h: Host, e: any): Promise<any> {
 }
 // #5 tool.call guards: L1 allowlist, fence. Judge before next. Advisory: denies become warnings.
 export const guard: Hook = async (h, e, next) => {
-  if (EXIT.includes(e.tool)) return next(exitCall(e))
+  if (EXIT.includes(e.tool)) return next(exitCall(e, !!(e.agentId && ((await h.bind.read())[e.agentId] || (await askOf(h, e.agentId))))))   // a bound run, or main's own question (an ask)
   const deny = async (): Promise<string | undefined> => {
     const bad = escape(e); if (bad) return bad
     const w = await who(h, e.agentId), pol = await policyOf(h), run = w.main ? await leaseOf(h) : undefined   // main during a setup/init run: Bash plus the lease's files

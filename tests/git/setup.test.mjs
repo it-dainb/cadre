@@ -1,4 +1,4 @@
-// The setup helper (core/helpers): the proposed argv is vetted by allowlist (known flags, registry names only), run jailed in the requester's task folder with a clean environment
+// Setup (core/helpers): the argv a requester sent is vetted by allowlist (known flags, registry names only), run jailed in the requester's task folder with a clean environment
 // and the real home hidden, and only manifests and lockfiles are committed. Real git, real npm and bwrap; the registry is a tiny local one (127.0.0.1), so nothing leaves the machine.
 import '../dev/register.mjs'
 import { test } from 'node:test'

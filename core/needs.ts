@@ -21,13 +21,13 @@ import { policyOf } from '../policy/guards'
 import * as P from './helpers'
 import { ROUTES } from './dispatch'
 
-export interface Need { task: string; needId: string; n: number; requester: string; epoch: number; helper: string; ask: string; why: string; paths?: string[]; argv?: string[]; fails: number; answer?: string; ok?: boolean; delivered?: boolean }
+export interface Need { task: string; needId: string; n: number; requester: string; epoch: number; helper: string; ask: string; why: string; paths?: string[]; argv?: string[]; running?: number; fails: number; answer?: string; ok?: boolean; delivered?: boolean }
 export const needOf = (h: Host, task: string) => ctlGet<Need>(h, `need:${task}`)
 const put = (h: Host, n: Need) => ctlSet(h, { [`need:${n.task}`]: n })
-const HELPERS = ['explore', 'setup', 'probe']
+const HELPERS = ['explore', 'setup', 'probe']   // the kinds of request: explore and probe are answered by a helper agent, setup by cadre itself (settleSetups)
 export const question = (n: Need) => `${n.ask}\n\nWhy it is asked: ${n.why}${n.paths?.length ? `\nLook at: ${n.paths.join(', ')}` : ''}${n.helper === 'probe' ? '\nYour folder is a scratch copy of the project: look around freely and answer the question.' : ''}`
 const FAILED = 'The helper could not answer your request. Go on without it, or report outcome "blocked" with what you need.'
-export const reply = (n: Need) => (n.ok ? `Answer to your request:\n${n.answer}\nGo on with your task.` : FAILED)
+export const reply = (n: Need) => (n.ok ? `Answer to your request:\n${n.answer}\nGo on with your task.` : n.helper === 'setup' ? String(n.answer) : FAILED)   // a setup that did not install says why itself, and what to do
 
 // report{outcome:"request"} of a worker, tester or planner: refused outside its canRequest, over the cap, or where nobody can answer; a setup request with a refused or missing argv is sent back to its sender at once
 export async function request(h: Host, agentId: string, b: Binding, r: { request?: { helper: string; ask: string; why: string; paths?: string[]; argv?: string[] } }): Promise<string> {
@@ -54,8 +54,8 @@ async function cas(h: Host, task: string, f: (n: Need) => Need | undefined): Pro
   }
 }
 // the answer is stored (text null: failed), then the requester's wake (dropped by its run epoch and needId when that run is no longer the one that asked)
-async function answer(h: Host, n: Need, text: string | null, fail = false): Promise<boolean> {
-  const x = await cas(h, n.task, c => (c.needId === n.needId && c.answer === undefined && (!fail || c.fails >= 1) ? { ...c, answer: text ?? FAILED, ok: text !== null } : undefined)); if (!x) return false
+async function answer(h: Host, n: Need, text: string | null, fail = false, ok = text !== null): Promise<boolean> {
+  const x = await cas(h, n.task, c => (c.needId === n.needId && c.answer === undefined && (!fail || c.fails >= 1) ? { ...c, answer: text ?? FAILED, ok } : undefined)); if (!x) return false
   await emit(h, 'help.done', { taskId: x.task, helper: x.helper, ok: x.ok }, { taskId: x.task }); await probeEnd(h, x)
   await step(h, x.requester, { type: 'answered', needId: x.needId, epoch: x.epoch, text: reply(x) }); return true
 }
@@ -108,24 +108,28 @@ export async function drop(h: Host, task: string): Promise<void> {
 }
 
 // ---- setup and probe (core/helpers) ----
-// a setup request: cadre runs the argv the requester gave (vetted again here) in its task folder, from the spawner's frame once the requester waits; a refusal, a stop for the human or the result is the answer.
-// One run per request at a time in this process; a request left unanswered (a crash) runs again at the next frame, a run that finds its work done changes nothing.
-const settling = new Set<string>()
+// a setup request: cadre runs the argv the requester gave (vetted again here) in its task folder, detached from the spawner's frame once the requester waits; a refusal, a stop for the human or the result is the answer.
+// The run is claimed first (a compare-and-set of `running` on the record, reclaimed after CLAIM_MS): a second frame, a second process or a restart never runs it twice, and the frame never waits for an install.
+// A request left unanswered by a crash is claimed again once its claim is old; a run that finds its work done changes nothing.
+const CLAIM_MS = 30 * 60_000
 const NOT_RUN = 'The install could not be run. Go on without it, or report outcome "blocked" with what you need.'
-export async function settleSetups(h: Host, d: Deps): Promise<void> {
+export async function settleSetups(h: Host, d: Deps, resume: () => Promise<unknown>): Promise<void> {
   for (const t of (await pending(h)).setup) {
-    const n = await needOf(h, t), key = `${t}:${n?.needId}`; if (!n || n.answer !== undefined || !n.argv || settling.has(key)) continue
-    settling.add(key); try { await answer(h, n, await setupAnswer(h, d, n, n.argv).catch(() => NOT_RUN)) } finally { settling.delete(key) }
+    const now = await h.now(), x = await cas(h, t, c => (c.answer === undefined && c.argv && !(c.running !== undefined && now - c.running < CLAIM_MS) ? { ...c, running: now } : undefined)); if (!x) continue
+    h.after(0, async () => {   // a timer's own context: it outlives the frame that claimed it
+      const r = await setupAnswer(h, d, x, x.argv).catch((): { text: string; ok: boolean } => ({ text: NOT_RUN, ok: false }))
+      if (await answer(h, x, r.text, false, r.ok)) await resume()   // the requester is resumed now, not at the next turn end
+    })
   }
 }
 // the proposed argv: cadre vets and runs it in the requester's task folder
-async function setupAnswer(h: Host, d: Deps, n: Need, argv: unknown): Promise<string> {
+async function setupAnswer(h: Host, d: Deps, n: Need, argv: unknown): Promise<{ text: string; ok: boolean }> {
   const task = await d.store.get(n.task), wt = task.meta['cadre.worktree'] || d.root, pkg = pkgOf(d, task), strays = (await ctlGet<number>(h, `strays:${n.task}`)) ?? 0
   const r = await P.setup(h, { root: await h.cwd(), base: task.meta['cadre.base'], roots: ['.', ...unitsOf(d.cfg).map(u => u.root)], wt, cwd: pkg && pkg.root !== '.' ? `${wt}/${pkg.root}` : wt, scratch: `${d.wtRoot}/${d.key}.scratch/${n.task}-setup`, ask: n.ask, argv, auto: d.cfg.deps.auto, check: Object.values(pkg?.checks ?? {})[0], strays, checkpoint: () => checkpoint(h, d.store, d.actor, n.task, wt) })
   if (r.stray || r.done) await ctlSet(h, { [`strays:${n.task}`]: r.stray ? strays + 1 : undefined })   // a clean install starts the count again
   if (r.dialog) await ask(h, { id: `deps:${n.task}:${n.needId}`, kind: 'flag', title: `${n.task}: dependencies wait for you`, hash: n.needId, tab: 'epic', sel: n.task, lines: [r.dialog],
     options: [...(r.allow ? [{ key: 'a', label: 'Allow installs in this repo', verb: 'approve', run: 'deps allow' }] : []), { key: 'k', label: 'OK', verb: 'keep' }] })
-  return r.text
+  return { text: r.text, ok: !!(r.done || r.stray) }   // installed (or nothing to commit) is ok; a refusal, a failure or a stop for the human is not
 }
 ROUTES.deps = async (h, c) => ({ text: c.args[0] === 'allow' ? (await P.approve(h, await h.cwd()), 'Installs are allowed for tasks in this repository.') : 'deps: allow' })
 // the probe's tree lives under the repo's worktree root and goes with its request, whichever way that ends

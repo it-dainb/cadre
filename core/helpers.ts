@@ -1,5 +1,5 @@
-// The setup and probe helpers (core/needs). Setup: the helper only PROPOSES an install argv; cadre vets it against a per-ecosystem allowlist (structured argv matching, never a
-// shell string), runs it in the requester's folder in the home-scratch jail (network on), checks offline, and commits only manifests and lockfiles on the task branch.
+// Setup and the probe helper (core/needs). Setup: a worker or tester sends its install argv in the request; cadre vets it against a per-ecosystem allowlist (structured argv matching, never a
+// shell string) when the request is made and again here, runs it in the requester's folder in the home-scratch jail (network on), checks offline, and commits only manifests and lockfiles on the task branch.
 // The worker's own edits are never touched: the folder is checkpointed first, afterwards only the paths the run changed are committed or discarded.
 // Probe: a throwaway worktree on a `probe/` branch (not protected, never landed or pushed), removed on every end path and swept at session.start.
 import type { Host } from '../types'

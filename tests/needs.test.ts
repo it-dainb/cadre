@@ -36,8 +36,9 @@ describe('next(): a run waiting on a need (invariant 2)', () => {
 })
 
 const start = async (o: Parameters<typeof world>[0] = {}) => {
-  const w = await world(o), [id] = w.ids, stops: string[] = []; Object.assign(w.h, { stopAgent: async (a: string) => { stops.push(a) } })
-  await arm(w.h, 'auto'); await w.turn(); return { w, id, stops }
+  const w = await world(o), [id] = w.ids, stops: string[] = [], later: (() => unknown)[] = []; Object.assign(w.h, { stopAgent: async (a: string) => { stops.push(a) }, after: (_: number, fn: () => unknown) => { later.push(fn) } })   // after: the detached setup runs when a test says (flush)
+  const flush = async () => { while (later.length) await later.shift()!() }
+  await arm(w.h, 'auto'); await w.turn(); return { w, id, stops, later, flush }
 }
 const events = async (w: World, type: string) => Object.values((await w.h.events.read()).epics).flat().filter(e => e.type === type)
 const asked = async (o = {}) => { const x = await start(o); expect(await x.w.rep('ag1', REQ)).toMatch(/^request recorded/); await x.w.turn(); return x }
@@ -84,16 +85,24 @@ describe('a setup request: the requester sends the install command, cadre vets i
     for (const f of [['pnpm', 'ci'], ['yarn', 'ci'], ['pip', 'install', 'x'], ['python', '-m', 'pip', 'install', 'x']]) expect(typeof vet(f, '/w', py)).toBe('string')
     expect(FORMS).toBe('npm install, add or ci; pnpm or yarn install or add; uv add or uv pip install; cargo add; go get')
   })
-  test('a good argv: the requester waits, no helper starts, cadre answers from the next frame (here: the repo is not approved, so one dialog) and the requester resumes with the result', async () => {
-    const { w, id } = await start(); expect(await w.rep('ag1', SETUP(['npm', 'install', 'left-pad']))).toMatch(/^request recorded; the install runs/)
+  test('a good argv: the requester waits, no helper starts; the frame only claims the install, which runs detached and then resumes the requester (here: the repo is not approved: one dialog, ok false)', async () => {
+    const { w, id, later, flush } = await start(); expect(await w.rep('ag1', SETUP(['npm', 'install', 'left-pad']))).toMatch(/^request recorded; the install runs/)
     expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'waiting', on: 'need', needId: 'n1' }); expect(await needOf(w.h, id)).toMatchObject({ helper: 'setup', argv: ['npm', 'install', 'left-pad'] })
     await w.turn(); expect(types(w)).toEqual(['cadre:worker'])   // never a helper
-    expect(w.sent).toHaveLength(1); expect(w.sent[0][0]).toBe('ag1'); expect(w.sent[0][1]).toContain('waits for the user'); expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'running' })
-    expect((await w.h.board.read()).decisions?.map(d => d.id)).toEqual([`deps:${id}:n1`]); expect((await events(w, 'help.done')).map(e => e.data.ok)).toEqual([true]); expect(await needOf(w.h, id)).toMatchObject({ ok: true, delivered: true })
+    expect((await needOf(w.h, id))?.running).toEqual(expect.any(Number)); expect((await needOf(w.h, id))?.answer).toBeUndefined(); expect(later.length).toBe(1); expect(w.sent).toEqual([])   // claimed, not run in the frame
+    await flush(); expect(w.sent).toHaveLength(1); expect(w.sent[0][0]).toBe('ag1'); expect(w.sent[0][1]).toContain('waits for the user'); expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'running' })
+    expect((await w.h.board.read()).decisions?.map(d => d.id)).toEqual([`deps:${id}:n1`]); expect((await events(w, 'help.done')).map(e => e.data.ok)).toEqual([false]); expect(await needOf(w.h, id)).toMatchObject({ ok: false, delivered: true })
   })
-  test('settings: deps.auto false: the install is not run, the requester is told, and the human gets exactly one dialog', async () => {
-    const { w, id } = await start(); w.cfg.deps.auto = false; await w.rep('ag1', SETUP(['npm', 'install', 'left-pad'])); await w.turn()
-    expect(w.sent[0][1]).toContain('waits for the user'); expect((await w.h.board.read()).decisions?.map(d => d.id)).toEqual([`deps:${id}:n1`]); expect(types(w)).toEqual(['cadre:worker'])
+  test('settings: deps.auto false: the install is not run, the requester is told, ok false, and the human gets exactly one dialog', async () => {
+    const { w, id, flush } = await start(); w.cfg.deps.auto = false; await w.rep('ag1', SETUP(['npm', 'install', 'left-pad'])); await w.turn(); await flush()
+    expect(w.sent[0][1]).toContain('waits for the user'); expect((await w.h.board.read()).decisions?.map(d => d.id)).toEqual([`deps:${id}:n1`]); expect(types(w)).toEqual(['cadre:worker']); expect((await events(w, 'help.done')).map(e => e.data.ok)).toEqual([false])
+  })
+  test('one run per request: a second frame (or process) finds it claimed and runs nothing; an expired claim is taken again; an answered one never runs', async () => {
+    const { w, id, later, flush } = await start(); w.cfg.deps.auto = false; await w.rep('ag1', SETUP(['npm', 'install', 'left-pad']))
+    await w.turn(); await w.turn(); await w.turn(); expect(later.length).toBe(1)   // three frames, one claim
+    w.clock.now += 31 * 60_000; await w.turn(); expect(later.length).toBe(2)   // the first run died: its claim is old
+    await flush(); expect(w.sent).toHaveLength(1)   // the first to answer wins; the other changes nothing
+    expect(await needOf(w.h, id)).toMatchObject({ ok: false }); await w.turn(); expect(later.length).toBe(0)   // answered: nothing more
   })
 })
 
