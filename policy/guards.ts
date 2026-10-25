@@ -1,6 +1,6 @@
 // L1 capability allowlist, file fence (DESIGN 13.1-13.2), tool.check allow, session.send isolation (4.6), config.set guard. Slots #4, #5, #7, config.set.
 import { modelText } from '../core/say'
-import { OFFLINE } from '../core/helpers'
+import { offlinePrefix } from '../core/helpers'
 import type { Binding, Host, Hook } from '../types'
 import { MAIN_TOOLS, allowlist } from '../agents/index'
 import { repoKeyOf, scoped } from '../commands/init'
@@ -137,7 +137,7 @@ async function watchCall(h: Host, e: any, role: string): Promise<string | undefi
 // A cadre agent's Bash call goes on with the package managers offline for that one shell (core/helpers.OFFLINE); main's, other tools' and non-cadre agents' calls are unchanged
 export async function shelled(h: Host, e: any): Promise<any> {
   if (e.tool !== 'Bash' || !e.agentId || typeof e.command !== 'string' || !(await h.bind.read())[e.agentId]) return e   // the tool's arguments sit beside `tool` in the event (e.command)
-  return { ...e, command: `export ${Object.entries(OFFLINE).map(([k, v]) => `${k}=${v}`).join(' ')}; ${e.command}` }
+  return { ...e, command: `${offlinePrefix()}${e.command}` }
 }
 // #5 tool.call guards: L1 allowlist, fence. Judge before next. Advisory: denies become warnings.
 export const guard: Hook = async (h, e, next) => {

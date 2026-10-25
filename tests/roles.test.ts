@@ -5,7 +5,7 @@ import { fixedRules, ROLES_DEFAULT, EXIT, PROMPT_CAP, agentSpec, customIssue, ex
 import { routeOf } from '../core/admission'
 import { REPORTS } from '../core/validate'
 import { fence, guard, setPolicy, shelled } from '../policy/guards'
-import { OFFLINE } from '../core/helpers'
+import { OFFLINE, offlinePrefix } from '../core/helpers'
 import { fence as frozen } from './fixtures/fence-v0.15.0'
 import GOLD from './fixtures/roles-golden'
 import { fakeHost, task } from './support'
@@ -201,10 +201,10 @@ describe('custom roles: the guard enforces the role\'s own spec', () => {
 
 describe('a cadre agent\'s Bash call goes on with the package managers offline, for that one shell', () => {
   const host = async () => { const h: any = fakeHost(); await h.bind.update((b: any) => ({ ...b, ag1: { role: 'worker', taskId: 'c-1-1', worktree: '/x/wt' } })); return h }
-  test('a bound agent\'s Bash gets `export K=V …; ` in front of its own command, untouched; main, other tools and agents cadre did not start are unchanged', async () => {
+  test('a bound agent\'s Bash gets the offline prefix in front of its own command, untouched; main, other tools and agents cadre did not start are unchanged', async () => {
     const h = await host(), e = { tool: 'Bash', agentId: 'ag1', command: 'npm install ms && npm test', description: 'x', timeout: 5 }, r = await shelled(h, e)
-    expect(r.command.endsWith('; npm install ms && npm test')).toBe(true); expect(r).toMatchObject({ tool: 'Bash', agentId: 'ag1', description: 'x', timeout: 5 })
-    const ex = r.command.slice('export '.length, r.command.indexOf('; ')).split(' ').sort(); expect(ex).toEqual(Object.entries(OFFLINE).map(([k, v]) => `${k}=${v}`).sort())
+    expect(r.command).toBe(`${offlinePrefix()}npm install ms && npm test`); expect(r).toMatchObject({ tool: 'Bash', agentId: 'ag1', description: 'x', timeout: 5 })
+    for (const [k, v] of Object.entries(OFFLINE)) expect(r.command).toContain(`${k}=${v}`)   // what the shell does with it: tests/git/shell.test.mjs
     expect(e.command).toBe('npm install ms && npm test')   // the original event is not edited
     for (const x of [{ tool: 'Bash', command: 'ls' }, { tool: 'Bash', agentId: 'stranger', command: 'ls' }, { tool: 'Read', agentId: 'ag1', file_path: 'a' }, { tool: 'PowerShell', agentId: 'ag1', command: 'ls' }, { tool: 'Bash', agentId: 'ag1' }]) expect(await shelled(h, x)).toBe(x)
   })
