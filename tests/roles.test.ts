@@ -212,6 +212,6 @@ describe('a cadre agent\'s Bash call goes on with the package managers offline, 
     const h: any = fakeHost(); await h.bind.update((b: any) => ({ ...b, ag1: { role: 'worker', taskId: 'c-1-1', worktree: '/x/wt', step: 'worker' } }))
     h.config = async () => ({ strictness: 'advisory' }); await setPolicy(h, { repo: '/x/repo', wtRoot: '/x', home: '/hm/u' })
     const seen: any[] = []; await guard(h, { tool: 'Bash', agentId: 'ag1', command: 'ls' }, (x: any) => { seen.push(x); return {} })
-    expect(seen.length).toBe(1); expect(seen[0].command === 'ls' || seen[0].command.startsWith('export npm_config_offline=true')).toBe(true)
+    expect(seen.length).toBe(1); expect(seen[0].command === 'ls' || seen[0].command === `${offlinePrefix()}ls`).toBe(true)
   })
 })
