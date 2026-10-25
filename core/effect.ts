@@ -7,7 +7,7 @@ import type { TaskStore } from '../task-management/store'
 import * as G from './git'
 import { emit } from './events'
 import { scoped } from '../commands/init'
-import { inputPath, policyOf } from '../policy/guards'
+import { inputPath, leaseOf, policyOf } from '../policy/guards'
 import { drainDelta, idsIn } from './briefs'
 import { logCall } from './specview'
 import { UI } from './board'
@@ -90,7 +90,9 @@ export async function audit(h: Host, caller: string | null): Promise<void> {
     await raise(h, r.exitCode ? `quarantine-failed:${tid || 'main'}` : `quarantine:${tid || 'main'}`, tid, {}, `${bad.length} path(s) quarantined (${name})`)
     if (!r.exitCode) { const qk = await scoped(h, 'quarantine'), q = ((await h.store.get(qk)) as unknown[]) ?? []; await h.store.set(qk, [...q, { name, tree: t, paths: bad, ts }]); Object.assign(after, await fingerprint(h, [t], pol.repo)) }
   }
-  if (scope.includes(pol.repo) && base.refs !== undefined) {   // rule 3: protected refs moved outside a cadre merge (epoch unchanged)
+  // rule 3: protected refs moved outside a cadre merge (epoch unchanged). Not while main holds a setup/init lease: that run's own commits make and move main and dev (after a restart in the
+  // middle of a setup the repo exists, so the audit is on while the setup run goes on: live, kill-mid-setup showed a git:main dialog for the setup's own commit)
+  if (scope.includes(pol.repo) && base.refs !== undefined && !(await leaseOf(h))) {
     const was = refMap(base.refs), is = refMap(now.refs)
     for (const [ref, old] of was) {
       const br = ref.replace(/^refs\/heads\//, ''), tip = is.get(ref)

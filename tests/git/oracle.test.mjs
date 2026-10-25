@@ -120,3 +120,10 @@ test('errors skips a hook CC aborted at a quit; any other hook failure still fai
   assert.equal(errs('cadre: $.process.run(sh) aborted'), false)
   assert.equal(errs('TypeError: x is undefined'), true)
 })
+
+// release016 on 37ddade: a worker ran `…; uv lock --check 2>&1 | tail -3` to look at the lock; the oracle read it as an install the offline settings did not stop
+test('the own-shell check: installs are commands that install; a check, a dry run, a listing or a mention is not', async () => {
+  const { installs } = await import('../../harness/installs.mjs')
+  for (const c of ['npm install ms', 'cd x && npm i ms', 'ls; uv add six', 'uv sync', 'uv lock', 'pip install x | tail -2', 'sudo npm ci', 'git show HEAD | head; uv lock 2>&1']) assert.equal(installs(c), true, c)
+  for (const c of ['uv lock --check 2>&1 | tail -3', 'git show --stat HEAD; ls .venv; uv lock --check', 'npm install --dry-run ms', 'uv --version', 'echo npm install', 'git commit -m "npm install ms"', 'grep -r "npm ci" .', 'uv run pytest', 'ls .venv/lib', undefined]) assert.equal(installs(c), false, String(c))
+})

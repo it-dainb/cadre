@@ -81,6 +81,11 @@ describe('L3 effect (13.1)', () => {
     expect(Object.values(w.refs).includes(SHA('8'))).toBe(true); expect(await flags()).toEqual([])
     await sweep(h); expect(await flags()).toEqual([])   // re-baselined: no repeat flag
   })
+  test('rule 3 is off while main holds a setup/init lease: the run\'s own commits move main and dev (no git: flag), and it is on again when the lease is gone', async () => {
+    const { w, h, flags } = await mk(); await h.secret.update((x: any) => ({ ...x, run: { kind: 'setup', turns: 0, at: 0 } }))
+    w.refs['refs/heads/dev'] = SHA('9'); w.refs['refs/heads/main'] = SHA('8'); await sweep(h); expect(await flags()).toEqual([])
+    await h.secret.update((x: any) => ({ ...x, run: undefined })); w.refs['refs/heads/dev'] = SHA('a'); await sweep(h); expect(await flags()).toEqual(['git:dev'])
+  })
   test('G7: epic refs are protected by the configured prefix, not a hard-coded epic/', async () => {
     const { w, h, flags } = await mk(); await setPolicy(h, { epicPrefix: 'feat/' })
     w.refs['refs/heads/epic/x'] = SHA('4'); await sweep(h); expect(await flags()).toEqual([])

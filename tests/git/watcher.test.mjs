@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const root = new URL('../../', import.meta.url).pathname, fix = join(root, 'tests/fixtures/oracle/kill-docked')
-const fns = readFileSync(join(root, 'harness/cell.sh'), 'utf8').split('\n').filter(l => /^(flat|dialog|title|isplan|plantitle|qtitle|isplain)\(\)/.test(l)).join('\n')
+const fns = readFileSync(join(root, 'harness/cell.sh'), 'utf8').split('\n').filter(l => /^(flat|dialog|title|isplan|plantitle|qtitle|isplain|waitfor)\(\)/.test(l)).join('\n')
 const sh = (call, pane) => execFileSync('bash', ['-c', `${fns}\np=$(cat "$1"); ${call}`, '_', join(fix, pane)], { encoding: 'utf8' }).trim()
 
 // quick tier, kill-mid-setup on 7d24520: after the restart cadre's pane docked at the right and narrowed the main column, so the review screen read
@@ -59,4 +59,11 @@ test('a running turn with no dialog open is plain text; one with a dialog open (
   assert.equal(sh('{ isplain "$p" && echo plain || echo not; }', 'question.txt'), 'not')
   assert.equal(execFileSync('bash', ['-c', `${fns}\np=$(cat "$1"); isplain "$p
 esc to interrupt" && echo plain || echo not`, '_', join(fix, 'question.txt')], { encoding: 'utf8' }).trim(), 'not')   // a dialog on screen wins even when the footer still says esc to interrupt
+})
+
+// quick tier, user1-mono-clear-cd-retype on 37ddade: the goal is typed while the setup run goes on (the scenario's point); Claude Code queues it behind the running turn, and goal() gave up after
+// 30 s and pressed Escape on the setup run itself ("the plan wasn't drafted", no plan in 610 s). A line typed into a running turn waits for it; one typed at an idle prompt gets 30 s.
+test('how long goal() waits for cadre to answer: the budget when a turn was running at the send, 30 s at an idle prompt', () => {
+  const w = (busy, left) => execFileSync('bash', ['-c', `${fns}\nwaitfor "$1" "$2"`, '_', busy, left], { encoding: 'utf8' }).trim()
+  assert.equal(w('1', '480'), '480'); assert.equal(w('', '480'), '30')
 })

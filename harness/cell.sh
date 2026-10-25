@@ -102,9 +102,12 @@ idle() { local i n=0; for i in $(seq "${1:-300}"); do if busy; then n=0; else n=
 send() { local i t; log "send $*"; tui send "$N" "$*"; sleep 2; t=${*//[ $'\302\240']/}
   for i in 1 2 3 4 5; do [ -n "$t" ] && [[ "$(comp "$(tui capture "$N")")" == "${t:0:20}"* ]] || return 0; log "enter again"; key Enter; sleep 2; done; }
 # the user types a goal; a line typed while Claude Code still starts up can vanish without a trace, or reach the model as text: when no command ran within 30 s, type it again (<= 3 times)
-goal() { local i n d; for i in 1 2 3; do n=$(cat "$D"/out/debug*.log 2>/dev/null | grep -ac 'answered command\.run'); d=$(taken); send "/cadre $*"
+# a line typed into a running turn (user1: the goal typed while the setup run goes on) is queued by Claude Code until that turn ends: only the budget bounds that wait, and it is never Escaped;
+# typed at an idle prompt, cadre answers within 30 s or the line was lost (or went to the model as text)
+waitfor() { [ -n "$1" ] && echo "$2" || echo 30; }
+goal() { local i n d b; for i in 1 2 3; do n=$(cat "$D"/out/debug*.log 2>/dev/null | grep -ac 'answered command\.run'); d=$(taken); b=; busy && b=1; send "/cadre $*"
   # taken = cadre answered the command, or anything of cadre's showed up (a dialog the watcher logged, a plan): the onboarding dialog is such an answer
-  for _ in $(seq 30); do { [ "$(cat "$D"/out/debug*.log 2>/dev/null | grep -ac 'answered command\.run')" -gt "$n" ] || [ "$(taken)" -gt "$d" ]; } && return 0; sleep 1; done
+  for _ in $(seq "$(waitfor "$b" "$(left)")"); do { [ "$(cat "$D"/out/debug*.log 2>/dev/null | grep -ac 'answered command\.run')" -gt "$n" ] || [ "$(taken)" -gt "$d" ]; } && return 0; sleep 1; done
   # Claude Code busy and nothing of cadre's after the 30 s is not "taken": a line typed 1-2 s after the plugin loaded reached the model as plain text (live: main
   # began coding the goal itself, without the goal guide, and was refused three times); stop that turn and type it again
   p=$(tui capture "$N"); dialog "$p" && { log "goal working: a dialog is open"; return 0; }   # main's question (or any of cadre's) is open: that is cadre answering, never Escaped
