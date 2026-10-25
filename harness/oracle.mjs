@@ -393,7 +393,8 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     Object.assign(stats, { setupNeeds: ns.length, depsCommits: cs, homeNew: made.length })
     if (!ns.length) fail(o, 'no setup request was made (the worker never asked for the install)')
     else if (ns.some(n => n.ok !== true || n.fails !== 0)) fail(o, `the setup request was not answered ok: ${JSON.stringify(ns[0])}`)
-    if (!cs.length) fail(o, 'no chore(deps) commit on any branch')
+    // no chore(deps) commit is fine when the worker had already put the package in the manifest and lockfile: the helper then installed and found nothing to commit
+    if (!cs.length && !ns.some(n => /^Nothing to commit/.test(n.answer ?? ''))) fail(o, 'no chore(deps) commit on any branch')
     for (const c of cs) {
       if (!/^chore\(deps\): \S/.test(c.subject)) fail(o, `commit ${c.sha} subject: ${c.subject}`)
       if (!c.files.length || c.files.some(f => !MAN.test(f))) fail(o, `commit ${c.sha} touches more than a manifest and lockfile: ${c.files.join(', ')}`)

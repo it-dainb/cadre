@@ -22,7 +22,7 @@ printf 'import unittest\nfrom textlib import shout\n\n\nclass T(unittest.TestCas
 printf '# textlib\n' >README.md
 uv lock -q --python python3 || exit 1
 gi
-echo '{ "units": [{"root":".","setup":[],"checks":{"test":["python","-m","unittest","discover","-s","test","-t","."]},"tdd":{"paths":["test/**"]}}] }' >.cadre/config.json
+echo '{ "units": [{"root":".","setup":["sh","-c","[ ! -f uv.lock ] || UV_CACHE_DIR=/tmp/uvcache uv sync --frozen --no-install-project --python /usr/bin/python3"],"checks":{"test":["python","-m","unittest","discover","-s","test","-t","."]},"tdd":{"paths":["test/**"]}}] }' >.cadre/config.json
 printf '# Changelog\n\nAll notable changes to this project will be documented in this file.\n\n## [Unreleased]\n' >CHANGELOG.md
 printf '.cadre/state/\n__pycache__/\n.venv/\n' >>.git/info/exclude
 mkdir -p .claude && echo '{ "env": { "CLAUDE_CODE_ENABLE_TASKS": "false", "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1" } }' >.claude/settings.local.json

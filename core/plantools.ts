@@ -33,6 +33,7 @@ export const planRules = (reg: TypeRegistry): string => [
   '- Each task is a vertical slice: shown working on its own, fits one fresh context, has its wiring and one smoke assertion.',
   '- With 2+ tasks: paths per task (files or folders it changes). Code 2+ tasks need: ONE thin core task first (core:true; interfaces, minimal code, contract tests) that the others wait for (after). Two tasks on one path need an after dependency.',
   '- Exploration 2+ tasks need: one explore before the plan; its findings go in the plan\'s notes as [{"paths":[…],"text":"…"}] (no paths: all tasks).',
+  '- A package the work needs is not a task of its own: the task that uses it asks for the install while it works.',
   '- A draft may be incomplete: the "missing:" line says what approval still needs.',
   '- Only the human approves, in the dialog. An approved task changes only through amend, with reason and evidence.',
 ].join('\n')
