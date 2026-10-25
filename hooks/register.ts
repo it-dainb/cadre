@@ -62,6 +62,13 @@ wire.store = async (h, cfg, root) => {
 // The repo root: the git top level above the session's project root (Claude Code started in a package folder still works on the repo), spelled from the
 // session's own path (--show-cdup, not a realpath: the per-repo keys stay what they were). Not inside git yet (setup runs `git init`): the project root, asked again after 5 s.
 const tops = new Map<string, { v: string; at: number }>()
+// Before any agent starts: package managers in the environment its shells inherit are offline (core/helpers.OFFLINE). The user's own GOPROXY is kept aside for cadre's setup runs.
+let proxy0: string | undefined | null = null
+async function offlineShells($): Promise<void> {
+  if (proxy0 === null) proxy0 = (await $.env.get('GOPROXY')) ?? undefined
+  await $.env.set('npm_config_offline', 'true'); await $.env.set('YARN_ENABLE_OFFLINE_MODE', '1'); await $.env.set('UV_OFFLINE', '1')
+  await $.env.set('PIP_NO_INDEX', '1'); await $.env.set('CARGO_NET_OFFLINE', 'true'); await $.env.set('GOPROXY', 'off')
+}
 async function top($): Promise<string> {
   const r = String(await $.session.root()), now = Date.now(), m = tops.get(r); if (m && (m.v !== r || now - m.at < 5000)) return m.v
   const o = await $.process.run(['git', 'rev-parse', '--show-cdup'], { cwd: r }).catch(() => ({ exitCode: 1, stdout: '' }))
@@ -87,6 +94,7 @@ function host($): Host {
       CADRE_STRICTNESS: await $.env.get('CADRE_STRICTNESS'), CADRE_STORE: await $.env.get('CADRE_STORE'),
       CADRE_DISABLE: await $.env.get('CADRE_DISABLE'), CADRE_SPAWN: await $.env.get('CADRE_SPAWN'), PATH: await $.env.get('PATH'), LANG: await $.env.get('LANG'),   // an install run's own environment (core/git.setupJail)
       GIT_AUTHOR_NAME: await $.env.get('GIT_AUTHOR_NAME'), GIT_AUTHOR_EMAIL: await $.env.get('GIT_AUTHOR_EMAIL'),   // identity prefill (core/git.identity)
+      CADRE_GOPROXY0: proxy0 || undefined,   // the user's own GOPROXY from before the agents' shells went offline (core/helpers.online)
     }),
     readText: async path => { try { return String(await $.fs.read(path)) } catch { return null } },
     log: t => { void $.ui.log(t) },
@@ -218,7 +226,7 @@ export const register: Register = (on, opts) => {
   on('turn.complete', { reason: /^/ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return observe(host($), e, next) })
   on('turn.complete', { reason: /./ }, async ($, e, next) => { const r = await next(e); await turnEnd(host($), e).catch(() => {}); if (!e.agentId) await mainTurn(host($), false).catch(x => $.ui.log(`plan card: ${x}`)); return r })   // agent-run setup/init (ADR 0010): re-check when main stops; works in dormant repos too
   // 3. admission
-  on('agent.spawn', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return admit(host($), e, next) }).catch(denySpawn)
+  on('agent.spawn', async ($, e, next) => { if (!(await wake(host($)))) return next(e); await offlineShells($); return admit(host($), e, next) }).catch(denySpawn)
   // 4. tool.check allow
   on('tool.check', async ($, e, next) => { if (!(await wake(host($)))) return next(e); await warm(host($)); const cl = await clarifyCheck(host($), e, next.origin); if (cl) return cl; return check(host($), e, next) }).catch(denyCheck)
   // 5. guards (main's Agent and task tools, L1, fence, MCP pre-checks)

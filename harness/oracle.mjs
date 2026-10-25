@@ -409,6 +409,8 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     else if (made.length) fail(o, `HOME changed: ${made.slice(0, 5).join(', ')}`)
     if (!new RegExp(`(package(-lock)?\\.json|pyproject\\.toml|uv\\.lock):.*\\b${process.env.ORACLE_DEP}\\b`).test(read(join(dir, 'deps-final')))) fail(o, `dev's manifests do not name ${process.env.ORACLE_DEP}`)
     if (!wantLanded) fail(o, 'run it with LANDED=1: the task must land')
+    // S: the scripted worker printed the package manager settings its shell inherited: all offline (the live cells cannot show it: nobody prints them)
+    if (process.env.S) { const seenEnv = subs.map(x => read(x.f)).find(t => /npm_config_offline=/.test(t)) ?? ''; for (const kv of ['npm_config_offline=true', 'UV_OFFLINE=1', 'PIP_NO_INDEX=1', 'CARGO_NET_OFFLINE=true', 'GOPROXY=off', 'YARN_ENABLE_OFFLINE_MODE=1']) if (!seenEnv.includes(kv)) fail(o, `the agent's shell did not inherit ${kv}`) }
     // an agent's own shell is outside cadre's jail: an install it ran itself writes the real HOME and is no setup request (named first, so a HOME change is not mistaken for cadre's)
     const own = subs.flatMap(x => x.uses.filter(u => u.name === 'Bash' && /(^|&&|;|\|\|?|\n)\s*(sudo\s+)?(npm\s+(install|i|add|ci)|pnpm\s+(install|i|add)|yarn\s+(install|add)|uv\s+(add|sync|lock|pip\s+install)|pip-compile|poetry\s+lock|pip3?\s+install|python3?\s+-m\s+pip\s+install|cargo\s+(add|install)|go\s+(get|install))\b/.test(String(u.input?.command ?? ''))).map(u => `${basename(x.f)}: ${String(u.input.command).replace(/\s+/g, ' ').slice(0, 90)}`))
     if (own.length) fail(o, `an agent ran the install in its own shell (not through the setup request): ${own[0]}`)

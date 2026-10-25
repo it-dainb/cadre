@@ -1,3 +1,4 @@
+import { OFFLINE } from '../core/helpers'
 import { describe, expect, mock, test } from 'claude-code/testing'
 import { MAIN_TOOLS, ROLES, TOOLS, TTL, allowlist, file, spec } from '../agents/index'
 import { REG, defaults, resolve } from '../config/index'
@@ -132,11 +133,11 @@ describe('custom roles: the load checks', () => {
 
 // ---- registration: session.start -> a rejection retried once on the first turn -> a Doctor line; a role is spawned from a later turn than its register's ----
 const START = { surface: 'terminal', isInteractive: true, cwd: '/work' } as const, ENGINE = { timeoutMs: 30_000 }
-async function boot($: any, on: any, reject: number) {
+async function boot($: any, on: any, reject: number, envSink?: string[]) {
   const regs: any[] = [], spawned: any[] = []; let n = 0
   on('session.start', () => ({ cwd: '/work' })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('store.set', () => ({ value: undefined }))
   on('env.get', ($: any, e: any) => ({ value: e.name === 'CADRE_STORE' ? 'memory' : undefined })); on('session.version', () => ({ value: { version: '2.1.299' } })); on('store.get', ($: any, e: any) => ({ value: e.key === 'cadre:setup' ? { cc: '2.1.299' } : undefined }))
-  on('fs.read', ($: any, e: any) => ({ value: String(e.path).endsWith('.claude/cadre.json') ? JSON.stringify({ roles: { custom: { auditor: AUD } } }) : '{}' })); on('fs.stat', () => ({ value: undefined })); on('command.register', () => ({ value: undefined })); on('env.set', () => ({ value: undefined }))
+  on('fs.read', ($: any, e: any) => ({ value: String(e.path).endsWith('.claude/cadre.json') ? JSON.stringify({ roles: { custom: { auditor: AUD } } }) : '{}' })); on('fs.stat', () => ({ value: undefined })); on('command.register', () => ({ value: undefined })); on('env.set', ($: any, e: any) => { envSink?.push(`${e.name}=${e.value}`); return { value: undefined } })
   on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined })); on('ui.log', () => ({ value: undefined })); on('ui.toast', () => ({ value: undefined })); on('tool.register', () => ({ value: undefined })); on('tool.list', () => ({ value: [] }))
   on('agent.register', ($: any, e: any) => { regs.push(e); if (n++ < reject) throw new Error('not bound yet'); return { value: undefined } })
   on('agent.spawn', ($: any, e: any) => { spawned.push(e); return { model: 'haiku' } }); on('turn.start', ($: any, e: any) => e); mock.clock(on)
@@ -144,6 +145,16 @@ async function boot($: any, on: any, reject: number) {
   const spawn = async () => $.agent.spawn({ prompt: 'check the diff', subagentType: 'cadre:auditor' }) as Promise<any>
   return { regs, spawned, spawn }
 }
+describe('agents\' shells start from an environment with the package managers offline', () => {
+  test('every agent spawn sets them first (a self-install fails fast; the setup request is the way); the list is core/helpers.OFFLINE', ENGINE, async ($, on) => {
+    const env: string[] = []
+    const { spawned, spawn } = await boot($, on, 0, env); await $.turn.start({ turnId: 't1' })
+    expect(env.some(x => x.startsWith('npm_config_offline'))).toBe(false)   // not at start: only once an agent is about to run
+    await spawn()
+    for (const [k, v] of Object.entries(OFFLINE)) expect(env).toContain(`${k}=${v}`)
+    expect(spawned.length).toBe(1)
+  })
+})
 describe('custom roles: registration and spawn', () => {
   test('registered at session start with the whitelisted fields; a same-turn spawn is denied, one from a later turn is started as cadre:auditor', ENGINE, async ($, on) => {
     const { regs, spawned, spawn } = await boot($, on, 0)

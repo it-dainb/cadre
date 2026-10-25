@@ -1,4 +1,5 @@
 // Init discovery checks (DESIGN 10.2, ADR 0010): the package list's shape (parse) and the jailed runs that validate it. Pure helpers + h.run; no language logic.
+import { online } from './helpers'
 import type { Host } from '../types'
 import * as G from './git'
 
@@ -43,7 +44,7 @@ export const caches = (found: string): string[] => {
   return [...new Set(all)].filter(p => !all.some(q => q !== p && q.startsWith(p + '/'))).sort()
 }
 
-const sh = (h: Host, argv: string[], cwd?: string) => h.run(argv, { cwd, timeoutMs: 600000 })
+const sh = (h: Host, argv: string[], cwd?: string, env?: Record<string, string>) => h.run(argv, { cwd, env, timeoutMs: 600000 })
 
 // One throwaway worktree at HEAD: setup (home-jail when auditing, writable jail with confirmed binds when validating), then every check offline (G.checkRun).
 // Jail modes (G.jailMode): overlay = $HOME overlay + tmp-overlay; copy (bwrap w/o overlay, A19) = HOME=<empty scratch> audit + copied tree; none = unjailed, network unenforced, no caches learned.
@@ -52,10 +53,11 @@ export async function exec(h: Host, root: string, home: string, pkg: Pkg, o: { a
   const wt = `${scratch}/wt`, pkgRoot = pkg.root === '.' ? wt : `${wt}/${pkg.root}`, sh0 = `${scratch}/home`
   const out: Run = { setupOk: false, caches: [], results: {} }
   const mode = await G.jailMode(h.run), writable = (o.caches ?? []).map(c => `${home}/${c}`), J = (argv: string[]) => ({ wt, scratch, pkgRoot, argv, writable })
-  const setup = (): Promise<{ exitCode: number }> => {
-    if (!pkg.setup.length) return Promise.resolve({ exitCode: 0 })   // no setup step
-    if (mode === 'none') return sh(h, pkg.setup, pkgRoot)
-    const j = J(pkg.setup)
+  const setup = async (): Promise<{ exitCode: number }> => {
+    if (!pkg.setup.length) return { exitCode: 0 }   // no setup step
+    const env = await online(h)   // the agents' shells are offline; the setup run is not
+    if (mode === 'none') return sh(h, pkg.setup, pkgRoot, env)
+    const j = { ...J(pkg.setup), env }
     return sh(h, !o.audit ? G.writableJail(j) : mode === 'overlay' ? G.homeJail({ ...j, home }) : G.homeScratchJail({ ...j, scratchHome: sh0 }))
   }
   try {

@@ -1,5 +1,6 @@
 // Epic integration and release (DESIGN 3.9). integrateEpic is called by the status {epic, set completed} lifecycle (core/close); /cadre release is ROUTES.release.
 // Everything that moves a ref is inside git.op (branches.ts); suites run in a throwaway worktree, outside it.
+import { online } from './helpers'
 import type { Host } from '../types'
 import { fnv1a64 } from './board'
 import { ROUTES, cfgOf, mirror, registryOf, storeOf } from './dispatch'
@@ -37,7 +38,7 @@ async function runSuites(h: Host, cfg: any, wt: string, files: string[] | null, 
   try {
     for (const p of touched) {
       const dir = p.root === '.' ? wt : `${wt}/${p.root}`, j = { wt, scratch, pkgRoot: dir }
-      if (p.setup?.length) { const r = await h.run(mode === 'none' ? p.setup : writableJail({ ...j, argv: p.setup, writable: cfg.jailWritable }), { cwd: dir, timeoutMs: 600000 }); if (r.exitCode) return `${p.root}: setup failed: ${tail(r)}` }
+      if (p.setup?.length) { const env = await online(h), r = await h.run(mode === 'none' ? p.setup : writableJail({ ...j, argv: p.setup, writable: cfg.jailWritable, env }), { cwd: dir, env, timeoutMs: 600000 }); if (r.exitCode) return `${p.root}: setup failed: ${tail(r)}` }
       const want = Array.isArray(cfg.suites?.integration) ? cfg.suites.integration : Object.keys(p.checks ?? {})
       for (const n of want) {
         if (!p.checks?.[n]) continue
