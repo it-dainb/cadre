@@ -50,16 +50,13 @@ export const planBlock = (b: Pick<BriefIn, 'mission' | 'protectedPaths' | 'core'
   const body = join([sec('Mission', b.mission), sec('Protected paths (never change them)', b.protectedPaths), sec('Shared core interface (landed; build on it, do not change it)', renderContract(b.core)), sec('Shared notes', cap(b.shared ?? '', 1000))])
   return body ? `# PLAN\nContext shared by every task of this plan; your own task follows.\n\n${body}` : ''
 }
-// the tester's input has no `how`: what the specifier wrote is the worker's, and the text of a tester brief cannot be built from it
-export type TesterIn = Omit<BriefIn, 'how'>
-export function brief(role: Role, bi: BriefIn): string {
-  const b: BriefIn = role === 'tester' ? (({ how: _how, ...r }: BriefIn): TesterIn => r)(bi) : bi
+export function brief(role: Role, b: BriefIn): string {
   const spec = (s: string[]) => cap(join(s), 4096), ctx = (s: string[]) => cap(join(s), 3072)
   const notes = sec('Notes', cap(b.notes ?? '', 500)), head = HEAD[role], plan = planBlock(b), mine = join([sec('Notes on your files', cap(b.slice ?? '', 1000)), sec('Lessons from earlier work', b.lessons)])
   const contract = sec('Contract', renderContract(b.contract)), files = (why: string) => (b.paths?.length ? `\nFiles: ${b.paths.join(', ')}${why}` : '')   // the task's declared paths, in the task block
   if (role === 'explorer') return join([plan, head, `# ${b.question !== undefined ? 'QUESTION' : `TASK-${b.id}`}\n${b.question ?? b.title}`, sec('Scope', 'read-only; no edits, no shell'), mine, notes])
   if (role === 'specifier') return join([plan, head, `# TASK-${b.id} ${b.title} (${b.type})${files('')}`, spec([sec('Description', b.description), sec('Scenarios', b.scenarios), contract]), sec('Scope', 'read-only; no edits, no shell'), mine, notes])
-  if (role === 'tester')
+  if (role === 'tester')   // no `how` here: what the specifier wrote is the worker's, and this template never reads it (tests/specifier.test.ts)
     return join([plan, head, `# SPEC TASK-${b.id}${files(' (the code this task changes)')}`, spec([sec('Scenarios', b.scenarios), contract]), sec('Decided (apply it to the tests)', b.decisions), sec('Test paths', b.testPaths), b.runAsk ? sec('How your tests run', RUN_ASK) : '', mine, sec('Folder', 'tests only; read FILES.md first: it lists what you can see (you cannot list directories)'), notes])
   if (role === 'reviewer')
     return join([plan, head, `# REVIEW TASK-${b.id}${files(' (a change outside these files is a finding, not a fail on its own)')}`, sec('Source commit', b.sourceCommit), sec('Diff', [b.diffStat ?? '', cap(b.diff ?? '', 3072)]),

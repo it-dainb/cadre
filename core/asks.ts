@@ -28,11 +28,12 @@ export async function askAnswer(h: Host, agentId: string, r: { answer: string; c
   await put(h, agentId, x => ({ ...x, answer: String(r.answer).slice(0, 2000), cites: (r.citations ?? []).length, auto: false }))
   return 'answer recorded. Stop.'
 }
+export const NUDGE_SPEC = 'You stopped without calling report; a hand-back message is not a report. Call the report tool now, once: {"schemaVersion":1,"role":"specifier","notes":"<how to build it>","deviation":"none"}'
 export const NUDGE = 'You stopped without calling report; a hand-back message is not a report. Call the report tool now, once: {"schemaVersion":1,"role":"explorer","answer":"<your answer>","citations":[{"path":"src/a.ts","line":1}]}'
 // the ask's turn.complete (core/close.observe): no answer -> nudge x2 -> auto-report; an ask whose card said "finishing" gets its answer card sent to main once
 export async function askStopped(h: Host, e: { agentId: string; answer?: string; reason?: string }): Promise<void> {
   const a = await askOf(h, e.agentId); if (!a) return
-  if (a.answer === undefined && e.reason === 'answer' && a.k < (await cfgOf(h)).limits.nudges) { await put(h, e.agentId, x => ({ ...x, k: x.k + 1 })); return void (await step(h, e.agentId, { type: 'resume', taskId: a.id, text: NUDGE })) }
+  if (a.answer === undefined && e.reason === 'answer' && a.k < (await cfgOf(h)).limits.nudges) { await put(h, e.agentId, x => ({ ...x, k: x.k + 1 })); return void (await step(h, e.agentId, { type: 'resume', taskId: a.id, text: a.role === 'specifier' ? NUDGE_SPEC : NUDGE })) }
   if (a.answer === undefined) await put(h, e.agentId, x => ({ ...x, answer: one(String(e.answer ?? ''), 2000) || '(no answer)', cites: 0, auto: true }))
   const b = (await askOf(h, e.agentId))!
   if (b.told === false) { await put(h, e.agentId, x => ({ ...x, told: true })); await h.submit?.(modelText('card', `Result of ${b.id}: ${askCard(b).replaceAll('\n', ' · ')}`)).catch(() => {}) }

@@ -1,6 +1,7 @@
 // The specifier (A1, default off): one read-only run per task before its claim; it writes how-to notes for the worker, never changes WHAT, and the tester's brief cannot carry them.
 import { describe, expect, test } from 'claude-code/testing'
 import { arm } from '../core/drive'
+import { NUDGE_SPEC } from '../core/asks'
 import { brief } from '../core/briefs'
 import { DEVIATIONS, validateReport } from '../core/validate'
 import { world } from './fixtures/replay/world'
@@ -20,6 +21,14 @@ describe('the specifier', () => {
     expect(kinds(w)).toEqual(['cadre:specifier', 'cadre:worker'])   // one spec per task: the claim goes on, no second specifier
     expect((await w.store.get(w.ids[0])).meta).toMatchObject({ 'cadre.specified': 'done', 'cadre.how': GOOD.notes })
     expect(w.spawned[1][1]).toContain('reuse parse()')   // the worker reads them
+  })
+  test('after its report the specifier is not nudged for one; with no report its nudge speaks of the specifier\'s own report', async () => {
+    const w = await world(); w.cfg.roles.specifier.enabled = true
+    await arm(w.h, 'auto'); await w.turn(); await w.rep('ag1', GOOD); await w.stop('ag1')
+    expect(((await w.h.ui.read()).asks as any).ag1).toMatchObject({ k: 0, answer: GOOD.notes })
+    expect(NUDGE_SPEC).toContain('"role":"specifier"'); expect(NUDGE_SPEC).not.toContain('explorer')
+    const v = await world(); v.cfg.roles.specifier.enabled = true
+    await arm(v.h, 'auto'); await v.turn(); await v.stop('ag1'); expect(((await v.h.ui.read()).asks as any).ag1.k).toBe(1)   // no report: one nudge (limits.nudges 1), with its own text
   })
   test('a specifier that stops without a report no longer holds the task', async () => {
     const w = await world(); w.cfg.roles.specifier.enabled = true

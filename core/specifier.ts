@@ -4,7 +4,7 @@
 import type { Host } from '../types'
 import type { Deps } from './admission'
 import { ask } from './decide'
-import { askOf } from './asks'
+import { askAnswer, askOf } from './asks'
 import { modelText } from './say'
 
 const STALE = 10 * 60_000   // a specifier that never answered (its session died) stops holding the task
@@ -23,6 +23,7 @@ export const specMark = async (h: Host, d: Deps, id: string, v?: 'done') => void
 // report{role:"specifier"} from its run (tools/index, after the envelope check)
 export async function specAnswer(h: Host, d: Deps, agentId: string, r: { notes: string; deviation: string }): Promise<string> {
   const a = await askOf(h, agentId); if (!a?.task) return 'error: no task behind this run'
+  await askAnswer(h, agentId, { answer: r.notes.trim() || r.deviation })   // answered: its stop is not nudged for a report it already made
   await d.store.setMeta(a.task, { 'cadre.specified': 'done', ...(r.notes.trim() ? { 'cadre.how': r.notes.trim() } : {}) }, d.actor)
   if (r.deviation !== 'none') {
     const t = (await h.board.read()).tasks.find(x => x.id === a.task)
