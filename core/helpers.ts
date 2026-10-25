@@ -113,6 +113,8 @@ export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
       }
     }
     await h.run(['mkdir', '-p', home, `${o.scratch}/cwd`])
+    // the unit's check, run offline before and after: an install that turns a passing check red is undone; one that finds it red already (a task's locked spec tests are red until the work is done) is not judged by it
+    const chk = () => G.checkRun(h.run, mode, { wt: o.wt, scratch: o.scratch, pkgRoot: cwd, argv: o.check! }), red0 = o.check ? await chk() : undefined
     const path = env.PATH || '/usr/local/bin:/usr/bin:/bin', real = async (...ps: string[]) => (await h.run(['realpath', '-q', '-e', ...ps])).stdout.split('\n').filter(Boolean), rhome = (await real(await h.home()))[0] ?? await h.home()
     const tools = await real(...path.split(':').filter(Boolean)), jail = (argv: string[], empty?: true) => h.run(G.setupJail({ wt: o.wt, scratch: o.scratch, pkgRoot: empty ? '/tmp/cwd' : cwd, argv, scratchHome: home, home: rhome, path, tools, env: { ...(env.LANG ? { LANG: env.LANG } : {}), ...v.env } }), { timeoutMs: 600000 })   // an empty cwd: the scratch's own folder
     // uv: the packages must be usable in the folder afterwards, so a venv is made when there is none (an existing .venv is never run: only its site-packages is written into)
@@ -132,7 +134,7 @@ export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
       return { text: `The install changed nothing: ${why}` }
     }
     if (r.exitCode) return await bad(`it failed (${scrub(r.stderr || r.stdout)})`)
-    if (o.check) { const c = await G.checkRun(h.run, mode, { wt: o.wt, scratch: o.scratch, pkgRoot: cwd, argv: o.check }); if (c.exitCode) return await bad(`the offline check failed after it (${scrub(c.stderr || c.stdout)})`) }
+    if (o.check && !red0!.exitCode) { const c = await chk(); if (c.exitCode) return await bad(`the offline check passed before it and failed after it (${scrub(c.stderr || c.stdout)})`) }
     const all = await dirty(), stray = all.filter(p => !manifest(p.path, roots)), files = all.filter(p => manifest(p.path, roots)).map(p => p.path), flag = stray.length ? { stray: true as const } : { done: true as const }
     if (stray.length && o.strays) return await bad('it changed files besides the manifest and lockfile, again')
     await revert(stray)

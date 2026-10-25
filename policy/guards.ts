@@ -130,7 +130,7 @@ export const exitCall = (e: any, bound: boolean) => (bound && e.tool === 'Subage
 // exit rules 3 and 4 on an agent's call: a tool first seen on its run is journaled, and one that is no cadre tool, not its role's, not an MCP server's is noted for
 // Doctor (observation only: the verdict below is the same); the same call REPEAT times in a row spends the run, which then ends at its next step
 async function watchCall(h: Host, e: any, role: string): Promise<string | undefined> {
-  const seen = (await runOf(h, e.agentId))?.tools ?? [], r = await step(h, e.agentId, { type: 'call', tool: e.tool, sig: `${e.tool} ${canon(e.input ?? {})}` })
+  const seen = (await runOf(h, e.agentId))?.tools ?? [], r = await step(h, e.agentId, { type: 'call', tool: e.tool, sig: `${e.tool} ${canon(e.input ?? argsOf(e))}` })
   if (r && !seen.includes(e.tool) && !e.tool.startsWith('mcp__') && !allowlist(role as any).includes(e.tool)) { const k = await scoped(h, 'injected'), x = ((await h.store.get(k)) as string[] | undefined) ?? []; if (!x.includes(e.tool)) await h.store.set(k, [...x, e.tool]) }
   return r?.exit ? 'you have made the same call over and over; stop now' : undefined
 }
@@ -139,6 +139,8 @@ export async function shelled(h: Host, e: any): Promise<any> {
   if (e.tool !== 'Bash' || !e.agentId || typeof e.command !== 'string' || !(await h.bind.read())[e.agentId]) return e   // the tool's arguments sit beside `tool` in the event (e.command)
   return { ...e, command: `${offlinePrefix()}${e.command}` }
 }
+// a tool.call event carries the tool's arguments beside `tool` (the d.ts: `e.command` for Bash); the reserved keys are not arguments
+const argsOf = (e: any) => { const { tool, tool_use_id, agentId, requestMeta, ...args } = e; void tool; void tool_use_id; void agentId; void requestMeta; return args }
 // #5 tool.call guards: L1 allowlist, fence. Judge before next. Advisory: denies become warnings.
 export const guard: Hook = async (h, e, next) => {
   if (EXIT.includes(e.tool)) return next(exitCall(e, !!(e.agentId && ((await h.bind.read())[e.agentId] || (await askOf(h, e.agentId))))))   // a bound run, or main's own question (an ask)

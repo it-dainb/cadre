@@ -58,6 +58,14 @@ describe('rule 3: a tool first seen is journaled; an unknown one is noted for Do
 })
 
 describe('rule 4: the repeat-call breaker', () => {
+  test('a real event has its arguments beside the tool: twenty calls of one tool with different arguments are not a loop, twenty identical ones are', async () => {
+    const w = await world(), [id] = w.ids; await arm(w.h, 'auto'); await w.at('ag1', id, 'reviewer')
+    const ask = (rev: string) => guard(w.h, { tool: 'mcp__cadre__inspect', agentId: 'ag1', what: 'show', rev }, async (e: any) => e) as Promise<any>   // no `input` key, as in the engine
+    for (let k = 0; k < REPEAT * 2; k++) expect((await ask(`rev${k}`)).deny ?? '').not.toContain('same call')
+    expect((await runOf(w.h, 'ag1'))!.exit).toBeUndefined()
+    for (let k = 1; k < REPEAT; k++) expect((await ask('same')).deny ?? '').not.toContain('same call')
+    expect((await ask('same')).deny).toContain('same call'); expect((await runOf(w.h, 'ag1'))!.exit).toBe('loop')
+  })
   test(`the same call ${REPEAT} times in a row (key order ignored) is refused, the run is spent and ends; its task blocks with one dialog`, async () => {
     const w = await world(), [id] = w.ids; await arm(w.h, 'auto'); await w.at('ag1', id, 'worker')
     const args = (k: number) => (k % 2 ? { input: { file_path: '/wt/a', limit: 5 } } : { input: { limit: 5, file_path: '/wt/a' } })
