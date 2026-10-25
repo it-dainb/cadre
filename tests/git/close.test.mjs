@@ -151,7 +151,7 @@ test('run_check: named check in the caller tree, header + body; task scope enfor
   assert.match(await call('run_check', { name: 'test', task: id }), /^exit=3 · \d+s · truncated=no\nran\n/); assert.match(await call('run_check', { name: 'nope', task: id }), /error: no check "nope"/)
   assert.match(await call('run_check', { name: 'test', task: 'other' }), /bound to m-2/)
   assert.match(await call('inspect', { what: 'status' }), /^exit=0/); assert.match(await call('inspect', { what: 'log', rev: '--output=x' }), /error: rev/); assert.match(await call('inspect', { what: 'show', path: '../x', rev: 'HEAD' }), /error: path/)
-  assert.match(await handleWith(w.h, w.dep, { tool: 'mcp__cadre__inspect', input: { what: 'diff' } }).then(r => r.result), /main may inspect/)
+  assert.match(await handleWith(w.h, w.dep, { tool: 'mcp__cadre__inspect', input: { what: 'diff' } }).then(r => r.result), /main may inspect status, files and log only; read a file with Read, or ask explore what the code does/)
 })
 
 test('followups become drafts in the lazily created cadre-backlog epic with a discovered-from dep; plan flags clear with resolve keep', async () => {

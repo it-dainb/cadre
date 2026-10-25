@@ -97,7 +97,7 @@ const SAFE = /^[\w./@^~:{}+-]+$/
 async function onInspect(h: Host, d: Deps, agentId: string | undefined, i: any): Promise<string> {
   const b = agentId ? (await h.bind.read())[agentId] : undefined, tree = b?.worktree || d.root, what = i.what
   if (!['status', 'files', 'log', 'diff', 'show'].includes(what)) return bad('what: expected status|files|log|diff|show')
-  if (!agentId && !['status', 'files', 'log'].includes(what)) return bad('main may inspect status, files and log only')
+  if (!agentId && !['status', 'files', 'log'].includes(what)) return bad('main may inspect status, files and log only; read a file with Read, or ask explore what the code does')
   if (i.task && b && !sameTask(i.task, b.taskId)) return bad(`task: you are bound to ${b.taskId}`)
   const rev = i.rev as string | undefined, path = i.path as string | undefined
   if (path !== undefined && (typeof path !== 'string' || path.startsWith('/') || path.startsWith('-') || path.split('/').includes('..'))) return bad('path: expected a relative path inside your working directory, e.g. "src/a.ts"')

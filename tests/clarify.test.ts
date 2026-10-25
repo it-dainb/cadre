@@ -91,6 +91,10 @@ describe('clarify gate (default on)', () => {
     const v = await on({ cfg: c => { c.planning.clarify.enabled = false } }); await seen(v.h, { name: 'mcp__cadre__explore', ask: true }); expect(await stopCheck(v.h, {})).toBeNull()
     const u = await on(); await seen(u.h, { name: 'mcp__cadre__explore' }); expect((await u.h.secret.read()).goalRun?.explored).toBeUndefined()   // reading an answer again ({id}) is no explorer
   })
+  test('main\'s explorer started with the Agent tool is the goal\'s clarify explorer (a clarity record after it is not refused)', async () => {
+    const w = await on(); await seen(w.h, { name: 'Agent', ask: false, sub: 'cadre:explorer' }); expect((await w.h.secret.read()).goalRun?.explored).toBe(true)
+    const o = await on(); await seen(o.h, { name: 'Agent', sub: 'general-purpose' }); expect((await o.h.secret.read()).goalRun?.explored).toBeUndefined()   // another agent type is no explore
+  })
 })
 
 describe('/cadre deep', () => {

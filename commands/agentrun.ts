@@ -130,7 +130,9 @@ export async function turnEnd(h: Host, e: { agentId?: string; answer?: string })
   await recheck(h, true)
 }
 // main's turn.start / tool.call (register.ts): the watchdog's clock, and the tool count the stop check reads
-export async function seen(h: Host, o: { start?: boolean; tool?: boolean; name?: string; ask?: boolean } = {}): Promise<void> {   // name: main's tool, before it runs (a goal run); ask: an explore call with a question
+export async function seen(h: Host, o0: { start?: boolean; tool?: boolean; name?: string; ask?: boolean; sub?: string } = {}): Promise<void> {   // name: main's tool, before it runs (a goal run); ask: an explore call with a question
+  // main may start the explorer by the Agent tool too (live: it did, and its clarity record was refused three times as "call explore first"): that is an explore with a question
+  const viaAgent = o0.name === 'Agent' && o0.sub === 'cadre:explorer', o = viaAgent ? { ...o0, name: EXPLORE, ask: true } : o0
   const s0 = await h.secret.read(); if (!s0.run && !s0.goalRun?.on) return
   const now = await h.now(), busy = o.start ? { busy: true } : {}, g = s0.goalRun
   const asked = o.name === EXPLORE && o.ask ? (g && !g.explored && (g.deep || (await cfgOf(h)).planning.clarify.enabled) ? { explored: true } : { spawned: true }) : {}   // a goal's first explore is its clarify explorer (ADR 0020); the next one asks the goal's own question
