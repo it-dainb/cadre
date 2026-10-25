@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { createServer } from 'node:http'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, symlinkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const P = await import('../../core/helpers.ts'), G = await import('../../core/git.ts')
@@ -111,7 +111,7 @@ test('the jail: no host environment variable and nothing of the real home is vis
     const orig = f.h.run; f.h.run = async (a, o) => { const r = await orig(a, o); if (a[0] === 'bwrap' && a.includes('--clearenv') && !a.includes('--unshare-net')) { const sc = join(f.d, 'scratch'); seen = Object.fromEntries(['envdump', 'secret', 'lshome', 'ran', 'lsrun', 'runuser', 'pids', 'hostpid'].map(n => [n, existsSync(join(sc, n)) ? readFileSync(join(sc, n), 'utf8') : null])) } return r }
     await P.setup(f.h, f.inp({ argv: ['npm', 'install', 'local-dep'] }))
     assert.equal(seen.ran?.trim(), 'ok', 'the stand-in ran inside the jail'); assert.ok(!/ghp_fake_token|npm_fake/.test(seen.envdump), 'no host variable'); assert.match(seen.envdump, new RegExp(`HOME=${f.d}/scratch/home`)); assert.match(seen.envdump, /npm_config_ignore_scripts=true/)
-    assert.equal(seen.lsrun?.trim(), '', 'nothing in /run and /var/run: no docker.sock, user bus or agent socket'); assert.equal(seen.runuser, null); assert.ok(Number(seen.pids) < 10 && seen.hostpid === null, `the host's processes are not visible (${seen.pids?.trim()} pids)`)
+    assert.match(seen.lsrun?.trim(), /^(systemd)?$/, 'nothing in /run and /var/run but the resolver folder DNS needs: no docker.sock, user bus or agent socket'); assert.equal(seen.runuser, null); assert.ok(Number(seen.pids) < 10 && seen.hostpid === null, `the host's processes are not visible (${seen.pids?.trim()} pids)`)
     assert.ok(!/real-home-secret/.test(seen.secret) && /No such file/.test(seen.secret), 'the real home is hidden'); assert.ok(!/secret\.txt|\.claude/.test(seen.lshome), seen.lshome)
   } finally { delete process.env.GITHUB_TOKEN; delete process.env.NPM_TOKEN; f.done() }
 })
@@ -220,18 +220,26 @@ test('uv add: the reply and its effect agree: "in your folder" only when the pac
     const bin = join(f.d, 'bin'); mkdirSync(bin)
     writeFileSync(join(bin, 'uv'), `#!/bin/sh
 echo "$PWD $*" >> /tmp/uvlog
-c=$1; shift; P=; for a; do [ "$p" = --prefix ] && P=$a; p=$a; done
+c=$1; shift; P=; Y=; for a; do [ "$p" = --prefix ] && P=$a; [ "$p" = --python ] && Y=$a; p=$a; done
 case $c in
   add) printf 'dependencies = ["six"]\\n' >> pyproject.toml; echo lock > uv.lock;;
-  venv) for a; do d=$a; done; mkdir -p "$d/lib/python3/site-packages"; echo home > "$d/pyvenv.cfg";;
-  pip) [ -n "$FAILPIP" ] && exit 1; for a in "$@"; do case $a in -*|install|/*) ;; *) mkdir -p "$P/lib/python3/site-packages/$a";; esac; done;;
+  export) printf 'six==1.17.0 \\\\\\n    --hash=sha256:abc\\n' > /tmp/req.txt;;
+  venv) for a; do d=$a; done; mkdir -p "$d/lib/python3/site-packages" "$d/bin"; echo home > "$d/pyvenv.cfg"; echo "*" > "$d/.gitignore"; : > "$d/bin/python";;
+  pip) for a in "$@"; do case $a in -r) R=1;; esac; done; [ -n "$R" ] || exit 1; mkdir -p "$P/lib/python3/site-packages/six" "$P/bin"; : > "$P/lib/python3/site-packages/six/__init__.py"; printf '#!%s\\nprint(1)\\n' "$Y" > "$P/bin/tool"; chmod +x "$P/bin/tool";;
 esac\n`, { mode: 0o755 })
     f.h.env = async () => ({ PATH: `${bin}:${process.env.PATH}`, LANG: process.env.LANG })
     const calls = [], orig = f.h.run; f.h.run = async (a, o) => { const r = await orig(a, o); if (a[0] === 'bwrap' && existsSync(join(f.d, 'scratch/uvlog'))) { calls.push(...readFileSync(join(f.d, 'scratch/uvlog'), 'utf8').split('\n').filter(Boolean)); rmSync(join(f.d, 'scratch/uvlog')) } return r }
     writeFileSync(join(f.wt, 'pyproject.toml'), '[project]\nname = "x"\ndependencies = []\n'); await sh(f.wt, 'git', 'add', '-A'); await sh(f.wt, 'git', 'commit', '-qm', 'py')
-    const r = await P.setup(f.h, f.inp({ argv: ['uv', 'add', 'six'] })), site = join(f.wt, '.venv/lib/python3/site-packages/six')
+    const r = await P.setup(f.h, f.inp({ argv: ['uv', 'add', 'six'] })), site = join(f.wt, '.venv/lib/python3/site-packages/six/__init__.py')
     assert.match(r.text, /^Installed and committed on your branch: pyproject\.toml, uv\.lock/, r.text)
     assert.equal(/in your folder/.test(r.text), existsSync(site), 'the reply claims what happened'); assert.ok(existsSync(site))
-    assert.ok(calls.some(l => l.startsWith('/tmp/cwd pip install --python') && l.includes('--only-binary=:all:') && l.includes(`--prefix ${f.wt}/.venv`) && l.endsWith(' six')), calls.join('\n')); assert.ok(calls.some(l => /^\/tmp\/cwd venv --python \S+ .*\.venv$/.test(l)))
+    assert.ok(calls.some(l => l.startsWith('/tmp/cwd pip install --python') && l.includes('--only-binary=:all:') && l.includes('--require-hashes') && l.includes(`--prefix ${f.wt}/.venv`) && l.endsWith(' -r /tmp/req.txt')), calls.join('\n')); assert.ok(calls.some(l => l.endsWith(` export --frozen --no-emit-project --output-file /tmp/req.txt`) && !l.startsWith('/tmp/cwd')), calls.join('\n')); assert.equal(readFileSync(join(f.wt, '.venv/bin/tool'), 'utf8').split('\n')[0], `#!${f.wt}/.venv/bin/python`, 'a console script runs the venv\'s python'); assert.ok(calls.some(l => /^\/tmp\/cwd venv --python \S+ .*\.venv$/.test(l)))
+  } finally { f.done() }
+})
+
+test('uv add: a .venv that is a link is refused before anything runs', async () => {
+  const f = await fix(); try {
+    mkdirSync(join(f.d, 'elsewhere')); symlinkSync(join(f.d, 'elsewhere'), join(f.wt, '.venv')); const seen = []; const orig = f.h.run; f.h.run = async (a, o) => { seen.push(a.includes('--clearenv') ? 'jail' : a[0]); return orig(a, o) }
+    assert.match((await P.setup(f.h, f.inp({ argv: ['uv', 'add', 'six'] }))).text, /^The install was not run: \.venv in your folder is a link/); assert.ok(!seen.includes('jail'), 'no jail ran')
   } finally { f.done() }
 })

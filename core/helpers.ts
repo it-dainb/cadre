@@ -30,27 +30,25 @@ const WORD = /^\w[\w.-]*$/
 // the argv to run with the environment it adds (scripts off through the environment, wheels only), or why it is refused. Allowlist only: a flag not named, a `--`, a path, URL or
 // git source as a package is refused; nothing here reads shell text.
 // sys: the interpreters outside the worktree (py: an absolute system python, rust: the system default toolchain)
-export function vet(argv: unknown, wt: string, sys: { py?: string; rust?: string } = {}): { argv: string[]; env: Record<string, string>; empty?: true; steps?: string[][] } | string {
+export function vet(argv: unknown, wt: string, sys: { py?: string; rust?: string } = {}): { argv: string[]; env: Record<string, string>; empty?: true; steps?: { argv: string[]; empty?: true }[] } | string {
   if (!Array.isArray(argv) || !argv.length || argv.length > 64 || !argv.every(a => typeof a === 'string' && a && a.length < 500)) return 'argv: expected the install command as a list of arguments, e.g. ["npm","install","left-pad"]'
   const [p, ...rest] = argv as string[]
   if (p === 'poetry') return 'poetry cannot be run here: it cannot refuse source builds; use uv or pip (wheels only)'
   const key = p === 'uv' && rest[0] === 'pip' ? 'uv pip' : p
   const e = Object.hasOwn(ALLOW, key) ? ALLOW[key] : undefined, sub = e?.subs.find(s => s.every((t, i) => rest[i] === t))
   if (!e || !sub) return `${p} ${rest[0] ?? ''} is not an install command that may be run here; use npm, pnpm, yarn, uv, cargo add, go get, uv pip install or uv add`
-  const specs: string[] = []
   for (let i = sub.length; i < rest.length; i++) {
     const t = rest[i]
     if (t.startsWith('-')) {
       if (e.value?.includes(t)) { if (!WORD.test(rest[++i] ?? '')) return `${t} needs a plain name` } else if (!e.flags.includes(t)) return `${t} is not an option that may be used here`
     } else if (ARCHIVE.test(t) || !e.spec.test(t)) return `${t} is not a package name from the registry (a name with an optional version)`
-    else specs.push(t)
   }
   const uv = key === 'uv' || key === 'uv pip'; if (uv && !sys.py) return 'there is no system python to run it with'
   // uv: the interpreter and the project environment come from outside the worktree (env and flags beat .python-version); pip installs into the repo's .venv by prefix, never running its interpreter
   const env = { ...(uv ? { UV_PYTHON: sys.py!, UV_PROJECT_ENVIRONMENT: '/tmp/venv' } : {}), ...(key === 'cargo' && sys.rust ? { RUSTUP_TOOLCHAIN: sys.rust } : {}), ...e.env }
-  // uv: `uv add --no-sync` only edits the manifest and lockfile, so the packages go into the worktree's own .venv afterwards, by the same vetted specs, from an empty folder, wheels only
-  // (steps, each run in the same jail first: a venv when there is none, made by uv itself; an existing .venv is never run, only its site-packages is written into)
-  const steps = key === 'uv' ? [['uv', 'pip', 'install', '--python', sys.py!, '--prefix', `${wt}/.venv`, '--only-binary=:all:', ...specs]] : undefined
+  // uv: `uv add --no-sync` only edits the manifest and lockfile, so the packages go into the worktree's own .venv afterwards, FROM THE LOCK: export it with its hashes (in the folder, like
+  // the add), then install that file wheels-only from an empty folder, so a namesake on another index fails the hash check instead of being installed. A venv is made first when there is none.
+  const steps = key === 'uv' ? [{ argv: ['uv', 'export', '--frozen', '--no-emit-project', '--output-file', '/tmp/req.txt'] }, { argv: ['uv', 'pip', 'install', '--python', sys.py!, '--prefix', `${wt}/.venv`, '--only-binary=:all:', '--require-hashes', '-r', '/tmp/req.txt'], empty: true as const }] : undefined
   return { argv: [...(argv as string[]), ...(e.add ?? []), ...(key === 'uv pip' ? ['--python', sys.py!, '--prefix', `${wt}/.venv`] : [])], env, ...(e.empty ? { empty: true as const } : {}), ...(steps ? { steps } : {}) }
 }
 
@@ -84,13 +82,19 @@ export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
   if (SOURCES.test((await git('diff', o.base ?? 'HEAD', '--', ':(glob)**/pyproject.toml')).stdout)) rc.push('pyproject.toml')
   if (rc.length) return { text: `The install was not run: ${rc.join(', ')} changed in this task, and an install would act on it. Ask the user, or report outcome "blocked".` }
   try {
+    if (!(await h.run(['test', '-L', `${o.wt}/.venv`])).exitCode) return { text: 'The install was not run: .venv in your folder is a link. Ask the user, or report outcome "blocked".' }
     await h.run(['mkdir', '-p', home, `${o.scratch}/cwd`])
     const path = env.PATH || '/usr/local/bin:/usr/bin:/bin', real = async (...ps: string[]) => (await h.run(['realpath', '-q', '-e', ...ps])).stdout.split('\n').filter(Boolean), rhome = (await real(await h.home()))[0] ?? await h.home()
     const tools = await real(...path.split(':').filter(Boolean)), jail = (argv: string[], empty?: true) => h.run(G.setupJail({ wt: o.wt, scratch: o.scratch, pkgRoot: empty ? '/tmp/cwd' : cwd, argv, scratchHome: home, home: rhome, path, tools, env: { ...(env.LANG ? { LANG: env.LANG } : {}), ...v.env } }), { timeoutMs: 600000 })   // an empty cwd: the scratch's own folder
     // uv: the packages must be usable in the folder afterwards, so a venv is made when there is none (an existing .venv is never run: only its site-packages is written into)
     const uv = v.argv[0] === 'uv', py = v.env.UV_PYTHON, venv = uv && (await h.run(['test', '-f', `${o.wt}/.venv/pyvenv.cfg`])).exitCode ? await jail(['uv', 'venv', '--python', py, `${o.wt}/.venv`], true) : undefined
     let r = venv?.exitCode ? venv : await jail(v.argv, v.empty)
-    for (const st of r.exitCode ? [] : v.steps ?? []) { r = await jail(st, true); if (r.exitCode) break }
+    for (const st of r.exitCode ? [] : v.steps ?? []) { r = await jail(st.argv, st.empty); if (r.exitCode) break }
+    // console scripts written by a prefix install start with the system python: point them at the venv's own (a file edit only, nothing is run)
+    if (uv && !r.exitCode) {
+      const esc = (x: string) => x.replace(/[\\|&]/g, '\\$&'), bin = `${o.wt}/.venv/bin`
+      for (const f of (await h.run(['find', bin, '-maxdepth', '1', '-type', 'f'])).stdout.split('\n').filter(Boolean)) if ((await h.readText(f))?.startsWith(`#!${py}\n`)) await h.run(['sed', '-i', `1s|^#!${esc(py)}$|#!${esc(bin)}/python|`, f])
+    }
     const bad = async (why: string) => {   // a failed run leaves nothing: the paths it changed, and the ignored ones it created
       await revert(await dirty()); const dirs = new Set([...before].flatMap(f => f.split('/').slice(0, -1).map((_, i, a) => a.slice(0, i + 1).join('/')))), made = [...new Set((await ignored()).filter(f => !before.has(f) && !f.startsWith('/') && !f.split('/').includes('..')).map(f => { const p = f.split('/'), i = p.findIndex((_, k) => !dirs.has(p.slice(0, k + 1).join('/'))); return p.slice(0, i + 1).join('/') }))]   // each new file, or the top of the new folder it is in
       for (let i = 0; i < made.length; i += 400) await h.run(['rm', '-rf', '--', ...made.slice(i, i + 400).map(f => `${o.wt}/${f}`)])
