@@ -193,6 +193,14 @@ describe('replays 12-20: regressions from the log', () => {
     expect(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'again' })).toContain('report accepted'); await w.turn()
     expect(await w.rep(rv, f('src/a.ts'))).toContain('changes (2/'); await w.turn(); expect(w.sent.filter(x => x[0] === 'ag1').map(x => x[1]).at(-1)!).not.toContain('locked spec test')
   })
+  test('a review finding on a file outside the task\'s own files tells the worker to list it under followups, not edit it or block', async () => {
+    const w = await world(), [rv] = await inReview(w), id = w.ids[0]; await w.dep.store.setMeta(id, { 'cadre.paths': JSON.stringify(['src/a.ts', 'test/a.test.js']) }, w.dep.actor)
+    const f = (file: string) => ({ ...CHANGES, findings: [{ severity: 'major', file, issue: 'CI has no install step' }] })
+    expect(await w.rep(rv, f('.github/workflows/ci.yml'))).toContain('changes (1/'); await w.turn(); const asked = w.sent.filter(x => x[0] === 'ag1').map(x => x[1]).at(-1)!
+    expect(asked).toContain('.github/workflows/ci.yml is outside your files: do not edit it and do not block on it; list it under followups')
+    expect(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'again' })).toContain('report accepted'); await w.turn()
+    expect(await w.rep(rv, f('src/a.ts'))).toContain('changes (2/'); await w.turn(); expect(w.sent.filter(x => x[0] === 'ag1').map(x => x[1]).at(-1)!).not.toContain('outside your files')
+  })
   test('a task with no spec tests (a lite task) gets no scenario-coverage rule in its reviewer brief: there is no scenario id to name a test after', async () => {
     const w = await world(); expect(w.dep.cfg.review.coverage.enforce).toBe(true)
     const [rv] = await inReview(w), p = w.spawned.find(x => x[0] === rv)![1]

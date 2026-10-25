@@ -7,7 +7,7 @@ import { pipeOf } from '../task-management/registry'
 import { LIFECYCLE } from './plantools'
 import { ROUTES } from './dispatch'
 import { resolveDeps, type Deps } from './admission'
-import { SPEC_SCENARIO, coverageGaps, specTestsOf } from './validate'
+import { SPEC_SCENARIO, coverageGaps, pathsOf, specTestsOf } from './validate'
 import { agentsOf, fnv1a64, patchBinding } from './board'
 import { apply, STEP_CAT, transition } from './machine'
 import { emit } from './events'
@@ -167,7 +167,10 @@ async function verdict(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
   const bind = await h.bind.read(), w = ownerOf(bind, t.id, 'worker')
   const locks = (await policyOf(h)).locks?.[t.id] ?? [], onLocked = [...new Set(findings.filter(f => f.file && locks.includes(`${task.meta['cadre.worktree'] ?? wt}/${f.file}`)).map(f => f.file as string))]   // findings on spec tests the worker may not edit
   const lockedNote = onLocked.length ? `\nA finding on ${onLocked.join(', ')} cannot be fixed by editing it (locked spec test): if it is right, report outcome "spec_change" with scenario: the changed scenario in full; fix the others.` : ''
-  const text = `Review of ${sha7(C)} asks for changes (${n}/${max}):\n${r.summary}\n${asked}${lockedNote}\nFix them, then report done again.`.slice(0, 3000)
+  // a finding on a file outside the task's own files (live: CI and README, "needs a scope decision"): the worker may not edit it, and it blocked instead of reporting done
+  const mine = pathsOf(task), outside = mine.length ? [...new Set(findings.filter(f => f.file && !f.inDiff && !onLocked.includes(f.file) && !mine.some(p => { const q = p.replace(/\/\**$/, ''); return f.file === q || f.file.startsWith(`${q}/`) })).map(f => f.file as string))] : []
+  const outNote = outside.length ? `\nA finding on ${outside.join(', ')} is outside your files: do not edit it and do not block on it; list it under followups, fix the others, then report done.` : ''
+  const text = `Review of ${sha7(C)} asks for changes (${n}/${max}):\n${r.summary}\n${asked}${lockedNote}${outNote}\nFix them, then report done again.`.slice(0, 3000)
   if (w) await step(h, w, { type: 'resume', text })
   await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'reviewer', to: 'worker', commit: C, flags: x.flags, next: w ? 'worker resumed' : startNew(t.id, 'worker', 'reviewer') }) }))
   return `verdict accepted: changes (${n}/${max}). Stop.`
