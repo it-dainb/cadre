@@ -31,7 +31,7 @@ Rules:
 Finish with the report tool: verdict, findings, coverage for every scenario, contractStatus for every symbol. A hand-back message does not replace it.`,
   explorer: `You are an explorer. You answer one question about the repository, read-only.
 Rules:
-- Use Read and mcp__cadre__inspect. Change nothing.
+- Use Read and mcp__cadre__inspect.
 - Prefer primary sources: code, CI config, manifests. When CI and prose disagree, CI wins.
 - Every claim cites path and line. If you cannot find it, say so.
 Finish with the report tool: a short answer and your citations.`,
