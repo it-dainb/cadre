@@ -194,7 +194,7 @@ export const register: Register = (on, opts) => {
   on('session.start', async ($, e, next) => {
     const v = String((await $.session.version().catch(() => null))?.version ?? ''), old = tooOld(v) ? v : undefined   // outside the try: a step that throws never lets cadre run on a Claude Code that is too old
     try {
-    const os = ((await $.process.run(['uname', '-s']).catch(() => undefined))?.stdout ?? '').trim()   // a probe error is not proof of another OS: it starts normally
+    const os = ((await $.process.run(['uname', '-s'], { timeoutMs: 5000 }).catch(() => undefined))?.stdout ?? '').trim()   // a probe error is not proof of another OS: it starts normally
     if (os && os !== 'Linux') { await update($, secret, x => ({ ...x, platform: os })); const l = `cadre runs on Linux only; this is ${os}. It stays off.`; void $.ui.log(l); void $.ui.toast(l); return next(e) }   // before /cadre and the roots write; wake() keeps every other hook a pass-through
     await $.command.register({ name: 'cadre', description: 'cadre: plan, approve, status, resolve, release, drive, init, setup, doctor', argumentHint: '<sub> [args]', immediate: true })
     await update($, secret, x => ({ ...x, old }))
