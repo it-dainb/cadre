@@ -166,9 +166,17 @@ test('refusal-loop keys on the producing call\'s input, per agent transcript', (
   assert.ok(loop([{ id: 1 }, { id: 1 }, { id: 1 }], 2).includes('refusal-loop'))   // one agent 3x, whoever else is around
 })
 
-// release016 needs-setup-python: `uv lock` printed "Because six was not found in the cache ... the network was disabled" and changed nothing; the oracle called it an install
-test('the own-shell check: an install the offline settings refused (npm, uv, pip) is no install; one that resolved is', async () => {
+// release016 needs-setup-python: `uv lock` printed "Because six was not found in the cache ... the network was disabled" or only "Resolved 1 package" and changed nothing; the oracle called it an install
+test('the own-shell check: an install the offline settings refused, or a `uv lock` that only re-resolved, is no install; a real install is', async () => {
   const { refused } = await import('../../harness/installs.mjs')
-  for (const o of ['npm error code ENOTCACHED', 'only-if-cached', 'hint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.', 'Network connectivity is disabled, but the requested data wasn\'t found in the cache', 'offline mode is enabled', 'ERROR: No matching distribution found for six', 'uv 0.11.29\nResolved 1 package in 1ms\nEXIT=0']) assert.equal(refused(o), true, o)
-  for (const o of ['Resolved 3 packages in 120ms\nAdded six v1.16.0', 'Resolved 3 packages in 120ms\nUpdated six v1.15.0 -> v1.16.0', 'added 1 package in 2s', '', undefined]) assert.equal(refused(o), false, String(o))
+  const refusals = ['npm error code ENOTCACHED', 'only-if-cached', 'hint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.', 'Network connectivity is disabled, but the requested data wasn\'t found in the cache', 'offline mode is enabled', 'ERROR: No matching distribution found for six']
+  for (const o of refusals) assert.equal(refused(o, 'uv lock'), true, o)
+  assert.equal(refused(refusals[2], 'uv add six'), true)
+  const noop = 'uv 0.11.29\nResolved 1 package in 1ms\nEXIT=0'
+  assert.equal(refused(noop, 'uv --version; uv lock 2>&1 | tail'), true)
+  assert.equal(refused(noop, 'uv lock && uv sync'), false)   // another install form in the command
+  assert.equal(refused('Resolved 5 packages in 3ms\nAudited 5 packages in 0.1ms', 'uv sync'), false)   // decided: only `uv lock` has the no-op rule
+  assert.equal(refused('Resolved 5 packages in 3ms\nPrepared 2 packages in 1s\nInstalled 2 packages in 2ms\n + foo==1.0\n + bar==2.0', 'uv sync'), false)
+  assert.equal(refused('Resolved 3 packages in 9ms\nPrepared 1 package in 1s\nInstalled 1 package in 1ms\n + six==1.16.0', 'uv add six'), false)
+  for (const o of ['Resolved 3 packages in 120ms\nAdded six v1.16.0', 'Resolved 3 packages in 120ms\nUpdated six v1.15.0 -> v1.16.0', 'Resolved 3 packages in 120ms\nInstalled 1 package in 1ms', 'Resolved 3 packages in 9ms\n + six==1.16.0', 'added 1 package in 2s', '', undefined]) assert.equal(refused(o, 'uv lock'), false, String(o))
 })
