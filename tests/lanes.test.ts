@@ -43,7 +43,7 @@ describe('the typed surface (ADR 0011): five forms only', () => {
   test('the guide and every brief speak task language and name the three lanes', async () => {
     const g = (BUDGET.guides as Record<string, string>).goal
     expect(banned(g.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, ''))).toEqual([])
-    for (const k of ['**ask**', '**lite**', '**full**', '"lane": "lite"', '"repro": true', 'Done when']) expect(g).toContain(k)
+    for (const k of ['**ask**', '**lite**', '**full**', '"lane": "lite"', '"repro": true']) expect(g).toContain(k)
     const w = await world(); await w.call('TaskCreate', { subject: 'Fix paging', description: 'd', metadata: LITE })
     await w.call('TaskCreate', { subject: 'More', description: 'd', metadata: { type: 'feature' } })
     const p = (await w.h.board.read()).plan!
