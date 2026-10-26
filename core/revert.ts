@@ -36,10 +36,13 @@ export async function planOf(h: Host, id: string): Promise<Plan> {
   const own = t.meta['cadre.landed'], up = t.parent ? (await store.get(t.parent).catch(() => null))?.meta['cadre.landed'] : undefined   // `branch@sha` of the merge that took it in
   const [lb, ls] = (own ?? up ?? '').split('@'), sq = /^squash: (\S+)/m.exec(t.meta['cadre.rec.close'] ?? '')?.[1]
   const sha = own ? ls : up && sq ? sq : '', merge = !!own
+  if (sha && (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(sha) || ![dev, cfg.branches.main].includes(lb) || !(await ok(h.run, root, ['check-ref-format', `refs/heads/${lb}`])))) no('unknown', `${id}: its recorded landing is not valid`)   // the store's sha and branch reach git: a shape allowlist and the configured landing branches
   const rec = await recorded(h, store, t), live: Record<string, string> = {}, skipped: string[] = []
-  for (const b of rec.names) {   // a recorded name is a plain branch name or it is not touched: `@{-1}`, `-x`, `a..b`, a tag or a sha all resolve to something else
-    const plain = !/^[@-]|@\{|\.\./.test(b) && (await ok(h.run, root, ['check-ref-format', '--branch', b])) && (await ok(h.run, root, ['show-ref', '--verify', '--quiet', `refs/heads/${b}`]))
-    if (plain) live[b] = await tip(h.run, root, `refs/heads/${b}`); else if (!/^[@-]|@\{|\.\./.test(b) ? await exists(h.run, root, b) : true) skipped.push(b)
+  const mine = [cfg.branches.epicPrefix, 'milestone/', 'revert/', 'wip/', ...Object.values(cfg.types as Record<string, { commit?: string | null }>).map(x => x.commit && `${x.commit}/`)].filter(Boolean) as string[]   // the branches cadre itself makes: epic, milestone, revert and task (commit type) names
+  for (const b of rec.names) {   // a recorded name is a full branch ref under cadre's own prefixes or it is not touched: `@{-1}`, `-x`, `a..b`, a tag, a sha or the user's own branch
+    if (!(await ok(h.run, root, ['check-ref-format', `refs/heads/${b}`])) || !(mine.some(x => b.startsWith(x)) || [dev, cfg.branches.main, 'main', 'master'].includes(b))) {   // dev and main pass only to be named protected by drop()
+       skipped.push(b); continue }
+    if (await ok(h.run, root, ['show-ref', '--verify', '--quiet', `refs/heads/${b}`])) live[b] = await tip(h.run, root, `refs/heads/${b}`)
   }
   const names = Object.keys(live)
   if (sha && cfg.landing.mode === 'pr' && lb === dev) no('pr-mode', 'reverts land through the pull-request flow; not yet supported')
@@ -51,7 +54,7 @@ export async function planOf(h: Host, id: string): Promise<Plan> {
   const sibs = t.parent ? await store.list({ parent: t.parent }) : [], later = new Set<string>()
   const grow = (x: string): void => { for (const s of sibs) if (!later.has(s.id) && s.category !== 'cancelled' && s.deps.some(d => d.id === x)) { later.add(s.id); grow(s.id) } }; grow(id)
   let files: string[] = [], commits: string[] = []
-  if (sha) { files = (await git(h.run, root, ['diff', '--name-only', `${sha}^`, sha])).split('\n').filter(Boolean); commits = (await git(h.run, root, ['log', '--format=%h %s', `${sha}^..${sha}`])).split('\n').filter(Boolean) }
+  if (sha) { files = (await git(h.run, root, ['diff', '--name-only', '--end-of-options', `${sha}^`, sha])).split('\n').filter(Boolean); commits = (await git(h.run, root, ['log', '--format=%h %s', '--end-of-options', `${sha}^..${sha}`])).split('\n').filter(Boolean) }
   else if (t.type === 'epic' && rec.own && live[rec.own]) { const b = rec.own; files = (await git(h.run, root, ['diff', '--name-only', `${dev}...${b}`])).split('\n').filter(Boolean); commits = (await git(h.run, root, ['log', '--format=%h %s', `${dev}..${b}`])).split('\n').filter(Boolean) }
   else return no('not-landed', t.category === 'done' ? (cfg.landing.mode === 'pr' ? `${id} landed through a pull request, which is not recorded; reverts there are not yet supported` : `${id} has no recorded landing${up === undefined && t.parent ? ' (its epic has not landed)' : ''}`) : `${id} has not landed, and has no branch to abandon`)
   const ce = t.meta['cadre.changelog'] ? JSON.parse(t.meta['cadre.changelog']) : null, list = (xs: string[]) => (xs.length ? xs.slice(0, 5).join(', ') + (xs.length > 5 ? ` +${xs.length - 5}` : '') : 'none')
@@ -88,17 +91,22 @@ async function perform(h: Host, p: Plan): Promise<string> {
   if (!p.sha) { const r = await drop(h, p); if (!r.failed.length) await store.setMeta(p.id, { 'cadre.reverted': 'abandoned' }, 'cadre'); return `${p.id} ${r.failed.length ? 'is not fully abandoned (try again)' : 'abandoned'}: ${dropText(r)}` }
   const gf = Object.keys((await h.git.read()).flags ?? {}).find(f => f.startsWith('git:')); if (gf) return `refused: git flag ${gf} is open; keep or restore it in the dialog first`
   const rb = `revert/${p.id}`, key = repoKeyOf(root), wt = wtPath(await wtRootOf(h, cfg), key, `rev-${p.id}`), tmp = wtPath(await wtRootOf(h, cfg), key, `int-rev-${p.id}`)
+  if (cfg.changelog.path.startsWith('/') || cfg.changelog.path.split('/').includes('..')) return `refused: the changelog path ${cfg.changelog.path} leaves the worktree`   // belt and braces: config validation refuses it too
+  const stamp = async () => store.setMeta(p.id, { 'cadre.revertTip': await tip(h.run, root, `refs/heads/${rb}`) }, 'cadre')   // the tip cadre made: only a branch at it is ours to delete
+  if ((await exists(h.run, root, `refs/heads/${rb}`)) && (await tip(h.run, root, `refs/heads/${rb}`)) !== (await store.get(p.id)).meta['cadre.revertTip']) throw new RevertRefusal('busy', `a branch ${rb} exists that cadre did not make; rename or delete it first`)
+  let made = false   // set once this operation owns rb
   try {
   const rv = await op(h, async () => {
-    await worktreeRemove(h.run, root, wt, rb); await worktreeRemove(h.run, root, tmp)   // what an earlier attempt left
-    await worktreeAdd(h.run, root, wt, rb, await baseOf(h, p.on))
-    const cl = cfg.changelog.path, r = await h.run(['git', '-C', wt, 'revert', '--no-commit', ...(p.merge ? ['-m', '1'] : []), p.sha])
+    made = true; await worktreeRemove(h.run, root, wt, rb); await worktreeRemove(h.run, root, tmp)   // what an earlier attempt of ours left
+    await worktreeAdd(h.run, root, wt, rb, await baseOf(h, p.on)); await stamp()
+    const cl = cfg.changelog.path, r = await h.run(['git', '-C', wt, 'revert', '--no-commit', ...(p.merge ? ['-m', '1'] : []), '--end-of-options', p.sha])
     const un = r.exitCode ? (await git(h.run, wt, ['diff', '--name-only', '--diff-filter=U'])).split('\n').filter(Boolean) : [], bad = un.filter(f => f !== cl)   // the changelog is cadre's: later releases changed it, so it never blocks a revert
     const why = r.exitCode && (bad.length || !un.length) ? (bad.length ? `reverting ${p.id} conflicts with what landed after it, in ${bad.join(', ')}` : `reverting ${p.id} failed: ${r.stderr.trim().slice(-200)}`) : ''
     if (!why) {   // the changelog stays as dev has it, plus one Removed line
-      await h.run(['git', '-C', wt, 'checkout', 'HEAD', '--', cl]); const text = await h.readText(`${wt}/${cl}`)
-      if (text !== null) await h.write(`${wt}/${cl}`, insert(text, 'Removed', `Reverted: ${p.title}`, p.id))
-      await git(h.run, wt, ['add', '-A']); await git(h.run, wt, ['commit', '--no-verify', '-m', `revert ${p.id}: ${p.title}`])
+      const to = `${wt}/${cl}`
+      await h.run(['git', '-C', wt, 'checkout', 'HEAD', '--', cl]); const text = await h.readText(to)
+      if (text !== null) await h.write(to, insert(text, 'Removed', `Reverted: ${p.title}`, p.id))
+      await git(h.run, wt, ['add', '-A']); await git(h.run, wt, ['commit', '--no-verify', '-m', `revert ${p.id}: ${p.title}`]); await stamp()
     } else await h.run(['git', '-C', wt, 'revert', '--abort'])
     await worktreeRemove(h.run, root, wt, why ? rb : undefined)
     return why
@@ -113,7 +121,7 @@ async function perform(h: Host, p: Plan): Promise<string> {
   await store.setMeta(rec, { 'cadre.revert': p.id, 'cadre.branch': rb }, 'cadre'); await store.setMeta(p.id, { 'cadre.reverted': rec }, 'cadre')
   const r = await drop(h, p), mark = new Set(p.ids); await h.board.update(b => ({ ...b, tasks: b.tasks.map(x => (mark.has(x.id) && !x.flags.includes('reverted') ? { ...x, flags: [...x.flags, 'reverted'] } : x)) }))   // the pane shows it
   return `${p.id} reverted: ${p.on} has the revert (${m.sha.slice(0, 7)}); ${dropText(r)}`
-  } catch (e) { await worktreeRemove(h.run, root, wt, rb).catch(() => {}); await worktreeRemove(h.run, root, tmp, rb).catch(() => {}); throw e }   // a throw leaves no worktree or branch of ours
+  } catch (e) { await worktreeRemove(h.run, root, wt, made ? rb : undefined).catch(() => {}); await worktreeRemove(h.run, root, tmp, made ? rb : undefined).catch(() => {}); throw e }   // a throw leaves no worktree or branch of ours
 }
 
 // the pane's press opens the card (confirm 1); its answer asks again (confirm 2); only that answer reverts. `first`/`yes` need their own decision on the board, whoever sends them.
@@ -121,7 +129,7 @@ ROUTES.revert = async (h, c) => {
   const [id = '', step = ''] = c.args, say = (t: string) => ({ text: modelText('context', t) })
   try {
     if (step === 'cancel' || step === 'dismiss') { await settle(h, `revert:${id}`, `revert-sure:${id}`, `revert-fail:${id}`); return say('nothing reverted') }
-    const p = await planOf(h, id), hash = fnv1a64(JSON.stringify([p.sha, p.on, await tip(h.run, await h.cwd(), await baseOf(h, p.on)).catch(() => ''), p.branches, p.lines]))   // dev, the branches and the preview: a change between the confirms refuses the second
+    const p = await planOf(h, id), hash = fnv1a64(JSON.stringify([p.sha, p.on, await tip(h.run, await h.cwd(), await baseOf(h, p.on)).catch(() => ''), p.branches, p.lines, p.known, p.merge]))   // dev, the branches and the preview: a change between the confirms refuses the second
     const what = p.sha ? `${id} ${p.title}: revert it on ${p.on}?` : `${id} ${p.title}: abandon it?`, standing = async (k: string) => ((await h.board.read()).decisions ?? []).find(d => d.id === `${k}:${id}`)
     const card = async () => {
       await settle(h, `revert-sure:${id}`)
