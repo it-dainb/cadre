@@ -9,7 +9,7 @@ import { activityRows } from './activity'
 import { type Renderer, joinSections, muted, title, ucfg, win } from './types'
 
 const K: Record<MEpic['state'], GlyphK> = { draft: 'wait', waiting: 'wait', ready: 'ready', planning: 'run', running: 'run', landed: 'done', stopped: 'fail' }
-export const milestone: Renderer = (v, w, rows) => {
+export const milestone: Renderer = (v, w, rows, a) => {
   const p = v.b.plan, es = p?.epics ?? [], ts = at(v).tasks, c = ucfg(v)
   if (!es.length) return { lines: [[muted(`  no epics yet${SEP}Claude drafts the roadmap`)]], keys: [] }
   const of = (t: SnapTask) => es.find(e => e.id === t.id)!
@@ -20,7 +20,7 @@ export const milestone: Renderer = (v, w, rows) => {
     return [f, ...(e.core ? ['core'] : [])]
   }
   const nodes = es.map(e => ({ id: e.id, title: e.title, deps: e.deps.map(id => ({ id, type: 'blocks' })) }) as unknown as SnapTask)
-  const road = dag(v, nodes, w, '', t => K[of(t).state], fact)
+  const road = dag(v, nodes, w, '', t => K[of(t).state], fact, t => (of(t).state === 'landed' && a.revert ? { k: `rv:${t.id}`, p: () => a.revert!(t.id) } : {}))   // a landed epic's row opens its revert card
   const ok = activityRows(v, w, undefined, e => String(e.type) === 'plan.approved' || (e.type === 'drive.decided' && e.data.kind === 'plan'))
   const head = w >= 100 && p?.epicBranch ? [[muted(`  ${p.epicBranch}`)]] : []
   const all = joinSections([[...head, ...road], ok.length ? [title('Plan approvals'), ...ok] : []], c.density)

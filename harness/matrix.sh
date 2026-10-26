@@ -50,6 +50,7 @@ plan-tools-full|single ready scripted/multi|plantools|MODEL=haiku CC_VERSION=2.1
 tool-surface|single ready|surface|MODEL=haiku CC_VERSION=2.1.295 S=1 BUDGET=420 ORACLE=surface
 submodule-unit|single ready scripted/submodule|submodule|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 LAND_RE=lib.to BUDGET=600 ORACLE=submodule
 model-gate|single ready scripted/gate|gate|MODEL=haiku CC_VERSION=2.1.295 S=1 BUDGET=40 ORACLE=gate
+revert-epic|single ready scripted/revert|revert|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=150 ORACLE=revert
 concurrency-fifo|single ready scripted/fifo|fifo|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=150 ORACLE=fifo
 continue-after-quit-s|single ready scripted/cont|contkill|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=600 ORACLE=continue
 # the 0.16 cells

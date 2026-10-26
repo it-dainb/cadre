@@ -27,7 +27,7 @@ const commitPaths = async (h: Host, wt: string, paths: string[], msg: string, am
 }
 
 // setup + suites.integration per touched unit (files = null: every unit), each unit once. Returns the failure text, or null when green.
-async function runSuites(h: Host, cfg: any, wt: string, files: string[] | null, epicId: string, kr: { root: string; n: string }[] = []): Promise<string | null> {
+export async function runSuites(h: Host, cfg: any, wt: string, files: string[] | null, epicId: string, kr: { root: string; n: string }[] = []): Promise<string | null> {
   const pkgs: any[] = unitsOf(cfg), own = pkgs.filter(p => !p.ownGit), hit = new Set(files?.map(f => { const u = ownerOf(pkgs, f); return u?.ownGit ? ownerOf(own, f) : u }))
   const touched = own.filter(p => !files || hit.has(p))   // a submodule's checks ran in its own repository (subMerge); its pointer bump gates the unit that holds it
   const mode = await modeOf(h, { cfg }).catch((e: Error) => e); if (mode instanceof Error) return mode.message
@@ -208,6 +208,7 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
     const kr: { root: string; n: string }[] = [], red = await runSuites(h, cfg, tmp, files, epicId, kr); if (red) return await fail(red, true)
     const sl = await subLand(h, cfg.branches.dev, subs); subs = []; if (sl) return await fail(sl, false)
     if (!(await landDev(h, { dev, sha, old: m.devTip, tmp, epic: from }))) return await fail(`${dev} moved during integration; set it completed again (status)`, false)
+    await store.setMeta(epicId, { 'cadre.landed': `${dev}@${sha}` }, 'cadre').catch(x => h.log(`landed not recorded: ${x}`))   // core/revert finds the merge by this
     for (const u of unitsOf(cfg).filter(u => u.ownGit)) { const sr = `${root}/${u.root}`; if ((await exists(h.run, sr, from)) && (await ok(h.run, sr, ['merge-base', '--is-ancestor', from, cfg.branches.dev]))) await op(h, () => git(h.run, sr, ['branch', '-D', from])).catch(x => h.log(`${u.root}: ${x}`)) }   // the parent records it: its epic branch goes
     await offer(h, dev)   // the user has it checked out: the landing waits for them
     if (ep) return await landed(h, store, epicId, sha, files, cfg.branches.dev, tmp)
@@ -268,7 +269,7 @@ ROUTES.release = async (h, c) => ({ text: await releaseDev(h, c.args[0]) })
 const mainOf = async (h: Host, cfg: any, root: string) => cfg.branches.main || ((await exists(h.run, root, 'main')) ? 'main' : 'master')
 // ---- H5: a landing that waits for the user's checkout (core/branches.move). One dialog offers to land it; it lands by itself once the branch is checked out nowhere. ----
 const ask1 = (h: Host, b: string, line: string) => ask(h, { id: `pending:${b}`, kind: 'flag', title: `${b} has new work for your checkout`, hash: fnv1a64(line), tab: 'epic', lines: [line, 'Land: bring it into your checkout now (your own commits and edits are kept).'], options: [{ key: 'l', label: 'Land', verb: 'change', run: `land ${b}` }] })
-async function offer(h: Host, b: string) { if (await exists(h.run, await h.cwd(), pendingRef(b))) await ask1(h, b, `cadre did not move ${b}: you have it checked out.`) }
+export async function offer(h: Host, b: string) { if (await exists(h.run, await h.cwd(), pendingRef(b))) await ask1(h, b, `cadre did not move ${b}: you have it checked out.`) }
 const asked = async (h: Host, b: string) => ((await h.board.read()).decisions ?? []).some(d => d.id === `pending:${b}`)   // a new process starts with no dialogs: the tick asks again
 const inFlight = new Set<string>()   // ponytail: per process; two sessions on one repo each get their own tmp (a random suffix), so they only repeat the suites
 // (2) the user committed on b meanwhile: their commit is never dropped; the landing re-integrates onto it through the gates (trial merge, suites); (1) the click:

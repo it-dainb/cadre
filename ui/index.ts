@@ -94,6 +94,7 @@ export function acts(h: Host): Acts {
     pick: id => { const pre = h.ops!.open({ ...OPEN, focus: true }); later(h, async () => { await h.ui.update(u => ({ ...u, sel: id, go: false })); await openPane(h, 'epic', { pre }) }) },
     run: cmd => later(h, async () => { const r = await configPress(h, cmd); h.toast(`${r.text.split('\n')[0].slice(0, 53)}`); h.ops?.invalidate(); await autoAsk(h) }),   // a Settings toggle (a press, not a decision); edit asks its decision
     drive: what => later(h, async () => { const r = await dispatch(h, { schemaVersion: 1, cmd: 'drive', args: [what], origin: { kind: 'press' } }, ROUTES.drive); h.toast(`${r.text.split('\n')[0].slice(0, 53)}`); h.ops?.invalidate() }),   // band `0`: drive stop | resume | continue, as the human's press
+    revert: id => later(h, async () => { const r = await dispatch(h, { schemaVersion: 1, cmd: 'revert', args: [id], origin: { kind: 'press' } }, ROUTES.revert); h.toast(`${r.text.split('\n')[0].slice(0, 53)}`); await autoAsk(h) }),   // the card's button: the revert dialog (core/revert)
     answer: id => later(h, async () => { await ack(h); await answerDialog(h, id) }),   // `1`: the decision's dialog, again
     step: (what, d) => later(h, async () => {
       const v = await read(h), ts = at(v).tasks, ids = cols(ts).flat().map(t => t.id), cur = v.t ?? v.now
