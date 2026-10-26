@@ -10,6 +10,7 @@ import { ROUTES, dispatch } from '../core/dispatch'
 import { color, glyph, glyphRole, readCfg } from './tokens'
 import { strictOf } from '../config/index'
 import { configPress, refreshLessons, refreshSettings } from '../config/route'
+import { fieldLabel, labels, pick, title } from './tr'
 import { type Acts, S, at, cols, cut, decisions, draw, kindOf, read, t0 } from './model'
 
 export { ack, syncStatus } from './notify'
@@ -60,7 +61,7 @@ export async function autoAsk(h: Host): Promise<void> {
 // (Decision.change). The answer goes to core/dispatch.answer, which re-checks the hash; a refusal that moved the decision (stale, an invalid value) re-asks it.
 // Dismissed or -p ($.ui.ask rejects): nothing is decided. Auto-answers by other mods are an accepted risk (ADR 0012).
 export const NOT_NOW = 'Not now'
-const body = (d: Decision) => [d.title, ...(d.error ? [`! ${d.error}`] : []), ...d.lines].slice(0, 7).join('\n')   // the title + at most 6 lines
+const body = (d: Decision) => [title(d), ...(d.error ? [`! ${d.error}`] : []), ...d.lines].slice(0, 7).join('\n')   // the title + at most 6 lines
 let asking = false
 export async function answerDialog(h: Host, id?: string): Promise<void> {
   if (!h.ask || !h.answer || asking) return
@@ -71,11 +72,11 @@ export async function answerDialog(h: Host, id?: string): Promise<void> {
       if (!d || d.hash === last) return
       const vals: Record<string, string> = {}
       for (const f of d.fields ?? []) {
-        const keep = f.value ? `Keep ${f.value}` : 'Leave it empty', x = (await h.ask(`${f.label}?`, [keep, 'Cancel'])).trim()
+        const keep = f.value ? `Keep ${f.value}` : 'Leave it empty', x = (await h.ask(`${fieldLabel(d, f)}?`, [keep, 'Cancel'])).trim()
         if (x === 'Cancel') return
         vals[f.key] = x === keep ? f.value ?? '' : x
       }
-      const os = d.options.filter(o => o.run).slice(0, 4), x = (await h.ask(body(d), [...os.map(o => o.label), ...(os.length < 2 ? [NOT_NOW] : [])])).trim(), o = os.find(y => y.label === x)
+      const os = d.options.filter(o => o.run).slice(0, 4), x = (await h.ask(body(d), [...labels(d, os), ...(os.length < 2 ? [NOT_NOW] : [])])).trim(), o = pick(d, os, x)
       if (!o) {
         if (x && x !== NOT_NOW && !d.fields?.length) { await queueBrief(h, `${d.change ?? `About "${d.title}": `}${x}`); h.log(`sent to Claude · ${cut(x, 60)}`) }
         return
