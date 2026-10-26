@@ -32,7 +32,7 @@ const uiLiterals = walk(join(root, 'ui')).filter(f => !f.endsWith('/tokens.ts') 
   .filter(([, l]) => /[^\x00-\x7f]|'(text|inactive|subtle|suggestion|success|error|warning|claude|permission|merged)'|#[0-9a-f]{6}\b|0x[0-9a-f]{6,8}\b/i.test(l)).map(([w, l]) => `${w}: ${l.trim().slice(0, 80)}`))
 const memoryStore = sum(Object.fromEntries(walk(join(root, 'task-management/adapters/memory')).map(f => [f, loc(f)])))
 const agents = Object.fromEntries(readdirSync(join(root, 'agents')).filter(n => n.endsWith('.md')).sort().map(n => [n.slice(0, -3), readFileSync(join(root, 'agents', n), 'utf8')]))   // plugin agent files, pinned to agents/index.file()
-const promptBytes = Object.fromEntries(Object.entries(agents).map(([r, t]) => [r, Buffer.byteLength(t.split('\n---\n').slice(1).join('\n---\n'))]))   // A2/A4: the built-in role prompts' size (tests/budget.test.ts caps each at 1472 B)
+const promptBytes = Object.fromEntries(Object.entries(agents).map(([r, t]) => [r, Buffer.byteLength(t.split('\n---\n').slice(1).join('\n---\n'))]))   // A2/A4: the built-in role prompts' size (tests/budget.test.ts caps each at 1664 B)
 const bytes = o => Object.values(o).reduce((a, s) => a + Buffer.byteLength(s), 0)
 const guides = Object.fromEntries(readdirSync(join(root, 'guides')).filter(n => n.endsWith('.md')).sort().map(n => [n.slice(0, -3), readFileSync(join(root, 'guides', n), 'utf8')]))   // agent-run setup/init guides (ADR 0010): the wording lint reads them here
 // Model-visible exits (AGENTS.md): every line that hands text to a model must route it through core/say modelText()/modelData(). New sites are caught here.
@@ -60,4 +60,4 @@ export const BUDGET = ${JSON.stringify({ coreLoc: sum(modules), uiLoc: sum(ui), 
 if (process.argv.includes('--check')) { if (!existsSync(out) || readFileSync(out, 'utf8') !== body) { console.error('budget.generated.ts is stale: run node scripts/budget.mjs'); process.exit(1) } }
 else writeFileSync(out, body)
 if (modelExits.length) console.error(`model-visible exits outside modelText():\n${modelExits.join('\n')}`); if (modelExits.length) process.exitCode = 1
-console.log(`core ${sum(modules)} / 7400 (core cap 7400) · ui ${sum(ui)} / 1100 · memory store ${memoryStore} / 150 · skills ${skills} · gating hooks without .catch ${gatingMissing} · model exits outside modelText ${modelExits.length} · role prompt bytes ${Object.entries(promptBytes).map(([r, n]) => `${r} ${n}`).join(', ')} (cap 1472) · shipped agents+guides ${bytes(agents) + bytes(guides)} B (cap 17448)`)
+console.log(`core ${sum(modules)} / 7400 (core cap 7400) · ui ${sum(ui)} / 1100 · memory store ${memoryStore} / 150 · skills ${skills} · gating hooks without .catch ${gatingMissing} · model exits outside modelText ${modelExits.length} · role prompt bytes ${Object.entries(promptBytes).map(([r, n]) => `${r} ${n}`).join(', ')} (cap 1664) · shipped agents+guides ${bytes(agents) + bytes(guides)} B (cap 17693)`)
