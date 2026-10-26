@@ -294,7 +294,7 @@ Under `git.op`, in the task worktree: `checkout --detach <epic tip>` → `merge 
 - **Overlay jail (checks, offline):** `bwrap --unshare-net --ro-bind / / --dev /dev --proc /proc --overlay-src <wt> --tmp-overlay <wt> --bind <scratch> /tmp [--bind <jailWritable…>] --chdir <pkgRoot> -- <argv>`: tree writable, writes discarded, no network. `tdd.report.path` must be under `/tmp/cadre/` (config validation refuses others).
 - **Writable jail (`setup`, skeleton; network on):** `--bind <wt> <wt>` instead of the overlay and no `--unshare-net`. `setup` is the only place anything is fetched.
 - **`$HOME`-overlay jail (init discovery only):** the writable jail plus `--overlay-src $HOME --overlay <scratch>/home-up <scratch>/home-work $HOME`; afterwards the mod lists the top-level entries (depth 2 under `$HOME`) in `home-up` = the dirs `setup` wrote (§10.2).
-- No overlay support (bwrap < 0.8, S42) or no bwrap (macOS) → a throwaway detached worktree at the target commit; network stance documented as unenforced there.
+- No overlay support (bwrap < 0.8, S42) or no bwrap → a throwaway detached worktree at the target commit; network stance documented as unenforced there. (cadre is Linux-only: it stays off on another OS.)
 - Checks are mod-attributed, never quarantined; result (exit, duration, last 2 KB, log path) is a canonical record.
 
 ### 3.11 Process stance

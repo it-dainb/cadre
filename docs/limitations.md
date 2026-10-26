@@ -25,4 +25,4 @@ From the M0 spike ([ADR 0001](docs/adr/0001-m0-results.md)):
 - Per-repo state: the mod's policy (repo, worktree root, locks) is keyed per repo, so two repos in one user config do not share it.
 - Workers cannot `git add/commit` (repo-level `denyWrite`, S24): the mod commits. `/tmp` is not writable for subagents; use `$TMPDIR`.
 - Per-agent 1 h cache TTL needs plugin agent files and may be ignored on accounts without usage credits; cadre reads the usage fields to detect it.
-
+- **Linux only.** On another OS (`uname -s` is not Linux) cadre logs one line, registers nothing and stays off.

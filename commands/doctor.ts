@@ -32,7 +32,7 @@ export const oldLine = (v: string) => `cadre needs Claude Code ≥ ${MIN_CC}; yo
 export type Script = { path: string; text: string; run?: string; full?: string; exec?: true }   // run = the short line that runs it; full = the same fix as one copy-safe command
 export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; facts: Record<string, string>; scripts: Script[] }> {
   const r = (argv: string[]) => h.run(argv, { timeoutMs: 5000 }).catch(() => undefined), text = (x?: { stdout: string; stderr: string }) => `${x?.stdout}${x?.stderr}`, out = async (argv: string[]) => (await r(argv))?.stdout.trim() ?? ''
-  const mac = (await r(['uname', '-s']))?.stdout.trim() === 'Darwin', pm = mac ? 'brew install' : 'apt install', rows: Row[] = [], facts: Record<string, string> = {}, scripts: Script[] = []
+  const rows: Row[] = [], facts: Record<string, string> = {}, scripts: Script[] = []
   const add = (x: Row): void => { rows.push(x) }
   const home = await h.home(), dir = `${(await h.env()).XDG_CACHE_HOME || `${home}/.cache`}/cadre/fix`, shown = dir.startsWith(`${home}/`) ? `~${dir.slice(home.length)}` : dir
   const fix = (name: string, why: string, cmd: string, root = true): string => {
@@ -49,29 +49,26 @@ export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; fact
   const started = (await h.secret.read()).start; if (started?.failed) add(['warn', `cadre started only in part this session (${started.failed})`, 'restart Claude Code; if it repeats, report it with /cadre doctor'])   // hooks/register session.start
   const inj = ((await h.store.get(await scoped(h, 'injected'))) as string[] | undefined) ?? []; if (inj.length) add(['warn', `tools Claude Code gave the agents that cadre does not know: ${inj.join(', ')}`])   // exit rule 3: observed, judged like any other call
   const g = await r(['git', '--version']), gv = ver(text(g))
-  add(!g || g.exitCode || !gv ? ['crit', 'git not found', fix('git', 'installs git (needed for worktrees).', `${pm} git`, !mac)] : atLeast(gv, '2.17') ? ['ok', `git ${gv}`] : ['crit', `git ${gv} is too old for worktrees`, fix('git', 'upgrades git to 2.17 or newer (needed for worktrees).', `${pm} git`, !mac)])
+  add(!g || g.exitCode || !gv ? ['crit', 'git not found', fix('git', 'installs git (needed for worktrees).', `apt install git`)] : atLeast(gv, '2.17') ? ['ok', `git ${gv}`] : ['crit', `git ${gv} is too old for worktrees`, fix('git', 'upgrades git to 2.17 or newer (needed for worktrees).', `apt install git`)])
   const id = g && !g.exitCode ? await identity(h.run, await h.env()) : undefined   // commits land on the user's branches: their own name and email, asked, never made up (ADR 0009)
   if (id?.ok) add(['ok', 'git identity set'])
   else if (id) add(['crit', 'git identity missing: commits need your name and email', 'ask for them, then git config --global user.name and user.email'])
-  if (mac) { facts.jail = 'none'; add(['warn', 'no bwrap on macOS: throwaway-worktree mode, network unenforced']) }
-  else {
-    const w = await r(['bwrap', '--version']), wv = ver(text(w)); facts.bwrap = wv; facts.jail = await jailMode(h.run)
-    if (!w || w.exitCode) add(['crit', 'bwrap not found: checks run unjailed', fix('bwrap', 'installs bubblewrap and socat (Claude Code needs them to run commands safely).', `${pm} bubblewrap socat`, !mac)])
-    else if (facts.jail === 'none') {
-      const apparmor = (await h.readText('/proc/sys/kernel/apparmor_restrict_unprivileged_userns'))?.trim(), clone = (await h.readText('/proc/sys/kernel/unprivileged_userns_clone'))?.trim()
-      if (apparmor === '1') {
-        const bin = (await out(['sh', '-c', 'command -v bwrap'])) || '/usr/bin/bwrap'
-        add(['warn', `bwrap ${wv} is blocked by AppArmor (kernel.apparmor_restrict_unprivileged_userns=1)`, fix('bwrap-apparmor', `lets only bwrap create user namespaces (AppArmor blocks it: kernel.apparmor_restrict_unprivileged_userns=1). The safest fix.`, `printf 'abi <abi/4.0>,\\ninclude <tunables/global>\\nprofile bwrap ${bin} flags=(unconfined) {\\n  userns,\\n  include if exists <local/bwrap>\\n}\\n' | tee /etc/apparmor.d/bwrap >/dev/null\nsystemctl reload apparmor`)])
-        scripts.push({ path: `${dir}/README`, text: `cadre setup: less safe alternatives to ${shown}/bwrap-apparmor.sh\nThey allow user namespaces for EVERY program (Claude Code's sandbox included). Run as root, one of:\n\n  sysctl -w kernel.apparmor_restrict_unprivileged_userns=0   # until reboot\n  echo 'kernel.apparmor_restrict_unprivileged_userns=0' | tee /etc/sysctl.d/60-userns.conf   # keeps it across reboots\n` })
-      } else if (clone === '0') add(['warn', `bwrap ${wv} cannot create a user namespace (kernel.unprivileged_userns_clone=0)`, fix('userns-clone', 'allows unprivileged user namespaces (kernel.unprivileged_userns_clone=0 blocks bwrap).', 'sysctl -w kernel.unprivileged_userns_clone=1')])
-      else add(['warn', `bwrap ${wv} cannot create a user namespace`, 'see https://code.claude.com/docs/en/sandboxing'])
-    } else add(facts.jail === 'copy' ? ['ok', `bwrap ${wv}: copy jail (overlay needs >= 0.11; works, a little slower)`] : ['ok', `bwrap ${wv}: overlay jail`])
-    const s = await r(['socat', '-V'])
-    add(!s || s.exitCode ? ['crit', 'socat not found (Claude Code needs it on Linux)', fix('socat', 'installs socat (Claude Code needs it on Linux).', `${pm} socat`, !mac)] : ['ok', 'socat present'])
-  }
+  const w = await r(['bwrap', '--version']), wv = ver(text(w)); facts.bwrap = wv; facts.jail = await jailMode(h.run)
+  if (!w || w.exitCode) add(['crit', 'bwrap not found: checks run unjailed', fix('bwrap', 'installs bubblewrap and socat (Claude Code needs them to run commands safely).', `apt install bubblewrap socat`)])
+  else if (facts.jail === 'none') {
+    const apparmor = (await h.readText('/proc/sys/kernel/apparmor_restrict_unprivileged_userns'))?.trim(), clone = (await h.readText('/proc/sys/kernel/unprivileged_userns_clone'))?.trim()
+    if (apparmor === '1') {
+      const bin = (await out(['sh', '-c', 'command -v bwrap'])) || '/usr/bin/bwrap'
+      add(['warn', `bwrap ${wv} is blocked by AppArmor (kernel.apparmor_restrict_unprivileged_userns=1)`, fix('bwrap-apparmor', `lets only bwrap create user namespaces (AppArmor blocks it: kernel.apparmor_restrict_unprivileged_userns=1). The safest fix.`, `printf 'abi <abi/4.0>,\\ninclude <tunables/global>\\nprofile bwrap ${bin} flags=(unconfined) {\\n  userns,\\n  include if exists <local/bwrap>\\n}\\n' | tee /etc/apparmor.d/bwrap >/dev/null\nsystemctl reload apparmor`)])
+      scripts.push({ path: `${dir}/README`, text: `cadre setup: less safe alternatives to ${shown}/bwrap-apparmor.sh\nThey allow user namespaces for EVERY program (Claude Code's sandbox included). Run as root, one of:\n\n  sysctl -w kernel.apparmor_restrict_unprivileged_userns=0   # until reboot\n  echo 'kernel.apparmor_restrict_unprivileged_userns=0' | tee /etc/sysctl.d/60-userns.conf   # keeps it across reboots\n` })
+    } else if (clone === '0') add(['warn', `bwrap ${wv} cannot create a user namespace (kernel.unprivileged_userns_clone=0)`, fix('userns-clone', 'allows unprivileged user namespaces (kernel.unprivileged_userns_clone=0 blocks bwrap).', 'sysctl -w kernel.unprivileged_userns_clone=1')])
+    else add(['warn', `bwrap ${wv} cannot create a user namespace`, 'see https://code.claude.com/docs/en/sandboxing'])
+  } else add(facts.jail === 'copy' ? ['ok', `bwrap ${wv}: copy jail (overlay needs >= 0.11; works, a little slower)`] : ['ok', `bwrap ${wv}: overlay jail`])
+  const s = await r(['socat', '-V'])
+  add(!s || s.exitCode ? ['crit', 'socat not found (Claude Code needs it on Linux)', fix('socat', 'installs socat (Claude Code needs it on Linux).', `apt install socat`)] : ['ok', 'socat present'])
   const root = await wtRootOf(h, cfg); let p = root   // read-only: the nearest existing ancestor must be writable
   while (p.length > 1 && !(await h.stat(p))) p = p.slice(0, p.lastIndexOf('/')) || '/'
-  if ((await r(['test', '-w', p]))?.exitCode === 0) add(['ok', `${mac ? 'macOS' : 'Linux'}; worktree root ${root} is writable`])
+  if ((await r(['test', '-w', p]))?.exitCode === 0) add(['ok', `Linux; worktree root ${root} is writable`])
   else add(['crit', `worktree root ${root} is not writable`, `set worktrees.root in ~/.claude/cadre.json, or fix the permissions of ${p}`])
   return { rows, facts, scripts }
 }

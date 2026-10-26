@@ -12,7 +12,7 @@ import type { Host } from '../types'
 type R = { exitCode: number; stdout: string; stderr: string }
 const HOME = '/hm/u', USER = `${HOME}/.claude/settings.json`
 // scripted machine: `tools` maps argv[0] to its output (absent = not installed); `jail` = overlay | copy | none
-function mk(o: { shadow?: string; foreign?: boolean; npmFails?: boolean; tools?: Record<string, string>; os?: string; repo?: boolean; jail?: 'overlay' | 'copy' | 'none'; cc?: string; files?: Record<string, string>; noIdent?: { on: boolean } } = {}) {
+function mk(o: { shadow?: string; foreign?: boolean; npmFails?: boolean; tools?: Record<string, string>; repo?: boolean; jail?: 'overlay' | 'copy' | 'none'; cc?: string; files?: Record<string, string>; noIdent?: { on: boolean } } = {}) {
   let installed = false, moved = false; const files = { ...o.files }, calls: string[][] = [], writes: string[] = [], tools = o.tools ?? { git: 'git version 2.43.0', bd: 'bd version 1.3.1', bwrap: 'bubblewrap 0.11.0', socat: 'socat version 1.8' }
   const h = fakeHost({ files }) as Host & { toasts: string[] }
   void h.store.set('cadre:prefs', { at: 0 })   // preferences chosen (tests/prefs.test.ts covers that row)
@@ -29,7 +29,6 @@ function mk(o: { shadow?: string; foreign?: boolean; npmFails?: boolean; tools?:
       if (argv[0] === '/hm/u/.npm/bin/bd' || (moved && argv[0] === 'bd')) return installed ? out('bd version 1.3.1') : out('', 127)
       if (argv[0] === 'bd' && argv[1] === 'version' && installed && (!o.shadow || moved)) return out('bd version 1.3.1')
       if (argv[0] === 'bd' && argv[1] === 'version' && o.shadow && !moved) return out(o.foreign ? '' : 'bd version 0.43.0')   // foreign: another product's `bd` (Bitdefender's prints nothing, exit 0)
-      if (argv[0] === 'uname') return out(o.os ?? 'Linux')
       if (argv[0] === 'test') return out('')
       if (argv[0] === 'bwrap') return !tools.bwrap || (o.jail === 'none' && argv[1] !== '--version') ? out('', 127) : argv[1] === '--help' ? out(o.jail === 'copy' ? 'usage' : '--overlay-src') : out(tools.bwrap)
       if (argv[0] === 'bd' && argv[1] === 'update') return out('--if-revision')
@@ -68,10 +67,6 @@ describe('machine checks', () => {
   test('old bwrap is ok in copy-jail mode with no sudo step, no namespaces warns', async () => {
     { const r = await rowsOf(mk({ jail: 'copy' })); expect(lvl(r, /copy jail/)[0]).toBe('ok'); expect(JSON.stringify(r)).not.toContain('bwrap-upgrade') }
     expect(lvl(await rowsOf(mk({ jail: 'none' })), /user namespace/)[0]).toBe('warn')
-  })
-  test('macOS: no bwrap, no socat check, throwaway-worktree mode', async () => {
-    const rs = await rowsOf(mk({ os: 'Darwin', tools: { git: 'git version 2.43.0', bd: 'bd version 1.3.1' } }))
-    expect(lvl(rs, /macOS: throwaway/)![0]).toBe('warn'); expect(lvl(rs, /socat/)).toBeUndefined()
   })
   test('a newer Claude Code build only warns; an older one than cadre needs is a fail that says claude update', async () => {
     expect(lvl(await rowsOf(mk({ cc: '2.1.296' })), /Claude Code/)).toEqual(['warn', 'Claude Code 2.1.296: newer than the tested 2.1.295; usually fine'])

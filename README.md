@@ -101,8 +101,8 @@ Set in `.cadre/config.json` (the setup writes it; edit it by hand to change it):
 
 - Claude Code **2.1.295** (tested; newer usually works and only warns)
 - `git`
-- A filesystem with hard links for the project (any normal Linux or macOS disk; not exFAT or some network mounts), where `.cadre/state` lives.
-- Linux: `bwrap` (bubblewrap) and `socat` for sandboxed checks. macOS: setup tells you what is needed.
+- A filesystem with hard links for the project (any normal Linux disk; not exFAT or some network mounts), where `.cadre/state` lives.
+- Linux only (on another OS cadre says so and stays off): `bwrap` (bubblewrap) and `socat` for sandboxed checks.
 
 Security note: the dependency install a task may ask for runs isolated (clean environment, your home hidden, no scripts, registry packages only) but with network access, because it must reach the package registry. On a cloud host the cloud metadata endpoint is therefore reachable from it.
 - The install has network access, so abstract unix sockets and host loopback services are reachable from it.

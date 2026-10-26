@@ -70,6 +70,7 @@ export interface Secret {
   adoptTried?: boolean; active?: boolean; root?: string   // root: the main session's cwd, set at session.start
   old?: string                                          // the Claude Code version when it is older than cadre needs (commands/doctor.MIN_CC): cadre stays off
   storeOff?: string                                     // the task store's probe failed (no hard links in .cadre/state): cadre stays off this session, Doctor says why
+  platform?: string                                     // `uname -s` when it is not Linux (hooks/register session.start): cadre stays off
   tools?: { on: string[]; refused: string[]; task?: string[]; due?: string[] }           // the tools registered at session start, and those Claude Code refused (hooks/register; Doctor) · due: registered this turn, listed from the next (hooks/register.arm)
   roles?: { done: { name: string; turn: number }[]; failed: Record<string, { why: string; n: number }> }   // custom roles (hooks/register.roles): the registers the engine fulfilled, each with the main turn it was made in; those it rejected or rule 6 refused: why and attempts (n 1 = retried once on the first turn, 2 = a Doctor line)
   start?: { failed?: string }                           // a step of session.start threw (hooks/register): the session went on; Doctor says cadre started only in part
