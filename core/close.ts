@@ -256,6 +256,7 @@ export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
   if (b?.parent) return helperStopped(h, b, e)   // a helper ends and answers exactly once (core/needs), whatever its role's step is
   if (b?.role === 'planner') return planStopped(h, d, e)   // an epic's planner (core/planner)
   if (b && t && (await runOf(h, e.agentId))?.exit) { await end(h, e.agentId, 'loop', 'blocked'); return blockTask(h, d, t, `its agent made the same call ${REPEAT} times in a row`, 'loop', {}) }   // the breaker spent it (exit rule 4): one dialog
+  if (b && t?.state === 'blocked' && b.role !== 'worker' && ['running', 'refused', 'silent'].includes((await runOf(h, e.agentId))?.state?.state ?? '')) return void (await end(h, e.agentId, 'stopped', 'blocked'))   // its turn ended on a task that waits for the user (a tester's malformed reports): the run is dead, and left `running` it holds the idle fallback off for every other task; a worker stays bound (the answer resumes it)
   if (!b || !t || !(t.step === b.step && STEP_CAT[b.step] === t.state)) return   // no binding, or it reported/moved on
   if (e.reason === 'answer') {
     const run = await runOf(h, e.agentId), k = run?.state?.state === 'silent' ? run.state.n : 0, stag = (run?.stag ?? 0) >= d.cfg.limits.stagnantNudges   // this run's nudges so far · nudged that often with no tool call between
@@ -390,7 +391,7 @@ async function cancelTask(h: Host, d: Deps, id: string, why: string): Promise<st
 }
 async function decide(h: Host, d: Deps, id: string, text: string): Promise<string | null> {
   const t = (await h.board.read()).tasks.find(x => x.id === id)
-  if (t?.state !== 'blocked') return modelText('tool-result', t ? `${id} is ${t.state}, not blocked: the user already answered its dialog and it went on, so nothing is left to decide. Carry on with the rest.` : `no task ${id}`)   // main's question and the dialog are two channels for one decision: the dialog may win
+  if (t?.state !== 'blocked') return modelText('tool-result', !t ? `no task ${id}` : t.state === 'active' ? `${id} is not blocked: the user already answered its dialog and it went on, so nothing is left to decide. Carry on with the rest.` : `${id} is ${t.state}; nothing to decide`)   // main's question and the dialog are two channels for one decision: the dialog may win
   const y = yoloOn((await h.board.read()).drive), why = y ? await hardStop(h) : null
   if (why) { await stop(h, why); return `${id}: the run stopped (${why}); the user decides this task in the cadre dialog now. Stop and wait.` }   // a hard stop mid-turn: main's decision is not applied
   const meta = (await d.store.get(id)).meta
