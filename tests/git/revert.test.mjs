@@ -120,3 +120,37 @@ test('a recorded branch that moves after the confirm (during the delete) stays: 
     assert.match(out.text, /feat\/t1-login \(changed or not merged\)/); assert.equal(sh(d, 'rev-parse', 'feat/t1-login'), moved)
   }
 })
+
+// security review (ADR 0030): R-01 shape of the recorded landing, R-02 allowlist of deletable branches, R-04 a branch of the user's, R-05 changelog path, R-07 what the confirm covers
+test('R-01: a recorded landing that is not branch@40-hex-sha on a landing branch is refused before it reaches git', async () => {
+  const { d, store, epic, press } = await world(), good = (await store.get(epic)).meta['cadre.landed'], sha = good.split('@')[1], before = sh(d, 'rev-parse', 'dev')
+  for (const bad of ['dev@--output=owned.txt', `dev@${sha.slice(0, 7)}`, `-x@${sha}`, `release/1.0@${sha}`, `a..b@${sha}`, `dev@${sha}\n-x`]) {
+    await store.setMeta(epic, { 'cadre.landed': bad }, 'cadre'); assert.match((await press(epic)).text, /refused \(unknown\)/, bad)
+  }
+  assert.equal(existsSync(join(d, 'owned.txt')), false); assert.equal(sh(d, 'rev-parse', 'dev'), before)
+  await store.setMeta(epic, { 'cadre.landed': good }, 'cadre'); assert.doesNotMatch((await press(epic)).text, /refused/)
+})
+test('R-02: a recorded branch that is not cadre\'s own (a user branch at the same tip) is never deleted, even in an abandon', async () => {
+  const { d, store, epic, ans, press } = await world(false)
+  sh(d, 'branch', 'release/1.0', 'main'); await store.createDraft({ title: 'odd', description: 'd', type: 'feature', parent: epic, meta: { 'cadre.branch': 'release/1.0' } })
+  await press(epic); await ans(`revert:${epic}`, 'a'); const out = await ans(`revert-sure:${epic}`, 'z')
+  assert.match(out.text, /abandoned: .*release\/1\.0 \(not a branch name\)/); assert.match(sh(d, 'branch', '--list', 'release/1.0'), /release/); assert.equal(sh(d, 'branch', '--list', 'feat/t1-login'), '')
+})
+test('R-04: a branch revert/<id> that cadre did not make is not deleted: the revert is refused as busy', async () => {
+  const { d, epic, ans, press } = await world(), mine = sh(d, 'commit-tree', '-p', 'main', '-m', 'mine', 'main^{tree}'), before = sh(d, 'rev-parse', 'dev')
+  sh(d, 'branch', `revert/${epic}`, mine); await press(epic); await ans(`revert:${epic}`, 'c')
+  assert.match((await ans(`revert-sure:${epic}`, 'y')).text, /refused \(busy\)/); assert.equal(sh(d, 'rev-parse', `revert/${epic}`), mine); assert.equal(sh(d, 'rev-parse', 'dev'), before)
+})
+test('R-05: changelog.path must stay inside the repo: config refuses it, and a revert refuses it before writing', async () => {
+  const { check } = await import('../../config/index.ts')
+  for (const v of ['../x.md', 'a/../../x.md', '/etc/x', '', 'a\\..\\x']) assert.notEqual(check('changelog.path', v), null, v)
+  for (const v of ['CHANGELOG.md', 'docs/CHANGES.md']) assert.equal(check('changelog.path', v), null, v)
+  const { d, cfg, epic, ans, press } = await world(), before = sh(d, 'rev-parse', 'dev'); cfg.changelog.path = '../../escaped.md'
+  await press(epic); await ans(`revert:${epic}`, 'c'); assert.match((await ans(`revert-sure:${epic}`, 'y')).text, /leaves the worktree/)
+  assert.equal(sh(d, 'rev-parse', 'dev'), before); assert.equal(existsSync(join(`${d}-wt`, 'escaped.md')), false)
+})
+test('R-07: the confirm covers the recorded commits and the merge flag: a change between the confirms re-asks', async () => {
+  const { store, t, epic, ans, press } = await world()
+  await press(epic); await ans(`revert:${epic}`, 'c'); await store.setMeta(t.id, { 'cadre.sourceCommit': 'f'.repeat(40) }, 'cadre')
+  assert.match((await ans(`revert-sure:${epic}`, 'y')).text, /changed since the card/)
+})

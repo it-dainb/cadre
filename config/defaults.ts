@@ -59,6 +59,7 @@ const m = (cat: Cat, desc: string, x: Partial<Meta> = {}): Meta => ({ cat, desc,
 const D = 'Drive and autonomy', P = 'Parallelism', M = 'Models and effort', R = 'Review', PL = 'Planning', G = 'Git and branches', C = 'Checks and TDD', SF = 'Safety and containment', CA = 'Cache and context', ST = 'Task store and sync'
 const mdl = (v: unknown) => (typeof v === 'string' && v ? null : 'expected a model'), EFFORT = ['default', 'low', 'medium', 'high', 'xhigh', 'max'], RISK = ['light', 'standard', 'thorough', 'core'], N = (min: number, max = 1e9) => ({ min, max })
 const ref = (empty = false) => (v: unknown) => (typeof v === 'string' && (empty && !v || /^[\w.][\w./-]*$/.test(v)) && !v.includes('..') ? null : 'a git name: letters, digits, . _ / -, not starting with - or .. inside')   // it reaches git push/fetch: an option-like value is refused
+const relPath = (v: unknown) => (typeof v === 'string' && v && !v.startsWith('/') && !v.includes('\\') && !v.split('/').includes('..') ? null : 'a path inside the repo: not absolute, no .. segment')   // it is written under a worktree
 const caps = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) && Object.values(v).every(x => Number.isInteger(x) && (x as number) >= 0 && (x as number) <= 100) ? null : 'expected {name: whole number 0-100}')
 const strs = (v: unknown) => (Array.isArray(v) && v.every(x => typeof x === 'string') ? null : 'expected a list of text')
 // a role's 4 risk cells x (model, effort, escalate.after/model/effort). The reviewer may not run on haiku (ADR 0016's floor, as allowed values).
@@ -113,7 +114,7 @@ export const REG: Record<string, Meta> = {
   'branches.main': m(G, 'the release branch (set by init)', { ok: ref(true) }), 'branches.dev': m(G, 'the integration branch', { ok: ref() }), 'branches.epicPrefix': m(G, 'epic branch name prefix'),
   'release.onEpicDone': m(G, 'after an epic lands on dev: propose a release, or not', { opts: ['propose', 'off'] }),
   'landing.mode': m(G, 'a plan lands on dev directly, or as a pull request that merges when its checks pass', { opts: ['direct', 'pr'] }), 'landing.review': m(G, 'pr mode: the pull request also needs an approving review'), 'landing.remote': m(G, 'pr mode: the git remote the pull request goes to', { ok: ref() }), 'limits.rebaseRounds': m(G, 'reworks onto a moved plan tip before asking you', N(0, 10)),
-  'changelog.path': m(G, 'the changelog cadre writes at close'), 'worktrees.root': m(G, "task worktrees ('' = ~/.cache/cadre/wt)", { cls: 'U' }),
+  'changelog.path': m(G, 'the changelog cadre writes at close', { ok: relPath }), 'worktrees.root': m(G, "task worktrees ('' = ~/.cache/cadre/wt)", { cls: 'U' }),
   'roles.testerView': m(C, 'view: the tester sees only the interface; full: the whole tree', { cls: 'S', opts: ['full', 'view'], tighten: 'enum' }),
   'roles.tdd.author': m(C, 'separate: a tester agent writes the tests; same: the worker does', { opts: ['separate', 'same'] }),
   'limits.testerRounds': m(C, 'tester reports refused at the red gate (tests not failing for the right reason) before the task blocks and asks you', N(1, 10)),
