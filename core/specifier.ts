@@ -27,7 +27,7 @@ export async function specAnswer(h: Host, d: Deps, agentId: string, r: { notes: 
   await d.store.setMeta(a.task, { 'cadre.specified': 'done', ...(r.notes.trim() ? { 'cadre.how': r.notes.trim() } : {}) }, d.actor)
   if (r.deviation !== 'none') {
     const t = (await h.board.read()).tasks.find(x => x.id === a.task)
-    await ask(h, { id: `spec:${a.task}`, key: 'specifier', kind: 'flag', title: `${a.task}: the specifier found a problem with the task`, hash: a.task, tab: 'epic', sel: a.task,
+    await ask(h, { id: `spec:${a.task}`, kind: 'flag', title: `${a.task}: the specifier found a problem with the task`, hash: a.task, tab: 'epic', sel: a.task,
       lines: [modelText('card', `${t?.title ?? a.task}: ${WHAT[r.deviation]}. The task goes on as planned; change the plan if it should not.`)], options: [{ key: 'k', label: 'OK', verb: 'keep' }] })
   }
   return 'notes recorded. Stop.'

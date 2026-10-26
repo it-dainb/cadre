@@ -235,7 +235,7 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
 
 // the red block's dialog (asked before the flag is raised, so it wins over the generic one): what failed, Retry (back to the tester, fresh rounds) or Cancel
 async function redAsk(h: Host, d: Deps, id: string, why: string) {
-  await ask(h, { id: `flag:${id}:red`, key: 'red', kind: 'flag', title: `${id}: its tests cannot be made red`, tab: 'epic', sel: id, hash: fnv1a64(why), lines: [...why.slice(0, 400).split('\n').filter(Boolean), 'Retry: fix the cause (the package checks, or the test setup), then a new tester writes the tests again. Cancel task: end it.'],
+  await ask(h, { id: `flag:${id}:red`, kind: 'flag', title: `${id}: its tests cannot be made red`, tab: 'epic', sel: id, hash: fnv1a64(why), lines: [...why.slice(0, 400).split('\n').filter(Boolean), 'Retry: fix the cause (the package checks, or the test setup), then a new tester writes the tests again. Cancel task: end it.'],
     options: [{ key: 'r', label: 'Retry', verb: 'restore', run: `resolve ${id} retry` }, { key: 'x', label: 'Cancel task', verb: 'cancel', run: `resolve ${id} cancel` }] })
 }
 

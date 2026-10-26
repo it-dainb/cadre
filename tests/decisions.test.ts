@@ -17,7 +17,7 @@ import { plan, world } from './fixtures/native/world'
 import { clashes, fakeHost } from './support'
 import { NOOP, approval, view } from './fixtures/ui/epic'
 
-const dec = (id: string, kind: string, title: string, lines: string[], options: Decision['options'], o: Partial<Decision> = {}): Decision => ({ id, key: kind, kind, title, lines, hash: 'h', options, ...o })
+const dec = (id: string, kind: string, title: string, lines: string[], options: Decision['options'], o: Partial<Decision> = {}): Decision => ({ id, kind, title, lines, hash: 'h', options, ...o })
 const flag = (f: string) => flagDecision('a2', f, 'Session refresh')!
 const LITE = { kind: 'plan', lane: 'lite', reason: 'one small fix in src/a.ts', type: 'bug', changelog: { category: 'Fixed', entry: 'off-by-one in paging' } }
 // a kind nobody wrote UI for: the band row, the Needs you list and the dialog work from the record alone
@@ -202,7 +202,7 @@ describe('core: ask / settle / events', () => {
   test('every flag.raised asks; flag.resolved settles; a phase that asked first (spec_change) keeps its richer decision', async () => {
     const w = await world(); await emit(w.h, 'flag.raised', { taskId: 'a2', flag: 'conflict' }, { taskId: 'a2' })
     expect((await w.h.board.read()).decisions!.map(d => d.id)).toEqual(['flag:a2:conflict'])
-    await ask(w.h, dec('flag:a3:spec_change', 'flag', 't', ['why: the API changed'], [OK])); await emit(w.h, 'flag.raised', { taskId: 'a3', flag: 'spec_change' }, { taskId: 'a3' })
+    await ask(w.h, dec('flag:a3:spec_change', 'flag', 't', ['why: the API changed'], [OK], { key: 'phase.spec' })); await emit(w.h, 'flag.raised', { taskId: 'a3', flag: 'spec_change' }, { taskId: 'a3' })
     expect((await w.h.board.read()).decisions!.find(d => d.id === 'flag:a3:spec_change')!.lines).toEqual(['why: the API changed'])
     await emit(w.h, 'flag.resolved', { taskId: 'a2', flag: 'conflict,drift' }, { taskId: 'a2' }); expect((await w.h.board.read()).decisions!.map(d => d.id)).toEqual(['flag:a3:spec_change'])
   })

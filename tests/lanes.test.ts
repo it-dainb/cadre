@@ -126,7 +126,7 @@ describe('a lite plan end to end in the store (native/tasks)', () => {
 
 describe('the card: lane line + [l] Lane (core/lanes)', () => {
   test('option label names the next lane; nothing to change on an approved plan or with no lane', () => {
-    expect(laneOption(P({ lane: 'lite' }), [T()], reg)).toEqual({ key: 'l-full', label: 'Lane → full', verb: 'change', run: 'lane p1' })
+    expect(laneOption(P({ lane: 'lite' }), [T()], reg)).toEqual({ key: 'l', label: 'Lane → full', verb: 'change', run: 'lane p1' })
     expect(nextLane(P({ lane: 'full' }), [T()], reg)).toBe('ask'); expect(nextLane(P({ lane: 'ask' }), [T()], reg)).toBe('lite')
     expect(nextLane(P({ lane: 'ask' }), [T({ meta: { 'cadre.breaking': 'true' } })], reg)).toBe('full')   // lite would be overridden: skipped
     expect(laneOption(P({ lane: 'lite', state: 'approved' }), [T()], reg)).toBeNull(); expect(laneOption(P(), [T()], reg)).toBeNull(); expect(laneLine(P(), [], reg)).toBeNull()

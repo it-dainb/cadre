@@ -56,7 +56,7 @@ export async function propose(h: Host, root: string, dev: string): Promise<void>
   const at = await baseOf(h, dev), tag = await lastTag(h), subj = (await git(h.run, root, ['log', '--no-merges', '--format=%s', tag ? `${tag}..${at}` : at])).split('\n')
   const version = inferVersion(tag, subj)
   await h.ui.update(u => ({ ...u, rel: version }))
-  await ask(h, { id: `release:${version}`, key: 'release', kind: 'release', title: `release v${version}?`, lines: [`${dev} merges into main with an annotated tag v${version}`], hash: version, tab: 'epic', options: [{ key: 'r', label: 'Release', verb: 'release', run: `release ${version}` }] })
+  await ask(h, { id: `release:${version}`, kind: 'release', title: `release v${version}?`, lines: [`${dev} merges into main with an annotated tag v${version}`], hash: version, tab: 'epic', options: [{ key: 'r', label: 'Release', verb: 'release', run: `release ${version}` }] })
   await emit(h, 'release.proposed', { version }); h.toast(`${isMs((await h.board.read()).plan) ? 'Milestone' : 'Epic'} landed on ${dev} · release v${version}? · press 1`)
 }
 
@@ -267,7 +267,7 @@ ROUTES.release = async (h, c) => ({ text: await releaseDev(h, c.args[0]) })
 
 const mainOf = async (h: Host, cfg: any, root: string) => cfg.branches.main || ((await exists(h.run, root, 'main')) ? 'main' : 'master')
 // ---- H5: a landing that waits for the user's checkout (core/branches.move). One dialog offers to land it; it lands by itself once the branch is checked out nowhere. ----
-const ask1 = (h: Host, b: string, line: string) => ask(h, { id: `pending:${b}`, key: 'pending', kind: 'flag', title: `${b} has new work for your checkout`, hash: fnv1a64(line), tab: 'epic', lines: [line, 'Land: bring it into your checkout now (your own commits and edits are kept).'], options: [{ key: 'l', label: 'Land', verb: 'change', run: `land ${b}` }] })
+const ask1 = (h: Host, b: string, line: string) => ask(h, { id: `pending:${b}`, kind: 'flag', title: `${b} has new work for your checkout`, hash: fnv1a64(line), tab: 'epic', lines: [line, 'Land: bring it into your checkout now (your own commits and edits are kept).'], options: [{ key: 'l', label: 'Land', verb: 'change', run: `land ${b}` }] })
 async function offer(h: Host, b: string) { if (await exists(h.run, await h.cwd(), pendingRef(b))) await ask1(h, b, `cadre did not move ${b}: you have it checked out.`) }
 const asked = async (h: Host, b: string) => ((await h.board.read()).decisions ?? []).some(d => d.id === `pending:${b}`)   // a new process starts with no dialogs: the tick asks again
 const inFlight = new Set<string>()   // ponytail: per process; two sessions on one repo each get their own tmp (a random suffix), so they only repeat the suites
