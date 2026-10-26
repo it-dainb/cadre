@@ -5,6 +5,7 @@ import { world } from './fixtures/replay/world'
 import { arm, idle, watchdog, IDLE } from '../core/drive'
 import { decide } from '../commands/cadre'
 import { ROUTES } from '../core/dispatch'
+import { LIFECYCLE } from '../core/plantools'
 
 const RED_PKG = { root: '.', checks: { compile: ['tsc'] }, tdd: { paths: ['test/**'] } }
 const TESTS = [{ path: 'test/a.test.js', name: 'S1: answers', scenario: 'S1' }]
@@ -30,5 +31,11 @@ describe('a dialog answer that unblocks a task starts it', () => {
     expect(await idle(w.h)).toBe(true)
     await w.h.ui.update((x: any) => ({ ...x, goal: undefined })); await watchdog(w.h); w.clock.now += 125_000; await watchdog(w.h); expect((await w.h.ui.read()).goal).toBe(IDLE)   // main may have gone quiet: the watchdog queues the turn
     w.spawned.length = 0; await w.turn(); expect(w.spawned.map(x => x[2]).sort()).toEqual(['cadre:tester', 'cadre:tester'])
+  })
+  // live: main's AskUserQuestion answer reached `status {decision}` after the dialog's Retry had resumed the task: the refusal must say so
+  test('a decision for a task the dialog already resumed says it went on', async () => {
+    const { w, id } = await redWorld(); await answer(w, id)
+    const r = await LIFECYCLE.decision!(w.h, id, { metadata: { decision: 'go' } })
+    expect(r).toContain('already answered its dialog'); expect(r).toContain('went on')
   })
 })

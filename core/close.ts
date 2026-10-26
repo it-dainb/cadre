@@ -6,6 +6,7 @@ import type { Task } from '../task-management/store'
 import { pipeOf } from '../task-management/registry'
 import { LIFECYCLE, holdsAmend } from './plantools'
 import { ROUTES } from './dispatch'
+import { modelText } from './say'
 import { resolveDeps, type Deps } from './admission'
 import { Refusal, SPEC_SCENARIO, coverageGaps, overlap, pathsOf, specTestsOf } from './validate'
 import { agentsOf, fnv1a64, patchBinding } from './board'
@@ -389,7 +390,7 @@ async function cancelTask(h: Host, d: Deps, id: string, why: string): Promise<st
 }
 async function decide(h: Host, d: Deps, id: string, text: string): Promise<string | null> {
   const t = (await h.board.read()).tasks.find(x => x.id === id)
-  if (t?.state !== 'blocked') return `${id} is not blocked; nothing to decide`
+  if (t?.state !== 'blocked') return modelText('tool-result', t ? `${id} is ${t.state}, not blocked: the user already answered its dialog and it went on, so nothing is left to decide. Carry on with the rest.` : `no task ${id}`)   // main's question and the dialog are two channels for one decision: the dialog may win
   const y = yoloOn((await h.board.read()).drive), why = y ? await hardStop(h) : null
   if (why) { await stop(h, why); return `${id}: the run stopped (${why}); the user decides this task in the cadre dialog now. Stop and wait.` }   // a hard stop mid-turn: main's decision is not applied
   const meta = (await d.store.get(id)).meta
