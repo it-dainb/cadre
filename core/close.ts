@@ -151,8 +151,9 @@ async function verdict(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
   const inDiff = new Set((await G.git(h.run, wt, ['diff', '--name-only', `${task.meta['cadre.base'] ?? C}..${C}`])).split('\n'))
   const findings = (r.findings as any[]).map(f => ({ ...f, inDiff: inDiff.has(f.file) }))
   // findings on spec tests the worker may not edit, and findings on files outside the task's own files (live: CI and README, "needs a scope decision": the worker blocked)
-  const locks = (await policyOf(h)).locks?.[t.id] ?? [], onLocked = [...new Set(findings.filter(f => f.file && locks.includes(`${task.meta['cadre.worktree'] ?? wt}/${f.file}`)).map(f => f.file as string))]
-  const mine = pathsOf(task), outside = new Set(mine.length ? findings.filter(f => f.file && !f.inDiff && !onLocked.includes(f.file) && !mine.some(p => overlap(p, f.file))).map(f => f.file as string) : [])
+  const locks = (await policyOf(h)).locks?.[t.id] ?? [], locked = (f: any) => f.file && locks.includes(`${task.meta['cadre.worktree'] ?? wt}/${f.file}`)
+  const mine = pathsOf(task), outside = new Set(mine.length ? findings.filter(f => f.file && !f.inDiff && !mine.some(p => overlap(p, f.file))).map(f => f.file as string) : [])   // a locked spec test the task does not list is outside too: spec_change is no way out of it (live: a docs task, test/duration.test.mjs)
+  const onLocked = [...new Set(findings.filter(f => locked(f) && !outside.has(f.file)).map(f => f.file as string))]
   // a `changes` whose every blocking finding is outside the task's files is a pass with followups: the worker cannot fix those, so a re-review would ask forever
   const blockers = findings.filter(f => !['minor', 'nit'].includes(String(f.severity))); let filed = ''   // filed: the card's note that the pass carries followups
   if (r.verdict === 'changes' && blockers.length && blockers.every(f => outside.has(f.file)) && !coverageGaps(d.cfg.review.coverage.enforce, task.acceptance, specTestsOf(task), r.coverage).length) {   // coverage still counts: a pass cannot skip it

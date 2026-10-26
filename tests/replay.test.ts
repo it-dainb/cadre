@@ -193,6 +193,16 @@ describe('replays 12-20: regressions from the log', () => {
     expect(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'again' })).toContain('report accepted'); await w.turn()
     expect(await w.rep(rv, f('src/a.ts'))).toContain('changes (2/'); await w.turn(); expect(w.sent.filter(x => x[0] === 'ag1').map(x => x[1]).at(-1)!).not.toContain('locked spec test')
   })
+  test('a blocker on a locked spec test the task does not list is outside its files: a pass with followups, no spec_change ask; on a file it lists it still asks', async () => {
+    const run = async (paths: string[]) => {
+      const w = await world(), [rv] = await inReview(w), id = w.ids[0], task = await w.dep.store.get(id)
+      await setPolicy(w.h, { locks: { [id]: [`${task.meta['cadre.worktree']}/test/a.test.js`] } }); await w.dep.store.setMeta(id, { 'cadre.paths': JSON.stringify(paths) }, w.dep.actor)
+      const r = await w.rep(rv, { ...CHANGES, coverage: [{ scenario: 'S1', ok: true }], findings: [{ severity: 'major', file: 'test/a.test.js', issue: 'weak' }] }); await w.turn()
+      return { w, r, asked: w.sent.filter(x => x[0] === 'ag1').map(x => x[1]).at(-1) ?? '' }
+    }
+    const docs = await run(['docs/guide.md']); expect(docs.r).toContain('verdict accepted: pass@'); expect((await docs.w.dep.store.list({})).some(t => t.title.includes('test/a.test.js: weak'))).toBe(true)
+    const own = await run(['src/a.ts', 'test/a.test.js']); expect(own.r).toContain('changes (1/'); expect(own.asked).toContain('locked spec test')
+  })
   // findings on files outside the task's own files (live: CI and README "needs a scope decision": the worker blocked, and each re-review asked again)
   const outside = async (paths: string[] | null, findings: Array<Record<string, string>>, cover = true) => {
     const w = await world(), [rv] = await inReview(w), id = w.ids[0]; if (paths) await w.dep.store.setMeta(id, { 'cadre.paths': JSON.stringify(paths) }, w.dep.actor)
