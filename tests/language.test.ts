@@ -50,7 +50,7 @@ describe('ui.language: a mechanism, English only', () => {
     try {
       const w = await world(); await ask(w.h, D); const asked: string[][] = []; let ran = ''
       Object.assign(w.h, { answer: async (_id: string, k: string) => { ran = k; return { text: 'ok' } }, ask: async (q: string, ls: string[]) => { asked.push([q.split('\n')[0], ...ls]); return 'Wait' } })
-      await answerDialog(w.h); expect(asked).toEqual([[D.title, 'Wait', 'Deploy']])   // the stub has a title row: titles are not translated; expect(ran).toBe('d'); expect(NOT_NOW).toBe('Not now')
+      await answerDialog(w.h); expect(asked).toEqual([[D.title, 'Wait', 'Deploy']]); expect(ran).toBe('d'); expect(NOT_NOW).toBe('Not now')   // the stub has a title row: titles are not translated
     } finally { for (const k of Object.keys(STUB)) delete TABLE[k] }
   })
   test('keys: every flag class the machine can raise gives one English string per key (the test host throws on a clash, tests/support.ts)', async () => {
