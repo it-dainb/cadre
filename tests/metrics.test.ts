@@ -51,8 +51,8 @@ describe('H12 per-repo metrics', () => {
     await landed(h, defaults(), 't1'); const [r] = await metricsOf(h); expect(r.start).toBe(0); expect(r.end).toBe(120000)
   })
   test('a task id that repeats in another repo keeps its own cost', async () => {
-    const a = mk(), b = Object.assign(a, {}); await a.bind.update(() => ({ a1: B('t1') })); await use(a, 'a1', 100)
-    const k1 = await scoped(a, 'cost:task:t1'); a.cwd = async () => '/other'; const k2 = await scoped(a, 'cost:task:t1')
-    expect(k1).not.toBe(k2); await landed(b, defaults(), 't1'); expect((await metricsOf(b))[0].tokens).toBe(0)
+    const h = mk(); await h.bind.update(() => ({ a1: B('t1') })); await use(h, 'a1', 100)
+    h.cwd = async () => '/other'; await use(h, 'a1', 30); await landed(h, defaults(), 't1'); expect((await metricsOf(h))[0].tokens).toBe(30)
+    h.cwd = async () => '/repo'; await landed(h, defaults(), 't1'); expect((await metricsOf(h))[0].tokens).toBe(100)
   })
 })
