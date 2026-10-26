@@ -510,9 +510,9 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
 stats.usd = +debug.map(ls => Math.max(0, ...ls.map(l => +(l.match(/cost=\$([\d.]+)/)?.[1] ?? 0)))).reduce((a, b) => a + b, 0).toFixed(2)
 stats.secs = Math.round((tEnd - (drv[0]?.t ?? tEnd)) / 1000)
 // A real 429 that ended the cell: cadre's own stop toast (drive stopped · usage limit until) AND a debug line whose JSON error type is rate_limit_error, with no usage_limit
-// injected by the stub (the usage-limit S cell expects that toast). The cell judged nothing about cadre: inconclusive, rerun it. Harness-side only.
+// injected by the stub (the usage-limit S cell expects that toast). A cell with a failed invariant is a FAIL whatever the 429; otherwise it judged nothing about cadre: inconclusive, rerun it. Harness-side only.
 const real429 = dlines.some(l => { try { return JSON.parse(l.slice(l.indexOf('{'))).error?.type === 'rate_limit_error' } catch { return false } })
-const inconclusive = real429 && !read(join(dir, 'stubbed.jsonl')).includes('"usage_limit"') && (/drive stopped · usage limit until/.test(dlines.join('\n')) || panes.some(p => /drive stopped · usage limit until/.test(p.text)))
+const inconclusive = !fails.length && real429 && !read(join(dir, 'stubbed.jsonl')).includes('"usage_limit"') && (/drive stopped · usage limit until/.test(dlines.join('\n')) || panes.some(p => /drive stopped · usage limit until/.test(p.text)))
 const cell = basename(dir), v = { cell, pass: !fails.length && !inconclusive, inconclusive, fails, stats, setup: drv[0]?.text }
 writeFileSync(join(dir, 'verdict.json'), JSON.stringify(v, null, 1))
 console.log(`${cell} ${v.pass ? 'PASS' : inconclusive ? 'INCONCLUSIVE a real 429 stopped the drive; rerun' : `FAIL ${fails[0].invariant}: ${fails[0].evidence}`}`)

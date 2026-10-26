@@ -130,21 +130,23 @@ test('the own-shell check: installs are commands that install; a check, a dry ru
 
 // release016 continue-after-quit.r2: Claude Code met a real 429 (lines 4889-4890 of its debug log) and cadre stopped the drive "usage limit until". That is the account's limit, not a verdict on
 // cadre: inconclusive, rerun. A lone 429 (CC retries and may recover) and the stub's injected usage_limit (the usage-limit S cell expects the toast) are not.
-test('a real 429 plus cadre\'s usage-limit stop is inconclusive; a lone 429 and an injected limit are not', () => {
-  const verdict = (toast, { log = true, stubbed = '' } = {}) => {
-    const d = mkdtempSync(join(tmpdir(), 'cadre-oracle-')), t = 1_792_945_760_000
-    mkdirSync(join(d, 'panes')); writeFileSync(join(d, 'panes', `${t}.txt`), toast ? 'x [-]\n drive stopped · usage limit until 17:00\n' : 'x [-]\n')
-    writeFileSync(join(d, 'driver.log'), `${t - 1000} start x\n${t + 1000} end\n`)
+// Security review R-09: a cell that ALSO broke an invariant is a FAIL (the console line names it), never inconclusive.
+test('a real 429 plus cadre\'s usage-limit stop is inconclusive; a lone 429 and an injected limit are not; a failed invariant beats it', () => {
+  const verdict = (toast, { log = true, stubbed = '', broken = false } = {}) => {
+    const d = mkdtempSync(join(tmpdir(), 'cadre-oracle-')); cpSync(fix, d, { recursive: true })   // a cell that passes by itself
+    for (const f of readdirSync(join(d, 'panes'))) { let t = readFileSync(join(d, 'panes', f), 'utf8'); if (broken) t = t.replace(/Setup was/g, 'All good  ').replace(/interrupted/g, 'xxxxxxxxxxx'); writeFileSync(join(d, 'panes', f), toast ? `${t}\n drive stopped · usage limit until 17:00\n` : t) }
     writeFileSync(join(d, 'debug.log'), log ? readFileSync(join(root, 'tests/fixtures/oracle/real-429.log'), 'utf8') : '')
     writeFileSync(join(d, 'stubbed.jsonl'), stubbed)
-    try { execFileSync('node', [join(root, 'harness/oracle.mjs'), d], { stdio: 'pipe' }) } catch {}
-    return JSON.parse(readFileSync(join(d, 'verdict.json'), 'utf8'))
+    let out = ''; try { out = execFileSync('node', [join(root, 'harness/oracle.mjs'), d], { stdio: 'pipe', encoding: 'utf8' }) } catch (e) { out = e.stdout }
+    return { ...JSON.parse(readFileSync(join(d, 'verdict.json'), 'utf8')), out }
   }
   assert.equal(verdict(true).inconclusive, true)
   assert.equal(verdict(true).pass, false)
   assert.equal(verdict(false).inconclusive, false)   // a lone 429, no stop
   assert.equal(verdict(true, { log: false }).inconclusive, false)   // the stop with no 429 behind it
   assert.equal(verdict(true, { stubbed: '{"at":1,"kind":"usage_limit"}\n' }).inconclusive, false)   // the injected control
+  const bad = verdict(true, { broken: true })   // a real 429 and a real failure
+  assert.equal(bad.inconclusive, false); assert.equal(bad.pass, false); assert.ok(bad.fails.length); assert.match(bad.out, new RegExp(`FAIL ${bad.fails[0].invariant}`)); assert.doesNotMatch(bad.out, /INCONCLUSIVE/)
 })
 
 // the refusal-loop key is the refusal text + the producing call's input: three different calls refused alike are exploration, the same call 3x is a loop
