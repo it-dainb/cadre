@@ -256,8 +256,9 @@ export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
   if (b?.parent) return helperStopped(h, b, e)   // a helper ends and answers exactly once (core/needs), whatever its role's step is
   if (b?.role === 'planner') return planStopped(h, d, e)   // an epic's planner (core/planner)
   if (b && t && (await runOf(h, e.agentId))?.exit) { await end(h, e.agentId, 'loop', 'blocked'); return blockTask(h, d, t, `its agent made the same call ${REPEAT} times in a row`, 'loop', {}) }   // the breaker spent it (exit rule 4): one dialog
-  if (b && t?.state === 'blocked' && b.role !== 'worker' && ['running', 'refused', 'silent'].includes((await runOf(h, e.agentId))?.state?.state ?? '')) return void (await end(h, e.agentId, 'stopped', 'blocked'))   // its turn ended on a task that waits for the user (a tester's malformed reports): the run is dead, and left `running` it holds the idle fallback off for every other task; a worker stays bound (the answer resumes it)
-  if (!b || !t || !(t.step === b.step && STEP_CAT[b.step] === t.state)) return   // no binding, or it reported/moved on
+  const moved = !!b && !!t && !(t.step === b.step && STEP_CAT[b.step] === t.state)
+  if (moved && !(b.role === 'worker' && t.state === 'blocked' && t.step === b.step) && ['running', 'refused', 'silent'].includes((await runOf(h, e.agentId))?.state?.state ?? '')) return void (await end(h, e.agentId, 'stopped', t.state === 'blocked' ? 'blocked' : 'released'))   // its turn ended on a task that waits for the user (a tester's malformed reports) or that is at another step: the run is dead, and left `running` it holds the idle fallback off for every other task; a worker blocked at its own step stays bound (the answer resumes it)
+  if (!b || !t || moved) return   // no binding, or it reported/moved on
   if (e.reason === 'answer') {
     const run = await runOf(h, e.agentId), k = run?.state?.state === 'silent' ? run.state.n : 0, stag = (run?.stag ?? 0) >= d.cfg.limits.stagnantNudges   // this run's nudges so far · nudged that often with no tool call between
     if (!stag && k < d.cfg.limits.nudges) {
@@ -412,7 +413,8 @@ async function unblock(h: Host, d: Deps, id: string, text: string, flag: string)
   const m = await apply(h, { kind: 'unblock', id, at: await h.now(), actor: 'main' }, pipe(d)); if (!m.ok) return m.error
   await d.store.resume(id, d.actor); await d.store.setMeta(id, { 'cadre.decision': text.slice(0, 1000), 'cadre.blocked': '' }, d.actor)
   await d.store.record('decision', `${id}: ${text.slice(0, 60)}`, text, id); await clear(h, id, flag)
-  const bind = await h.bind.read(), w = ownerOf(bind, id, 'worker'); if (w) await step(h, w, { type: 'resume', text })
+  const bind = await h.bind.read(), at = (await h.board.read()).tasks.find(x => x.id === id)?.step, w0 = ownerOf(bind, id, 'worker'), w = w0 && bind[w0].step === at ? w0 : undefined   // the worker goes on only at its own step: a block that came from the tester or reviewer step is answered by a fresh agent of that role (a resumed worker has nothing to report there, and its run would stay bound for good)
+  if (w) await step(h, w, { type: 'resume', text })
   for (const x of agentsOf(bind, id)) if (x !== w && !x.startsWith('~') && ['running', 'refused', 'silent'].includes((await runOf(h, x))?.state?.state ?? '')) await end(h, x, 'retry', 'retry')   // a task waits for the user only after its agent's turn ended (a tester's malformed reports): a run still `running` is dead, and would hold its role and the idle fallback (core/drive.idle) off for good
   return null
 }

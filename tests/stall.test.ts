@@ -55,4 +55,18 @@ describe('a dialog answer that unblocks a task starts it', () => {
     await w.at('ag1', a, 'tester'); expect(await LIFECYCLE.deleted!(w.h, a, { metadata: { reason: 'x' } })).toBeNull()
     expect(Object.keys(await w.h.bind.read())).toEqual([])
   })
+  // live (milestone-planners): c-280-1's reviewer sent 6 malformed reports (shape block at review·reviewer); Retry resumed the bound WORKER, which had nothing to report there; its run stayed bound and `running`, no reviewer spawned
+  test('a shape block at the reviewer step: Retry does not resume the bound worker; a fresh reviewer spawns', async () => {
+    const w = await world({ n: 1, drive: 'auto' }); await arm(w.h, 'auto'); const [a] = w.ids
+    await w.turn(); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' }); await w.turn(); await blocked(w, a, 'shape'); await w.h.board.update((x: any) => ({ ...x, tasks: x.tasks.map((t: any) => ({ ...t, owner: undefined })) })); await w.stop('ag2')   // the worker stays bound; the reviewer's reports were malformed
+    expect(await resolve(w, a, 'retry')).toContain('its agent starts again')
+    expect(w.sent.filter(x => x[0] === 'ag1')).toEqual([]); expect(((await w.h.ui.read()) as any).runs.ag1.state.state).toBe('idle-bound')   // not resumed
+    w.spawned.length = 0; await w.turn(); expect(w.spawned.map(x => x[2])).toEqual(['cadre:reviewer'])
+  })
+  test('a worker whose turn ends while its task is at another step: its run ends', async () => {
+    const w = await world({ n: 1, type: 'feature', pkg: RED_PKG, drive: 'auto' }); await arm(w.h, 'auto'); const [a] = w.ids
+    await w.at('ag1', a, 'worker')
+    await w.h.board.update((s: any) => ({ ...s, tasks: s.tasks.map((t: any) => (t.id === a ? { ...t, state: 'review', step: 'reviewer' } : t)) })); await w.stop('ag1')
+    expect(((await w.h.ui.read()) as any).runs.ag1.state.state).toBe('ended')
+  })
 })
