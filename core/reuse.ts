@@ -102,10 +102,10 @@ export async function* meter(h: Host, e: any, next: (e: any) => any): AsyncGener
 // H12: a landed task's record, written by closeTask before cleanup prunes its Budget (a cancelled task writes none). Start = its first metered usage (run records carry no time); human.retry zeroes rework (docs/limitations.md). FIFO at 500
 export async function landed(h: Host, cfg: any, id: string): Promise<void> {
   const t = ((await h.store.get(ck(`task:${id}`))) as (U & { t0?: number }) | undefined) ?? zero(), end = await h.now(), rework = (await budgetOf(h, id)).rework, repo = repoKeyOf(await h.cwd()), usd = usdOf(t, cfg)
-  const rs = await metricsOf(h); await h.store.set(`cadre:metrics:${repo}`, [...rs, { repo, task: id, tokens: tokensOf(t), ...(usd !== undefined ? { usd: +usd.toFixed(4) } : {}), rework, firstTry: !rework, start: (t as { t0?: number }).t0 ?? end, end }].slice(-500))
+  const rs = await metricsOf(h); await h.store.set(await scoped(h, 'metrics'), [...rs, { repo, task: id, tokens: tokensOf(t), ...(usd !== undefined ? { usd: +usd.toFixed(4) } : {}), rework, firstTry: !rework, start: (t as { t0?: number }).t0 ?? end, end }].slice(-500))
 }
 type Landed = { tokens: number; usd?: number; rework: number; firstTry: boolean; start: number; end: number }
-export const metricsOf = async (h: Host) => ((await h.store.get(`cadre:metrics:${repoKeyOf(await h.cwd())}`)) as Landed[] | undefined) ?? []
+export const metricsOf = async (h: Host) => ((await h.store.get(await scoped(h, 'metrics'))) as Landed[] | undefined) ?? []
 export function metricsText(rs: Landed[]): string {
   const n = rs.length, avg = (f: (x: Landed) => number) => rs.reduce((a, x) => a + f(x), 0) / n
   return !n ? 'metrics: no landed tasks yet' : [`${n} landed`, rs.every(x => x.usd !== undefined) ? `$${avg(x => x.usd!).toFixed(2)}/task` : `${Math.round(avg(x => x.tokens))} tokens/task`, `first-try ${Math.round(100 * avg(x => +x.firstTry))}%`, `rework ${avg(x => x.rework).toFixed(1)}/task`, `${Math.round(avg(x => x.end - x.start) / 60000)} min/task`].join(' · ')

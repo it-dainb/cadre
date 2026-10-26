@@ -1,14 +1,14 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { landed, metricsOf, metricsText, meter } from '../core/reuse'
 import { charge, prune } from '../core/lifecycle'
-import { repoKeyOf } from '../commands/init'
+import { scoped } from '../commands/init'
 import { parse, route } from '../commands/cadre'
 import { defaults } from '../config/index'
 import { fakeHost } from './support'
 
 const B = (taskId: string) => ({ taskId, role: 'worker', step: 'worker', worktree: '/wt', sessionId: 's', ctxTokens: 0, startedAt: 0 })
 const use = (h: any, agentId: string, n: number) => { const g = meter(h, { agentId }, async function* () { return { usage: { input_tokens: n, output_tokens: 0 } } } as any); return g.next().then(async function f(r: any): Promise<void> { if (!r.done) return f(await g.next()) }) }
-const key = async (h: any) => `cadre:metrics:${repoKeyOf(await h.cwd())}`
+const key = (h: any) => scoped(h, 'metrics')
 const mk = () => Object.assign(fakeHost(), { cwd: async () => '/repo' }) as any
 
 describe('H12 per-repo metrics', () => {

@@ -61,7 +61,7 @@ test('lifecycle: claim -> report done -> review -> pass@C -> TaskUpdate complete
   const msg = sh(d, 'log', '-1', '--format=%B', now); assert.match(msg, /^refactor: task 0\n/); assert.match(msg, /Refs: m-2/); assert.match(msg, new RegExp(`Cadre-Review: pass@${C0.slice(0, 7)}`))
   assert.equal(sh(d, 'show', 'epic/p1-x:b.txt'), 'b'); assert.equal(existsSync(wt), false); assert.equal(sh(d, 'branch', '--list', 'refactor/*'), '')
   assert.equal((await h.board.read()).tasks[0].state, 'done'); assert.equal((await store.get(id)).category, 'done'); assert.deepEqual(await h.bind.read(), {})
-  const rec = await h.store.get(`cadre:metrics:${(await import('../../commands/init.ts')).repoKeyOf(d)}`); assert.equal(rec.length, 1); assert.deepEqual([rec[0].task, rec[0].firstTry, rec[0].rework], [id, true, 0])   // H12: the done path writes the record
+  const rec = await h.store.get(`cadre:${(await import('../../commands/init.ts')).repoKeyOf(d)}:metrics`); assert.equal(rec.length, 1); assert.deepEqual([rec[0].task, rec[0].firstTry, rec[0].rework], [id, true, 0])   // H12: the done path writes the record
 })
 
 test('review: finding file must exist at sourceCommit; inDiff:false allowed; changes needs a blocker/major; coverage + contractStatus complete', async () => {
@@ -111,7 +111,7 @@ test('changes -> the same worker agentId is resumed (queued), rework counted, ca
   const r = await ROUTES.resolve(h, { schemaVersion: 1, cmd: 'resolve', args: [id, 'reject'], origin: { kind: 'composer' } }); assert.match(r.text, /reject done/)
   assert.equal((await h.board.read()).tasks[0].state, 'cancelled'); assert.match((await store.get(id)).meta['close.note'], /^failed:/)
   assert.match(sh(w.d, 'for-each-ref', 'refs/cadre/quarantine'), /refs\/cadre\/quarantine\/m-2-/)
-  assert.equal(await h.store.get(`cadre:metrics:${(await import('../../commands/init.ts')).repoKeyOf(w.d)}`), undefined)   // H12: the cancel path writes no record
+  assert.equal(await h.store.get(`cadre:${(await import('../../commands/init.ts')).repoKeyOf(w.d)}:metrics`), undefined)   // H12: the cancel path writes no record
 })
 
 test('merges refused while a git:* flag is open; protected path edit refused at report; red green gate refuses', async () => {
