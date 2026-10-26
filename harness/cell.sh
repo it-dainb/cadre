@@ -38,7 +38,7 @@ isplan() { grep -qiE '^approve (the mission|mission|plan|milestone)' <<<"$1"; }
 plantitle() { if grep -qiE '^approve ' <<<"$1"; then printf '%s' "$1"; elif grep -q '[0-9]\. Lane → ' <<<"$(flat "$2")"; then printf 'approve plan (title covered)'; else printf '%s' "$1"; fi; }
 band() { awk "$AWK_BAND" <<<"$1"; }
 # the key press that answers a dialog: Enter on the default (option 1); the red dialog that offers "Already holds" gets that option (the tests pin existing behaviour), else Retry (1)
-answer() { local n; n=$(flat "$1" | grep -oE '[0-9]+\. Already holds' | head -1 | cut -d. -f1); if [ -n "$n" ] && [ "$n" -gt 1 ] && grep -q 'cannot be made red' <<<"$2"; then for ((i = 1; i < n; i++)); do key Down; done; fi; key Enter; }
+answer() { local n c; n=$(flat "$1" | grep -oE '[0-9]+\. Already holds' | head -1 | cut -d. -f1); c=$(grep -oE '❯ [0-9]+\.' <<<"$1" | head -1 | grep -oE '[0-9]+'); if [ -n "$n" ] && [ -n "$c" ] && grep -q 'cannot be made red' <<<"$2"; then for ((i = c; i < n; i++)); do key Down; done; fi; key Enter; }   # from the cursor the pane shows now, so a repeat press never moves past the option
 key() { for i in 1 2 3; do docker exec "cadre-tui-$N" tmux send-keys -t q "$@" 2>&1 | grep -q "OCI runtime exec failed" || break; sleep 1; done; }
 comp() { awk '/^─{20}/{b[++nb]=NR} {L[NR]=$0} END{x=L[b[nb-1]+1]; sub(/^❯/,"",x); gsub(/[ \302\240]/,"",x); print x}' <<<"$1"; }   # what is typed in the composer
 # Claude Code keeps only the last ~2 min of a debug log once a run idles for long (live: a 28 min stall left 03:31-03:33 of a run that began 03:05): the watcher
