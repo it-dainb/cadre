@@ -83,7 +83,7 @@ export function sections(v: View, w: number, a: Acts, flash: string[], ctxOn = w
 }
 
 // ---- inspector ----
-export function inspector(v: View, w: number, one: boolean): Line[] {
+export function inspector(v: View, w: number, one: boolean, a?: Acts): Line[] {
   const ts = at(v).tasks, t = ts.find(x => x.id === selId(v, ts)); if (!t) return []
   const head = sp(S(`${t.id}  `, undefined, { b: true }), S(clip(`${t.title}${SEP}${t.type}`, Math.max(8, w - width(t.id) - 2)), undefined, { b: true }))
   if (one) return [head]
@@ -94,8 +94,9 @@ export function inspector(v: View, w: number, one: boolean): Line[] {
   const lines: Line[] = [[]]
   for (const p of pipe) { const l = lines[lines.length - 1]; if (l.length && lw(l) + 2 + lw(p) > w - 2) lines.push([]); const x = lines[lines.length - 1]; if (x.length) x.push(S('  ')); x.push(...p) }
   const ups = t.deps.map(d => d.id), downs = ts.filter(x => x.deps.some(d => d.id === t.id)).map(x => x.id)
-  const rel = [ups.length ? `after ${ups.join(' ')}` : '', downs.length ? `unblocks ${downs.join(' ')}` : '', t.owner && t.state !== 'done' ? t.owner.split(' ')[0] : ''].filter(Boolean).join(`${SEP}`)
-  return [head, ...lines.map(l => sp(S('  '), ...l)), sp(S(clip(`  ${rel || 'no dependencies'}`, w), color('muted')))]
+  const rel = [ups.length ? `after ${ups.join(' ')}` : '', downs.length ? `unblocks ${downs.join(' ')}` : '', t.owner && t.state !== 'done' ? t.owner.split(' ')[0] : '', t.flags.includes('reverted') ? 'reverted' : ''].filter(Boolean).join(`${SEP}`)
+  const rv = t.state === 'done' && t.merges && !t.flags.includes('reverted') && a?.revert ? [sp(S('  '), S('revert to this point', undefined, { k: `rv:${t.id}`, p: () => a.revert!(t.id) }))] : []   // opens the card (a dialog: preview, then two confirms)
+  return [head, ...lines.map(l => sp(S('  '), ...l)), sp(S(clip(`  ${rel || 'no dependencies'}`, w), color('muted'))), ...rv]
 }
 
 export function timelineLine(v: View, w: number): Line {
@@ -109,11 +110,11 @@ export function board(v: View, w: number, a: Acts): Line[] {
   const flash = readCfg(v.ui).flash && v.t === null && flashed.length <= 3 ? flashed : []
   if (w < 40) return [...sections(v, w, a, flash), sp(S('widen the pane for more', color('muted')))]
   if (w >= NARROW_INSPECTOR) {
-    const lw0 = w - INSPECTOR_W - 3, L = sections(v, lw0, a, flash, true), R = inspector(v, INSPECTOR_W, false)
+    const lw0 = w - INSPECTOR_W - 3, L = sections(v, lw0, a, flash, true), R = inspector(v, INSPECTOR_W, false, a)
     const body = Array.from({ length: Math.max(L.length, R.length) }, (_, i) => { const l = L[i] ?? [], pad = Math.max(0, lw0 - lw(l)); return [...l, S(' '.repeat(pad)), S(` ${cursor(ascii(v))} `, color('rule')), ...(R[i] ?? [])] })
     return [...body, blank, timelineLine(v, w)]
   }
-  return [...sections(v, w, a, flash), blank, ...inspector(v, w, w < 60), blank, timelineLine(v, w)]
+  return [...sections(v, w, a, flash), blank, ...inspector(v, w, w < 60, a), blank, timelineLine(v, w)]
 }
 
 // the frame's Renderer for the Board tab: body + footer keys (`↑↓` is the engine's focus ring over the task rows; `c` only when Done has rows)

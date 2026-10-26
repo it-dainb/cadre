@@ -14,6 +14,7 @@ import { awake, quit, wake, warm } from '../core/session'
 import '../config/route'   // registers ROUTES.config
 import { observe, stalls } from '../core/close'
 import '../core/integrate'   // registers ROUTES.release
+import '../core/revert'   // registers ROUTES.revert
 import { admit, tick as heartbeat } from '../core/admission'
 import { contain, heal } from '../policy/containment'
 import { check, guard, send, judge, judgeSpawn, configSet, settingsOnly, EXIT, exitCall } from '../policy/guards'

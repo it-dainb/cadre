@@ -18,6 +18,7 @@ An old subcommand word (`approve`, `status`, `open`, …) answers `that's answer
 | `reject <planId> <why>` | human | drop drafts |
 | `resolve <id> keep\|accept\|reject\|cancel` · `resolve git keep\|restore` | human | clear flags / quarantined git effects |
 | `release [x.y.z]` | human | cut a release |
+| `revert <id>` | typed or press opens the card; the two confirms: dialog | revert a landed task, epic or milestone to this point: a card with the changelog entry, summary, result, tests and a preview of what is lost (files, commits, later tasks that depend on it), then two confirms; the revert commits land through the same checks as an epic. An epic that never landed is abandoned instead: only the branches the store recorded are removed. Refused with a code: `revert-of-revert`, `already-reverted`, `not-landed`, `busy`, `pr-mode` (pull-request landing is not supported yet), `unknown` |
 | `setup [cancel]` | human | one-time machine setup, done by Claude, checked by cadre |
 | `doctor` | anyone | read-only diagnosis, report in the cadre pane |
 | `timeline` | human | per-repo metrics as one line (landed tasks, cost per task, first-try rate, rework, time per task) and the records exported to `.cadre/tmp/timeline.json` in the project; history starts at 1.0 |

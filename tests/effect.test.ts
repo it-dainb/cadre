@@ -5,6 +5,8 @@ import { audit, parse, resolveGit, sweep, wrap, writes } from '../core/effect'
 import { fakeHost, task } from './support'
 import type { Binding } from '../types'
 import { setPolicy } from '../policy/guards'
+import { op } from '../core/git'
+import { move, pendingRef } from '../core/branches'
 
 const SHA = (c: string) => c.repeat(40)
 // Scripted git: per-tree porcelain records, one ref table, calls recorded. Stash drops the named paths.
@@ -82,6 +84,22 @@ describe('L3 effect (13.1)', () => {
     expect(w.refs['refs/heads/main']).toBe(SHA('1')); expect(Object.keys(w.refs).some(r => r.startsWith('refs/cadre/quarantine/main-'))).toBe(true)
     expect(Object.values(w.refs).includes(SHA('8'))).toBe(true); expect(await flags()).toEqual([])
     await sweep(h); expect(await flags()).toEqual([])   // re-baselined: no repeat flag
+  })
+  test('H9 spike: a revert landed by cadre\'s own move() (integrate: mergeEpic + landDev) is no protected-ref violation, checked out or not; a dev move outside cadre still is', async () => {
+    for (const out of [false, true]) {   // out: the user has dev checked out, the landing waits as refs/cadre/pending/dev (branches.ts move)
+      const { w, h, flags } = await mk(), run = w.run, REV = SHA('c')
+      h.run = (async (argv: readonly string[], init: any) => {
+        const [, , , cmd, ...a] = argv
+        if (cmd === 'rev-parse' && a.includes('--quiet')) return { exitCode: a.at(-1)!.startsWith(`${pendingRef('dev')}^`) && w.refs[pendingRef('dev')] ? 0 : 1, stdout: '', stderr: '' }
+        if (cmd === 'worktree') return { exitCode: 0, stdout: out ? 'worktree /r\nHEAD x\nbranch refs/heads/dev' : '', stderr: '' }
+        if (cmd === 'for-each-ref') return { exitCode: 0, stdout: Object.entries(w.refs).filter(([r]) => r.startsWith('refs/heads/')).map(([r, s]) => `${s} ${r}\n`).join(''), stderr: '' }
+        return run(cmd === 'update-ref' && a[2] === '0'.repeat(40) ? [...argv.slice(0, -1)] : argv, init)   // an all-zero old value means "must not exist" (the scripted world takes no old value as that)
+      }) as any
+      expect(await op(h, () => move(h, 'dev', REV, SHA('2')))).toBe(true)
+      expect(w.refs[out ? pendingRef('dev') : 'refs/heads/dev']).toBe(REV)
+      await sweep(h); expect(await flags()).toEqual([])
+      w.refs['refs/heads/dev'] = SHA('9'); await sweep(h); expect(await flags()).toEqual(['git:dev'])   // moved outside cadre
+    }
   })
   // a setup/init run's durable record keeps the branches that existed when it first started (`pre`); what the run makes itself is not a stranger's move, only while its lease is held
   const lease = async (h: any, pre: string[] | undefined) => { await h.secret.update((x: any) => ({ ...x, run: { kind: 'setup', turns: 0, at: 0 } })); await h.store.set(await scoped(h, 'run'), { kind: 'setup', ...(pre ? { pre } : {}) }) }

@@ -404,6 +404,20 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (agents.length || steps) fail(o, `${agents.length} task agent(s) ran, ${steps} model step(s) (want 0)`)
     if (n !== 1) fail(o, `Doctor names the cell ${n}x (want 1)`)
   }
+  if (o === 'revert') {   // /cadre revert <epic> after the landing: both confirms asked, the epic's files gone from dev, only the recorded branches removed, no protected-ref violation
+    const r = existsSync(join(dir, 'revert.json')) ? JSON.parse(read(join(dir, 'revert.json'))) : null, heads = read(join(dir, 'refs-after')).split('\n').map(l => l.split(' ')[0]), say = drv.filter(e => e.kind === 'dialog').map(e => e.text)
+    if (!r) fail(o, 'the cell never reached the revert (no revert.json)')
+    else {
+      Object.assign(stats, { epic: r.epic, files: r.files, dialogs: say.filter(x => /revert/i.test(x)).length })
+      if (!r.files.length) fail(o, 'the epic added no file to revert')
+      for (const f of r.files) if (r.devTree.includes(f)) fail(o, `${f} is still on dev after the revert`)
+      if (say.filter(x => /revert/i.test(x)).length < 2) fail(o, `${say.filter(x => /revert/i.test(x)).length} revert dialog(s) (want the card and the second confirm): ${say.join(' / ')}`)
+      if (heads.includes(r.taskBranch)) fail(o, `the recorded branch ${r.taskBranch} is still there`)
+      for (const b of ['epic/zz-decoy', 'feat/zz-unrecorded']) if (!heads.includes(b)) fail(o, `${b} (never recorded) was removed`)
+      if (heads.some(b => b.startsWith('revert/'))) fail(o, `a revert branch is left: ${heads.filter(b => b.startsWith('revert/')).join(' ')}`)
+    }
+    const bad = [...say, ...panes.map(p => p.text)].find(x => /moved outside a cadre merge|git:(dev|main)\b/.test(x)); if (bad) fail(o, `the effect audit flagged a protected ref: ${clip(bad)}`)
+  }
   if (o === 'fifo') {   // concurrency.default 1, two tasks: the workers start in the order the tasks were admitted (ids ascend), and no snapshot shows two tasks running
     const id = b => b.match(/TASK-([a-z][\w-]*\w)/)?.[1], ws = subs.filter(x => /Worker brief/.test(x.brief) && id(x.brief)).sort((a, b) => a.t - b.t).map(x => id(x.brief))
     const two = snaps.find(x => new Set(Object.values(runs(x.s)).filter(r => ['running', 'refused', 'silent'].includes(r.state?.state)).map(r => r.taskId)).size > 1)

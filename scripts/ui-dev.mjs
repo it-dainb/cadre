@@ -34,6 +34,7 @@ async function child(req) {
   const w = req.w ?? s.width ?? 120, bw = req.docked ? Math.min(w, DOCKED) : w, rows = [], patch = {}
   const said = []
   const acts = {
+    revert: id => said.push(`revert card ${id}`),
     go: t => { patch.tab = t; said.push(`go tab ${t}`) }, pick: id => { patch.sel = id; said.push(`select ${id}`) },
     answer: id => { const d = (v.b.decisions ?? []).find(x => x.id === id); said.push(`dialog: ${d?.title} [${(d?.options ?? []).filter(o => o.run).map(o => o.label).join(' | ')}]`) }, run: c => said.push(`/cadre config ${c}`),
     step: (what, d) => { said.push(`step ${what} ${d}`); if (what === 'tl') patch.tl = v.ui.tl === false },

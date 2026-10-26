@@ -105,12 +105,13 @@ export const configText = (cfg: unknown, prefix?: string): string => {
 export const argsOf = (t: string): string[] => (t.match(/\w+="[^"]*"|\S+/g) ?? []).map(a => a.replace(/^(\w+)="([^"]*)"$/, '$1=$2'))
 // The typed surface (ADR 0011, 0013, 0014, 0020): `/cadre` (status + the pane) · `/cadre setup|init|doctor|continue|timeline` · `/cadre <goal>` · `/cadre yolo <goal>` · `/cadre deep <goal>`. An old subcommand word gets a one-line hint, so a typo never starts a plan;
 // the other dispatcher commands are reached only by the dialog's answers (and the Settings tab's presses).
-export const OLD = ['approve', 'reject', 'resolve', 'restore', 'release', 'drive', 'config', 'sync', 'adapter', 'status', 'open', 'confirm', 'cancel', 'resume', 'lane', 'goal', 'setup', 'init', 'doctor']
+export const OLD = ['approve', 'reject', 'resolve', 'restore', 'release', 'drive', 'config', 'sync', 'adapter', 'status', 'open', 'confirm', 'cancel', 'resume', 'lane', 'goal', 'setup', 'init', 'doctor', 'revert']
 export const HINT = "that's answered in the dialog now: press 1 on the band or run /cadre"
 export function parse(text: string): { cmd: string; args: string[] } | { hint: string } {
   const t = text.trim(), [w = '', ...rest] = argsOf(t)
   if (!t) return { cmd: 'pane', args: [] }
   if (['setup', 'init', 'doctor', 'continue', 'timeline'].includes(w) && !rest.length) return { cmd: w, args: [] }
+  if (w === 'revert' && rest.length === 1) return { cmd: 'revert', args: rest }   // H9: typing it opens the card (a dialog); the confirms are the dialogs' answers
   if (w === 'deep') return rest.length ? { cmd: 'deep', args: [t.slice(4).trim()] } : { hint: 'usage: /cadre deep <goal> · Claude explores, then asks one question at a time until the goal is clear, then plans it' }   // ADR 0020
   if (w === 'yolo') return rest.length ? { cmd: 'yolo', args: [t.slice(4).trim()] } : { hint: 'usage: /cadre yolo <goal> · after you approve the plan, nothing is asked until it lands on dev' }   // ADR 0013
   return OLD.includes(w) ? { hint: HINT } : { cmd: 'goal', args: [t] }
