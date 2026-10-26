@@ -397,7 +397,7 @@ async function decide(h: Host, d: Deps, id: string, text: string): Promise<strin
   if (why) { await stop(h, why); return `${id}: the run stopped (${why}); the user decides this task in the cadre dialog now. Stop and wait.` }   // a hard stop mid-turn: main's decision is not applied
   const meta = (await d.store.get(id)).meta
   if (meta['cadre.blocked'] === 'spec_change') {   // yolo: main accepts or rejects it, through the same path as the dialog (recorded)
-    if (!y) return `${id} awaits a spec change decision: the human accepts or rejects it in the cadre dialog`
+    if (!y || meta['cadre.specReset']) return `${id} awaits a spec change decision: the human accepts or rejects it in the cadre dialog`
     const m = /^\s*(accept|reject)\s*:\s*(\S[\s\S]*)$/i.exec(text); if (!m) return `${id}: decision must be "accept: <reason>" or "reject: <reason>"`   // the exact word and a colon: "acceptable… reject: …" must never read as accept
     const how = m[1].toLowerCase(), n = Number(meta['cadre.specAccepts'] || 0)
     if (how === 'accept' && n >= 2) { const w = `${id} asked to change its locked spec ${n + 1} times`; await stop(h, w, { taskId: id, flag: 'spec_change' }); return `${id}: the run stopped (${w}); the user decides this task in the cadre dialog now. Stop and wait.` }   // accept, rewind, accept… never counts as no progress: cap it

@@ -300,8 +300,9 @@ export async function testerDone(h: Host, d: Deps, task: Task, wt: string, view:
 // is refused and re-asked (quick tier continue-after-quit: Accept on a feature task, refused and shown again until the budget ran out).
 export async function specAsk(h: Host, id: string, why: string, scenario = ''): Promise<void> {
   const f = 'spec_change', r = (how: string) => `resolve ${id} ${how}`, t = (await h.board.read()).tasks.find(x => x.id === id)
-  const acc = !t || (await resolveDeps(h).then(d => pipeOf(d.reg)(t.type, t.lane).includes('tester')).catch(() => true))
-  await ask(h, { id: `flag:${id}:${f}`, kind: 'flag', title: `${id} flagged ${f}`, tab: 'epic', sel: id, hash: fnv1a64(why), lines: ['the worker asks to change the locked spec', ...why.slice(0, 400).split('\n').filter(Boolean), ...(scenario ? [`new scenario wording: ${scenario.slice(0, 300)}`] : []), acc ? 'Accept: the tester amends it and a new red follows. Reject: it conforms to the locked tests.' : 'This task has no step that rewrites its tests. Reject: it conforms to the brief and its tests. Cancel task: it ends here.'],
+  const stuck = !!t && (await resolveDeps(h).then(async d => !!(await d.store.get(id)).meta['cadre.specReset']).catch(() => false))   // Accept already failed on a real conflict
+  const acc = !stuck && (!t || (await resolveDeps(h).then(d => pipeOf(d.reg)(t.type, t.lane).includes('tester')).catch(() => true)))
+  await ask(h, { id: `flag:${id}:${f}`, kind: 'flag', title: `${id} flagged ${f}`, tab: 'epic', sel: id, hash: fnv1a64(why), lines: ['the worker asks to change the locked spec', ...why.slice(0, 400).split('\n').filter(Boolean), ...(scenario ? [`new scenario wording: ${scenario.slice(0, 300)}`] : []), acc ? 'Accept: the tester amends it and a new red follows. Reject: it conforms to the locked tests.' : `${stuck ? 'The spec change could not be applied to its working folder (a conflict).' : 'This task has no step that rewrites its tests.'} Reject: it conforms to the brief and its tests. Cancel task: it ends here.`],
     options: acc ? [{ key: 'a', label: 'Accept', verb: 'accept', run: r('accept') }, { key: 'x', label: 'Reject', verb: 'reject', run: r('reject') }]
       : [{ key: 'x', label: 'Reject', verb: 'reject', run: r('reject') }, { key: 'c', label: 'Cancel task', verb: 'cancel', run: r('cancel') }] })   // the reason is on the card; emit's generic flag decision then keeps this one
 }
@@ -319,6 +320,7 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
   if (how !== 'accept' && how !== 'reject') return { text: `/cadre resolve ${id} accept|reject` }
   const pipe = pipeOf(d.reg), acc = how === 'accept', sp = (x: string) => spawnIt(snap, x), snap = await h.board.read()
   if (acc && !pipe(t.type, t.lane).includes('tester')) return { text: `${id}: type ${t.type} has no tester step; reject instead` }
+  if (acc && task!.meta['cadre.specReset']) return { text: modelText('tool-result', `${id}: the spec change could not be applied to its working folder; reject instead, or cancel the task.`) }
   // the red gate runs on the worktree: with the worker's commits still in it the amended tests pass (live: "the tests pass at the spec commit" after an Accept), so drop them; the spec commit is the tree the tester amends.
   // Before the board moves: a refused or failed reset leaves the task blocked, to answer again. A rework merge of the plan tip (core/rebase) came after the spec: it is put back, or the landed tasks vanish from the tree
   if (acc) {
@@ -333,10 +335,16 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
         const deps = (await G.git(h.run, wt, ['log', '--first-parent', '--no-merges', '--reverse', '--format=%H%x09%s', `${sc}..HEAD`])).split('\n').filter(l => /\tchore\(deps\):/.test(l)).map(l => l.split('\t')[0])
         await G.git(h.run, wt, ['reset', '--hard', '-q', sc]); await G.git(h.run, wt, ['clean', '-fdq'])
         if (base && (await h.run(['git', '-C', wt, 'merge-base', '--is-ancestor', base, 'HEAD'])).exitCode) await G.git(h.run, wt, ['merge', '--no-ff', '--no-edit', '-q', '-m', `merge the plan tip into ${id}`, base])
-        for (const c of deps) await G.git(h.run, wt, ['cherry-pick', '--allow-empty', '--keep-redundant-commits', c])
+        // -X theirs: only cadre's own install commit (manifest + lockfile), whose version must win; never the worker's commits
+        for (const c of deps) await G.git(h.run, wt, ['cherry-pick', '-X', 'theirs', '--allow-empty', '--keep-redundant-commits', c])
       })
-    } catch (e) { h.log(`${id}: reset for the spec change failed: ${e}`); await h.run(['git', '-C', wt, 'merge', '--abort']); await h.run(['git', '-C', wt, 'cherry-pick', '--abort'])
+    } catch (e) { h.log(`${id}: reset for the spec change failed: ${e}`)
+      const conflict = (await G.ok(h.run, wt, ['rev-parse', '-q', '--verify', 'CHERRY_PICK_HEAD'])) || (await G.ok(h.run, wt, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']))   // a fact of the worktree, not parsed text: a real conflict never passes by waiting
+      await h.run(['git', '-C', wt, 'merge', '--abort']); await h.run(['git', '-C', wt, 'cherry-pick', '--abort'])
       if (pre) await G.op(h, async () => { await G.git(h.run, wt, ['reset', '--hard', '-q', pre]); await G.git(h.run, wt, ['clean', '-fdq']) }).catch((x: Error) => h.log(`${id}: the worktree could not be put back: ${x}`))   // the worker's code stays: the task stays blocked, spec unamended
+      if (conflict) {   // deterministic: ask again with a card that offers no Accept, so the same answer cannot loop
+        await d.store.setMeta(id, { 'cadre.specReset': 'conflict' }, d.actor); await specAsk(h, id, `${task!.meta['cadre.specChange'] ?? ''}\nThe spec change could not be applied: the working folder conflicts with the reset.`, task!.meta['cadre.specScenario'] ?? '')
+        return { text: modelText('tool-result', `${id}: the spec change could not be applied to its working folder; the human decides: reject, or cancel the task.`) } }
       return { text: modelText('tool-result', `${id}: the working folder could not be reset right now; answer again in a moment.`) } }
     await d.store.setMeta(id, { 'cadre.sourceCommit': '' }, d.actor)
   }
@@ -349,7 +357,7 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
   const sc = SPEC_SCENARIO.exec(task!.meta['cadre.specScenario'] ?? '')   // the guard: report time already refused anything else
   if (acc && sc) { const lines = (task!.acceptance ?? '').split('\n'), at = lines.findIndex(l => l.startsWith(`${sc[1]}:`)); at >= 0 ? (lines[at] = `${sc[1]}: ${sc[2].trim()}`) : lines.push(`${sc[1]}: ${sc[2].trim()}`); await d.store.update(id, { acceptance: lines.join('\n') }, d.actor) }
   const note = acc ? `spec change accepted: ${task!.meta['cadre.specChange'] ?? ''}` : 'spec change rejected: the locked tests stay; conform to them'
-  await d.store.setMeta(id, { 'cadre.blocked': '', 'cadre.decision': note.slice(0, 1500), ...(acc ? { 'cadre.redOnly': sc ? sc[1] : '', 'cadre.specDecision': `The spec change was accepted${sc ? ' and the scenarios above are the amended ones' : ''}${reason ? `: ${reason.slice(0, 300)}` : ''}. Change the tests in your test paths to match the scenarios; they must differ from the ones there now.${sc ? ` A test named after ${sc[1]} must fail now; the other tests must still run, and may pass.` : ''}` } : {}) }, d.actor)
+  await d.store.setMeta(id, { 'cadre.blocked': '', 'cadre.specReset': '', 'cadre.decision': note.slice(0, 1500), ...(acc ? { 'cadre.redOnly': sc ? sc[1] : '', 'cadre.specDecision': `The spec change was accepted${sc ? ' and the scenarios above are the amended ones' : ''}${reason ? `: ${reason.slice(0, 300)}` : ''}. Change the tests in your test paths to match the scenarios; they must differ from the ones there now.${sc ? ` A test named after ${sc[1]} must fail now; the other tests must still run, and may pass.` : ''}` } : {}) }, d.actor)
   const bind = await h.bind.read(), w = acc ? undefined : Object.keys(bind).find(a => !a.startsWith('~') && bind[a].taskId === id && bind[a].role === 'worker')
   if (w) await step(h, w, { type: 'resume', text: 'The spec change was rejected: the locked tests stay. Make them pass, then report done.' })   // as unblock does: the worker that asked is waiting
   return { text: acc ? `${id}: accepted${modOn(snap) ? '; the tester amends' : '; spawn it for the tester to amend'} the spec (new red, amended specCommit)` : w ? `${id}: rejected; the worker is resumed to conform to the locked tests` : `${id}: rejected${sp('spawn it to resume the worker')}` }

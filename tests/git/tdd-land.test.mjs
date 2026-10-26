@@ -63,18 +63,29 @@ test('spec_change accept with two install commits keeps both, in order', async (
   await T.specChange(w.h, w.d, 'm-1', 'wrong spec'); await T.resolveSpec(w.h, 'm-1', 'accept')
   assert.equal(sh(wt, 'log', '--reverse', '--format=%s', `${spec}..HEAD`), 'chore(deps): add six\nchore(deps): lock six'); assert.equal(existsSync(join(wt, 'src/impl.ts')), false)
 })
-test('spec_change accept whose install commit conflicts puts the worktree back exactly: the task stays blocked, "try again"', async () => {
+test('spec_change accept: an install commit (pyproject.toml + uv.lock) that conflicts with the plan tip is carried over, not looped on', async () => {
+  const w = world(), put = (d, f, c) => { writeFileSync(join(d, f), c); sh(d, 'add', '-A') }
+  sh(w.root, 'checkout', '-q', 'epic/e1-x'); put(w.root, 'uv.lock', 'a\n'); put(w.root, 'pyproject.toml', 'deps=[]\n'); sh(w.root, 'commit', '-qm', 'manifest'); sh(w.root, 'checkout', '-q', 'dev')
+  const { wt } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']); w.meta['cadre.worktree'] = wt
+  put(wt, 'uv.lock', 'six\n'); put(wt, 'pyproject.toml', 'deps=["six"]\n'); sh(wt, 'commit', '-qm', 'chore(deps): add six')
+  sh(w.root, 'checkout', '-q', 'epic/e1-x'); put(w.root, 'uv.lock', 'tip\n'); put(w.root, 'pyproject.toml', 'deps=["tip"]\n'); sh(w.root, 'commit', '-qm', 'plan tip'); w.meta['cadre.base'] = sh(w.root, 'rev-parse', 'HEAD'); sh(w.root, 'checkout', '-q', 'dev')
+  put(wt, 'src/impl.ts', 'export const IMPL = 1\n'); sh(wt, 'commit', '-qm', 'feat: impl')
+  await T.specChange(w.h, w.d, 'm-1', 'wrong spec'); const r = await T.resolveSpec(w.h, 'm-1', 'accept')
+  assert.match(r.text, /accepted/); assert.equal(readFileSync(join(wt, 'pyproject.toml'), 'utf8'), 'deps=["six"]\n'); assert.equal(sh(wt, 'status', '--porcelain'), ''); assert.equal(existsSync(join(wt, 'src/impl.ts')), false)
+})
+test('spec_change accept whose reset still conflicts (modify/delete) puts the worktree back and asks once more with no Accept: reject or cancel, never a retry loop', async () => {
   const w = world(); sh(w.root, 'checkout', '-q', 'epic/e1-x'); writeFileSync(join(w.root, 'package.txt'), 'x\n'); sh(w.root, 'add', '-A'); sh(w.root, 'commit', '-qm', 'manifest'); sh(w.root, 'checkout', '-q', 'dev')
   const { wt } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']); w.meta['cadre.worktree'] = wt
   writeFileSync(join(wt, 'package.txt'), 'six\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'chore(deps): add six')
-  sh(w.root, 'checkout', '-q', 'epic/e1-x'); writeFileSync(join(w.root, 'package.txt'), 'tip\n'); sh(w.root, 'add', '-A'); sh(w.root, 'commit', '-qm', 'plan tip'); const tip = sh(w.root, 'rev-parse', 'HEAD'); sh(w.root, 'checkout', '-q', 'dev')
-  try { sh(wt, 'merge', '--no-ff', '--no-edit', '-q', tip) } catch {}; writeFileSync(join(wt, 'package.txt'), 'six+tip\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'merge the plan tip'); w.meta['cadre.base'] = tip
+  sh(w.root, 'checkout', '-q', 'epic/e1-x'); sh(w.root, 'rm', '-q', 'package.txt'); sh(w.root, 'commit', '-qm', 'plan tip drops it'); const tip = sh(w.root, 'rev-parse', 'HEAD'); sh(w.root, 'checkout', '-q', 'dev')
+  try { sh(wt, 'merge', '--no-ff', '--no-edit', '-q', tip) } catch {}; writeFileSync(join(wt, 'package.txt'), 'six\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'merge the plan tip'); w.meta['cadre.base'] = tip
   writeFileSync(join(wt, 'src/impl.ts'), 'export const IMPL = 1\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'feat: impl'); const pre = sh(wt, 'rev-parse', 'HEAD')
   await T.specChange(w.h, w.d, 'm-1', 'wrong spec'); const r = await T.resolveSpec(w.h, 'm-1', 'accept')
-  assert.match(r.text, /answer again/); assert.doesNotMatch(r.text, /accepted/)
-  assert.equal(sh(wt, 'rev-parse', 'HEAD'), pre); assert.equal(sh(wt, 'status', '--porcelain'), ''); assert.equal(existsSync(join(wt, 'src/impl.ts')), true)
-  assert.equal((await w.h.board.read()).tasks[0].state, 'blocked'); assert.equal(w.meta['cadre.blocked'], 'spec_change')
-})
+  assert.match(r.text, /reject, or cancel/); assert.doesNotMatch(r.text, /answer again|accepted/)
+  assert.equal(sh(wt, 'rev-parse', 'HEAD'), pre); assert.equal(sh(wt, 'status', '--porcelain'), '')
+  assert.equal((await w.h.board.read()).tasks[0].state, 'blocked'); assert.equal(w.meta['cadre.blocked'], 'spec_change'); assert.equal(w.meta['cadre.specReset'], 'conflict')
+  assert.match((await T.resolveSpec(w.h, 'm-1', 'accept')).text, /reject instead/)   // a second Accept is refused without touching git
+}) 
 const reTester = async (w, wt, files, names) => {
   const view = await V.buildView(w.h, w.d, await mkTask(w), wt)
   for (const [f, c] of Object.entries(files)) { mkdirSync(join(view, f, '..'), { recursive: true }); writeFileSync(join(view, f), c) }
