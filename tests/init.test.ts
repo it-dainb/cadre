@@ -284,7 +284,7 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     expect((await cadreRun(h, { args: 'init confirm', origin: { kind: 'press' } }, () => ({}))).text).not.toContain('written')   // typed never confirms (ADR 0012); the card stays
     const d = (await card(h, 'init:5'))!; expect((await decide(h, d.id, 'a', d.hash)).text).toBe('init: safety settings written · restart Claude Code for the task-tool settings to apply · init: all done')
     expect((await h.secret.read()).run).toBeUndefined(); const c = (await card(h))!; expect(c.title).toBe('init · all done'); expect(c.options.map(o => o.label)).toEqual(['Close']); expect(h.toasts).toContain('cadre: init done')
-    expect((await decide(h, c.id, 'x', c.hash)).text).toBe('init: cancelled'); expect(await card(h)).toBeUndefined()
+    expect((await decide(h, c.id, 'c', c.hash)).text).toBe('init: cancelled'); expect(await card(h)).toBeUndefined()
   })
   test('killed mid-setup: the next session names the interrupted setup (status and band), with the queued goal; the goal picks it up; done or cancel forgets it', async () => {
     const { h, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]

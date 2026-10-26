@@ -14,7 +14,7 @@ import { emit, TABLE } from '../core/events'
 import { configPress, refreshSettings } from '../config/route'
 import { lastNext } from '../core/close'
 import { plan, world } from './fixtures/native/world'
-import { clashes, fakeHost } from './support'
+import { fakeHost } from './support'
 import { NOOP, approval, view } from './fixtures/ui/epic'
 
 const dec = (id: string, kind: string, title: string, lines: string[], options: Decision['options'], o: Partial<Decision> = {}): Decision => ({ id, kind, title, lines, hash: 'h', options, ...o })
@@ -219,4 +219,3 @@ describe('core: ask / settle / events', () => {
   })
 })
 
-test('translation keys: across every dialog this file drove, a key maps to exactly one English string (H11)', () => { expect(clashes()).toEqual([]) })

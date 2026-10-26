@@ -121,7 +121,7 @@ Security note: the dependency install a task may ask for runs isolated (clean en
 - **Main plans, never edits.** The agent that talks to you cannot touch your source.
 - **Computed beats claimed.** Tests pass because cadre ran them, not because an agent said so.
 - **Local first.** Your tasks and git history stay on your machine. cadre pushes only when you choose pull-request landing (`landing.mode: pr`).
-- **Calm UI, zero token cost.** The board is drawn by the plugin. It adds nothing to Claude's context. The UI is English; another language means adding a table in `ui/tr.ts` (labels, titles and field labels only; nothing a model reads).
+- **Calm UI, zero token cost.** The board is drawn by the plugin. It adds nothing to Claude's context. The UI is English; another language means adding a table in `ui/tr.ts` (option and field labels only; titles stay English; nothing a model reads).
 
 Read more: [DESIGN](docs/design/DESIGN.md) · [UI design](docs/design/UI-DESIGN.md) · [decisions (ADRs)](docs/adr) · [UI dev loop](docs/dev/ui-dev.md) · [test harness](harness/README.md) · [module contracts](docs/CONTRACTS.md)
 

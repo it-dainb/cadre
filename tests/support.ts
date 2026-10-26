@@ -9,10 +9,9 @@ import { MemoryStore } from '../task-management/adapters/memory/store'
 SAY.check = (kind, text) => { const l = leaks(kind, text); if (l.length) throw new Error(`model-visible leak (${kind}): ${l[0].slice(0, 200)}`) }
 
 const cell = <T>(v: T) => ({ read: async () => v, update: async (fn: (x: T) => T) => (v = fn(v)) })
-// every decision a test host's board ever held: translation key -> the English strings under it (tests/language.test.ts: a key must map to ONE string)
-const SEEN = new Map<string, Set<string>>()
-const note = (k: string, en: string) => SEEN.set(k, (SEEN.get(k) ?? new Set()).add(en))
-export const clashes = () => [...SEEN].filter(([, v]) => v.size > 1).map(([k, v]) => `${k}: ${[...v].join(' | ')}`)
+// every decision any test host's board holds (all test files): a translation key must map to ONE English string (H11), so a second string under a key fails the test that produced it
+const SEEN = new Map<string, string>()
+const note = (k: string, en: string) => { const was = SEEN.get(k); if (was !== undefined && was !== en) throw new Error(`translation key ${k}: "${was}" and "${en}"`); SEEN.set(k, en) }
 const board = () => { const c = cell(emptySnapshot('repo')); return { read: c.read, update: async (fn: (x: ReturnType<typeof emptySnapshot>) => ReturnType<typeof emptySnapshot>) => { const b = await c.update(fn); for (const d of b.decisions ?? []) { for (const o of d.options) note(`${d.key}.${o.key}`, o.label); for (const f of d.fields ?? []) note(`${d.key}.${f.key}`, f.label) } return b } } }
 export function fakeHost(o: { t0?: number; files?: Record<string, string>; env?: Record<string, string>; options?: Host['options'] } = {}): Host & { logs: string[]; toasts: string[]; clock: { set(ms: number): void; advance(ms: number): void } } {
   let t = o.t0 ?? 1_000

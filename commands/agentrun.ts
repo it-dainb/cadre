@@ -68,9 +68,9 @@ async function draw(h: Host, k: Kind, its: Item[], state: 'on' | 'stopped' | 'he
   const title = state === 'done' ? `${k} · all done` : state === 'held' ? `${k}${HELD}` : state === 'stopped' ? `${k} · Claude stopped · ${its.length - n} left` : `${k} · ${n}/${its.length} done · ${human ? 'needs you' : 'Claude is on it'}`
   const lines = [...(note ? note.split('\n') : []), ...its.map(i => `${G[i.st]} ${i.name}${i.why ? `: ${i.why}` : ''}`)]
   await ask(h, { id: `run:${k}`, kind: 'init', title, short: title, lines, hash: fnv1a64(title + lines.join('\n')), tab: 'epic', ...(state === 'done' || (state === 'on' && (!human || (await h.secret.read()).run?.goal)) ? { quiet: true as const } : {}),   // done: shown in the pane, never a "needs you"   // a goal run: the human's cards (safety, then mission + plan) pop themselves; the checklist never does
-    options: state === 'stopped' ? [{ key: 'r', label: 'Let Claude try again', verb: 'change', run: `${k} retry` }, { key: 'x', label: `Stop ${k === 'init' ? 'setup' : k}`, verb: 'reject', run: `${k} cancel` }]
-      : state === 'held' ? [{ key: 'x', label: `Stop ${k === 'init' ? 'setup' : k}`, verb: 'reject', run: `${k} cancel` }]   // no retry here: an answer cannot hand the step over (pump)
-      : [{ key: 'x', label: state === 'done' ? 'Close' : 'Cancel', verb: 'reject', run: `${k} cancel` }] })
+    options: state === 'stopped' ? [{ key: 'r', label: 'Let Claude try again', verb: 'change', run: `${k} retry` }, { key: 's', label: `Stop ${k === 'init' ? 'setup' : k}`, verb: 'reject', run: `${k} cancel` }]
+      : state === 'held' ? [{ key: 's', label: `Stop ${k === 'init' ? 'setup' : k}`, verb: 'reject', run: `${k} cancel` }]   // no retry here: an answer cannot hand the step over (pump)
+      : [{ key: state === 'done' ? 'c' : 'x', label: state === 'done' ? 'Close' : 'Cancel', verb: 'reject', run: `${k} cancel` }] })
 }
 // where in the guide each check is done (guides/init.md phases)
 const PHASE: Record<string, string> = { repository: 'phase 1', 'task store': 'phase 2', mission: 'phase 3', 'build and test commands': 'phase 4', 'commands pass on a clean checkout': 'phase 4', workflow: 'phase 4', changelog: 'phase 5' }
