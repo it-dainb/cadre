@@ -208,7 +208,7 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
     const kr: { root: string; n: string }[] = [], red = await runSuites(h, cfg, tmp, files, epicId, kr); if (red) return await fail(red, true)
     const sl = await subLand(h, cfg.branches.dev, subs); subs = []; if (sl) return await fail(sl, false)
     if (!(await landDev(h, { dev, sha, old: m.devTip, tmp, epic: from }))) return await fail(`${dev} moved during integration; set it completed again (status)`, false)
-    await store.setMeta(epicId, { 'cadre.landed': `${dev}@${sha}` }, 'cadre').catch(x => h.log(`landed not recorded: ${x}`))   // core/revert finds the merge by this
+    await Promise.resolve().then(() => store.setMeta(epicId, { 'cadre.landed': `${dev}@${sha}` }, 'cadre')).catch(x => h.log(`landed not recorded: ${x}`))   // core/revert finds the merge by this
     for (const u of unitsOf(cfg).filter(u => u.ownGit)) { const sr = `${root}/${u.root}`; if ((await exists(h.run, sr, from)) && (await ok(h.run, sr, ['merge-base', '--is-ancestor', from, cfg.branches.dev]))) await op(h, () => git(h.run, sr, ['branch', '-D', from])).catch(x => h.log(`${u.root}: ${x}`)) }   // the parent records it: its epic branch goes
     await offer(h, dev)   // the user has it checked out: the landing waits for them
     if (ep) return await landed(h, store, epicId, sha, files, cfg.branches.dev, tmp)
