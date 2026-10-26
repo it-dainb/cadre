@@ -18,7 +18,7 @@ Not for ask. Call explore ONCE asking what in the project the goal touches (file
 
 **lite**: one plan call: title, description (what to change and why, with the files you found), `"lane": "lite"`, `"reason"`, `"type": "<bug|feature|refactor|docs>"` and a changelog (`{"none": true, "reason": "<why>"}` when users would not notice the change). For a bug that a test can reproduce, add `"repro": true`: a test that fails first is written before the fix.
 
-**If the goal says "There is no mission yet"** (lite and full): also put `"mission"` in the plan call. Draft it from the goal, what you read in the project and the user's answers. They approve the mission together with the plan.
+**If the goal says "There is no mission yet"** (lite and full): also put `"mission": "Goal: …\nConstraints: …\nNon-goals: …"` in the plan call. Draft it from the goal, what you read in the project and the user's answers. They approve the mission together with the plan.
 
 **full**: plan with `"lane": "full"` and a reason, then one task call per task, as the plan rules in its answer say.
 

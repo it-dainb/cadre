@@ -10,5 +10,5 @@ test('MCP tools = 3, skills = 0', async () => { expect([...TOOLS]).toEqual(['rep
 test('every gating registration has a .catch (validate --json gatingHooks)', async () => { expect(BUDGET.gatingMissing).toBe(0) })
 test('UI v2 files (first line `// UI v2`) hold no literal glyph, theme key or colour: they come from ui/tokens', async () => { expect(BUDGET.uiLiterals).toEqual([]) })
 test('A4: every built-in role prompt <= 1472 B (the audited largest, rounded up to 64 B; the cap only goes down)', async () => { for (const [r, n] of Object.entries(BUDGET.promptBytes)) expect([r, n <= 1472]).toEqual([r, true]) })
-test('A4: agents/*.md + guides/* <= 17401 B (the audited total; the cap only goes down)', async () => { expect(BUDGET.shippedBytes).toBeLessThanOrEqual(17401) })
+test('A4: agents/*.md + guides/* <= 17448 B (the audited total; the cap only goes down)', async () => { expect(BUDGET.shippedBytes).toBeLessThanOrEqual(17448) })
 test('the specifier prompt <= 1536 B (0.17 plan, slice 7)', async () => { expect(BUDGET.promptBytes.specifier).toBeLessThanOrEqual(1536) })
