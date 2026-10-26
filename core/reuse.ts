@@ -88,7 +88,7 @@ export async function* meter(h: Host, e: any, next: (e: any) => any): AsyncGener
   // the routed effort outlives the binding: an agent's last step after its accepted report comes after cadre ended the binding, and ran on Claude Code's default (live: a reviewer's
   // trailing request on medium where the settings say high)
   const b = e.agentId && (await h.bind.read())[e.agentId], eff = b?.effort ?? (e.agentId ? efforts.get(e.agentId) : undefined)
-  if (b?.effort && e.agentId) { if (efforts.size > 500) efforts.clear(); efforts.set(e.agentId, b.effort) }
+  if (b?.effort && e.agentId) { if (!efforts.has(e.agentId) && efforts.size >= 500) efforts.delete(efforts.keys().next().value!); efforts.set(e.agentId, b.effort) }   // FIFO: the oldest goes first
   const r = yield* next(eff && eff !== 'default' ? { ...e, effort: eff } : e)   // TM-03: the effort admission routed for this run (core/risk.route: roles.<role>.byRisk.<risk>, recorded on the binding); none = the agent file's
   if (r?.usage) await safe(h, 'cost', async () => {
     const id = e.agentId ?? 'main'

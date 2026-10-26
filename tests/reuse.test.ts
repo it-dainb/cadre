@@ -352,6 +352,15 @@ describe('round 2: effort, pruning, tester deny log', () => {
     expect(seen.map(e => e.effort)).toEqual(['high', 'high'])
     await h.bind.update(() => ({})); await run('stranger'); expect('effort' in seen[2]).toBe(false)   // an agent that never had a routed effort keeps the file's
   })
+  test('the effort map holds 500 agents: the 501st evicts exactly the oldest, the other 499 stay', async () => {
+    const { h, a } = await mk(), ids = Array.from({ length: 501 }, (_, i) => `fifo${i}`), seen: Record<string, any> = {}
+    const run = async (agentId: string) => { const g = meter(h, { agentId }, async function* (e: any) { seen[agentId] = e; return { usage: null } } as any); let r = await g.next(); while (!r.done) r = await g.next() }
+    await h.bind.update(() => Object.fromEntries(ids.map(id => [id, B(a, 'S1', { effort: 'high' })])))
+    for (const id of ids) await run(id)   // the earlier tests' agents are older than these and go first
+    await h.bind.update(() => ({}))   // no binding left: only the map can still route the effort
+    for (const id of ids) await run(id)
+    expect(ids.filter(id => seen[id].effort !== 'high')).toEqual(['fifo0'])
+  })
   test('session.start pruning: stale-lease resume entries, closed/expired pointer bindings, quarantine older than 30 days', async () => {
     const { h, a, b } = await mk()
     const day = 86_400_000
