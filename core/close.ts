@@ -410,7 +410,8 @@ async function unblock(h: Host, d: Deps, id: string, text: string, flag: string)
   const m = await apply(h, { kind: 'unblock', id, at: await h.now(), actor: 'main' }, pipe(d)); if (!m.ok) return m.error
   await d.store.resume(id, d.actor); await d.store.setMeta(id, { 'cadre.decision': text.slice(0, 1000), 'cadre.blocked': '' }, d.actor)
   await d.store.record('decision', `${id}: ${text.slice(0, 60)}`, text, id); await clear(h, id, flag)
-  const w = ownerOf(await h.bind.read(), id, 'worker'); if (w) await step(h, w, { type: 'resume', text })
+  const bind = await h.bind.read(), w = ownerOf(bind, id, 'worker'); if (w) await step(h, w, { type: 'resume', text })
+  for (const x of agentsOf(bind, id)) if (x !== w && !x.startsWith('~') && ['running', 'refused', 'silent'].includes((await runOf(h, x))?.state?.state ?? '')) await end(h, x, 'retry', 'retry')   // a task waits for the user only after its agent's turn ended (a tester's malformed reports): a run still `running` is dead, and would hold its role and the idle fallback (core/drive.idle) off for good
   return null
 }
 const wrapL = (f: (h: Host, d: Deps, id: string, e: any) => Promise<string | null>) => async (h: Host, id: string, e: any) => f(h, await resolveDeps(h), id, e)
