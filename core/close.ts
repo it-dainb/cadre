@@ -466,7 +466,7 @@ ROUTES.resolve = async (h, c) => {
     return { text: `${a}: back to the tester${spawnIt(lifted ? { drive: { ...b.drive, stopped: undefined } } : b, 'spawn it')}` }
   }
   if (t && b === 'retry' && t.flags.includes('shape')) {   // the shape dialog's Retry: back to its step, its count of malformed reports starts over
-    await retry(h, a, 'shapeRefusals'); const e = await unblock(h, d, a, 'Retry from the human: report again, within the limits the refusals named.', 'shape'); if (e) return { text: e }   // unblock resumes the bound worker: one that already ended is retired and the spawner starts a fresh one
+    await retry(h, a, 'shapeRefusals'); const e = await unblock(h, d, a, 'Retry from the human: report again in the form the report tool describes (each value within its length cap, only its fields).', 'shape'); if (e) return { text: e }   // unblock resumes the bound worker: one that already ended is retired and the spawner starts a fresh one
     return { text: `${a}: its agent starts again${spawnIt(await h.board.read(), 'spawn it')}` }
   }
   if (!t || !['keep', 'accept', 'reject', 'cancel'].includes(b)) return { text: 'usage: /cadre resolve <taskId> keep|accept|reject|cancel · /cadre resolve git keep|restore' }
