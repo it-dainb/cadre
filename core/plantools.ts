@@ -225,6 +225,13 @@ function criteria(t: Task, i: In): { criterion: string; original: string }[] {  
   const deps = t.deps.filter(d => BLOCK.includes(d.type)).map(d => d.id), after = ((i.after ?? []) as string[]).filter(x => !deps.includes(x))
   return [...sc, ...Object.keys(i).filter(k => !NOT.includes(k) && given(k) !== raw(k)).map(k => ({ criterion: k, original: raw(k) || '(none)' })), ...(after.length ? [{ criterion: 'after', original: deps.join(', ') || '(none)' }] : [])]
 }
+// the red dialog's "Already holds" (core/close): a human answer makes the same `holds` amendment a plan author would: ledger entry, original kept, then the held ids join cadre.holds
+export async function holdsAmend(h: Host, store: TaskStore, id: string, ids: string[], actor: string): Promise<string | null> {
+  const t = await store.get(id), was = holdsOf(t), gap = holdsGap(ids, t.acceptance); if (gap) return gap
+  const at = await h.now(), reason = `its test for ${ids.join(', ')} passes at red: the code already satisfies it`, evidence = 'the red gate, answered by the human in the dialog'
+  await store.setMeta(id, { 'cadre.holds': JSON.stringify([...new Set([...was, ...ids])]), 'cadre.amendments': JSON.stringify([...ledgerOf(t), { criterion: 'holds', original: was.length ? JSON.stringify(was) : '(none)', reason, evidence, at }]) }, actor)
+  await emit(h, 'amend.recorded', { taskId: id, reason }, { taskId: id }); return null
+}
 async function amend(h: Host, i: In): Promise<Out> {
   const { id, expectedRevision, after = [], remove, reason, evidence, ...m } = i, s = await planOf(h); if (!s) return no(NOPLAN)
   const { store, reg } = await deps(h), p = await store.get(s.plan!.id), cur = Number(p.meta['cadre.rev'] ?? 0)

@@ -4,7 +4,7 @@ import { NUDGE as ASK_NUDGE, askOf, askStopped } from './asks'
 import type { Binding, Hook, Host, SnapTask } from '../types'
 import type { Task } from '../task-management/store'
 import { pipeOf } from '../task-management/registry'
-import { LIFECYCLE } from './plantools'
+import { LIFECYCLE, holdsAmend } from './plantools'
 import { ROUTES } from './dispatch'
 import { resolveDeps, type Deps } from './admission'
 import { Refusal, SPEC_SCENARIO, coverageGaps, overlap, pathsOf, specTestsOf } from './validate'
@@ -216,7 +216,7 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
       const n = await charge(h, t.id, 'red')   // only the dialog's Retry clears it
       const pkgMissing = g.setup && /\(missing module\)/.test(g.why ?? '')   // a package: the tester can ask for it; a missing runner stays a dialog
       if ((!g.setup || pkgMissing) && n < d.cfg.limits.testerRounds) throw new Error(`red gate refused: ${g.why}\n${g.card}${pkgMissing ? `\n${ASK_SETUP}` : ''}`)
-      await redAsk(h, d, t.id, g.setup ? g.why! : `check "${redOf(pkgOf(d, task)!)}" after ${n} tester rounds: ${g.why}`)
+      await redAsk(h, d, t.id, g.setup ? g.why! : `check "${redOf(pkgOf(d, task)!)}" after ${n} tester rounds: ${g.why}`, g.setup ? [] : g.passing)
       await blockTask(h, d, t, `red: ${g.why}`, 'red', { summary: r.summary, tests: r.tests })
       return 'Your tests are kept, but they cannot be made to fail for the right reason here; the task now waits for the user. Stop.'
     }
@@ -235,9 +235,9 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
 }
 
 // the red block's dialog (asked before the flag is raised, so it wins over the generic one): what failed, Retry (back to the tester, fresh rounds) or Cancel
-async function redAsk(h: Host, d: Deps, id: string, why: string) {
-  await ask(h, { id: `flag:${id}:red`, kind: 'flag', title: `${id}: its tests cannot be made red`, tab: 'epic', sel: id, hash: fnv1a64(why), lines: [...why.slice(0, 400).split('\n').filter(Boolean), 'Retry: fix the cause (the package checks, or the test setup), then a new tester writes the tests again. Cancel task: end it.'],
-    options: [{ key: 'r', label: 'Retry', verb: 'restore', run: `resolve ${id} retry` }, { key: 'x', label: 'Cancel task', verb: 'cancel', run: `resolve ${id} cancel` }] })
+export async function redAsk(h: Host, d: Deps, id: string, why: string, passing: string[] = []) {
+  await ask(h, { id: `flag:${id}:red`, kind: 'flag', title: `${id}: its tests cannot be made red`, tab: 'epic', sel: id, hash: fnv1a64(why), lines: [...why.slice(0, 400).split('\n').filter(Boolean), 'Retry: fix the cause (the package checks, or the test setup), then a new tester writes the tests again.', ...(passing.length ? [`Already holds: ${passing.join(', ')} passes now because the code already does it; mark it held, then a new tester writes its test to pass.`] : []), 'Cancel task: end it.'],
+    options: [{ key: 'r', label: 'Retry', verb: 'restore', run: `resolve ${id} retry` }, ...(passing.length ? [{ key: 'h', label: 'Already holds', verb: 'accept', run: `resolve ${id} holds ${passing.join(',')}` }] : []), { key: 'x', label: 'Cancel task', verb: 'cancel', run: `resolve ${id} cancel` }] })
 }
 
 // ---- #2 turn.complete: L3 sweep every turn; an agent that stopped without reporting is nudged (limits.nudges), then ends: its work is not accepted as a result, one dialog ----
@@ -458,12 +458,14 @@ ROUTES.resolve = async (h, c) => {
     await retry(h, a, 'rebase', d.cfg.limits.rebaseRounds - 1); await d.store.setMeta(a, { 'cadre.blocked': '' }, d.actor); await clear(h, a, 'conflict'); await clear(h, a, 'merge-red')
     return { text: (await rework(h, d, (await h.board.read()).tasks.find(x => x.id === a)!, task, tip, 'conflict')) ?? `${a}: not reworked` }
   }
-  if (t && b === 'retry' && t.flags.includes('red')) {   // the red dialog's Retry (redAsk): back to the tester step, rounds reset
+  if (t && (b === 'retry' || b === 'holds') && t.flags.includes('red')) {   // b holds: the dialog's Already holds first records the amendment (the ids come from the gate; the ledger checks them against the scenarios)
+    if (b === 'holds') { const e = await holdsAmend(h, d.store, a, (f ?? '').split(',').filter(Boolean), d.actor); if (e) return { text: e } }
+   // the red dialog's Retry (redAsk): back to the tester step, rounds reset
     const r = await apply(h, { kind: 'rewind', id: a, at: await h.now(), actor: 'human', on: 'tester' }, pipe(d)); if (!r.ok) return { text: r.error }
     await d.store.resume(a, d.actor); await d.store.setMeta(a, { 'cadre.blocked': '' }, d.actor); await retry(h, a, 'red'); await clear(h, a, 'red')   // human.retry{red}: its stop lifts
     await dropNeed(h, a); for (const x of agentsOf(await h.bind.read(), a)) await end(h, x, 'retry', 'retry')   // the tester that waited on it is done: a new one writes the tests
-    const b = await h.board.read(), lifted = b.drive.cause?.taskId === a && !!b.drive.cause.flag?.startsWith('red')   // this answer lifts the stop it caused: the run goes on, so the mode counts as it will be
-    return { text: `${a}: back to the tester${spawnIt(lifted ? { drive: { ...b.drive, stopped: undefined } } : b, 'spawn it')}` }
+    const bd = await h.board.read(), lifted = bd.drive.cause?.taskId === a && !!bd.drive.cause.flag?.startsWith('red')   // this answer lifts the stop it caused: the run goes on, so the mode counts as it will be
+    return { text: `${a}: back to the tester${spawnIt(lifted ? { drive: { ...bd.drive, stopped: undefined } } : bd, 'spawn it')}` }
   }
   if (t && b === 'retry' && t.flags.includes('shape')) {   // the shape dialog's Retry: back to its step, its count of malformed reports starts over
     await retry(h, a, 'shapeRefusals'); const e = await unblock(h, d, a, 'Retry from the human: report again in the form the report tool describes (each value within its length cap, only its fields).', 'shape'); if (e) return { text: e }   // unblock resumes the bound worker: one that already ended is retired and the spawner starts a fresh one

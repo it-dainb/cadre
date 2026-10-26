@@ -17,7 +17,7 @@ import { SPEC_SCENARIO, carries, holdsOf, scenarioIds, untested } from './valida
 import { policyOf, setPolicy } from '../policy/guards'
 import { reset, step } from './lifecycle'
 
-export interface Gate { ok: boolean; why?: string; card: string; tests?: string[]; setup?: true }   // setup: the tester cannot fix it (the config must change); the task blocks at once
+export interface Gate { ok: boolean; why?: string; card: string; tests?: string[]; setup?: true; passing?: string[] }   // passing: the scenario ids whose test passed at red (the dialog offers them as already holding)   // setup: the tester cannot fix it (the config must change); the task blocks at once
 export interface Case { name: string; status: 'passed' | 'failure' | 'error' | 'skipped'; text: string }
 export interface Sym { name: string; status: string }
 
@@ -76,7 +76,7 @@ export async function red(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, te
   const mis = r.exit ? missing(r.exit, r.tail, symbolsOf(task.design), !!pkg.tdd?.skeleton) : null; if (mis) return { ok: false, setup: true, why: mis, card: `red ✗ ${mis}` }
   if (pass) return r.exit ? no(`its tests must pass (test task) but exit=${r.exit}: ${r.tail.slice(-300)}`) : { ok: true, card: `tests ✓ pass (${secs(r.ms)})`, tests: r.cases?.map(c => c.name) ?? tests.map(t => t.name) }
   const must = mustFail(task, tests, only), hg = holdsGapOf(task, tests) ?? amendedGap(tests, only); if (hg) return no(hg)
-  if (!r.exit && must.length) return no('the tests pass at the spec commit; red needs them failing')
+  if (!r.exit && must.length) return { ...no('the tests pass at the spec commit; red needs them failing'), passing: [...new Set(must.flatMap(t => passIds(task, t.name)))] }   // exit 0: every test passed
   if (!must.length && r.exit && holdsOf(task).length) return no(`its tests are all for scenarios that already hold, and some fail (exit=${r.exit})`)
   if (!reportOf(pkg)) return { ok: true, card: `red ✓ exit=${r.exit} (${secs(r.ms)})`, tests: tests.map(t => t.name) }
   if (!r.cases) return no('no JUnit report was produced; fix test setup')
@@ -86,7 +86,7 @@ export async function red(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, te
     if (!c) return no(`test "${t.name}" is not in the report`)
     const hd = held(task, t.name); if (hd) { if (c.status !== 'passed') return no(heldNow(t, c, hd)); lines.push(`- ${t.name}: passed (${hd} holds)`); continue }
     if (lenient(t.name, only)) { if (c.status === 'skipped') return no(`test "${t.name}" was skipped; it must run`); if (c.status === 'error' && !errorOk(c.text, syms, !!pkg.tdd.skeleton)) return no(`errors, not failures: fix test setup ("${t.name}": ${c.text.slice(0, 160)})`); lines.push(`- ${t.name}: ${c.status}`); continue }
-    if (c.status === 'passed' || c.status === 'skipped') return no(`test "${t.name}" ${c.status} at red; it must fail`)
+    if (c.status === 'passed' || c.status === 'skipped') return { ...no(`test "${t.name}" ${c.status} at red; it must fail`), ...(c.status === 'passed' ? { passing: passIds(task, t.name) } : {}) }
     if (c.status === 'error' && !errorOk(c.text, syms, !!pkg.tdd.skeleton)) return no(`errors, not failures: fix test setup ("${t.name}": ${c.text.slice(0, 160)})`)
     lines.push(`- ${t.name}: ${c.text.slice(0, 120)}`)
   }
@@ -98,6 +98,7 @@ const lenient = (name: string, only?: string) => !!only && !carries(only, name)
 // `holds` (the plan's: scenarios whose behaviour already exists): their tests must PASS at red, the rest fail as always; each held scenario needs a test named after it
 // a test is held only when EVERY scenario id its name carries is held: "S1 and S2 combined" (S1 not held) is an unheld test and must fail like any other
 const heldIds = (task: Task, name: string): string[] => { const c = scenarioIds(task.acceptance).filter(id => carries(id, name)), hs = holdsOf(task); return c.length && c.every(id => hs.includes(id)) ? c : [] }
+const passIds = (task: Task, name: string) => scenarioIds(task.acceptance).filter(id => carries(id, name))
 const held = (task: Task, name: string) => heldIds(task, name)[0]
 const holdsGapOf = (task: Task, tests: { name: string }[]) => { const x = holdsOf(task).find(id => !tests.some(t => heldIds(task, t.name).includes(id))); return x ? `no test is named after ${x} alone, which the plan says already holds: write a test for it that passes now` : null }
 const mustFail = (task: Task, tests: { name: string }[], only?: string) => tests.filter(t => !held(task, t.name) && !lenient(t.name, only))
@@ -142,7 +143,7 @@ async function redRun(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, tests:
   const mis = r.exit ? missing(r.exit, r.out, syms, sk) : null; if (mis) return { ok: false, setup: true, why: mis, card: `red ✗ ${mis}` }
   if (pass) return r.exit ? didNot ?? no(`its tests must pass (test task) but exit=${r.exit}: ${r.tail.slice(-300)}`) : { ok: true, card: `tests ✓ pass (${secs(r.ms)})`, tests: r.cases?.map(c => c.name) ?? tests.map(t => t.name) }
   const must = mustFail(task, tests, only), gap = holdsGapOf(task, tests) ?? amendedGap(tests, only); if (gap) return no(gap)
-  if (!r.exit && must.length) return no('the tests pass at the spec commit; red needs them failing')
+  if (!r.exit && must.length) return { ...no('the tests pass at the spec commit; red needs them failing'), passing: [...new Set(must.flatMap(t => passIds(task, t.name)))] }   // exit 0: every test passed
   if (!must.length && r.exit && holdsOf(task).length) return didNot ?? no(`its tests are all for scenarios that already hold, and some fail (exit=${r.exit})`)
   if (r.cases) {
     const lines: string[] = []
@@ -151,7 +152,7 @@ async function redRun(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, tests:
       if (!c) return didNot ?? no(`test "${t.name}" is not in the JUnit report (the name must be written exactly as the runner prints it)`)
       const hd = held(task, t.name); if (hd) { if (c.status !== 'passed') return no(heldNow(t, c, hd)); lines.push(`- ${t.name}: passed (${hd} holds)`); continue }
       if (lenient(t.name, only)) { if (c.status === 'skipped') return no(`test "${t.name}" was skipped; it must run`); if (c.status === 'error' && !errorOk(c.text, syms, sk)) return didNot ?? no(`errors, not failures: fix test setup ("${t.name}": ${c.text.slice(0, 160)})`); lines.push(`- ${t.name}: ${c.status}`); continue }
-      if (c.status === 'passed' || c.status === 'skipped') return no(`test "${t.name}" ${c.status} at red; it must fail`)
+      if (c.status === 'passed' || c.status === 'skipped') return { ...no(`test "${t.name}" ${c.status} at red; it must fail`), ...(c.status === 'passed' ? { passing: passIds(task, t.name) } : {}) }
       if (c.status === 'error' && !errorOk(c.text, syms, sk)) return didNot ?? no(`errors, not failures: fix test setup ("${t.name}": ${c.text.slice(0, 160)})`)
       lines.push(`- ${t.name}: ${c.text.slice(0, 120)}`)
     }

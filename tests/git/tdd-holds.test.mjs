@@ -38,3 +38,11 @@ test('holds: after the base moved, the held tests are re-run on the tree: green 
   writeFileSync(join(wt, 'test/s2.json'), tc('S2 held', 'failure')); const red = await T.holdsRed(w.h, w.d, await mkTask(w), wt); assert.equal(red.length, 1); assert.match(red[0], /S2 held$/)
   assert.deepEqual(await T.holdsRed(w.h, w.d, await mkTask(world()), wt), [])   // a task with no holds has nothing to re-run
 })
+test('holds: a test passing at red names its scenario on the refusal (the dialog offers Already holds); once held, the same tests pass the gate and the others still fail', async () => {
+  const files = { 'test/s.json': tc('S1 new', 'failure'), 'test/s2.json': tc('S2 held', 'passed') }, names = ['S1 new', 'S2 held']
+  const w = world({ acceptance: ACC }), bad = await tester(w, files, names); assert.equal(bad.res.ok, false); assert.deepEqual(bad.res.passing, ['S2'])
+  assert.deepEqual((await tester(world({ acceptance: ACC }), { 'test/s.json': tc('S1 new', 'passed') }, ['S1 new'])).res.passing, ['S1'])
+  const none = await tester(world({ acceptance: ACC }), { 'test/s.json': tc('S1 new', 'failure'), 'test/s2.json': tc('S2 held', 'failure') }, names); assert.equal(none.res.ok, true); assert.equal(none.res.passing, undefined)   // no pass at red: no option
+  const ok = await held(files, names); assert.ok(ok.res.ok, ok.res.why)   // S2 marked held: green is right for it
+  const wrong = await held({ 'test/s.json': tc('S1 new', 'passed'), 'test/s2.json': tc('S2 held', 'passed') }, names); assert.equal(wrong.res.ok, false)   // S1 is not held: it must still fail
+})
