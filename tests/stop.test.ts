@@ -9,7 +9,9 @@ import { stopped } from '../core/close'
 import { spawnIt } from '../core/render'
 import { resolveSpec, specChange } from '../core/tdd'
 import { decide } from '../commands/cadre'
-import { ROUTES } from '../core/dispatch'
+import { DRIVE, ROUTES } from '../core/dispatch'
+import { wanted } from '../core/spawner'
+import { drop, hold } from '../core/queue'
 import { budgetOf } from '../core/lifecycle'
 import { check } from '../config/index'
 
@@ -168,6 +170,23 @@ describe('a step back: the store and the words', () => {
   test('idle: a per-unit cap of 1 holds task B back behind A (global cap 3): idle is false and the watchdog never kicks; another unit would be free', async () => {
     const w = await capped(w => { w.dep.cfg.concurrency.default = 3; w.dep.cfg.units[0].concurrency = 1 }); await quiet(w)
     w.dep.cfg.units[0].concurrency = 2; expect(await idle(w.h)).toBe(true)   // a free slot in the unit: B is work to start
+  })
+  // a pick in flight (core/queue held) counts against the model and provider caps, so a claim of that model or provider is held back; a cap of its own model or provider is no brake on another
+  test('idle: a model cap and a provider cap hold task B back behind a pick in flight; another model\'s cap does not', async () => {
+    const w = await capped(w => { w.dep.cfg.concurrency.default = 3 }), [, b] = w.ids, cc = w.dep.cfg.concurrency
+    cc.models = { none: 9 }   // a cap of any key makes the spawner resolve each claim's model
+    const model = (await wanted(w.h, w.dep.cfg)).cands.find((x: any) => x.id === b)!.model!; expect(model).toBeTruthy()
+    hold({ id: 'zz', role: 'worker', model }); try {
+      cc.models = { [model]: 1 }; await quiet(w)
+      cc.models = { [model === 'opus' ? 'haiku' : 'opus']: 1 }; expect(await idle(w.h)).toBe(true)   // another model's cap: B is free
+      cc.models = {}; cc.providers = { anthropic: 1 }; await quiet(w)
+    } finally { drop('zz', 'worker') }
+    expect(await idle(w.h)).toBe(true)   // the pick landed: a free slot
+  })
+  test('idle: with DRIVE.wanted unset (the spawner not loaded) nothing is work to start: no goal, no kick', async () => {
+    const w = await capped(w => { w.dep.cfg.concurrency.default = 3 }), was = DRIVE.wanted
+    expect(await idle(w.h)).toBe(true); DRIVE.wanted = undefined
+    try { await quiet(w) } finally { DRIVE.wanted = was }
   })
   test('idle: a claim that would only wait for its specifier is not work to start', async () => {
     const w = await capped(w => { w.dep.cfg.roles.specifier.enabled = true }); const [, b] = w.ids
