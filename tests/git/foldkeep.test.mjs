@@ -27,3 +27,11 @@ test('the command reads the runs of both arms and writes its decision', () => {
   const out = JSON.parse(execFileSync('node', ['harness/fold-vs-keep.mjs', d], { encoding: 'utf8' }))
   assert.deepEqual([out.folded.landed, out.kept.landed, out.specifierDefault, out.runs], [3, 2, 'off (opt-in)', { folded: 3, kept: 3 }])
 })
+
+test('an inconclusive run (stopped by a real 429) is left out of its arm, not counted as 0 landed', () => {
+  const d = mkdtempSync(join(tmpdir(), 'fvk-')), put = (cell, v) => { mkdirSync(join(d, cell)); writeFileSync(join(d, cell, 'verdict.json'), JSON.stringify(v)) }
+  for (const k of [1, 2]) { put(`fold-vs-keep-folded.r${k}`, { stats: { foldKeep: run(1) } }); put(`fold-vs-keep-kept.r${k}`, { stats: { foldKeep: run(1) } }) }
+  put('fold-vs-keep-folded.r3', { inconclusive: true, stats: { foldKeep: run(0) } }); put('fold-vs-keep-kept.r3', { stats: { foldKeep: run(1) } })
+  const out = JSON.parse(execFileSync('node', ['harness/fold-vs-keep.mjs', d], { encoding: 'utf8' }))
+  assert.deepEqual([out.folded.landed, out.kept.landed, out.runs], [2, 3, { folded: 2, kept: 3 }])
+})

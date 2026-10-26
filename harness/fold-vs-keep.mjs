@@ -11,7 +11,7 @@ export function decide(folded, kept) {
   const f = sum(folded), k = sum(kept), worse = f.landed < k.landed || (f.landed === k.landed && f.events - k.events >= 2)
   return { folded: f, kept: k, foldedWorse: worse, specifierDefault: worse ? 'on' : 'off (opt-in)' }
 }
-const runsOf = (dir, arm) => readdirSync(dir).filter(d => new RegExp(`^fold-vs-keep-${arm}\\.r\\d+$`).test(d)).sort().map(d => { const f = join(dir, d, 'verdict.json'); try { return JSON.parse(readFileSync(f, 'utf8')).stats?.foldKeep } catch { return undefined } })
+const runsOf = (dir, arm) => readdirSync(dir).filter(d => new RegExp(`^fold-vs-keep-${arm}\\.r\\d+$`).test(d)).sort().map(d => { const f = join(dir, d, 'verdict.json'); try { const v = JSON.parse(readFileSync(f, 'utf8')); return v.inconclusive ? null : v.stats?.foldKeep } catch { return undefined } }).filter(r => r !== null)   // an inconclusive run (a real 429 stopped it) is left out, not counted as 0 landed
 if (process.argv[1]?.endsWith('fold-vs-keep.mjs')) {
   const dir = process.argv[2]; if (!dir || !existsSync(dir)) { console.error('usage: node harness/fold-vs-keep.mjs <matrix run dir>'); process.exit(2) }
   const r = decide(runsOf(dir, 'folded'), runsOf(dir, 'kept')); r.runs = { folded: runsOf(dir, 'folded').length, kept: runsOf(dir, 'kept').length }
