@@ -15,7 +15,7 @@ if (process.argv.includes('--leaks')) {
 // `tr` (ui/tr.ts, H11) is imported from ui/** only: a file elsewhere that imports it could hand a translated string to a model. `--tr-imports <dir>` scans another tree (tests/language.test.ts).
 const trRoot = process.argv.includes('--tr-imports') ? process.argv[process.argv.indexOf('--tr-imports') + 1] : root
 const trImports = (function scan(d) { return readdirSync(d, { withFileTypes: true }).flatMap(e => { const p = join(d, e.name)
-  return e.isDirectory() ? (e.name === 'node_modules' || e.name.startsWith('.') ? [] : scan(p)) : /\.ts$/.test(e.name) && !relative(trRoot, p).startsWith('ui/') && !relative(trRoot, p).startsWith('tests/') && /from '[^']*\/tr'/.test(readFileSync(p, 'utf8')) ? [relative(trRoot, p)] : [] }) })(trRoot)
+  return e.isDirectory() ? (e.name === 'node_modules' || e.name.startsWith('.') ? [] : scan(p)) : /\.m?[tj]s$/.test(e.name) && !relative(trRoot, p).startsWith('ui/') && !relative(trRoot, p).startsWith('tests/') && /(from\s*|import\s*\(\s*)(['"])[^'"]*\/tr(\.m?[tj]s)?\2/.test(readFileSync(p, 'utf8')) ? [relative(trRoot, p)] : [] }) })(trRoot)
 if (trImports.length) { console.error(`ui/tr imported outside ui/**:\n${trImports.join('\n')}`); process.exitCode = 1 }
 if (process.argv.includes('--tr-imports')) process.exit()
 const out = join(root, 'tests/fixtures/budget.generated.ts')

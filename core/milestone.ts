@@ -54,7 +54,7 @@ export async function planEpic(h: Host, store: TaskStore, reg: TypeRegistry, id:
 export async function stopEpic(h: Host, id: string, why: string): Promise<void> {
   const store = await storeOf(h), s = await h.board.read(), e = epicOf(s, id); if (!e || e.state === 'stopped' || e.state === 'landed') return
   await store.setMeta(id, { 'cadre.stopped': why.slice(0, 300) }, 'cadre'); await mirror(h, store, await registryOf(h))
-  await ask(h, { id: `flag:${id}:stopped`, kind: 'flag', title: `epic ${id} stopped`, short: `${id} stopped`, hash: `stopped:${why.slice(0, 60)}`, tab: 'epic', lines: [e.title, why.slice(0, 160), 'Retry: the epic goes on. The epics that wait on it start after it lands.'],
+  await ask(h, { id: `flag:${id}:stopped`, key: 'stopped', kind: 'flag', title: `epic ${id} stopped`, short: `${id} stopped`, hash: `stopped:${why.slice(0, 60)}`, tab: 'epic', lines: [e.title, why.slice(0, 160), 'Retry: the epic goes on. The epics that wait on it start after it lands.'],
     options: [{ key: 'r', label: 'Retry', verb: 'change', run: `resolve ${id} keep` }] })
   await emit(h, 'flag.raised', { taskId: id, flag: 'stopped' }, { taskId: id })
 }

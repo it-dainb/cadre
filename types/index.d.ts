@@ -32,7 +32,7 @@ export interface Plan {
 // `run` = a dispatcher command (`<sub> <args>`) run as origin dialog; an option without `run` closes the dialog and decides nothing ("Not now").
 export interface DecisionOption { key: string; label: string; verb: string; run?: string }
 export interface Decision {
-  id: string; kind: string; title: string; short?: string; lines: string[]; hash: string; options: DecisionOption[]   // hash = content hash: a press bound to an older one is refused
+  id: string; key: string; kind: string; title: string; short?: string; lines: string[]; hash: string; options: DecisionOption[]   // hash = content hash: a press bound to an older one is refused
   tab?: string; sel?: string; crit?: boolean                                                                             // pane tab with the full detail · task to select · [CRIT] tag
   fields?: DecisionField[]; error?: string   // asked one by one in the dialog before the options; an option's run gets them where it says {fields} (k=v argv). error: the last answer's refusal, shown in the re-ask
   change?: string; quiet?: true              // change: the prefix main gets with the dialog's free text (default `About "<title>": `) · quiet: never pops by itself (a progress card)

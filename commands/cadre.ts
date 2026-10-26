@@ -82,7 +82,7 @@ async function onboard(h: Host, text: string, yolo: boolean): Promise<Out> {
   if (!(await setUp(h))) return { text: modelText('context', WELCOME) }
   const mode = yolo || (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto'
   await h.ui.update(u => ({ ...u, onboard: { text, mode } }))
-  await ask(h, { id: 'init:goal', kind: 'init', title: "cadre isn't set up here. Set it up and plan this goal?", short: 'set up cadre here', hash: fnv1a64(`${mode}\n${text}`), tab: 'epic',
+  await ask(h, { id: 'init:goal', key: 'init.goal', kind: 'init', title: "cadre isn't set up here. Set it up and plan this goal?", short: 'set up cadre here', hash: fnv1a64(`${mode}\n${text}`), tab: 'epic',
     lines: [text.slice(0, 160), 'Claude sets up the project (you see every step), then drafts the plan with its mission for you to approve.'],
     options: [{ key: 's', label: 'Set up', verb: 'approve', run: 'init goal' }, { key: 'x', label: 'Not now', verb: 'reject', run: 'init cancel' }] })
   await autoAsk(h).catch(() => {})

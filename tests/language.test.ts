@@ -7,10 +7,11 @@ import { TABLE, labels, pick, title, tr } from '../ui/tr'
 import { SAY } from '../core/say'
 import { decide } from '../commands/cadre'
 import { ask, flagDecision } from '../core/decide'
+import { clashes } from './support'
 import { plan, world } from './fixtures/native/world'
 
-const D: Decision = { id: 'deploy:7', kind: 'deploy', title: 'deploy build 7 to staging?', lines: ['3 services restart'], hash: 'h', options: [{ key: 'd', label: 'Deploy', verb: 'approve', run: 'deploy now' }, { key: 'w', label: 'Wait', verb: 'change', run: 'deploy wait' }] }
-const STUB = { 'deploy.d': 'Wait', 'deploy.w': 'Deploy', 'deploy.title': 'TITLE?', 'conflict.title': 'TITLE?' }   // swaps the two labels: only a key-based resolver gets this right
+const D: Decision = { id: 'deploy:7', key: 'deploy', kind: 'deploy', title: 'deploy build 7 to staging?', lines: ['3 services restart'], hash: 'h', options: [{ key: 'd', label: 'Deploy', verb: 'approve', run: 'deploy now' }, { key: 'w', label: 'Wait', verb: 'change', run: 'deploy wait' }] }
+const STUB = { 'deploy.d': 'Wait', 'deploy.w': 'Deploy', 'deploy.title': 'TITLE?', 'flag.conflict.title': 'TITLE?', 'flag.conflict.a': 'A', 'flag.conflict.k': 'K', 'flag.conflict.x': 'X', 'plan.title': 'TITRE', 'plan.a': 'A', 'plan.x': 'X' }   // swaps the two labels: only a key-based resolver gets this right
 
 // the dialog, scripted: the free-text answers and the option pick of a fixed scenario set; returns the goal text and every modelText the run produced
 async function scenarios(table: Record<string, string>) {
@@ -40,7 +41,7 @@ describe('ui.language: a mechanism, English only', () => {
     } finally { for (const k of Object.keys(STUB)) delete TABLE[k] }
   })
   test('golden: the free-text paths (incl. ui/index.ts queueBrief with d.title) and every modelText are identical with a table in place; the title sent stays English', async () => {
-    const en = await scenarios({}), tl = await scenarios({ ...STUB, 'plan.title': 'TITRE', 'plan.a': 'X' })
+    const en = await scenarios({}), tl = await scenarios(STUB)
     expect(en.out).toEqual([`Change ${en.p}: split the login into two tasks`, 'About "a2 flagged conflict": keep mine but tell me why'])
     expect(tl.out).toEqual(en.out); expect(tl.seen).toEqual(en.seen)
     expect(JSON.stringify(tl.seen)).not.toContain('TITLE?'); expect(JSON.stringify(tl.seen)).not.toContain('TITRE')
@@ -52,6 +53,10 @@ describe('ui.language: a mechanism, English only', () => {
       Object.assign(w.h, { answer: async (_id: string, k: string) => { ran = k; return { text: 'ok' } }, ask: async (q: string, ls: string[]) => { asked.push([q.split('\n')[0], ...ls]); return 'Wait' } })
       await answerDialog(w.h); expect(asked).toEqual([['TITLE?', 'Wait', 'Deploy']]); expect(ran).toBe('d'); expect(NOT_NOW).toBe('Not now')
     } finally { for (const k of Object.keys(STUB)) delete TABLE[k] }
+  })
+  test('keys: every flag class the machine can raise gives one English string per key (H11)', async () => {
+    const w = await world(); for (const f of ['spec_change', 'shape', 'lost-epic', 'conflict', 'drift', 'integration-failed', 'red', 'external', 'git:dev:agent', 'quarantine:x', 'rework:r1', 'stopped', 'attempts']) await ask(w.h, flagDecision('t1', f, 'T')!)
+    expect(clashes()).toEqual([])
   })
   test('import guard: no file outside ui/** imports tr (scripts/budget.mjs scan; tests/git/tr-guard.test.mjs proves it fails when one does)', () => { expect(BUDGET.trImports).toEqual([]) })
 })

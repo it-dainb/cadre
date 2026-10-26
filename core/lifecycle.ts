@@ -179,6 +179,6 @@ export async function backstop(h: Host, me: string): Promise<void> {
     await step(h, a, { type: 'stopped' })   // first: one TaskStop and one dialog per deadline, also when this run had already ended
     const gone = await h.stopAgent?.(a).then(() => false, x => (h.log(`backstop: ${a} not stopped here (${x}): an earlier session's or already gone; ended lost`), true))
     await step(h, a, { type: 'end', cause: 'lost', reason: 'stalled' }); if (gone) continue   // nothing of this process kept running: no dialog
-    await ask(h, { id: `stalled:${a}`, kind: 'flag', title: `${r.taskId}: an agent did not stop`, hash: a, tab: 'epic', sel: r.taskId, lines: [`Its work was done, but it kept running past ${BACKSTOP / 1000} s, so it was stopped. Its task goes on.`], options: [{ key: 'k', label: 'OK', verb: 'keep' }] })
+    await ask(h, { id: `stalled:${a}`, key: 'stalled', kind: 'flag', title: `${r.taskId}: an agent did not stop`, hash: a, tab: 'epic', sel: r.taskId, lines: [`Its work was done, but it kept running past ${BACKSTOP / 1000} s, so it was stopped. Its task goes on.`], options: [{ key: 'k', label: 'OK', verb: 'keep' }] })
   }
 }

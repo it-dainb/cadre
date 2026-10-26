@@ -83,7 +83,7 @@ export async function redraw(h: Host, store: TaskStore, reg: TypeRegistry): Prom
   else {
     const sc = (t: Task) => (t.acceptance ?? '').split('\n').filter(Boolean).length, m = await missionOf_(store, s), ll = laneLine(s.plan, drafts, reg), lo = laneOption(s.plan, drafts, reg, (await cfgOf(h)).lanes)   // a mission card shows the mission itself
     const mis = await withMission(store, s), as = await assumedOf(store, s), all = drafts.reduce((n, t) => n + sc(t), 0), k = Math.max(1, (drafts.length > 5 ? 4 : 5) - (mis ? 1 : 0) - as.length)   // body <= 6 lines, each fact once (BRAND P2): the count on the lane line, scenarios per task, none when 0
-    await ask(h, { id: `plan:${planId}`, kind: 'plan', title: m ? `approve the mission · ${m.title}` : mis ? `approve the mission and plan ${planId}` : `approve ${isMs(s.plan) ? 'milestone' : 'plan'} ${planId}`, short: m ? 'approve the mission' : mis ? `approve mission + ${planId}` : `approve ${planId}`, tab: m ? 'epic' : 'plan', hash: planHash(drafts, m, (ll ?? '') + mis + as.join('\n') + (await planText(store, s))), change: `Change ${planId}: `,
+    await ask(h, { id: `plan:${planId}`, key: 'plan', kind: 'plan', title: m ? `approve the mission · ${m.title}` : mis ? `approve the mission and plan ${planId}` : `approve ${isMs(s.plan) ? 'milestone' : 'plan'} ${planId}`, short: m ? 'approve the mission' : mis ? `approve mission + ${planId}` : `approve ${planId}`, tab: m ? 'epic' : 'plan', hash: planHash(drafts, m, (ll ?? '') + mis + as.join('\n') + (await planText(store, s))), change: `Change ${planId}: `,
       lines: m ? (m.description || m.title).split('\n').filter(Boolean).slice(0, 6) : [...(mis ? [`mission: ${goalOf(mis)}`] : []), ll ?? [plural(drafts.length, 'task'), ...(all ? [plural(all, 'scenario')] : [])].join(' · '), ...as, ...drafts.slice(0, k).map(t => t.type === 'epic' ? `  ${t.id}${t.meta['cadre.core'] === 'true' ? ' core' : ''} ${t.title} · ${plural(Number(t.meta['cadre.size']) || 0, 'task')}${t.deps.length ? ` · after ${t.deps.map(d => d.id).join(' ')}` : ''}` : `  ${t.id} ${t.type} ${t.title}${sc(t) ? ` · ${plural(sc(t), 'scenario')}` : ''}`), ...(drafts.length > k ? [`  +${drafts.length - k} more on the Board`] : [])],
       options: [{ key: 'a', label: 'Approve', verb: 'approve', run: `approve ${planId}` }, { key: 'x', label: 'Reject', verb: 'reject', run: `reject ${planId} rejected in the dialog` }, ...(lo ? [lo] : [])] })
   }
@@ -132,7 +132,7 @@ const gated = (c: Command): boolean => ['approve', 'reject', 'resolve', 'release
 // ---- init confirm (DESIGN 10.1): the decision is bound to the diff's content hash; a confirm is the dialog's answer to it ----
 // `d` (optional) is what the human sees: sub = the command the options run (`init`, `setup`, `sync add <name>`); `change` = the re-plan command (none: no Cancel/Change, e.g. sync add)
 export async function initPropose(h: Host, stage: number, diff: string, d?: { title: string; short?: string; lines: string[]; sub: string; change?: string; confirm?: string; keep?: string }): Promise<void> {   // confirm: another command than `<sub> confirm`; keep: a "Keep it" answer
-  if (d) await ask(h, { id: `init:${stage}`, kind: 'init', title: d.title, short: d.short, lines: d.lines, hash: fnv1a64(diff), tab: 'epic',
+  if (d) await ask(h, { id: `init:${stage}`, key: 'init.stage', kind: 'init', title: d.title, short: d.short, lines: d.lines, hash: fnv1a64(diff), tab: 'epic',
     options: [{ key: 'a', label: 'Confirm', verb: 'approve', run: d.confirm ?? `${d.sub} confirm` }, ...(d.keep ? [{ key: 'k', label: 'Keep it', verb: 'reject', run: d.keep }] : []), ...(d.change ? [{ key: 'x', label: 'Cancel', verb: 'reject', run: `${d.sub} cancel` }, { key: 'c', label: 'Change', verb: 'change', run: d.change }] : [])] })
 }
 // true when the card for `stage` was still pending (the caller then re-reads the files and must find what the card showed); either way it is settled
@@ -147,7 +147,7 @@ const refuse = (why: string): Out => ({ text: `refused: ${why}` })
 export const gateOf = async (store: TaskStore, id: string): Promise<Task | null> => { const g = await store.get(id).catch(() => null); return g && g.type === 'gate' && !['done', 'cancelled'].includes(g.category) ? g : null }
 export async function gateDraw(h: Host, g: Task): Promise<void> {
   await h.board.update(b => ({ ...b, approval: { planId: g.id, missing: [] } }))
-  await ask(h, { id: `gate:${g.id}`, kind: 'gate', title: `approve gate ${g.id} · ${g.title}`, short: `approve gate ${g.id}`, tab: 'epic', sel: g.id, hash: gateHash(g), change: `Change ${g.id}: `,
+  await ask(h, { id: `gate:${g.id}`, key: 'gate', kind: 'gate', title: `approve gate ${g.id} · ${g.title}`, short: `approve gate ${g.id}`, tab: 'epic', sel: g.id, hash: gateHash(g), change: `Change ${g.id}: `,
     lines: [...(g.description ?? '').split('\n').filter(Boolean).slice(0, 4), 'a human gate: the work after it waits for you'],
     options: [{ key: 'a', label: 'Approve', verb: 'approve', run: `approve ${g.id}` }] })
 }

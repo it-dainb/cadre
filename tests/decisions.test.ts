@@ -14,10 +14,10 @@ import { emit, TABLE } from '../core/events'
 import { configPress, refreshSettings } from '../config/route'
 import { lastNext } from '../core/close'
 import { plan, world } from './fixtures/native/world'
-import { fakeHost } from './support'
+import { clashes, fakeHost } from './support'
 import { NOOP, approval, view } from './fixtures/ui/epic'
 
-const dec = (id: string, kind: string, title: string, lines: string[], options: Decision['options'], o: Partial<Decision> = {}): Decision => ({ id, kind, title, lines, hash: 'h', options, ...o })
+const dec = (id: string, kind: string, title: string, lines: string[], options: Decision['options'], o: Partial<Decision> = {}): Decision => ({ id, key: kind, kind, title, lines, hash: 'h', options, ...o })
 const flag = (f: string) => flagDecision('a2', f, 'Session refresh')!
 const LITE = { kind: 'plan', lane: 'lite', reason: 'one small fix in src/a.ts', type: 'bug', changelog: { category: 'Fixed', entry: 'off-by-one in paging' } }
 // a kind nobody wrote UI for: the band row, the Needs you list and the dialog work from the record alone
@@ -218,3 +218,5 @@ describe('core: ask / settle / events', () => {
     await dispatch(w.h, { schemaVersion: 1, cmd: 'setup', args: ['cancel'], origin: { kind: 'dialog' } }, async () => ({ text: '' })); expect((await w.h.board.read()).decisions).toEqual([])
   })
 })
+
+test('translation keys: across every dialog this file drove, a key maps to exactly one English string (H11)', () => { expect(clashes()).toEqual([]) })

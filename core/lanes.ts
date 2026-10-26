@@ -72,7 +72,7 @@ export function nextLane(plan: Plan, drafts: Task[], reg: TypeRegistry, lim: Lim
   return 'ask'
 }
 export const laneOption = (plan: Plan | null, drafts: Task[], reg: TypeRegistry = defaults(), lim?: Lim): DecisionOption | null =>
-  plan?.lane && plan.state === 'draft' && !plan.approvedAt ? { key: 'l', label: `Lane → ${nextLane(plan, drafts, reg, lim)}`, verb: 'change', run: `lane ${plan.id}` } : null
+  plan?.lane && plan.state === 'draft' && !plan.approvedAt ? { key: `l-${nextLane(plan, drafts, reg, lim)}`, label: `Lane → ${nextLane(plan, drafts, reg, lim)}`, verb: 'change', run: `lane ${plan.id}` } : null
 
 // `lane <planId>` (the plan decision's Lane option, dialog only: commands/cadre). ask drops the draft plan and asks main to spawn the question; full asks main for the missing fields.
 export async function changeLane(h: Host, store: TaskStore, reg: TypeRegistry, planId: string): Promise<string> {
@@ -112,7 +112,7 @@ export async function sendBrief(h: Host): Promise<void> {
     await h.ui.update(({ goalErrs: e, ...u }) => { n = ((e as number | undefined) ?? 0) + 1; return { ...u, goal: u.goal ?? text, ...(n < 3 ? { goalErrs: n } : { held: true }) } })
     if (n < 3) return
     const title = 'goal stopped · type anything to go on', lines = ['Claude could not get the goal.', `${text!.split('\n')[0]!.replace(GOAL_TAG, '').slice(0, 120)}`, 'Type anything in the prompt (for example: go on) and Claude picks up the goal.']
-    return ask(h, { id: GOAL_HELD, kind: 'init', title, short: 'goal stopped', lines, hash: fnv1a64(title + lines.join('\n')), tab: 'epic', options: [{ key: 'x', label: 'Drop the goal', verb: 'reject', run: 'goal drop' }] })
+    return ask(h, { id: GOAL_HELD, key: 'goal.held', kind: 'init', title, short: 'goal stopped', lines, hash: fnv1a64(title + lines.join('\n')), tab: 'epic', options: [{ key: 'x', label: 'Drop the goal', verb: 'reject', run: 'goal drop' }] })
   }
   if (r?.drop) { h.log(`could not hand the goal to Claude: ${r.drop.slice(0, 120)}`); return h.ui.update(u => ({ ...u, goal: text, held: true })) }   // stopped by the human: held until they type (commands/agentrun.pump, resume)
   await h.ui.update(u => (u.goalErrs === undefined ? u : (({ goalErrs: _e, ...x }) => x)(u)))   // it went through: only throws in a row hold it

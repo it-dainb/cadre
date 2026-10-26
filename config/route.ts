@@ -67,7 +67,7 @@ async function editCard(h: any, row: Row, error?: string): Promise<void> {
   const b = at(await below(h), row.key.split('.')), st = row.opts?.slice(row.opts.indexOf(String(b)) + 1)
   const note = row.cls === 'S' ? `safety key: the repo file may only make it stricter than ${show(b) || '(empty)'}${REG[row.key]?.tighten === 'enum' ? ` (${st?.length ? st.join(', ') : 'nothing stricter'})` : ''}` : row.cls === 'U' ? 'user-level only: never read from the repo file' : 'a repo value is shared with the team',
     hint = row.kind === 'list' ? 'a comma-separated list' : row.kind === 'number' ? 'a number' : row.kind === 'json' ? 'JSON' : 'text'
-  await ask(h, { id: ID(row.key), kind: 'config', title: `edit ${row.key}`, lines: [row.desc, `now ${show(row.value) || '(empty)'} [${row.src}] · default ${show(row.def) || '(empty)'}`, `${note} · ${hint}`, ...(row.warn ? [row.warn] : [])], hash: `${row.key}|${show(row.value)}|${error ?? ''}`, tab: 'settings',
+  await ask(h, { id: ID(row.key), key: `config.${row.key}`, kind: 'config', title: `edit ${row.key}`, lines: [row.desc, `now ${show(row.value) || '(empty)'} [${row.src}] · default ${show(row.def) || '(empty)'}`, `${note} · ${hint}`, ...(row.warn ? [row.warn] : [])], hash: `${row.key}|${show(row.value)}|${error ?? ''}`, tab: 'settings',
     fields: [{ key: 'value', label: row.key, value: show(row.value) }], ...(error ? { error } : {}),
     options: [...(UNIT.test(row.key) ? [] : [{ key: 'a', label: 'Save for me', verb: 'approve', run: `config set ${row.key} {fields}` }]), ...(toRepo(row) ? [{ key: 'r', label: 'Save to repo', verb: 'approve', run: `config repo ${row.key} {fields}` }] : []), { key: 'x', label: 'Cancel', verb: 'reject', run: `config cancel ${row.key}` }] })
 }

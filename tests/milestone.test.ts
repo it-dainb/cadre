@@ -69,7 +69,7 @@ describe('lane and override', () => {
     const w = await world(); await w.call('TaskCreate', { subject: 'Accounts', description: 'g', metadata: { kind: 'plan', lane: 'full', reason: 'big' } })
     for (let i = 0; i < 8; i++) await w.call('TaskCreate', { subject: `T${i}`, description: 'd', metadata: { ...FULL, paths: [`src/t${i}.ts`] } })
     const id = (await w.h.board.read()).plan!.id
-    expect((await w.h.board.read()).decisions?.find(d => d.kind === 'plan')?.options.find(o => o.key === 'l')?.label ?? (await w.h.board.read()).approval.missing.join()).toBeTruthy()
+    expect((await w.h.board.read()).decisions?.find(d => d.kind === 'plan')?.options.find(o => o.key.startsWith('l-'))?.label ?? (await w.h.board.read()).approval.missing.join()).toBeTruthy()
     expect(await changeLane(w.h, w.store, reg, id)).toBe(`${id}: lane milestone`)
     const s = await w.h.board.read(); expect(s.plan).toMatchObject({ lane: 'milestone', epicBranch: `milestone/${id}-accounts` }); expect(await w.store.list({ parent: id })).toEqual([])
     const g = String((await w.h.ui.read()).goal); expect(g).toContain('Roadmap rules'); expect(banned(g)).toEqual([])
