@@ -148,16 +148,18 @@ test('a real 429 plus cadre\'s usage-limit stop is inconclusive; a lone 429 and 
 })
 
 // the refusal-loop key is the refusal text + the producing call's input: three different calls refused alike are exploration, the same call 3x is a loop
-test('refusal-loop keys on the producing call\'s input', () => {
-  const loop = inputs => {
+test('refusal-loop keys on the producing call\'s input, per agent transcript', () => {
+  const loop = (inputs, agents = 1) => {
     const d = mkdtempSync(join(tmpdir(), 'cadre-oracle-')), t = 1_792_946_000_000, js = join(d, 'jsonl/p')
     cpSync(join(fix, 'panes'), join(d, 'panes'), { recursive: true, filter: s => !s.endsWith('.txt') }); mkdirSync(js, { recursive: true })
     writeFileSync(join(d, 'driver.log'), `${t} start x\n${t + 1} end\n`)
-    writeFileSync(join(js, 'main.jsonl'), inputs.flatMap((input, i) => [{ type: 'assistant', message: { content: [{ type: 'tool_use', id: `u${i}`, name: 'Task', input }] } },
+    for (let a = 0; a < agents; a++) writeFileSync(join(js, `agent${a}.jsonl`), inputs.flatMap((input, i) => [{ type: 'assistant', message: { content: [{ type: 'tool_use', id: `u${i}`, name: 'Task', input }] } },
       { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: `u${i}`, is_error: true, content: 'not ready' }] } }]).map(x => JSON.stringify(x)).join('\n'))
     try { execFileSync('node', [join(root, 'harness/oracle.mjs'), d], { stdio: 'pipe' }) } catch {}
     return JSON.parse(readFileSync(join(d, 'verdict.json'), 'utf8')).fails.map(f => f.invariant)
   }
   assert.ok(!loop([{ id: 1 }, { id: 2 }, { id: 3 }]).includes('refusal-loop'))
   assert.ok(loop([{ id: 1 }, { id: 1 }, { id: 1 }]).includes('refusal-loop'))
+  assert.ok(!loop([{ id: 1 }], 3).includes('refusal-loop'))   // three agents, the same call refused once each
+  assert.ok(loop([{ id: 1 }, { id: 1 }, { id: 1 }], 2).includes('refusal-loop'))   // one agent 3x, whoever else is around
 })

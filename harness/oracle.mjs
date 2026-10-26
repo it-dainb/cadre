@@ -62,7 +62,7 @@ for (const e of drv.filter(e => e.kind === 'press1' && offered(e.t) && e.t + 500
   const ok = panes.some(p => p.t >= e.t && p.t <= e.t + 7000 && isDialog(p.text)) || asks.some(t => t >= e.t - 500 && t <= e.t + 5000)
   if (!ok) fail('press1-no-dialog', `pressed 1 on "${e.text}", no dialog within 5 s`)
 }
-// 3. no refusal repeated >= 3 times with the same text (tool calls refused, Claude's stop refused)
+// 3. no refusal repeated >= 3 times with the same text by one agent (its own transcript: tool calls refused, Claude's stop refused); three agents missing once each are not a loop
 {
   const n = new Map(), uses = new Map()
   // forced: the worker's same call 20x in a row IS the scenario (scripted/loop; the breaker, then the forced step, checked under ORACLE=forced): its
@@ -76,9 +76,9 @@ for (const e of drv.filter(e => e.kind === 'press1' && offered(e.t) && e.t + 500
     // a tool's own error can read the same for different calls ("File does not exist. Note: your current working directory is …"): three
     // different missing files are exploration, so the producing call's input is part of the key; the same call 3x is still a loop
     for (const b of Array.isArray(c) ? c : []) if (b.type === 'tool_result' && b.is_error) { const i = texts.findIndex(x => x === (typeof b.content === 'string' ? b.content : JSON.stringify(b.content))); if (i >= 0) texts[i] = `${uses.get(b.tool_use_id) ?? ''} ${texts[i]}` }
-    for (const t of texts) n.set(t, (n.get(t) ?? 0) + 1)
+    for (const t of texts) n.set(`${f}\0${t}`, (n.get(`${f}\0${t}`) ?? 0) + 1)
   }
-  const [t, k] = [...n].sort((a, b) => b[1] - a[1])[0] ?? ['', 0]
+  const [key, k] = [...n].sort((a, b) => b[1] - a[1])[0] ?? ['', 0], t = key.slice(key.indexOf('\0') + 1)
   stats.refusals = [...n.values()].reduce((a, b) => a + b, 0)
   if (k >= 3) fail('refusal-loop', `${k}x: ${t}`)
 }
