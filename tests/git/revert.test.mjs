@@ -93,3 +93,30 @@ test('a landing that could not be recorded does not fail the integration; the re
   const { h, epic, press } = await world(true, true); assert.ok(h.logs.some(l => /landed not recorded/.test(l)))
   assert.match((await press(epic)).text, /refused \(not-landed\)/)
 })
+
+// `@{-1}` / `@{-2}` are revision spellings: git expands them to the branches the user was on before. A record must never reach them.
+const alias = async (w, mode) => {
+  const { d, store, epic } = w; sh(d, 'checkout', '-q', '-b', 'prev2', 'main'); sh(d, 'checkout', '-q', 'dev'); sh(d, 'checkout', '-q', 'main')   // @{-1} = dev, @{-2} = prev2
+  assert.equal(sh(d, 'rev-parse', '--abbrev-ref', '@{-1}'), 'dev'); assert.equal(sh(d, 'rev-parse', '--abbrev-ref', '@{-2}'), 'prev2')
+  for (const b of ['@{-1}', '@{-2}', '-D', 'feat/a..b']) await store.createDraft({ title: b, description: 'd', type: 'feature', parent: epic, meta: { 'cadre.branch': b } })
+}
+test('a record spelled @{-1} or @{-2} (or -D, a..b) is not a branch name: dev and the user\'s previous branch survive a revert', async () => {
+  const w = await world(), { d, h, epic, ans, press } = w; await alias(w); const dev0 = sh(d, 'rev-parse', 'dev')
+  await press(epic); await ans(`revert:${epic}`, 'c'); const out = await ans(`revert-sure:${epic}`, 'y')
+  assert.match(out.text, /@\{-1\} \(not a branch name\)/); assert.match(out.text, /@\{-2\} \(not a branch name\)/); assert.match(out.text, /1 recorded branch removed/)
+  assert.ok(sh(d, 'rev-parse', 'dev')); assert.notEqual(sh(d, 'rev-parse', 'dev'), dev0, 'dev only moved by the revert landing'); assert.match(sh(d, 'branch', '--list', 'prev2'), /prev2/); assert.equal(sh(d, 'branch', '--list', 'feat/t1-login'), '')
+})
+test('the same records in an abandon: dev and the previous branch survive, the report names them', async () => {
+  const w = await world(false), { d, epic, ans, press } = w; await alias(w); const dev0 = sh(d, 'rev-parse', 'dev')
+  await press(epic); await ans(`revert:${epic}`, 'a'); const out = await ans(`revert-sure:${epic}`, 'z')
+  assert.match(out.text, /abandoned: 2 recorded branches removed.*@\{-1\} \(not a branch name\)/); assert.equal(sh(d, 'rev-parse', 'dev'), dev0); assert.match(sh(d, 'branch', '--list', 'prev2'), /prev2/)
+  assert.equal(sh(d, 'branch', '--list', `epic/${epic}-auth`), '')
+})
+test('a recorded branch that moves after the confirm (during the delete) stays: the delete is compare-and-swap', async () => {
+  for (const land of [true, false]) {
+    const { d, h, epic, ans, press } = await world(land), r0 = h.run, moved = sh(d, 'commit-tree', '-p', 'main', '-m', 'moved', 'main^{tree}')
+    h.run = (argv, o) => { if (argv.includes('update-ref') && argv.includes('-d') && argv.includes('refs/heads/feat/t1-login')) sh(d, 'branch', '-f', 'feat/t1-login', moved); return r0(argv, o) }
+    await press(epic); await ans(`revert:${epic}`, land ? 'c' : 'a'); const out = await ans(`revert-sure:${epic}`, land ? 'y' : 'z')
+    assert.match(out.text, /feat\/t1-login \(changed or not merged\)/); assert.equal(sh(d, 'rev-parse', 'feat/t1-login'), moved)
+  }
+})

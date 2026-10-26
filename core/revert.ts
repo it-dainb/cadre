@@ -7,7 +7,7 @@ import { fnv1a64 } from './board'
 import { ROUTES, cfgOf, storeOf } from './dispatch'
 import { ask, settle } from './decide'
 import { git, exists, ok, op, tip, worktreeAdd, worktreeRemove } from './git'
-import { baseOf, landDev, mergeEpic, wtPath, wtRootOf } from './branches'
+import { baseOf, checkedOut, landDev, mergeEpic, wtPath, wtRootOf } from './branches'
 import { offer, runSuites } from './integrate'
 import { repoKeyOf } from '../commands/init'
 import { reportOf } from './close'
@@ -16,7 +16,7 @@ import { modelText } from './say'
 
 export type RevertCode = 'unknown' | 'revert-of-revert' | 'already-reverted' | 'not-landed' | 'busy' | 'pr-mode'   // declared: a refusal carries its code, never read from its text
 export class RevertRefusal extends Error { constructor(readonly code: RevertCode, msg: string) { super(msg) } }
-type Plan = { id: string; title: string; on: string; sha: string; merge: boolean; branches: Record<string, string>; known: string[]; ids: string[]; lines: string[] }   // branches: the recorded ones that exist, with their tips at the card; known: the shas the store recorded
+type Plan = { id: string; title: string; on: string; sha: string; merge: boolean; branches: Record<string, string>; skipped: string[]; known: string[]; ids: string[]; lines: string[] }   // branches: the recorded ones that exist, with their tips at the card; known: the shas the store recorded
 
 const subtree = async (store: TaskStore, id: string): Promise<Task[]> => { const c = await store.list({ parent: id }); return [...c, ...(await Promise.all(c.map(x => subtree(store, x.id)))).flat()] }
 // the branches the store (or, for the current plan, the board) recorded for the target and everything under it, and the commits it recorded
@@ -36,7 +36,12 @@ export async function planOf(h: Host, id: string): Promise<Plan> {
   const own = t.meta['cadre.landed'], up = t.parent ? (await store.get(t.parent).catch(() => null))?.meta['cadre.landed'] : undefined   // `branch@sha` of the merge that took it in
   const [lb, ls] = (own ?? up ?? '').split('@'), sq = /^squash: (\S+)/m.exec(t.meta['cadre.rec.close'] ?? '')?.[1]
   const sha = own ? ls : up && sq ? sq : '', merge = !!own
-  const rec = await recorded(h, store, t), live = Object.fromEntries(await Promise.all(rec.names.map(async b => [b, (await exists(h.run, root, b)) ? await tip(h.run, root, b) : '']))), names = Object.keys(live).filter(b => live[b])
+  const rec = await recorded(h, store, t), live: Record<string, string> = {}, skipped: string[] = []
+  for (const b of rec.names) {   // a recorded name is a plain branch name or it is not touched: `@{-1}`, `-x`, `a..b`, a tag or a sha all resolve to something else
+    const plain = !/^[@-]|@\{|\.\./.test(b) && (await ok(h.run, root, ['check-ref-format', '--branch', b])) && (await ok(h.run, root, ['show-ref', '--verify', '--quiet', `refs/heads/${b}`]))
+    if (plain) live[b] = await tip(h.run, root, `refs/heads/${b}`); else if (!/^[@-]|@\{|\.\./.test(b) ? await exists(h.run, root, b) : true) skipped.push(b)
+  }
+  const names = Object.keys(live)
   if (sha && cfg.landing.mode === 'pr' && lb === dev) no('pr-mode', 'reverts land through the pull-request flow; not yet supported')
   if (!sha) {   // abandon: only an idle target with its own branch (a landed epic has none left)
     const bd = (await h.board.read()), bp = bd.plan, mine = bp && (bp.id === id || bp.epics?.some(e => e.id === id)), run = bp?.epics?.some(e => (e.id === id || bp.id === id) && (e.state === 'running' || e.state === 'planning'))
@@ -53,21 +58,24 @@ export async function planOf(h: Host, id: string): Promise<Plan> {
   const lines = [`changelog: ${ce?.entry ?? 'none'}`, `summary: ${reportOf(t.meta['cadre.report']).summary || t.description.slice(0, 120) || 'none'}`,
     `result: ${sha ? `landed ${sha.slice(0, 7)} on ${on}` : `never landed; removes ${names.join(', ')}`} · tests: ${t.meta['cadre.checks'] || 'none recorded'}`,
     `files lost (${files.length}): ${list(files)}`, `commits (${commits.length}): ${list(commits.map(c => c.split(' ')[0]))}`, `later tasks that depend on it: ${list([...later])}`]
-  return { id, title: t.title, on, sha, merge, branches: Object.fromEntries(names.map(b => [b, live[b]])), known: rec.known, ids: rec.ids, lines }
+  return { id, title: t.title, on, sha, merge, branches: Object.fromEntries(names.map(b => [b, live[b]])), skipped, known: rec.known, ids: rec.ids, lines }
 }
 
 const NO = (h: Host, id: string, why: string) => ask(h, { id: `revert-fail:${id}`, kind: 'flag', title: `${id} was not reverted`, hash: fnv1a64(why), tab: 'epic', sel: id, lines: [why.slice(0, 300), 'Nothing changed.'], options: [{ key: 'k', label: 'Understood', verb: 'keep', run: `revert ${id} dismiss` }] })
 // The recorded branches go, each only if it is safe: never main or dev; after a revert only a branch that is merged (or at a commit the store recorded); in an abandon the tip
 // the card showed (the confirm covers exactly that). A branch that moved since, or is in use, stays. Others, whatever their names, are never looked at.
 async function drop(h: Host, p: Plan): Promise<{ gone: string[]; kept: string[]; failed: string[] }> {
-  const [root, cfg] = [await h.cwd(), await cfgOf(h)], r = { gone: [] as string[], kept: [] as string[], failed: [] as string[] }, no = [cfg.branches.dev, cfg.branches.main, 'main', 'master']
+  const [root, cfg] = [await h.cwd(), await cfgOf(h)], r = { gone: [] as string[], kept: p.skipped.map(b => `${b} (not a branch name)`), failed: [] as string[] }, no = [cfg.branches.dev, cfg.branches.main, 'main', 'master'].filter(Boolean).map(x => `refs/heads/${x}`)
   for (const [b, was] of Object.entries(p.branches)) {
-    if (no.includes(b)) { r.kept.push(`${b} (protected)`); continue }
+    const ref = `refs/heads/${b}`   // the exact ref, so what is protected is checked on what would be deleted
+    if (no.includes(ref)) { r.kept.push(`${b} (protected)`); continue }
     const st = await op(h, async () => {
-      if (!(await exists(h.run, root, b))) return 'gone'
-      const now = await tip(h.run, root, b)
+      if (!(await ok(h.run, root, ['show-ref', '--verify', '--quiet', ref]))) return 'gone'
+      const now = await tip(h.run, root, ref)
       if (now !== was || (p.sha && !p.known.includes(now) && !(await ok(h.run, root, ['merge-base', '--is-ancestor', now, p.on])) && !(await ok(h.run, root, ['merge-base', '--is-ancestor', now, cfg.branches.dev])))) return 'kept'
-      await git(h.run, root, ['branch', '-D', b]); return 'done'
+      if (await checkedOut(h, b)) return 'failed'   // a worktree holds it
+      if (await ok(h.run, root, ['update-ref', '-d', ref, was])) return 'done'   // compare-and-swap: a branch that moved meanwhile stays
+      return (await tip(h.run, root, ref).catch(() => '')) === was ? 'failed' : 'kept'
     }).catch(() => 'failed')
     if (st === 'done') r.gone.push(b); else if (st === 'kept') r.kept.push(`${b} (changed or not merged)`); else if (st === 'failed') r.failed.push(b)
   }

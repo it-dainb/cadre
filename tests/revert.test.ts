@@ -13,7 +13,8 @@ const world = async (has: string[] = ['dev', 'feat/t1-a']) => {
   Object.assign(h, { config: async () => cfg, run: async (argv: readonly string[]) => {
     const a = argv.slice(3), line = a.join(' '); calls.push(line)
     const out = (stdout: string) => ({ exitCode: 0, stdout, stderr: '' })
-    if (a[0] === 'rev-parse' && a.includes('--quiet')) return { exitCode: has.includes(a.at(-1)!.replace('^{commit}', '')) ? 0 : 1, stdout: '', stderr: '' }
+    const nm = (x: string) => x.replace('^{commit}', '').replace('refs/heads/', '')
+    if ((a[0] === 'rev-parse' && a.includes('--quiet')) || a[0] === 'show-ref') return { exitCode: has.includes(nm(a.at(-1)!)) ? 0 : 1, stdout: '', stderr: '' }
     if (a[0] === 'diff') return out('src/a.ts\nsrc/b.ts\n')
     if (a[0] === 'log') return out('1111111 feat: a\n2222222 feat: b\n')
     if (a[0] === 'rev-parse') return out(M1)
@@ -47,7 +48,7 @@ describe('H9 revert flow (core/revert; git in tests/git/revert.test.mjs)', () =>
     await ask(`revert-sure:${t1.id}`, 'y')   // confirm 2
     expect(calls).toContain(`revert --no-commit ${S1}`); expect(calls.some(c => c.startsWith('merge --no-ff'))).toBe(true)   // a task: its squash commit, no -m
     expect((await store.get(t1.id)).meta['cadre.reverted']).toBeTruthy(); expect(calls.some(c => c.startsWith('update-ref') && c.includes('refs/heads/dev'))).toBe(true)   // dev moved by CAS (landDev -> move), not by a revert on dev
-    expect(calls).toContain('branch -D feat/t1-a')   // its recorded branch
+    expect(calls).toContain(`update-ref -d refs/heads/feat/t1-a ${M1}`)   // its recorded branch
   })
   test('an epic reverts its merge (-m 1); a revert of a revert, a second revert, an unknown id and a task that never landed are refused with a declared code', async () => {
     const { h, epic, press, ask, calls, store } = await world()
@@ -63,7 +64,7 @@ describe('H9 revert flow (core/revert; git in tests/git/revert.test.mjs)', () =>
     await store.setMeta(epic, { 'cadre.landed': '' }, 'cadre')
     await press(epic); const d = ((await h.board.read()).decisions ?? []).find(x => x.id === `revert:${epic}`)!; expect(d.options[0].label).toBe('Abandon it')
     await ask(`revert:${epic}`, 'a'); await ask(`revert-sure:${epic}`, 'z')
-    expect(calls.filter(c => c.startsWith('branch -D')).sort()).toEqual(['branch -D epic/p1-auth', 'branch -D feat/t1-a'])
+    expect(calls.filter(c => c.startsWith('update-ref -d')).sort()).toEqual([`update-ref -d refs/heads/epic/p1-auth ${M1}`, `update-ref -d refs/heads/feat/t1-a ${M1}`]); expect(calls.some(c => c.startsWith('branch -D'))).toBe(false)
     expect(calls.some(c => c.startsWith('revert') || c.startsWith('merge'))).toBe(false)
   })
   test('origins: a typed command only opens the card; first, yes and cancel come from a dialog or press; the model and an unclassified origin are refused', async () => {
