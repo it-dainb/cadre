@@ -46,6 +46,20 @@ describe('a stop names its cause; its answer lifts it', () => {
   })
 })
 
+describe('Retry on a block whose agent already ended', () => {
+  test('shape: the worker ended before Retry; Retry unpauses the drive and the next turn end starts a fresh worker', async () => {
+    const w = await world(), [id] = w.ids; await arm(w.h, 'auto'); await w.at('ag1', id, 'worker')
+    const LONG = { role: 'worker', outcome: 'done', summary: 'x'.repeat(801) }
+    for (let i = 0; i < 6; i++) await w.rep('ag1', LONG)
+    await w.stop('ag1'); await w.turn()   // the agent ends; cadre still holds its binding (a blocked task's stop is no nudge); the drive pauses on the blocked task
+    expect((await w.h.board.read()).drive.paused).toBe(`blocked ${id}`)
+    w.h.sendTo = async () => ({ isDelivered: false, reason: 'gone' })   // the ended agent cannot be woken
+    const d = (await w.h.board.read()).decisions!.find(x => x.id === `flag:${id}:shape`)!; expect((await decide(w.h, d.id, 'r', d.hash)).text).toContain('starts again')
+    expect((await w.h.board.read()).drive.paused).toBeUndefined(); expect((await w.h.ui.read()).goal).toBeDefined(); expect((await w.h.board.read()).resumesQueued).toBe(1)
+    await w.turn(); expect(w.spawned.map(x => x[2])).toEqual(['cadre:worker'])
+  })
+})
+
 describe('a usage limit: a stop with its reset time, no budget charged', () => {
   async function limit() {
     const w = await world(); await arm(w.h, 'auto'); await w.turn()
