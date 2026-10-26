@@ -42,6 +42,7 @@ test('a revert lands through integrate: new merge on dev, files gone, recorded b
   const dev = sh(d, 'rev-parse', 'dev'); assert.notEqual(dev, before)
   assert.equal(sh(d, 'rev-list', '--parents', '-n1', dev).split(' ').length, 3, 'a --no-ff merge of the revert branch (mergeEpic + landDev)'); assert.match(sh(d, 'log', '-1', '--format=%s', dev), /^revert /)
   assert.equal(existsSync(join(d, 'c.txt')), false); assert.throws(() => sh(d, 'show', 'dev:c.txt'))
+  assert.match(sh(d, 'show', 'dev:CHANGELOG.md'), /### Removed\n\n- Reverted: auth/)
   assert.equal(sh(d, 'branch', '--list', `revert/${epic}`), ''); assert.equal(sh(d, 'branch', '--list', 'feat/t1-login'), '', 'recorded branch removed'); assert.match(sh(d, 'branch', '--list', 'feat/t9-unrecorded'), /t9-unrecorded/)
   assert.equal(sh(d, 'status', '--porcelain'), ''); assert.equal(sh(d, 'worktree', 'list').split('\n').length, 1); assert.deepEqual(await decisions(h), [])
   const e = await store.get(epic); assert.ok(e.meta['cadre.reverted']); assert.match((await press(e.meta['cadre.reverted'])).text, /revert-of-revert/)

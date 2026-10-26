@@ -44,13 +44,13 @@ describe('H9 revert flow (core/revert; git in tests/git/revert.test.mjs)', () =>
     const ids = ((await h.board.read()).decisions ?? []).map(d => d.id); expect(ids).toEqual([`revert-sure:${t1.id}`])
     expect(calls.some(c => c.startsWith('revert ') || c.startsWith('merge ') || c.includes('worktree add'))).toBe(false); expect((await store.get(t1.id)).meta['cadre.reverted']).toBeUndefined()
     await ask(`revert-sure:${t1.id}`, 'y')   // confirm 2
-    expect(calls).toContain(`revert --no-edit ${S1}`); expect(calls.some(c => c.startsWith('merge --no-ff'))).toBe(true)   // a task: its squash commit, no -m
+    expect(calls).toContain(`revert --no-commit ${S1}`); expect(calls.some(c => c.startsWith('merge --no-ff'))).toBe(true)   // a task: its squash commit, no -m
     expect((await store.get(t1.id)).meta['cadre.reverted']).toBeTruthy(); expect(calls.some(c => c.startsWith('update-ref') && c.includes('refs/heads/dev'))).toBe(true)   // dev moved by CAS (landDev -> move), not by a revert on dev
     expect(calls).toContain('branch -D feat/t1-a')   // its recorded branch
   })
   test('an epic reverts its merge (-m 1); a revert of a revert, a second revert, an unknown id and a task that never landed are refused with a declared code', async () => {
     const { h, epic, press, ask, calls, store } = await world()
-    await press(epic); await ask(`revert:${epic}`, 'c'); await ask(`revert-sure:${epic}`, 'y'); expect(calls).toContain(`revert --no-edit -m 1 ${M1}`)
+    await press(epic); await ask(`revert:${epic}`, 'c'); await ask(`revert-sure:${epic}`, 'y'); expect(calls).toContain(`revert --no-commit -m 1 ${M1}`)
     const rec = (await store.get(epic)).meta['cadre.reverted'], code = async (id: string) => planOf(h, id).then(() => 'ok', (e: unknown) => (e instanceof RevertRefusal ? e.code : 'other'))
     expect(await code(rec)).toBe('revert-of-revert'); expect((await press(rec)).text).toContain('refused (revert-of-revert)')
     expect(await code(epic)).toBe('already-reverted'); expect(await code('nope')).toBe('unknown')

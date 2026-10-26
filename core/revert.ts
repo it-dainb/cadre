@@ -11,6 +11,7 @@ import { baseOf, landDev, mergeEpic, wtPath, wtRootOf } from './branches'
 import { offer, runSuites } from './integrate'
 import { repoKeyOf } from '../commands/init'
 import { reportOf } from './close'
+import { insert } from './changelog'
 import { modelText } from './say'
 
 export type RevertCode = 'unknown' | 'revert-of-revert' | 'already-reverted' | 'not-landed'   // declared: a refusal carries its code, never read from its text
@@ -59,10 +60,16 @@ async function perform(h: Host, p: Plan): Promise<string> {
   const rb = `revert/${p.id}`, key = repoKeyOf(root), wt = wtPath(await wtRootOf(h, cfg), key, `rev-${p.id}`), tmp = wtPath(await wtRootOf(h, cfg), key, `int-rev-${p.id}`)
   const rv = await op(h, async () => {
     await worktreeAdd(h.run, root, wt, rb, await baseOf(h, p.on))
-    const r = await h.run(['git', '-C', wt, 'revert', '--no-edit', ...(p.merge ? ['-m', '1'] : []), p.sha])
-    if (r.exitCode) await h.run(['git', '-C', wt, 'revert', '--abort'])
-    await worktreeRemove(h.run, root, wt, r.exitCode ? rb : undefined)
-    return r.exitCode ? `reverting ${p.id} conflicts with what landed after it: ${`${r.stdout}\n${r.stderr}`.trim().slice(-200)}` : ''
+    const cl = cfg.changelog.path, r = await h.run(['git', '-C', wt, 'revert', '--no-commit', ...(p.merge ? ['-m', '1'] : []), p.sha])
+    const un = r.exitCode ? (await git(h.run, wt, ['diff', '--name-only', '--diff-filter=U'])).split('\n').filter(Boolean) : [], bad = un.filter(f => f !== cl)   // the changelog is cadre's: later releases changed it, so it never blocks a revert
+    const why = r.exitCode && (bad.length || !un.length) ? (bad.length ? `reverting ${p.id} conflicts with what landed after it, in ${bad.join(', ')}` : `reverting ${p.id} failed: ${r.stderr.trim().slice(-200)}`) : ''
+    if (!why) {   // the changelog stays as dev has it, plus one Removed line
+      await h.run(['git', '-C', wt, 'checkout', 'HEAD', '--', cl]); const text = await h.readText(`${wt}/${cl}`)
+      if (text !== null) await h.write(`${wt}/${cl}`, insert(text, 'Removed', `Reverted: ${p.title}`, p.id))
+      await git(h.run, wt, ['add', '-A']); await git(h.run, wt, ['commit', '--no-verify', '-m', `revert ${p.id}: ${p.title}`])
+    } else await h.run(['git', '-C', wt, 'revert', '--abort'])
+    await worktreeRemove(h.run, root, wt, why ? rb : undefined)
+    return why
   }), stop = async (why: string) => { await worktreeRemove(h.run, root, tmp, rb).catch(() => {}); await NO(h, p.id, why); return `refused: ${why}` }
   if (rv) { await NO(h, p.id, rv); return `refused: ${rv}` }
   let m: { sha: string; devTip: string }
