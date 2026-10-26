@@ -33,7 +33,7 @@ The workflow, board and dialogs: [user guide](docs/guide.md). Every command: [co
 
 - **Linux only.** On macOS or Windows cadre says so at start, registers nothing and stays off. It needs `git`, `bwrap` and `socat`, and a disk with hard links.
 - **Keep the terminal open.** Agents live in your Claude Code session. If you quit or it crashes, nothing restarts by itself; `/cadre continue` in the next session respawns each task that was in flight from a checkpoint commit.
-- **Repo text reaches agents unfiltered, and `setup` installs what the manifest names.** Files, comments and the dependency manifest of a repo are read by the agents as they are, and the setup step installs the packages the manifest lists. Only open repos you trust. Hardening this is deferred; installs run isolated (clean environment, home hidden, no scripts, registry packages only) but with network access.
+- **Repo text reaches agents unfiltered, and `setup` installs what the manifest names.** Files, comments and the dependency manifest of a repo are read by the agents as they are, and setup installs the packages the manifest lists. Only open repos you trust. Hardening this is deferred; installs run isolated (clean environment, home hidden, no scripts, registry packages only) but with network access.
 - **No compatibility freeze.** cadre is tested on Claude Code 2.1.295 (the minimum; older builds are refused) and on newer ones as listed in [compat](docs/compat.md). A Claude Code update may break it. Newer builds warn in `/cadre doctor` and usually work.
 - **The UI is English.** Another language means adding a table in `ui/tr.ts` (option and field labels only; nothing a model reads).
 

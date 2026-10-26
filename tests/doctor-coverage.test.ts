@@ -11,17 +11,18 @@ import type { Host } from '../types'
 type R = { exitCode: number; stdout: string; stderr: string }
 const HOME = '/hm/u', USER = `${HOME}/.claude/settings.json`
 const GIT = 'git version 2.43.0', ALL = { git: GIT, bwrap: 'bubblewrap 0.11.0', socat: 'socat version 1.8' }
-type O = { tools?: Record<string, string>; jail?: 'overlay' | 'copy' | 'none'; cc?: string; files?: Record<string, string>; env?: Record<string, string>; repo?: boolean; noIdent?: boolean; ghOut?: number | 'missing'; quarantine?: boolean; branches?: boolean }
+type O = { tools?: Record<string, string>; jail?: 'overlay' | 'copy' | 'none'; cc?: string; files?: Record<string, string>; env?: Record<string, string>; repo?: boolean; noIdent?: boolean; wtFail?: boolean; noVersion?: boolean; ghOut?: number | 'missing'; quarantine?: boolean; branches?: boolean }
 function mk(o: O = {}) {
   const files = { ...o.files }, tools = o.tools ?? ALL
   const h = fakeHost({ files, env: o.env }) as Host & { toasts: string[] }
   void h.store.set('cadre:prefs', { at: 0 })
   Object.assign(h, {
-    cwd: async () => '/repo', home: async () => HOME, version: async () => o.cc ?? '2.1.295', write: async (p: string, t: string) => { files[p] = t },
+    cwd: async () => '/repo', home: async () => HOME, version: async () => (o.noVersion ? '' : o.cc ?? '2.1.295'), write: async (p: string, t: string) => { files[p] = t },
     stat: async (p: string) => (p === '/hm' || p === '/' || p === HOME || p === `${HOME}/.cache` || p.startsWith(`${HOME}/.cache/cadre`) ? { kind: 'dir' } : undefined),
     run: async (argv: string[]): Promise<R> => {
       const j = argv.join(' '), out = (stdout: string, exitCode = 0): R => ({ exitCode, stdout, stderr: '' })
-      if (argv[0] === 'chmod' || argv[0] === 'test') return out('')
+      if (argv[0] === 'test') return out('', o.wtFail ? 1 : 0)
+      if (argv[0] === 'chmod') return out('')
       if (argv[0] === 'sh') return out(argv[2] === 'command -v bwrap' ? '/usr/bin/bwrap' : '')
       if (argv[0] === 'bwrap') return !tools.bwrap || (o.jail === 'none' && argv[1] !== '--version') ? out('', 127) : argv[1] === '--help' ? out(o.jail === 'copy' ? 'usage' : '--overlay-src') : out(tools.bwrap)
       if (argv[0] === 'gh') return o.ghOut === 'missing' ? out('', 127) : out('gh version 2.60.0', argv[1] === 'auth' ? Number(o.ghOut ?? 0) : 0)
@@ -46,6 +47,7 @@ machineHost('no tools', { tools: {} }); machineHost('no git', { tools: NOGIT });
 machineHost('copy jail', { jail: 'copy' }); machineHost('no namespaces', { jail: 'none' })
 machineHost('apparmor', { jail: 'none', files: { '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n' } }); machineHost('userns clone 0', { jail: 'none', files: { '/proc/sys/kernel/unprivileged_userns_clone': '0' } })
 machineHost('claude newer', { cc: '2.1.310' }); machineHost('claude older than tested', { cc: '2.1.297' }); machineHost('claude too old', { cc: '2.1.287' }); machineHost('claude 2.1.296', { cc: '2.1.296' })
+machineHost('worktree root not writable', { wtFail: true }); machineHost('claude version unreadable', { noVersion: true })
 machineHost('no git identity', { noIdent: true })
 doctorHost('not a repo, sudo fix not prepared', { jail: 'none', files: { '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n' } })
 doctorHost('start failed', {}, async h => { await h.secret.update((x: any) => ({ ...x, start: { failed: 'Error: slow' } })) })
@@ -62,6 +64,8 @@ doctorHost('refused setting and effort override', { files: { [`${HOME}/.claude/c
 doctorHost('pr landing: no gh', { repo: true, ghOut: 'missing' }, async h => { const c = defaults() as any; c.landing.mode = 'pr'; Object.assign(h, { config: async () => c }) })
 doctorHost('pr landing: gh signed out', { repo: true, ghOut: 1 }, async h => { const c = defaults() as any; c.landing.mode = 'pr'; Object.assign(h, { config: async () => c }) })
 doctorHost('older task store', { repo: true }, h => { const st = h.stat; Object.assign(h, { stat: async (p: string) => (p === '/repo/.beads' ? { kind: 'dir' } : st(p)) }) })
+doctorHost('older store folder', { repo: true }, h => { const st = h.stat; Object.assign(h, { stat: async (p: string) => (p === '/repo/.cadre/store' ? { kind: 'dir' } : st(p)) }) })
+doctorHost('sync target does not answer', { repo: true }, h => { const c = defaults() as any; c.sync = { tracker: { adapter: 'nope' } }; Object.assign(h, { config: async () => c }) })
 doctorHost('task store probe fails', { repo: true }, h => { Object.assign(h, { taskStore: async () => ({ probe: async () => ({ ok: false, journal: false, version: 'file', detail: 'hard links fail' }) }) }) })
 doctorHost('task store unreachable', { repo: true }, h => { Object.assign(h, { taskStore: async () => { throw new Error('boom') } }) })
 doctorHost('task store journal off', { repo: true }, h => { Object.assign(h, { taskStore: async () => ({ probe: async () => ({ ok: true, journal: false, version: 'file', detail: '' }), list: async () => [] }) }) })
@@ -81,7 +85,7 @@ const stable = (fix: string) => fix.replace(/^! /, '').replace(/ of \/\S+$/, '')
 
 // non-ok rows that state a fact and carry no fix of their own (changing that would change text the setup checklist hands to Claude); each phrase must still be in the doc
 const INFO: [RegExp, string][] = [
-  [/^Claude Code \S+: newer than the tested/, 'newer than the tested'], [/^custom role \S+ is not available/, 'is not available:'], [/^tools Claude Code gave the agents/, 'tools Claude Code gave the agents that cadre does not know'],
+  [/^Claude Code version unreadable$/, 'Claude Code version unreadable'], [/^Claude Code \S+: newer than the tested/, 'newer than the tested'], [/^custom role \S+ is not available/, 'is not available:'], [/^tools Claude Code gave the agents/, 'tools Claude Code gave the agents that cadre does not know'],
   [/^an agent that is done is ended by cadre itself/, 'an agent that is done is ended by cadre itself'],
 ]
 test('every non-ok row over the fixture hosts has fix text, and that text is in docs/troubleshooting.md', async () => {
@@ -96,4 +100,8 @@ test('the healthy machine is all ok; the table has fails and warns for tools, ja
   const rows = await all()
   expect(rows.filter(([n]) => n === 'healthy').every(([, r]) => r[0] === 'ok')).toBe(true)
   expect(rows.filter(([, r]) => r[0] === 'crit').length).toBeGreaterThan(8); expect(rows.filter(([, r]) => r[0] === 'warn').length).toBeGreaterThan(15)
+})
+test('the hosts for the less common rows do produce them', async () => {
+  const lines = (await all()).map(([, r]) => r[1])
+  for (const re of [/^worktree root .* is not writable/, /^Claude Code version unreadable/, /^\.cadre\/store: a task store/, /^sync tracker: /]) expect(lines.some(l => re.test(l))).toBe(true)
 })

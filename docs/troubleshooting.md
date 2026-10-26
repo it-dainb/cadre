@@ -30,12 +30,13 @@ cadre never runs root commands for you. `/cadre setup` writes each sudo fix to `
 |---|---|
 | cadre needs Claude Code 2.1.295 or newer | `claude update` |
 | Claude Code X: newer than the tested 2.1.295; usually fine | Nothing to do. cadre has no compatibility freeze: a newer build may break it, see [compat](compat.md). |
+| Claude Code version unreadable | Information: Doctor could not read the version; `claude --version` shows it. |
 | an agent that is done is ended by cadre itself; that is tested up to Claude Code 2.1.299 | Nothing to do; an agent that stays stuck is a bug to report. |
 | Claude Code refused cadre's tools | `cadre needs its tools: drop allowedMcpServers from managed settings, or start Claude Code without --bare` |
 | the planning tools load at Claude's next turn | `send Claude any message; if they stay missing, restart Claude Code` |
 | the built-in task tools are on in this session | `/cadre init, then restart Claude Code` |
 | tools Claude Code gave the agents that cadre does not know | Information: each call is judged like any other. |
-| custom role X is not available: | Information: the role was refused or rejected twice; fix its definition in the settings. |
+| custom role X is not available: | Information: the role was refused or rejected twice. Custom roles are the `roles.custom` setting of your user config (`~/.claude/cadre.json`; Settings, Models and effort): name to `{description, tools, write, ...}`. A spec that drops an exit tool, names a built-in role or has a prompt over 2 KB is refused. |
 
 ## This project
 
@@ -45,7 +46,8 @@ cadre never runs root commands for you. `/cadre setup` writes each sudo fix to `
 | not inside a git repo | `/cadre init` |
 | init incomplete · containment degraded · task store journal off · branch missing · settings.local lacks the task-tool gate | `/cadre init` (restart Claude Code after its confirm) |
 | task store: ... · task store unreachable | `cadre stays off here: put the project on a disk with hard links` (not exFAT, some network mounts) |
-| `.beads` (or `.cadre/store`): a task store from an older version | `finish its plans with that version, then delete .beads` |
+| `.beads`: a task store from an older version | `finish its plans with that version, then delete .beads` |
+| `.cadre/store`: a task store from an older version | `finish its plans with that version, then delete .cadre/store` |
 | run and sync state from an older version is not read | `finish those plans with that version; sync starts over from a full compare` |
 | finish or cancel plans from the previous version before upgrading | `its run state is not read: finish or cancel those plans with the previous version` |
 | landing.mode is pr but gh is not installed | `install the GitHub CLI (gh), or set landing.mode direct` |

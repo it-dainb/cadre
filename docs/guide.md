@@ -61,6 +61,10 @@ Select a landed task, epic or milestone, open its card (changelog entry, summary
 - **Quit or crash:** keep the terminal open while a plan runs. After a quit, `/cadre continue` (or `0`) respawns each task that was in flight from a checkpoint commit with the diff and the last failing check.
 - **Usage limit:** the run waits for the reset and goes on by itself.
 
+## Lessons
+
+After a plan lands, a short side-model pass (`lessons.model`, at most `lessons.passesPerDay` a day; 0 turns lessons off) turns what went wrong, and what you changed, into short lessons. Later task briefs carry them by path, at most 1.5 KB per brief. A lesson reinforced `lessons.repeats` times in one repo, or seen in `lessons.repos` repos, moves to your user scope; unused ones decay (`lessons.decayDays`, `lessons.maxAgeDays`). The Lessons tab lists them; `x` prunes one for good, and it never comes back.
+
 ## Commands
 
 [docs/commands.md](commands.md) lists every command (`setup`, `init`, `doctor`, `continue`, `revert`, `timeline`, `config`, `drive`, `release`, `status`, `open`), the config keys and the loop in detail.

@@ -10,7 +10,7 @@ test('docs/commands.md lists /cadre timeline', () => { expect(BUDGET.timelineDoc
 
 const README = BUDGET.docs.readme, say = (re: RegExp) => expect(re.test(README)).toBe(true)
 test('README states the limits a user must know', () => {
-  say(/Repo text reaches agents unfiltered/i); say(/`setup` installs what the manifest names|`setup` installs the packages the manifest lists/); say(/deferred/i)   // repo text and setup installs
+  expect(README).toContain('Repo text reaches agents unfiltered, and `setup` installs what the manifest names.'); expect(README).toContain('Hardening this is deferred;')   // repo text and setup installs
   say(/Linux only/); say(/macOS or Windows/)
   say(/Keep the terminal open/); say(/`\/cadre continue`[^.]*respawns/)
   say(/No compatibility freeze/); say(/may break it/)
