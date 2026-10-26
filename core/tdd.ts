@@ -329,14 +329,20 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
     let pre = ''
     try {
       await G.op(h, async () => {
-        // the install commits (the setup helper's chore(deps): manifest + lockfile) are not the worker's implementation: they go back on after the reset, or the
-        // worker asks for the same install again (live: it could not, offline, and the task blocked)
+        // the install commits (cadre's own, on record in cadre.depsCommits: manifest + lockfile) are not the worker's implementation: they go back on after the reset, or the
+        // worker asks for the same install again (live: it could not, offline, and the task blocked). Selected by the record, never by a commit's subject
+        const rec = new Set((task!.meta['cadre.depsCommits'] ?? '').split(' ').filter(Boolean)), kept: string[] = []
         pre = await G.tip(h.run, wt, 'HEAD')   // a failed step puts the worktree back exactly here
-        const deps = (await G.git(h.run, wt, ['log', '--first-parent', '--no-merges', '--reverse', '--format=%H%x09%s', `${sc}..HEAD`])).split('\n').filter(l => /\tchore\(deps\):/.test(l)).map(l => l.split('\t')[0])
+        const deps = (await G.git(h.run, wt, ['log', '--first-parent', '--no-merges', '--reverse', '--format=%H', `${sc}..HEAD`])).split('\n').filter(c => rec.has(c))
         await G.git(h.run, wt, ['reset', '--hard', '-q', sc]); await G.git(h.run, wt, ['clean', '-fdq'])
         if (base && (await h.run(['git', '-C', wt, 'merge-base', '--is-ancestor', base, 'HEAD'])).exitCode) await G.git(h.run, wt, ['merge', '--no-ff', '--no-edit', '-q', '-m', `merge the plan tip into ${id}`, base])
-        // -X theirs: only cadre's own install commit (manifest + lockfile), whose version must win; never the worker's commits
-        for (const c of deps) await G.git(h.run, wt, ['cherry-pick', '-X', 'theirs', '--allow-empty', '--keep-redundant-commits', c])
+        // an install commit that conflicts with the merged plan tip is dropped, not forced: the install is requested again and regenerates the lock against the merged manifest
+        for (const c of deps) {
+          if (!(await h.run(['git', '-C', wt, 'cherry-pick', '--allow-empty', '--keep-redundant-commits', c])).exitCode) { kept.push(await G.tip(h.run, wt, 'HEAD')); continue }
+          if (!(await G.ok(h.run, wt, ['rev-parse', '-q', '--verify', 'CHERRY_PICK_HEAD']))) throw new Error('git cherry-pick failed')
+          await G.git(h.run, wt, ['cherry-pick', '--abort']); h.log(`${id}: install commit ${c.slice(0, 8)} conflicts with the plan tip; dropped, the install is requested again`)
+        }
+        await d.store.setMeta(id, { 'cadre.depsCommits': kept.join(' ') }, d.actor)
       })
     } catch (e) { h.log(`${id}: reset for the spec change failed: ${e}`)
       const conflict = (await G.ok(h.run, wt, ['rev-parse', '-q', '--verify', 'CHERRY_PICK_HEAD'])) || (await G.ok(h.run, wt, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']))   // a fact of the worktree, not parsed text: a real conflict never passes by waiting

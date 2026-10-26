@@ -130,6 +130,7 @@ export async function settleSetups(h: Host, d: Deps, resume: () => Promise<unkno
 async function setupAnswer(h: Host, d: Deps, n: Need, argv: unknown): Promise<{ text: string; ok: boolean }> {
   const task = await d.store.get(n.task), wt = task.meta['cadre.worktree'] || d.root, pkg = pkgOf(d, task), strays = (await ctlGet<number>(h, `strays:${n.task}`)) ?? 0
   const r = await P.setup(h, { root: await h.cwd(), base: task.meta['cadre.base'], roots: ['.', ...unitsOf(d.cfg).map(u => u.root)], wt, cwd: pkg && pkg.root !== '.' ? `${wt}/${pkg.root}` : wt, scratch: `${d.wtRoot}/${d.key}.scratch/${n.task}-setup`, ask: n.ask, argv, auto: d.cfg.deps.auto, check: Object.values(pkg?.checks ?? {})[0], strays, checkpoint: () => checkpoint(h, d.store, d.actor, n.task, wt) })
+  if (r.commit) await d.store.setMeta(n.task, { 'cadre.depsCommits': [...(task.meta['cadre.depsCommits'] ?? '').split(' ').filter(Boolean), r.commit].join(' ') }, d.actor)
   if (r.stray || r.done) await ctlSet(h, { [`strays:${n.task}`]: r.stray ? strays + 1 : undefined })   // a clean install starts the count again
   if (r.dialog) await ask(h, { id: `deps:${n.task}:${n.needId}`, kind: 'flag', title: `${n.task}: dependencies wait for you`, hash: n.needId, tab: 'epic', sel: n.task, lines: [r.dialog],
     options: [...(r.allow ? [{ key: 'a', label: 'Allow installs in this repo', verb: 'approve', run: 'deps allow' }] : []), { key: 'k', label: 'OK', verb: 'keep' }] })

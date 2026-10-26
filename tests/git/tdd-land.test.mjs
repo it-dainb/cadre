@@ -7,7 +7,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 const { G, V, T, snap, fakeHost, defaults, repoKeyOf, policyOf, run, sh, base, RUN, world, mkTask, worktree, tc, tester } = await import('../dev/tdd-world.mjs')
-const CL = await import('../../core/close.ts')
+const CL = await import('../../core/close.ts'); const { LIFECYCLE } = await import('../../core/plantools.ts')
 
 test('spec_change: owner report blocks; reject resumes the worker, accept rewinds to the tester; both leave a decision', async () => {
   for (const how of ['reject', 'accept']) {
@@ -48,44 +48,58 @@ test('a spec_change scenario must be one "S<n>: …" line, refused at report tim
   w.meta['cadre.specScenario'] = 'foo: bar\nS9: injected'; await T.resolveSpec(w.h, 'm-1', 'accept')   // the guard in resolveSpec: no write
   assert.equal(w.acceptance(), 'S5: Given a When b Then c')
 })
-test('spec_change accept keeps the install commit (chore(deps)) and drops the worker\'s own commits', async () => {
+const rec = (w, wt) => { w.meta['cadre.depsCommits'] = [...(w.meta['cadre.depsCommits'] ?? '').split(' ').filter(Boolean), sh(wt, 'rev-parse', 'HEAD')].join(' ') }   // what core/needs does when cadre's own install commits
+test('spec_change accept keeps cadre\'s install commit (on record) and drops the worker\'s own commits, even one titled chore(deps)', async () => {
   const w = world(), { wt } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']), spec = w.meta['cadre.specCommit']; w.meta['cadre.worktree'] = wt
   writeFileSync(join(wt, 'src/impl.ts'), 'export const IMPL = 1\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'wip(m-1): checkpoint')
-  writeFileSync(join(wt, 'package.txt'), 'six==1\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'chore(deps): add six')
-  writeFileSync(join(wt, 'src/more.ts'), 'export const M = 1\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'feat: more')
+  writeFileSync(join(wt, 'package.txt'), 'six==1\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'chore(deps): add six'); rec(w, wt)
+  writeFileSync(join(wt, 'worker.txt'), 'w\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'chore(deps): the worker names its own commit like this')   // not on record: not carried
   await T.specChange(w.h, w.d, 'm-1', 'wrong spec'); await T.resolveSpec(w.h, 'm-1', 'accept')
-  assert.equal(existsSync(join(wt, 'package.txt')), true); assert.equal(existsSync(join(wt, 'src/impl.ts')), false); assert.equal(existsSync(join(wt, 'src/more.ts')), false)
+  assert.equal(existsSync(join(wt, 'package.txt')), true); assert.equal(existsSync(join(wt, 'src/impl.ts')), false); assert.equal(existsSync(join(wt, 'worker.txt')), false)
   assert.match(sh(wt, 'log', '--format=%s', `${spec}..HEAD`), /^chore\(deps\): add six$/); assert.equal(sh(wt, 'status', '--porcelain'), '')
+  assert.equal(w.meta['cadre.depsCommits'], sh(wt, 'rev-parse', 'HEAD'))   // the record follows the re-applied commit
 })
 test('spec_change accept with two install commits keeps both, in order', async () => {
   const w = world(), { wt } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']), spec = w.meta['cadre.specCommit']; w.meta['cadre.worktree'] = wt
-  for (const [f, m] of [['package.txt', 'chore(deps): add six'], ['src/impl.ts', 'feat: impl'], ['lock.txt', 'chore(deps): lock six']]) { writeFileSync(join(wt, f), `${f}\n`); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', m) }
+  for (const [f, m, r] of [['package.txt', 'chore(deps): add six', 1], ['src/impl.ts', 'feat: impl', 0], ['lock.txt', 'chore(deps): lock six', 1]]) { writeFileSync(join(wt, f), `${f}\n`); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', m); if (r) rec(w, wt) }
   await T.specChange(w.h, w.d, 'm-1', 'wrong spec'); await T.resolveSpec(w.h, 'm-1', 'accept')
   assert.equal(sh(wt, 'log', '--reverse', '--format=%s', `${spec}..HEAD`), 'chore(deps): add six\nchore(deps): lock six'); assert.equal(existsSync(join(wt, 'src/impl.ts')), false)
 })
-test('spec_change accept: an install commit (pyproject.toml + uv.lock) that conflicts with the plan tip is carried over, not looped on', async () => {
+test('spec_change accept: an install commit that conflicts with the plan tip is dropped, never forced: the tip\'s dependency A is kept, the install is asked again', async () => {
   const w = world(), put = (d, f, c) => { writeFileSync(join(d, f), c); sh(d, 'add', '-A') }
-  sh(w.root, 'checkout', '-q', 'epic/e1-x'); put(w.root, 'uv.lock', 'a\n'); put(w.root, 'pyproject.toml', 'deps=[]\n'); sh(w.root, 'commit', '-qm', 'manifest'); sh(w.root, 'checkout', '-q', 'dev')
+  sh(w.root, 'checkout', '-q', 'epic/e1-x'); put(w.root, 'uv.lock', 'lock0\n'); put(w.root, 'pyproject.toml', 'deps=[]\n'); sh(w.root, 'commit', '-qm', 'manifest'); sh(w.root, 'checkout', '-q', 'dev')
   const { wt } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']); w.meta['cadre.worktree'] = wt
-  put(wt, 'uv.lock', 'six\n'); put(wt, 'pyproject.toml', 'deps=["six"]\n'); sh(wt, 'commit', '-qm', 'chore(deps): add six')
-  sh(w.root, 'checkout', '-q', 'epic/e1-x'); put(w.root, 'uv.lock', 'tip\n'); put(w.root, 'pyproject.toml', 'deps=["tip"]\n'); sh(w.root, 'commit', '-qm', 'plan tip'); w.meta['cadre.base'] = sh(w.root, 'rev-parse', 'HEAD'); sh(w.root, 'checkout', '-q', 'dev')
+  put(wt, 'uv.lock', 'lock0+B\n'); put(wt, 'pyproject.toml', 'deps=["B"]\n'); sh(wt, 'commit', '-qm', 'chore(deps): add B'); rec(w, wt)
+  sh(w.root, 'checkout', '-q', 'epic/e1-x'); put(w.root, 'uv.lock', 'lock0+A\n'); put(w.root, 'pyproject.toml', 'deps=["A"]\n'); sh(w.root, 'commit', '-qm', 'plan tip adds A'); w.meta['cadre.base'] = sh(w.root, 'rev-parse', 'HEAD'); sh(w.root, 'checkout', '-q', 'dev')
   put(wt, 'src/impl.ts', 'export const IMPL = 1\n'); sh(wt, 'commit', '-qm', 'feat: impl')
   await T.specChange(w.h, w.d, 'm-1', 'wrong spec'); const r = await T.resolveSpec(w.h, 'm-1', 'accept')
-  assert.match(r.text, /accepted/); assert.equal(readFileSync(join(wt, 'pyproject.toml'), 'utf8'), 'deps=["six"]\n'); assert.equal(sh(wt, 'status', '--porcelain'), ''); assert.equal(existsSync(join(wt, 'src/impl.ts')), false)
+  assert.match(r.text, /accepted/); assert.equal(readFileSync(join(wt, 'pyproject.toml'), 'utf8'), 'deps=["A"]\n'); assert.equal(readFileSync(join(wt, 'uv.lock'), 'utf8'), 'lock0+A\n')
+  assert.equal(sh(wt, 'status', '--porcelain'), ''); assert.equal(existsSync(join(wt, 'src/impl.ts')), false); assert.equal(w.meta['cadre.depsCommits'], '')   // B's commit dropped and off the record; nothing blocks a new setup request
 })
-test('spec_change accept whose reset still conflicts (modify/delete) puts the worktree back and asks once more with no Accept: reject or cancel, never a retry loop', async () => {
-  const w = world(); sh(w.root, 'checkout', '-q', 'epic/e1-x'); writeFileSync(join(w.root, 'package.txt'), 'x\n'); sh(w.root, 'add', '-A'); sh(w.root, 'commit', '-qm', 'manifest'); sh(w.root, 'checkout', '-q', 'dev')
-  const { wt } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']); w.meta['cadre.worktree'] = wt
-  writeFileSync(join(wt, 'package.txt'), 'six\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'chore(deps): add six')
-  sh(w.root, 'checkout', '-q', 'epic/e1-x'); sh(w.root, 'rm', '-q', 'package.txt'); sh(w.root, 'commit', '-qm', 'plan tip drops it'); const tip = sh(w.root, 'rev-parse', 'HEAD'); sh(w.root, 'checkout', '-q', 'dev')
-  try { sh(wt, 'merge', '--no-ff', '--no-edit', '-q', tip) } catch {}; writeFileSync(join(wt, 'package.txt'), 'six\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'merge the plan tip'); w.meta['cadre.base'] = tip
+test('spec_change accept whose reset conflicts (the plan tip rewrote the spec file) puts the worktree back and asks once more with no Accept; Reject clears it; yolo main cannot loop it', async () => {
+  const w = world(), { wt } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']); w.meta['cadre.worktree'] = wt
+  sh(w.root, 'checkout', '-q', 'epic/e1-x'); mkdirSync(join(w.root, 'test'), { recursive: true }); writeFileSync(join(w.root, 'test/s.json'), 'other\n'); sh(w.root, 'add', '-A'); sh(w.root, 'commit', '-qm', 'plan tip owns the file'); w.meta['cadre.base'] = sh(w.root, 'rev-parse', 'HEAD'); sh(w.root, 'checkout', '-q', 'dev')
   writeFileSync(join(wt, 'src/impl.ts'), 'export const IMPL = 1\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'feat: impl'); const pre = sh(wt, 'rev-parse', 'HEAD')
-  await T.specChange(w.h, w.d, 'm-1', 'wrong spec'); const r = await T.resolveSpec(w.h, 'm-1', 'accept')
+  await T.specChange(w.h, w.d, 'm-1', 'wrong spec')
+  const card = async () => ((await w.h.board.read()).decisions ?? []).find(x => x.id === 'flag:m-1:spec_change')
+  assert.deepEqual((await card()).options.map(o => o.verb), ['accept', 'reject'])   // before: Accept offered
+  const r = await T.resolveSpec(w.h, 'm-1', 'accept')
   assert.match(r.text, /reject, or cancel/); assert.doesNotMatch(r.text, /answer again|accepted/)
   assert.equal(sh(wt, 'rev-parse', 'HEAD'), pre); assert.equal(sh(wt, 'status', '--porcelain'), '')
   assert.equal((await w.h.board.read()).tasks[0].state, 'blocked'); assert.equal(w.meta['cadre.blocked'], 'spec_change'); assert.equal(w.meta['cadre.specReset'], 'conflict')
+  assert.deepEqual((await card()).options.map(o => o.verb), ['reject', 'cancel'])   // no Accept on the new card
   assert.match((await T.resolveSpec(w.h, 'm-1', 'accept')).text, /reject instead/)   // a second Accept is refused without touching git
-}) 
+  await w.h.board.update(b => ({ ...b, drive: { ...b.drive, on: true, stopped: false, mode: 'yolo' } }))
+  assert.match(await LIFECYCLE.decision(w.h, 'm-1', { metadata: { decision: 'accept: again' } }), /awaits a spec change decision/)   // yolo main is sent to the human
+  await w.h.board.update(b => ({ ...b, drive: { ...b.drive, on: false } }))
+  assert.match((await T.resolveSpec(w.h, 'm-1', 'reject')).text, /rejected/); assert.equal(w.meta['cadre.specReset'], '')
+})
+test('spec_change accept while git is busy is the transient case: "answer again", no marker, the card still offers Accept', async () => {
+  const w = world(), { wt } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']); w.meta['cadre.worktree'] = wt
+  await T.specChange(w.h, w.d, 'm-1', 'wrong spec'); await w.h.git.update(g => ({ ...g, busy: true }))
+  const r = await T.resolveSpec(w.h, 'm-1', 'accept'); assert.match(r.text, /answer again/); assert.equal(w.meta['cadre.specReset'] ?? '', '')
+  assert.deepEqual((((await w.h.board.read()).decisions ?? []).find(x => x.id === 'flag:m-1:spec_change')).options.map(o => o.verb), ['accept', 'reject'])
+})
 const reTester = async (w, wt, files, names) => {
   const view = await V.buildView(w.h, w.d, await mkTask(w), wt)
   for (const [f, c] of Object.entries(files)) { mkdirSync(join(view, f, '..'), { recursive: true }); writeFileSync(join(view, f), c) }

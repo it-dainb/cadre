@@ -100,7 +100,7 @@ export async function vetted(h: Host, argv: unknown, wt: string) {
   return vet(argv, wt, { py: await first(['/usr/bin/python3', '/usr/local/bin/python3'], r => r.startsWith('/usr/') && !r.startsWith(`${wt}/`)), rust: Array.isArray(argv) && argv[0] === 'cargo' ? (await h.run(['rustup', 'show', 'active-toolchain'], { cwd: '/' }).catch(() => undefined))?.stdout.split(/\s/)[0] || undefined : undefined })
 }
 export interface SetupIn { wt: string; cwd?: string; scratch: string; ask: string; argv: unknown; auto: boolean; root: string; base?: string; roots?: string[]; check?: string[]; strays?: number; checkpoint: () => Promise<unknown> }   // root: the repo (the approval's key); base: the task's base commit; roots: folders whose manifests may change
-export interface SetupOut { text: string; dialog?: string; allow?: true; stray?: true; done?: true }   // dialog: nothing ran, the human decides; stray: a path besides manifests was discarded; done: installed (or nothing to do) with nothing stray
+export interface SetupOut { text: string; dialog?: string; allow?: true; stray?: true; done?: true; commit?: string }   // dialog: nothing ran, the human decides; stray: a path besides manifests was discarded; done: installed (or nothing to do) with nothing stray
 const HOLD = 'The install was not run: it waits for the user. Go on without it, or report outcome "blocked" naming what you need.'
 const scrub = (s: string) => s.trim().split('\n').filter(Boolean).slice(-1)[0]?.replace(/\/[^\s'"]+/g, '…').slice(0, 200) ?? ''   // no host paths in what a model reads
 export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
@@ -169,7 +169,8 @@ export async function setup(h: Host, o: SetupIn): Promise<SetupOut> {
     const sub = o.ask.split('\n')[0].replace(/\s+/g, ' ').trim().slice(0, 60) || 'add dependencies'
     await git('add', '--', ...files); const c = await git('commit', '--no-verify', '-m', `chore(deps): ${sub}`)
     if (c.exitCode) return await bad(`it could not be committed (${scrub(c.stderr)})`)
-    return { text: `Installed and committed on your branch: ${files.join(', ')}. The installed packages are in your folder.${note}`, ...flag }
+    const commit = (await git('rev-parse', 'HEAD')).stdout.trim()   // on record in the task (cadre.depsCommits): the spec-change reset carries these commits and no other
+    return { commit, text: `Installed and committed on your branch: ${files.join(', ')}. The installed packages are in your folder.${note}`, ...flag }
   } finally { await h.run(['rm', '-rf', o.scratch]) }
 }
 
