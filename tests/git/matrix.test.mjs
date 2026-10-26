@@ -48,6 +48,20 @@ test('every matrix cell with an oracle mode runs a scenario that takes the store
   assert.deepEqual(bad, [])
 })
 
+// Claude Code's own debug line names the account (harness/out/v070.log:51, v061.log:73); the table header and driver.log carry it, nothing is gated on it
+test('the table header reads the account mode from the first finished cell\'s debug log', () => {
+  const mode = line => {
+    const run = mkdtempSync(join(tmpdir(), 'mx-')); mkdirSync(join(run, 'cell')); writeFileSync(join(run, 'cell.line'), ''); writeFileSync(join(run, 'cell.env'), '')
+    writeFileSync(join(run, 'cell', 'verdict.json'), JSON.stringify({ pass: true, fails: [], stats: { dialogs: 0, turns: 1, usd: 0, secs: 60 } })); writeFileSync(join(run, 'cell', 'debug.log'), `2026-10-12T04:09:05.335Z [DEBUG] ${line}\n`)
+    const out = execFileSync('node', ['harness/table.mjs', run], { encoding: 'utf8' })
+    assert.match(readFileSync(join(run, 'driver.log'), 'utf8'), / account \w+\n$/)
+    return /^account mode: (\w+)$/m.exec(out)[1]
+  }
+  assert.equal(mode('cc-plugin-sec-default@builtin not seated: no managed settings and not a Team or Enterprise organization (max)'), 'max')
+  assert.equal(mode('cc-plugin-sec-default@builtin seated outermost: the organization is team'), 'team')
+  assert.equal(mode('something else'), 'unknown')
+})
+
 test('an inconclusive run is no pass: the row shows it and the run exits non-zero for a rerun', () => {
   const run = mkdtempSync(join(tmpdir(), 'mx-'))
   for (const [n, v] of [['cell.r1', { pass: true, fails: [] }], ['cell.r2', { pass: false, inconclusive: true, fails: [] }]]) {
