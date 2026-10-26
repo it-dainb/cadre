@@ -165,3 +165,10 @@ test('refusal-loop keys on the producing call\'s input, per agent transcript', (
   assert.ok(!loop([{ id: 1 }], 3).includes('refusal-loop'))   // three agents, the same call refused once each
   assert.ok(loop([{ id: 1 }, { id: 1 }, { id: 1 }], 2).includes('refusal-loop'))   // one agent 3x, whoever else is around
 })
+
+// release016 needs-setup-python: `uv lock` printed "Because six was not found in the cache ... the network was disabled" and changed nothing; the oracle called it an install
+test('the own-shell check: an install the offline settings refused (npm, uv, pip) is no install; one that resolved is', async () => {
+  const { refused } = await import('../../harness/installs.mjs')
+  for (const o of ['npm error code ENOTCACHED', 'only-if-cached', 'hint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.', 'Network connectivity is disabled, but the requested data wasn\'t found in the cache', 'offline mode is enabled', 'ERROR: No matching distribution found for six', 'uv 0.11.29\nResolved 1 package in 1ms\nEXIT=0']) assert.equal(refused(o), true, o)
+  for (const o of ['Resolved 3 packages in 120ms\nAdded six v1.16.0', 'Resolved 3 packages in 120ms\nUpdated six v1.15.0 -> v1.16.0', 'added 1 package in 2s', '', undefined]) assert.equal(refused(o), false, String(o))
+})

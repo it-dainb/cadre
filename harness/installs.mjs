@@ -2,3 +2,5 @@
 // unless it only checks (`uv lock --check`, `--dry-run`, `--help`, `--version`): a check changes nothing.
 const FORM = /^\s*(sudo\s+)?(npm\s+(install|i|add|ci)|pnpm\s+(install|i|add)|yarn\s+(install|add)|uv\s+(add|sync|lock|pip\s+install)|pip-compile|poetry\s+lock|pip3?\s+install|python3?\s+-m\s+pip\s+install|cargo\s+(add|install)|go\s+(get|install))\b/
 export const installs = cmd => String(cmd ?? '').split(/&&|;|\|\|?|\n/).some(s => FORM.test(s) && !/--(check|dry-run|help|version)\b/.test(s))
+// An install that changed nothing: the offline settings' own refusal in its output (npm, uv, pip --no-index), or a `uv lock` that only re-resolved ("Resolved N packages", no Added/Updated/Removed line).
+export const refused = out => { const t = String(out ?? ''); return /ENOTCACHED|only-if-cached|network was disabled|network connectivity is disabled|offline mode is enabled|No matching distribution found/i.test(t) || (/^Resolved \d+ packages? in /m.test(t) && !/^(Added|Updated|Removed) /m.test(t)) }

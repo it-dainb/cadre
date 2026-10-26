@@ -6,7 +6,7 @@
 import { readFileSync, readdirSync, existsSync, writeFileSync, statSync } from 'node:fs'
 import { join, basename, dirname } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { installs } from './installs.mjs'
+import { installs, refused } from './installs.mjs'
 
 const dir = process.argv[2], wantLanded = process.argv.includes('--landed')
 const TURNS = +(process.env.ORACLE_TURNS ?? 10), DIALOGS = +(process.env.ORACLE_DIALOGS ?? 3), STUCK = 1000 * +(process.env.ORACLE_STUCK_S ?? 90)
@@ -479,7 +479,7 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (process.env.S) { const seenEnv = subs.map(x => read(x.f)).find(t => /npm_config_offline=/.test(t)) ?? ''; for (const kv of ['npm_config_offline=true', 'UV_OFFLINE=1', 'PIP_NO_INDEX=1', 'CARGO_NET_OFFLINE=true', 'GOPROXY=off', 'YARN_ENABLE_OFFLINE_MODE=1']) if (!seenEnv.includes(kv)) fail(o, `the agent's shell did not inherit ${kv}`)
       for (const [k, d] of [['npm_config_cache', 'npm-cache'], ['npm_config_logs_dir', 'npm-logs'], ['UV_CACHE_DIR', 'uv-cache']]) if (!new RegExp(`${k}=\\S*/cadre-\\d+/${d}\\b`).test(seenEnv)) fail(o, `the agent's shell did not inherit ${k} (a folder of the user's own, cadre-<uid>/${d})`) }
     // an agent's own shell is outside cadre's jail: an install it ran itself writes the real HOME and is no setup request (named first, so a HOME change is not mistaken for cadre's)
-    const own = subs.flatMap(x => x.uses.filter(u => u.name === 'Bash' && installs(u.input?.command) && !/ENOTCACHED|only-if-cached/i.test(x.results.get(u.id) ?? '')).map(u => `${basename(x.f)}: ${String(u.input.command).replace(/\s+/g, ' ').slice(0, 90)}`))
+    const own = subs.flatMap(x => x.uses.filter(u => u.name === 'Bash' && installs(u.input?.command) && !refused(x.results.get(u.id))).map(u => `${basename(x.f)}: ${String(u.input.command).replace(/\s+/g, ' ').slice(0, 90)}`))
     if (own.length) fail(o, `an agent ran an install in its own shell that the offline settings did not stop (not through the setup request): ${own[0]}`)
     const hd = drv.filter(e => e.kind === 'dialog' && /dependencies wait for you|Allow cadre to install|Installing needs isolation/i.test(e.text)); if (hd.length) fail(o, `${hd.length} install dialog(s) (the repo is approved): ${hd.map(e => e.text).join(' / ')}`)
   }
