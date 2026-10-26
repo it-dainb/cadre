@@ -84,6 +84,13 @@ describe('lane and override', () => {
 })
 
 describe('roadmap draft', () => {
+  test('an epic whose every path is protected is refused (create and amend); one real file beside it is fine', async () => {
+    const w = await world(); await w.call('TaskCreate', { subject: 'User accounts', description: 'accounts', metadata: MSP })
+    const r = await w.call('TaskCreate', { subject: 'Notes', description: 'g', metadata: { size: 2, paths: ['CHANGELOG.md'] } }); expect(r.deny).toContain('every path of this epic is protected (CHANGELOG.md): cadre writes the changelog itself'); expect(r.deny).toContain('drop the epic or give it the files it changes')
+    expect((await w.call('TaskCreate', { subject: 'Notes', description: 'g', metadata: { size: 2, paths: ['.cadre/x.json', 'CHANGELOG.md'] } })).deny).toContain('every path of this epic is protected')
+    const ok = (await w.call('TaskCreate', { subject: 'Notes', description: 'g', metadata: { size: 2, paths: ['CHANGELOG.md', 'src/a.ts'] } })).result.task.id
+    const u = await w.call('TaskUpdate', { taskId: ok, metadata: { paths: ['CHANGELOG.md'] } }); expect(u.result.error).toContain('every path of this epic is protected')
+  })
   test('the plan answer carries the roadmap rules; epics need goal, size, paths; overlap and core size go back to the planner', async () => {
     const w = await world(), p = await w.call('TaskCreate', { subject: 'User accounts', description: 'accounts', metadata: MSP }), m = p.result.task.id
     expect(p.context.join('\n')).toContain('Roadmap rules'); expect((await w.h.board.read()).plan!.epicBranch).toBe(`milestone/${m}-user-accounts`)

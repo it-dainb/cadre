@@ -14,7 +14,7 @@ import { apply } from './machine'
 import { emit } from './events'
 import { settleIf, yoloOn } from './decide'
 import { DRIVE, cfgOf, draftsOf, mirror, registryOf, storeOf, touched } from './dispatch'
-import { manifestOnly, repoSplit } from './specview'
+import { manifestOnly, protectedOnly, repoSplit } from './specview'
 import { scoped } from '../commands/init'
 import { retouch, roadmapRules } from './lanes'
 import { MS, epicOf, isMs, planEpic } from './milestone'
@@ -117,6 +117,7 @@ async function create(h: Host, store: TaskStore, reg: TypeRegistry, title: strin
   if (ms && !road && s.drive.planner === 'agent' && m.epic !== undefined) return { error: `epic ${m.epic}'s tasks are planned for you when it is ready; nothing to do for it` }   // milestone.epicPlanner agent (ADR 0021)
   if (ms && !road && !['ready', 'planning'].includes(ep?.state ?? '')) return { error: `name the epic these tasks plan in epic; ready to plan: ${(s.plan.epics ?? []).filter(x => x.state === 'ready' || x.state === 'planning').map(x => x.id).join(', ') || 'none (wait for the next: line)'}` }
   if (!ms && m.epic !== undefined) return { error: 'epic: only in a milestone; omit it' }
+  const pe = road ? protectedOnly(await cfgOf(h), m.paths) : null; if (pe) return { error: await refuse(h, key, pe) }   // an epic only of protected paths
   const twin = await twinOf(store, ep?.id ?? s.epic, title, description, f.meta['cadre.paths']); if (twin) return { error: `${twin.id} already covers this (${twin.why}): amend ${twin.id} instead of adding a second task` }
   const t = await store.createDraft({ title, description, acceptance: f.patch.acceptance, design: f.patch.design, type: road ? 'epic' : m.type ?? 'feature', parent: ep?.id ?? s.epic, meta: f.meta })
   return { id: t.id, context: ctx(ep?.state === 'ready' ? planRules(reg) : '', missingLine(await retouch(h, store, reg))) }
@@ -128,7 +129,7 @@ async function edit(h: Host, store: TaskStore, reg: TypeRegistry, id: string, i:
   const { title, description, after = [], ...m } = i, s = await h.board.read()
   const no2 = async (why: string): Promise<W> => ({ error: await refuse(h, id, why) })
   if (m.critique !== undefined && !Object.values(((await h.ui.read()).asks ?? {}) as Record<string, { answer?: string }>).some(a => a.answer !== undefined)) return no2('critique: ask the critic first (explore with the whole roadmap) and use its answer')
-  const err = validateFields(m, reg) ?? repoSplit(await cfgOf(h), m.paths) ?? manifestOnly(m.paths) ?? (m.holds !== undefined || m.scenarios !== undefined ? holdsGap(m.holds !== undefined ? m.holds : holdsOf(t), m.scenarios ? (m.scenarios as string[]).join('\n') : t.acceptance) : null) ?? (m.type !== undefined && m.type !== t.type ? `type: fixed at creation (${t.type}); remove the draft and add a new task` : null); if (err) return no2(err)
+  const err = validateFields(m, reg) ?? repoSplit(await cfgOf(h), m.paths) ?? manifestOnly(m.paths) ?? (t.type === 'epic' ? protectedOnly(await cfgOf(h), m.paths) : null) ?? (m.holds !== undefined || m.scenarios !== undefined ? holdsGap(m.holds !== undefined ? m.holds : holdsOf(t), m.scenarios ? (m.scenarios as string[]).join('\n') : t.acceptance) : null) ?? (m.type !== undefined && m.type !== t.type ? `type: fixed at creation (${t.type}); remove the draft and add a new task` : null); if (err) return no2(err)
   const isEpic = id === s.epic, draft = t.category === 'draft' && !(isEpic && s.plan && s.plan.state !== 'draft')   // approval leaves the epic itself draft: its board state is the truth
   if (!draft) {
     if (isEpic) return { error: REFUSED }
