@@ -4,10 +4,10 @@ import { modelText } from './say'
 import { askCard, askOf, shown } from './asks'
 import type { Binding, Hook, Host } from '../types'
 import type { TaskStore } from '../task-management/store'
-import { scoped } from '../commands/init'
+import { repoKeyOf, scoped } from '../commands/init'
 import { cfgOf, storeOf } from './dispatch'
 import { UI, modelView, patchBinding, safe, sessionOf, viewHash } from './board'
-import { runOf, step } from './lifecycle'
+import { budgetOf, runOf, step } from './lifecycle'
 import { nextAction } from './render'
 import { subscribe } from './events'
 import { brief, drainDelta } from './briefs'
@@ -75,7 +75,7 @@ subscribe(async (h, ev) => {
 type U = { in: number; out: number; cr: number; cw: number; model?: string }
 const zero = (): U => ({ in: 0, out: 0, cr: 0, cw: 0 })
 const add = (a: U, u: any): U => ({ in: a.in + (u.input_tokens ?? 0), out: a.out + (u.output_tokens ?? 0), cr: a.cr + (u.cache_read_input_tokens ?? 0), cw: a.cw + (u.cache_creation_input_tokens ?? 0), model: u.model ?? a.model })
-const plus = (a: U, b: U): U => ({ in: a.in + b.in, out: a.out + b.out, cr: a.cr + b.cr, cw: a.cw + b.cw, model: b.model ?? a.model })
+const plus = (a: U, b: U): U => ({ ...a, in: a.in + b.in, out: a.out + b.out, cr: a.cr + b.cr, cw: a.cw + b.cw, model: b.model ?? a.model })
 export const tokensOf = (u: U) => Math.round(u.in + 1.25 * u.cw + 0.1 * u.cr + 5 * u.out)
 export const cacheOf = (u: U) => (u.in + u.cr + u.cw ? Math.round((100 * u.cr) / (u.in + u.cr + u.cw)) : 0)
 export function usdOf(u: U, cfg: any): number | undefined {   // cost.prices: {<model alias>: {in, out, cacheRead, cacheWrite}} in $ per Mtok
@@ -91,13 +91,24 @@ export async function* meter(h: Host, e: any, next: (e: any) => any): AsyncGener
   if (b?.effort && e.agentId) { if (!efforts.has(e.agentId) && efforts.size >= 500) efforts.delete(efforts.keys().next().value!); efforts.set(e.agentId, b.effort) }   // FIFO: the oldest goes first
   const r = yield* next(eff && eff !== 'default' ? { ...e, effort: eff } : e)   // TM-03: the effort admission routed for this run (core/risk.route: roles.<role>.byRisk.<risk>, recorded on the binding); none = the agent file's
   if (r?.usage) await safe(h, 'cost', async () => {
-    const id = e.agentId ?? 'main'
-    await h.store.set(ck(id), add(((await h.store.get(ck(id))) as U) ?? zero(), r.usage)); const ak = await scoped(h, 'cost:all'); await h.store.set(ak, add(((await h.store.get(ak)) as U) ?? zero(), r.usage))
-    const ctx = (r.usage.input_tokens ?? 0) + (r.usage.cache_read_input_tokens ?? 0) + (r.usage.cache_creation_input_tokens ?? 0), now = await h.now()
+    const id = b ? `task:${b.taskId}` : e.agentId ?? 'main', now = await h.now()   // a bound agent's usage goes to its task's total at once: the agent is unbound before the task closes (H12)
+    const prev = (await h.store.get(ck(id))) as (U & { t0?: number }) | undefined; await h.store.set(ck(id), { ...add(prev ?? zero(), r.usage), ...(b ? { t0: prev?.t0 ?? now } : {}) }); const ak = await scoped(h, 'cost:all'); await h.store.set(ak, add(((await h.store.get(ak)) as U) ?? zero(), r.usage))
+    const ctx = (r.usage.input_tokens ?? 0) + (r.usage.cache_read_input_tokens ?? 0) + (r.usage.cache_creation_input_tokens ?? 0)
     if (e.agentId) await patchBinding(h, e.agentId, { ctxTokens: ctx, lastAt: now })
     if (b) { const pct = ctxPct({ ...b, ctxTokens: ctx }); await h.board.update(s => ({ ...s, tasks: s.tasks.map(t => (t.id === b.taskId && t.ctx !== pct ? { ...t, ctx: pct } : t)) })) }   // SnapTask.ctx: the owner's context fill
   })
   return r
+}
+// H12: a landed task's record, written by closeTask before cleanup prunes its Budget (a cancelled task writes none). Start = its first metered usage (run records carry no time); human.retry zeroes rework (docs/limitations.md). FIFO at 500
+export async function landed(h: Host, cfg: any, id: string): Promise<void> {
+  const t = ((await h.store.get(ck(`task:${id}`))) as (U & { t0?: number }) | undefined) ?? zero(), end = await h.now(), rework = (await budgetOf(h, id)).rework, repo = repoKeyOf(await h.cwd()), usd = usdOf(t, cfg)
+  const rs = await metricsOf(h); await h.store.set(`cadre:metrics:${repo}`, [...rs, { repo, task: id, tokens: tokensOf(t), ...(usd !== undefined ? { usd: +usd.toFixed(4) } : {}), rework, firstTry: !rework, start: (t as { t0?: number }).t0 ?? end, end }].slice(-500))
+}
+type Landed = { tokens: number; usd?: number; rework: number; firstTry: boolean; start: number; end: number }
+export const metricsOf = async (h: Host) => ((await h.store.get(`cadre:metrics:${repoKeyOf(await h.cwd())}`)) as Landed[] | undefined) ?? []
+export function metricsText(rs: Landed[]): string {
+  const n = rs.length, avg = (f: (x: Landed) => number) => rs.reduce((a, x) => a + f(x), 0) / n
+  return !n ? 'metrics: no landed tasks yet' : [`${n} landed`, rs.every(x => x.usd !== undefined) ? `$${avg(x => x.usd!).toFixed(2)}/task` : `${Math.round(avg(x => x.tokens))} tokens/task`, `first-try ${Math.round(100 * avg(x => +x.firstTry))}%`, `rework ${avg(x => x.rework).toFixed(1)}/task`, `${Math.round(avg(x => x.end - x.start) / 60000)} min/task`].join(' · ')
 }
 // at an agent's turn.complete: fold its bucket into its task's and overwrite cadre.cost (no comments)
 async function ledger(h: Host, store: TaskStore, actor: string, cfg: any, agentId: string, taskId: string) {
