@@ -1,6 +1,6 @@
 {
   "name": "cadre",
-  "version": "0.17.0",
+  "version": "1.0.0",
   "license": "MIT",
   "description": "Plan, approve, and run tasks through an enforced pipeline: main plans, owners edit code in worktrees, the mod owns git.",
   "author": {
