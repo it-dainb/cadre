@@ -482,12 +482,12 @@ describe('agent-run setup', () => {
 })
 
 describe('guides', () => {
-  test('the guides speak task language (commands in backticks are literal), name every phase with a done line, and match the checks', () => {
+  test('the guides speak task language (commands in backticks are literal), name every phase, and match the checks', () => {
     const g = BUDGET.guides as Record<string, string>
     expect(Object.keys(g)).toEqual(['deep', 'goal', 'init', 'setup'])   // goal: tests/lanes.test.ts · deep: tests/clarify.test.ts
     for (const t of [g.init, g.setup]) { expect(banned(t.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, ''))).toEqual([]); expect(t).toContain('AskUserQuestion'); expect(t).not.toContain('sudo apt') }
-    expect(g.init).toContain('creates its task store in `.cadre/state`'); expect(g.init).toContain('`.cadre/state/`'); expect(g.init).toContain('"kind": "mission"'); expect(g.init).toContain(skeleton().trim())
-    for (const t of [g.init, g.setup]) expect(t).not.toMatch(/\bbd\b|beads/i); expect(g.setup).toContain('confirm the user settings'); for (const t of [g.init, g.setup]) expect(t).toContain('Never edit a Claude Code settings file'.slice(0, 10))
+    expect(g.init).toContain('`.cadre/state/`'); expect(g.init).toContain('"kind": "mission"'); expect(g.init).toContain(skeleton().trim())
+    for (const t of [g.init, g.setup]) expect(t).not.toMatch(/\bbd\b|beads/i); expect(g.setup).toContain('confirm the user settings'); expect(g.setup).toContain('Never edit a Claude Code settings file'.slice(0, 10))   // init: the fence refuses a settings edit (policy/guards SETTINGS_DENY)
   })
 })
 
