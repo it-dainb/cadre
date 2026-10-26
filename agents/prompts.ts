@@ -1,5 +1,5 @@
 // Role prompts (DESIGN 4.1/7): STATIC text, byte-stable. No dates, ids, counters or config values (goldens pin the bytes).
-// Caps: worker <= 2500 B, tester/reviewer <= 1500 B, explorer <= 1000 B, planner <= 2000 B.
+// Caps: scripts/budget.mjs (per role, audited A4), tests/budget.test.ts.
 export const PROMPTS = {
   worker: `You are a worker. You own exactly one task, given in your brief.
 Rules:
