@@ -261,6 +261,15 @@ describe('review spawn', () => {
     const p = String(a.seen[0].prompt); expect(p).toContain('The spec change was accepted: amend S5.'); expect(p).not.toContain('bcrypt')
     expect((await w.store.get(id)).meta['cadre.specDecision']).toBe('')   // delivered once
   })
+  test('after a spec change dropped the install, the next tester and worker briefs say to request it again; no marker, no line', async () => {
+    const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}), id = ids[0]
+    await w.board(h, epic, ids); d.view = async (_h, _d, t) => `/wt/repo-1.views/${t.id}`; d.cfg.units = [{ root: '.', tdd: { paths: ['test/**'] } }] as any
+    const a = ok('tt0'); await admitWith(h, d, spawn(id), a.next); expect(String(a.seen[0].prompt)).not.toContain('request the packages')
+    await h.bind.update(() => ({})); await h.board.update(s => ({ ...s, tasks: s.tasks.map(t => ({ ...t, state: 'active', step: 'tester' })) })); await w.store.setMeta(id, { 'cadre.depsDropped': '1' }, d.actor)
+    const b = ok('tt1'); await admitWith(h, d, spawn(id), b.next); expect(String(b.seen[0].prompt)).toContain('Request the packages your code and tests need again')
+    await h.bind.update(() => ({})); await h.board.update(s => ({ ...s, tasks: s.tasks.map(t => ({ ...t, step: 'worker' })) })); await w.store.setMeta(id, { 'cadre.specCommit': 'abc1234' }, d.actor)
+    const c = ok('wk1'); await admitWith(h, d, spawn(id), c.next); expect(String(c.seen[0].prompt)).toContain('Request the packages your code and tests need again')
+  })
   test('settings: review.deepLabels sends a labelled change to the thorough review; only CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 overrides the model (ADR 0019)', async () => {
     const { w, h, d, id } = await inReview('reviewer'); await w.store.update(id, { labels: ['ux'] }, d.actor); w.numstat.out = '1\t1\tsrc/a.ts\n'
     const a = ok('rv1'); await admitWith(h, d, spawn(id), a.next); expect(a.seen[0].model).toBe('sonnet')

@@ -31,7 +31,7 @@ export const reply = (n: Need) => (n.ok ? `Answer to your request:\n${n.answer}\
 
 // report{outcome:"request"} of a worker, tester or planner: refused outside its canRequest, over the cap, or where nobody can answer; a setup request with a refused or missing argv is sent back to its sender at once
 export async function request(h: Host, agentId: string, b: Binding, r: { request?: { helper: string; ask: string; why: string; paths?: string[]; argv?: string[] } }): Promise<string> {
-  const q = r.request!, can = ROLES_DEFAULT[b.role].canRequest ?? [], old = await needOf(h, b.taskId), max = (await cfgOf(h)).limits.helpers.perTask
+  const q = r.request!, can = ROLES_DEFAULT[b.role].canRequest ?? [], old = await needOf(h, b.taskId), max = (await cfgOf(h)).limits.helpers.perTask + Number((await (await storeOf(h)).get(b.taskId)).meta['cadre.depsDropped'] || 0)   // a dropped install may be asked again: one more request per dropped commit, until a setup run commits
   if (!can.includes(q.helper)) throw new Error(`request.helper: you may ask for ${can.join(' or ') || 'nothing'}`)
   if (!HELPERS.includes(q.helper)) throw new Error(`request.helper: ${q.helper} is not available here; ask for ${HELPERS.join(' or ')}, or report outcome "blocked"`)
   if (q.helper === 'setup') { const why = await P.vetted(h, q.argv, b.worktree); if (typeof why === 'string') throw new Error(`request.argv: ${why}; allowed: ${P.FORMS}`) }
@@ -126,11 +126,13 @@ export async function settleSetups(h: Host, d: Deps, resume: () => Promise<unkno
     })
   }
 }
+// cadre's own install commit: on record (the spec-change reset carries these and no other) and the dropped-install marker is over
+export const recordInstall = (d: Deps, task: { id: string; meta: Record<string, string> }, commit: string) => d.store.setMeta(task.id, { 'cadre.depsDropped': '', 'cadre.depsCommits': [...(task.meta['cadre.depsCommits'] ?? '').split(' ').filter(Boolean), commit].join(' ') }, d.actor)
 // the proposed argv: cadre vets and runs it in the requester's task folder
 async function setupAnswer(h: Host, d: Deps, n: Need, argv: unknown): Promise<{ text: string; ok: boolean }> {
   const task = await d.store.get(n.task), wt = task.meta['cadre.worktree'] || d.root, pkg = pkgOf(d, task), strays = (await ctlGet<number>(h, `strays:${n.task}`)) ?? 0
   const r = await P.setup(h, { root: await h.cwd(), base: task.meta['cadre.base'], roots: ['.', ...unitsOf(d.cfg).map(u => u.root)], wt, cwd: pkg && pkg.root !== '.' ? `${wt}/${pkg.root}` : wt, scratch: `${d.wtRoot}/${d.key}.scratch/${n.task}-setup`, ask: n.ask, argv, auto: d.cfg.deps.auto, check: Object.values(pkg?.checks ?? {})[0], strays, checkpoint: () => checkpoint(h, d.store, d.actor, n.task, wt) })
-  if (r.commit) await d.store.setMeta(n.task, { 'cadre.depsCommits': [...(task.meta['cadre.depsCommits'] ?? '').split(' ').filter(Boolean), r.commit].join(' ') }, d.actor)
+  if (r.commit) await recordInstall(d, task, r.commit)
   if (r.stray || r.done) await ctlSet(h, { [`strays:${n.task}`]: r.stray ? strays + 1 : undefined })   // a clean install starts the count again
   if (r.dialog) await ask(h, { id: `deps:${n.task}:${n.needId}`, kind: 'flag', title: `${n.task}: dependencies wait for you`, hash: n.needId, tab: 'epic', sel: n.task, lines: [r.dialog],
     options: [...(r.allow ? [{ key: 'a', label: 'Allow installs in this repo', verb: 'approve', run: 'deps allow' }] : []), { key: 'k', label: 'OK', verb: 'keep' }] })

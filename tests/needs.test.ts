@@ -3,7 +3,7 @@
 import { FORMS, vet } from '../core/helpers'
 import { describe, expect, test } from 'claude-code/testing'
 import { backstop, intend, next, runOf, step, type Run, type RunEvent, type RunState } from '../core/lifecycle'
-import { needOf, overdue, pending, undelivered } from '../core/needs'
+import { needOf, overdue, pending, recordInstall, undelivered } from '../core/needs'
 import { arm, stop, watchdog } from '../core/drive'
 import { LIFECYCLE } from '../core/plantools'
 import { budgetOf } from '../core/lifecycle'
@@ -188,6 +188,14 @@ describe('refused requests', () => {
     expect(await w.rep('ag1', REQ)).toContain('this task has used its 1 requests'); w.cfg.limits.helpers.perTask = 2; expect(await w.rep('ag1', REQ)).toMatch(/^request recorded/); expect((await needOf(w.h, id))?.n).toBe(2)
     const m = await world({ mode: 'main' }); await m.at('ag1', m.ids[0], 'worker'); expect(await m.rep('ag1', REQ)).toContain('nobody can answer a request now')
     expect(await w.rep('ag1', { ...REQ, outcome: 'done' })).toContain('request: only with outcome request')
+  })
+  test('a dropped install (cadre.depsDropped) may be asked again past the cap, one more per dropped commit; a new install commit ends it and goes on record', async () => {
+    const { w, id } = await start(), store = await w.h.taskStore(); w.cfg.limits.helpers.perTask = 1; await w.rep('ag1', REQ); await w.turn(); await w.rep('ag2', ANSWER); await w.stop('ag2')
+    expect(await w.rep('ag1', REQ)).toContain('this task has used its 1 requests')
+    await store.setMeta(id, { 'cadre.depsDropped': '1' }, 'test'); expect(await w.rep('ag1', REQ)).toMatch(/^request recorded/)   // bounded: +1 only
+    await w.rep('ag1', REQ); const t = await store.get(id); await recordInstall({ store, actor: 'test' } as any, t, 'abc123')
+    expect((await store.get(id)).meta).toMatchObject({ 'cadre.depsDropped': '', 'cadre.depsCommits': 'abc123' })
+    await recordInstall({ store, actor: 'test' } as any, await store.get(id), 'def456'); expect((await store.get(id)).meta['cadre.depsCommits']).toBe('abc123 def456')
   })
   test('a request without its request, and a reviewer\'s: refused by the contract', async () => {
     const { w } = await start(); expect(await w.rep('ag1', { role: 'worker', outcome: 'request', summary: 's' })).toContain('request: required with outcome request')

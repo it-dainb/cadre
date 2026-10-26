@@ -155,6 +155,7 @@ async function plan(h: Host, d: Deps, s: Snapshot, t: SnapTask, task: Task): Pro
   return { mission: s.mission ?? undefined, core: ep?.meta['cadre.coreContract'] || undefined, shared: n.shared, slice: n.slice, lessons: await feed(h, t.id, pathsOf(task)).catch(() => ''),
     others: (await Promise.all(run.map(async x => { const p = pathsOf(await d.store.get(x.id).catch(() => undefined)); return p.length ? `- ${x.id}: ${p.join(', ')}` : '' }))).filter(Boolean) }
 }
+export const DEPS_DROPPED = modelText('tool-result', 'The install you had before the spec change was dropped with it (it conflicted with the merged plan). Request the packages your code and tests need again: report outcome "request" with request {"helper":"setup","ask":"add <package>","why":"..."}.')   // set in cadre.depsDropped by the spec-change reset (core/tdd), until a setup run commits again
 export async function setup(h: Host, d: Deps, task: Task, wt: string) {   // `setup` runs in the writable jail (network on)
   const pkg = pkgOf(d, task) as any
   const pkgRoot = !rootOf(pkg) ? wt : `${wt}/${pkg.root}`, scratch = `${d.wtRoot}/${d.key}.scratch/${task.id}`
@@ -258,7 +259,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
       handoff = handoffOf(task.meta, cp, await G.diffStat(h.run, wt, `${hb}..${cp}`), await G.diffPatch(h.run, wt, `${hb}..${cp}`))
     }
     const cwd = spike ? d.root : viewed(d, role) ? await d.view!(h, d, task, wt) : wt
-    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, { ...(await plan(h, d, s, t, task)), handoff, decisions: (role === 'tester' ? [task.meta['cadre.specDecision']] : [task.meta['cadre.decision'], await undelivered(h, t.id)]).filter(Boolean) as string[] })), cwd, t.step, spike ? '' : cwd, undo, undefined, task).then(async r => { if (r?.agentId) { await delivered(h, t.id); if (role === 'tester' && task.meta['cadre.specDecision']) await d.store.setMeta(t.id, { 'cadre.specDecision': '' }, d.actor) } return r })   // a tester hears only the spec change's decision, once (a stale answer never reaches it)   // an answer its requester never got goes in once
+    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, { ...(await plan(h, d, s, t, task)), handoff, decisions: [...(role === 'tester' ? [task.meta['cadre.specDecision']] : [task.meta['cadre.decision'], await undelivered(h, t.id)]), task.meta['cadre.depsDropped'] ? DEPS_DROPPED : ''].filter(Boolean) as string[] })), cwd, t.step, spike ? '' : cwd, undo, undefined, task).then(async r => { if (r?.agentId) { await delivered(h, t.id); if (role === 'tester' && task.meta['cadre.specDecision']) await d.store.setMeta(t.id, { 'cadre.specDecision': '' }, d.actor) } return r })   // a tester hears only the spec change's decision, once (a stale answer never reaches it)   // an answer its requester never got goes in once
   } catch (err) { await undo(); throw err }
 }
 

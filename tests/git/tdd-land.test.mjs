@@ -74,7 +74,7 @@ test('spec_change accept: an install commit that conflicts with the plan tip is 
   put(wt, 'src/impl.ts', 'export const IMPL = 1\n'); sh(wt, 'commit', '-qm', 'feat: impl')
   await T.specChange(w.h, w.d, 'm-1', 'wrong spec'); const r = await T.resolveSpec(w.h, 'm-1', 'accept')
   assert.match(r.text, /accepted/); assert.equal(readFileSync(join(wt, 'pyproject.toml'), 'utf8'), 'deps=["A"]\n'); assert.equal(readFileSync(join(wt, 'uv.lock'), 'utf8'), 'lock0+A\n')
-  assert.equal(sh(wt, 'status', '--porcelain'), ''); assert.equal(existsSync(join(wt, 'src/impl.ts')), false); assert.equal(w.meta['cadre.depsCommits'], '')   // B's commit dropped and off the record; nothing blocks a new setup request
+  assert.equal(sh(wt, 'status', '--porcelain'), ''); assert.equal(existsSync(join(wt, 'src/impl.ts')), false); assert.equal(w.meta['cadre.depsCommits'], ''); assert.equal(w.meta['cadre.depsDropped'], '1')   // B's commit dropped and off the record; nothing blocks a new setup request
 })
 test('spec_change accept whose reset conflicts (the plan tip rewrote the spec file) puts the worktree back and asks once more with no Accept; Reject clears it; yolo main cannot loop it', async () => {
   const w = world(), { wt } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']); w.meta['cadre.worktree'] = wt

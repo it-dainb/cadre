@@ -337,12 +337,13 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
         await G.git(h.run, wt, ['reset', '--hard', '-q', sc]); await G.git(h.run, wt, ['clean', '-fdq'])
         if (base && (await h.run(['git', '-C', wt, 'merge-base', '--is-ancestor', base, 'HEAD'])).exitCode) await G.git(h.run, wt, ['merge', '--no-ff', '--no-edit', '-q', '-m', `merge the plan tip into ${id}`, base])
         // an install commit that conflicts with the merged plan tip is dropped, not forced: the install is requested again and regenerates the lock against the merged manifest
+        let dropped = 0
         for (const c of deps) {
           if (!(await h.run(['git', '-C', wt, 'cherry-pick', '--allow-empty', '--keep-redundant-commits', c])).exitCode) { kept.push(await G.tip(h.run, wt, 'HEAD')); continue }
           if (!(await G.ok(h.run, wt, ['rev-parse', '-q', '--verify', 'CHERRY_PICK_HEAD']))) throw new Error('git cherry-pick failed')
-          await G.git(h.run, wt, ['cherry-pick', '--abort']); h.log(`${id}: install commit ${c.slice(0, 8)} conflicts with the plan tip; dropped, the install is requested again`)
+          await G.git(h.run, wt, ['cherry-pick', '--abort']); h.log(`${id}: install commit ${c.slice(0, 8)} conflicts with the plan tip; dropped, the install is requested again`); dropped++
         }
-        await d.store.setMeta(id, { 'cadre.depsCommits': kept.join(' ') }, d.actor)
+        await d.store.setMeta(id, { 'cadre.depsCommits': kept.join(' '), ...(dropped ? { 'cadre.depsDropped': String(Number(task!.meta['cadre.depsDropped'] || 0) + dropped) } : {}) }, d.actor)
       })
     } catch (e) { h.log(`${id}: reset for the spec change failed: ${e}`)
       const conflict = (await G.ok(h.run, wt, ['rev-parse', '-q', '--verify', 'CHERRY_PICK_HEAD'])) || (await G.ok(h.run, wt, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']))   // a fact of the worktree, not parsed text: a real conflict never passes by waiting
