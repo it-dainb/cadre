@@ -152,6 +152,7 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     expect((await h.secret.read()).run).toBeUndefined()   // the lease ended
     expect((await decide(h, d.id, 'r', d.hash)).text).toBe('init: Claude is on it · progress in the cadre pane'); await tick(); expect(sent).toHaveLength(4); expect((await h.secret.read()).run?.follow).toBe(3)   // the human's retry: the brief goes, the spent follow-ups stay spent
     await turnEnd(h, {}); await tick(); expect(sent).toHaveLength(4); expect((await card(h))!.lines[0]).toBe('Claude stopped 3 times with checks still failing')
+    const s = (await card(h))!; expect((await decide(h, s.id, 's', s.hash)).text).toBe('init: cancelled'); expect(await card(h)).toBeUndefined()   // Stop setup is key s on a stopped card
   })
   // quick tier user2 on 6665614 / 33ff8a3 (2.1.299, FAULT=interrupt): after Esc every submit resolved { drop } ("the session was stopped…") until the human sent
   // input; a dialog answer's work runs later, so each "Let Claude try again" was refused again: 37 dialogs, no turn. Now a drop holds the run: one dialog, no submit
@@ -284,7 +285,7 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
     expect((await cadreRun(h, { args: 'init confirm', origin: { kind: 'press' } }, () => ({}))).text).not.toContain('written')   // typed never confirms (ADR 0012); the card stays
     const d = (await card(h, 'init:5'))!; expect((await decide(h, d.id, 'a', d.hash)).text).toBe('init: safety settings written · restart Claude Code for the task-tool settings to apply · init: all done')
     expect((await h.secret.read()).run).toBeUndefined(); const c = (await card(h))!; expect(c.title).toBe('init · all done'); expect(c.options.map(o => o.label)).toEqual(['Close']); expect(h.toasts).toContain('cadre: init done')
-    expect((await decide(h, c.id, 'x', c.hash)).text).toBe('init: cancelled'); expect(await card(h)).toBeUndefined()
+    expect((await decide(h, c.id, 'c', c.hash)).text).toBe('init: cancelled'); expect(await card(h)).toBeUndefined()
   })
   test('killed mid-setup: the next session names the interrupted setup (status and band), with the queued goal; the goal picks it up; done or cancel forgets it', async () => {
     const { h, files } = mk({ files: READY, mission: false }); delete files[`${ROOT}/CHANGELOG.md`]

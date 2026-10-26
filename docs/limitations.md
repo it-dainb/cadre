@@ -23,6 +23,7 @@ From the M0 spike ([ADR 0001](docs/adr/0001-m0-results.md)):
 - **Headless (`-p`) runs end with main's turn** (a background agent is killed): spawn agents in the foreground. `plugin eval --allow-tools` refuses `mcp__*`: name `mcp__cadre__report mcp__cadre__inspect mcp__cadre__run_check`. Live results: [ADR 0005](docs/adr/0005-live-results.md).
 - **`!` shell commands** in a human session may bypass the hooks (A20 unverified); the effect check treats such changes as human.
 - **A stale explore intent can hold a goal stop.** A question queued for an explorer that never started stays queued, and the goal stop waits on it. No run has shown it fail, so it is a known limit, not a fix.
+- **`human.retry` resets the rework count** (`core/lifecycle.reset`), so a task the human retried can read as first-try in the `/cadre timeline` metrics. A retry is itself a rework signal; no second counter is kept. Metrics history starts at 1.0 (no backfill); a task's start time is its first metered usage (run records carry no time).
 - Per-repo state: the mod's policy (repo, worktree root, locks) is keyed per repo, so two repos in one user config do not share it.
 - Workers cannot `git add/commit` (repo-level `denyWrite`, S24): the mod commits. `/tmp` is not writable for subagents; use `$TMPDIR`.
 - Per-agent 1 h cache TTL needs plugin agent files and may be ignored on accounts without usage credits; cadre reads the usage fields to detect it.

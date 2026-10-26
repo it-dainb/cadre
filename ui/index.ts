@@ -10,6 +10,7 @@ import { ROUTES, dispatch } from '../core/dispatch'
 import { color, glyph, glyphRole, readCfg } from './tokens'
 import { strictOf } from '../config/index'
 import { configPress, refreshLessons, refreshSettings } from '../config/route'
+import { fieldLabel, labels, pick } from './tr'
 import { type Acts, S, at, cols, cut, decisions, draw, kindOf, read, t0 } from './model'
 
 export { ack, syncStatus } from './notify'
@@ -71,11 +72,11 @@ export async function answerDialog(h: Host, id?: string): Promise<void> {
       if (!d || d.hash === last) return
       const vals: Record<string, string> = {}
       for (const f of d.fields ?? []) {
-        const keep = f.value ? `Keep ${f.value}` : 'Leave it empty', x = (await h.ask(`${f.label}?`, [keep, 'Cancel'])).trim()
+        const keep = f.value ? `Keep ${f.value}` : 'Leave it empty', x = (await h.ask(`${fieldLabel(d, f)}?`, [keep, 'Cancel'])).trim()
         if (x === 'Cancel') return
         vals[f.key] = x === keep ? f.value ?? '' : x
       }
-      const os = d.options.filter(o => o.run).slice(0, 4), x = (await h.ask(body(d), [...os.map(o => o.label), ...(os.length < 2 ? [NOT_NOW] : [])])).trim(), o = os.find(y => y.label === x)
+      const os = d.options.filter(o => o.run).slice(0, 4), x = (await h.ask(body(d), [...labels(d, os), ...(os.length < 2 ? [NOT_NOW] : [])])).trim(), o = pick(d, os, x)
       if (!o) {
         if (x && x !== NOT_NOW && !d.fields?.length) { await queueBrief(h, `${d.change ?? `About "${d.title}": `}${x}`); h.log(`sent to Claude · ${cut(x, 60)}`) }
         return

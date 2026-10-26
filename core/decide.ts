@@ -8,7 +8,10 @@ export const BLOCKING = /^(git:|external$|drift$|conflict$|lost-|integration-fai
 // the flags drive holds on (core/drive.gate): under yolo only these become a decision for the human; the rest stay on the task, recorded (yolo: zero dialogs after approval)
 export const holds = (flag: string): boolean => BLOCKING.test(flag) || flag === 'red' || flag.startsWith('rework:') || flag.startsWith('quarantine')   // red: tests that cannot be made red are the human's (core/close.redAsk)
 
-export const ask = async (h: Host, d: Decision): Promise<void> => {
+// the id without its instance parts (task, plan, version, stage...): flag:t1:conflict -> flag.conflict, run:init -> run.init, plan:p1 -> plan
+const keyOf = (id: string) => /^(flag):[^:]*:([^:]+)/.exec(id)?.slice(1).join('.') ?? (/^(init:goal|run:\w+|cfg:.+|goal:held)$/.test(id) ? id.replace(':', '.') : id.split(':')[0] === 'init' ? 'init.stage' : id.split(':')[0])
+export const ask = async (h: Host, d0: Decision): Promise<void> => {
+  const d = { ...d0, key: d0.key ?? keyOf(d0.id) }
   await h.board.update(b => { const l = b.decisions ?? [], i = l.findIndex(x => x.id === d.id); return { ...b, decisions: i < 0 ? [...l, d] : l.map((x, j) => (j === i ? d : x)) } })   // replace keeps its place in the queue
 }
 export const settle = async (h: Host, ...ids: string[]): Promise<void> => {

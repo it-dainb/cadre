@@ -4,3 +4,5 @@ import { BUDGET } from './fixtures/budget.generated'   // the kit has no fs: scr
 test('LICENSE exists, contains it-dainb and the MIT grant', () => {
   expect(BUDGET.license).toContain('it-dainb'); expect(BUDGET.license).toContain('MIT License'); expect(BUDGET.license).toContain('Permission is hereby granted, free of charge')
 })
+
+test('docs/commands.md lists /cadre timeline', () => { expect(BUDGET.timelineDocumented).toBe(true) })

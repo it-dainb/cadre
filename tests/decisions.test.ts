@@ -202,7 +202,7 @@ describe('core: ask / settle / events', () => {
   test('every flag.raised asks; flag.resolved settles; a phase that asked first (spec_change) keeps its richer decision', async () => {
     const w = await world(); await emit(w.h, 'flag.raised', { taskId: 'a2', flag: 'conflict' }, { taskId: 'a2' })
     expect((await w.h.board.read()).decisions!.map(d => d.id)).toEqual(['flag:a2:conflict'])
-    await ask(w.h, dec('flag:a3:spec_change', 'flag', 't', ['why: the API changed'], [OK])); await emit(w.h, 'flag.raised', { taskId: 'a3', flag: 'spec_change' }, { taskId: 'a3' })
+    await ask(w.h, dec('flag:a3:spec_change', 'flag', 't', ['why: the API changed'], [OK], { key: 'phase.spec' })); await emit(w.h, 'flag.raised', { taskId: 'a3', flag: 'spec_change' }, { taskId: 'a3' })
     expect((await w.h.board.read()).decisions!.find(d => d.id === 'flag:a3:spec_change')!.lines).toEqual(['why: the API changed'])
     await emit(w.h, 'flag.resolved', { taskId: 'a2', flag: 'conflict,drift' }, { taskId: 'a2' }); expect((await w.h.board.read()).decisions!.map(d => d.id)).toEqual(['flag:a3:spec_change'])
   })
@@ -218,3 +218,4 @@ describe('core: ask / settle / events', () => {
     await dispatch(w.h, { schemaVersion: 1, cmd: 'setup', args: ['cancel'], origin: { kind: 'dialog' } }, async () => ({ text: '' })); expect((await w.h.board.read()).decisions).toEqual([])
   })
 })
+

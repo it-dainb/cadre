@@ -25,6 +25,7 @@ import { capAsk, coreLanded, refresh, rework, trial } from './rebase'
 import { branchOf, epicOf, goOn } from './milestone'
 import { planStopped } from './planner'
 import { held } from './session'
+import { landed } from './reuse'
 import { specSettle } from './specifier'
 import { REPEAT, charge, prune, retry, runOf, settled, step } from './lifecycle'
 import { drop as dropNeed, helperDone, helperStopped, request } from './needs'
@@ -361,6 +362,7 @@ export async function closeTask(h: Host, d: Deps, id: string, actor: 'main' | 'm
   await record(h, d, id, 'close', 'mod', { squash: sha, epic: br, reviewed: C })
   const next = await lastNext(h, plan.id, 'wait', t.epic)
   await patch(h, id, x => ({ ...x, card: card({ id, title: t.title, role: 'main', to: 'done', commit: sha, flags: [], next }) }))
+  await landed(h, d.cfg, id).catch(e => h.log(`metrics for ${id}: ${e}`))   // before cleanup prunes the Budget
   await cleanup(h, d, id, task)
   if (task.meta['cadre.core'] === 'true') await coreLanded(h, d, files, task.design).catch(e => h.log(`core lock: ${e}`))   // its files are locked for the other tasks of the plan
   if (!d.top) await refresh(h, d, sha, id).catch(e => h.log(`refresh after ${id}: ${e}`))   // running siblings get the new tip now (core/rebase); a submodule's tip is not the plan's
@@ -464,8 +466,7 @@ ROUTES.resolve = async (h, c) => {
     return { text: `${a}: back to the tester${spawnIt(lifted ? { drive: { ...b.drive, stopped: undefined } } : b, 'spawn it')}` }
   }
   if (t && b === 'retry' && t.flags.includes('shape')) {   // the shape dialog's Retry: back to its step, its count of malformed reports starts over
-    const r = await apply(h, { kind: 'unblock', id: a, at: await h.now(), actor: 'human' }, pipe(d)); if (!r.ok) return { text: r.error }
-    await d.store.resume(a, d.actor); await d.store.setMeta(a, { 'cadre.blocked': '' }, d.actor); await retry(h, a, 'shapeRefusals'); await clear(h, a, 'shape')
+    await retry(h, a, 'shapeRefusals'); const e = await unblock(h, d, a, 'Retry from the human: report again in the form the report tool describes (each value within its length cap, only its fields).', 'shape'); if (e) return { text: e }   // unblock resumes the bound worker: one that already ended is retired and the spawner starts a fresh one
     return { text: `${a}: its agent starts again${spawnIt(await h.board.read(), 'spawn it')}` }
   }
   if (!t || !['keep', 'accept', 'reject', 'cancel'].includes(b)) return { text: 'usage: /cadre resolve <taskId> keep|accept|reject|cancel · /cadre resolve git keep|restore' }

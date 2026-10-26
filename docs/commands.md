@@ -20,6 +20,7 @@ An old subcommand word (`approve`, `status`, `open`, …) answers `that's answer
 | `release [x.y.z]` | human | cut a release |
 | `setup [cancel]` | human | one-time machine setup, done by Claude, checked by cadre |
 | `doctor` | anyone | read-only diagnosis, report in the cadre pane |
+| `timeline` | human | per-repo metrics as one line (landed tasks, cost per task, first-try rate, rework, time per task) and the records exported to `.cadre/tmp/timeline.json` in the project; history starts at 1.0 |
 | `init [cancel \| confirm]` | human | project setup, done by Claude, checked by cadre; `confirm` = the safety settings decision |
 | `sync add <adapter>` · `sync [now]` | human · anyone | external tracker setup · wake sync |
 | `config [show]` | anyone | print the settings that differ from the defaults. Changing one: press `9` in the pane (Settings tab) |
