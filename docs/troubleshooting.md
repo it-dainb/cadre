@@ -83,6 +83,6 @@ cadre never runs root commands for you. `/cadre setup` writes each sudo fix to `
 - **`<plan> is running in another session`.** Another live session holds the plan. Continue it there, or quit that one, then `/cadre continue` here; a session that crashed frees it within 30 s.
 - **Unfinished plan after a quit.** `/cadre continue` (or `0` on the band) respawns each task that was in flight from a checkpoint commit.
 - **Your branch is checked out when work lands.** cadre leaves it alone and asks: **Land** brings the work in, keeping your commits and uncommitted edits.
-- **Revert refused.** The code says why: `revert-of-revert`, `already-reverted`, `not-landed`, `busy`, `pr-mode`, `unknown`.
+- **Revert refused.** The code says why: `revert-of-revert`, `already-reverted`, `not-landed`, `busy` (also a `revert/<id>` branch cadre did not make), `pr-mode`, `unknown`.
 
 More known limits: [limitations](limitations.md).
