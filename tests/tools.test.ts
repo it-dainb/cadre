@@ -167,7 +167,7 @@ describe('role gate and the other tools', () => {
     const w = await world(); await planned(w)
     expect(err(await tool(w, 'epic', { title: 'x', goal: 'g', size: 2 }))).toBe('error: epics belong to a milestone (plan lane "milestone"); add tasks with task')
     const v = await world(); await tool(v, 'plan', { title: 'Big', description: 'goal', lane: 'milestone', reason: 'three parts' })
-    expect(err(await tool(v, 'epic', { title: 'x', goal: 'g' }))).toBe('error: size: required for a new epic; add it and call again')
+    expect(err(await tool(v, 'epic', { title: 'x', goal: 'g' }))).toBe('error: size: required for a new epic; add it and call again (to change an existing epic use amend)')
     expect((await tool(v, 'epic', { title: 'Auth', goal: 'log in', size: 2, paths: ['src/auth/'] })).result).toMatchObject({ id: 'm-2', revision: 2 })
     expect((await v.store.get('m-2')).type).toBe('epic')
   })

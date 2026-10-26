@@ -207,7 +207,7 @@ async function epic(h: Host, i: In): Promise<Out> {
     const { store, reg } = await deps(h), why = i.planned === true ? await planEpic(h, store, reg, i.id) : 'planned: true, on an epic whose tasks are all drafted'
     return why ? no(why) : wrote(h, store, s.plan!.id, i.id, ctx(`${i.id} is approved; next: ${nextAction(modelView(await h.board.read()))}`))   // the epic's plan: approved automatically (core/milestone)
   }
-  for (const k of ['title', 'goal', 'size']) if (i[k] === undefined) return no(`${k}: required for a new epic; add it and call again`)
+  for (const k of ['title', 'goal', 'size']) if (i[k] === undefined) return no(`${k}: required for a new epic; add it and call again (to change an existing epic use amend)`)
   const { title, goal, after = [], id: _i, ...m } = i
   return add(h, title, goal, after, m)
 }
