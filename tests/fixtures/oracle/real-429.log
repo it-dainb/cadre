@@ -1,0 +1,2 @@
+2026-10-25T16:29:17.437Z [ERROR] API error (attempt 1/11): 429 429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account's rate limit. Please try again later."},"request_id":"req_011CgPGjaCs3RpheYxszWwRc"}
+2026-10-25T16:29:17.441Z [ERROR] Error in API request: 429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account's rate limit. Please try again later."},"request_id":"req_011CgPGjaCs3RpheYxszWwRc"}

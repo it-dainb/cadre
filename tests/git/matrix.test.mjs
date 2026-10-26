@@ -47,3 +47,12 @@ test('every matrix cell with an oracle mode runs a scenario that takes the store
   }
   assert.deepEqual(bad, [])
 })
+
+test('an inconclusive run is no pass: the row shows it and the run exits non-zero for a rerun', () => {
+  const run = mkdtempSync(join(tmpdir(), 'mx-'))
+  for (const [n, v] of [['cell.r1', { pass: true, fails: [] }], ['cell.r2', { pass: false, inconclusive: true, fails: [] }]]) {
+    mkdirSync(join(run, n)); writeFileSync(join(run, `${n}.line`), ''); writeFileSync(join(run, `${n}.env`), ''); writeFileSync(join(run, n, 'verdict.json'), JSON.stringify({ ...v, stats: { dialogs: 0, turns: 1, usd: 0, secs: 60 } }))
+  }
+  const out = execFileSync('node', ['harness/table.mjs', run], { encoding: 'utf8' })
+  assert.match(out, /^cell +\| inconclusive/m); assert.match(out, /0\/1 pass/)
+})

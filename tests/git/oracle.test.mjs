@@ -127,3 +127,22 @@ test('the own-shell check: installs are commands that install; a check, a dry ru
   for (const c of ['npm install ms', 'cd x && npm i ms', 'ls; uv add six', 'uv sync', 'uv lock', 'pip install x | tail -2', 'sudo npm ci', 'git show HEAD | head; uv lock 2>&1']) assert.equal(installs(c), true, c)
   for (const c of ['uv lock --check 2>&1 | tail -3', 'git show --stat HEAD; ls .venv; uv lock --check', 'npm install --dry-run ms', 'uv --version', 'echo npm install', 'git commit -m "npm install ms"', 'grep -r "npm ci" .', 'uv run pytest', 'ls .venv/lib', undefined]) assert.equal(installs(c), false, String(c))
 })
+
+// release016 continue-after-quit.r2: Claude Code met a real 429 (lines 4889-4890 of its debug log) and cadre stopped the drive "usage limit until". That is the account's limit, not a verdict on
+// cadre: inconclusive, rerun. A lone 429 (CC retries and may recover) and the stub's injected usage_limit (the usage-limit S cell expects the toast) are not.
+test('a real 429 plus cadre\'s usage-limit stop is inconclusive; a lone 429 and an injected limit are not', () => {
+  const verdict = (toast, { log = true, stubbed = '' } = {}) => {
+    const d = mkdtempSync(join(tmpdir(), 'cadre-oracle-')), t = 1_792_945_760_000
+    mkdirSync(join(d, 'panes')); writeFileSync(join(d, 'panes', `${t}.txt`), toast ? 'x [-]\n drive stopped · usage limit until 17:00\n' : 'x [-]\n')
+    writeFileSync(join(d, 'driver.log'), `${t - 1000} start x\n${t + 1000} end\n`)
+    writeFileSync(join(d, 'debug.log'), log ? readFileSync(join(root, 'tests/fixtures/oracle/real-429.log'), 'utf8') : '')
+    writeFileSync(join(d, 'stubbed.jsonl'), stubbed)
+    try { execFileSync('node', [join(root, 'harness/oracle.mjs'), d], { stdio: 'pipe' }) } catch {}
+    return JSON.parse(readFileSync(join(d, 'verdict.json'), 'utf8'))
+  }
+  assert.equal(verdict(true).inconclusive, true)
+  assert.equal(verdict(true).pass, false)
+  assert.equal(verdict(false).inconclusive, false)   // a lone 429, no stop
+  assert.equal(verdict(true, { log: false }).inconclusive, false)   // the stop with no 429 behind it
+  assert.equal(verdict(true, { stubbed: '{"at":1,"kind":"usage_limit"}\n' }).inconclusive, false)   // the injected control
+})

@@ -118,4 +118,4 @@ xargs -P "$J" -d '\n' -I{} bash -c 'IFS="|" read -r name fix scen envs <<<"$1"; 
 LEFT=$(pgrep -f "cell.sh m$$-" || true)
 echo; node "$H/table.mjs" "$RUN" | tee "$RUN/table.txt"
 [ -n "$LEFT" ] && { echo "LEAK: cell processes alive after the run: $(echo $LEFT)" | tee -a "$RUN/table.txt"; kill $LEFT 2>/dev/null; }
-! grep -q 'FAIL\|NO VERDICT\|LEAK' "$RUN/table.txt"
+! grep -q 'FAIL\|NO VERDICT\|inconclusive\|LEAK' "$RUN/table.txt"
