@@ -18,7 +18,7 @@ const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'ut
 const commit = (d, f, body, msg) => { writeFileSync(join(d, f), body); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', msg) }
 
 // a repo with an epic (adds c.txt), landed on dev through integrate; the epic is a store record with the task under it
-async function world() {
+async function world(land = true, noRecord = false) {
   const d = mkdtempSync(join(tmpdir(), 'cadre-rev-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
   commit(d, 'CHANGELOG.md', skeleton(), 'chore: init'); sh(d, 'branch', 'dev')
   const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.units = [{ root: '.', setup: ['true'], checks: { test: ['true'] } }]; cfg.jail = 'off'
@@ -27,7 +27,8 @@ async function world() {
   sh(d, 'branch', br, 'dev'); sh(d, 'checkout', '-q', br); commit(d, 'c.txt', 'c\n', 'feat: login'); sh(d, 'checkout', '-q', 'main')
   const t = await store.createDraft({ title: 'login', description: 'd', type: 'feature', parent: epic, meta: { 'cadre.branch': 'feat/t1-login' } }); sh(d, 'branch', 'feat/t1-login', 'main'); sh(d, 'branch', 'feat/t9-unrecorded', 'main')
   await h.board.update(b => ({ ...b, epic, plan: { id: epic, slug: 'auth', state: 'approved', epicBranch: br }, tasks: [{ id: t.id, title: 'login', type: 'feature', kind: 'code', merges: true, state: 'done', step: '', phaseSince: 0, deps: [], flags: [] }] }))
-  assert.equal(await integrateEpic(h, epic), null)
+  if (noRecord) { const was = store.setMeta.bind(store); store.setMeta = async (id, kv, ...r) => { if (kv['cadre.landed']) throw new Error('store down'); return was(id, kv, ...r) } }
+  if (land) assert.equal(await integrateEpic(h, epic), null)
   const ans = async (id, key) => { const x = ((await h.board.read()).decisions ?? []).find(y => y.id === id); assert.ok(x, `no dialog ${id}`); const [cmd, ...args] = x.options.find(o => o.key === key).run.split(' '); return ROUTES[cmd](h, { schemaVersion: 1, cmd, args, origin: { kind: 'dialog' } }) }
   return { d, h, store, epic, t, ans, press: id => ROUTES.revert(h, { schemaVersion: 1, cmd: 'revert', args: [id], origin: { kind: 'press' } }), cfg }
 }
@@ -60,4 +61,35 @@ test('a conflicting revert blocks with one dialog, a clean tree and no leftovers
   assert.equal(sh(d, 'status', '--porcelain'), ''); assert.equal(sh(d, 'worktree', 'list').split('\n').length, 1); assert.equal(sh(d, 'branch', '--list', `revert/${epic}`), '')
   assert.equal(existsSync(join(d, '.git', 'REVERT_HEAD')), false)
   await ans(`revert-fail:${epic}`, 'k'); assert.deepEqual(await decisions(h), [])
+})
+
+const shown = async (h, id) => ((await h.board.read()).decisions ?? []).find(x => x.id === id)
+test('a stale re-created branch with unmerged work, a branch recorded as dev, and a moved one are kept after a revert; the report says so', async () => {
+  const { d, h, store, epic, ans, press } = await world(); const dev0 = sh(d, 'rev-parse', 'dev')
+  sh(d, 'checkout', '-q', '-b', 'feat/t1-login-again', 'main'); commit(d, 'mine.txt', 'unmerged\n', 'wip: mine'); sh(d, 'checkout', '-q', 'main'); sh(d, 'branch', '-D', 'feat/t1-login'); sh(d, 'branch', 'feat/t1-login', 'feat/t1-login-again')
+  await store.createDraft({ title: 'odd', description: 'd', type: 'feature', parent: epic, meta: { 'cadre.branch': 'dev' } })
+  await press(epic); await ans(`revert:${epic}`, 'c'); const out = await ans(`revert-sure:${epic}`, 'y')
+  assert.match(out.text, /kept: .*feat\/t1-login \(changed or not merged\).*dev \(protected\)|kept: .*dev \(protected\).*feat\/t1-login/); assert.match(sh(d, 'branch', '--list', 'feat/t1-login'), /t1-login/); assert.notEqual(sh(d, 'rev-parse', 'dev'), dev0)
+  assert.equal(existsSync(join(d, 'mine.txt')), false); assert.equal(sh(d, 'show', 'feat/t1-login:mine.txt'), 'unmerged')
+})
+test('abandon: only the recorded branches go; decoys by name, a protected record and a branch that moved after the card stay; a busy repo deletes nothing; a plan that runs is refused', async () => {
+  const { d, h, store, epic, t, ans, press } = await world(false), Q = x => sh(d, 'branch', '--list', x)
+  sh(d, 'branch', 'epic/zz-decoy', 'main'); sh(d, 'branch', 'feat/zz-unrecorded', 'main'); sh(d, 'branch', 'feat/t2-moves', 'main')
+  await store.createDraft({ title: 'two', description: 'd', type: 'feature', parent: epic, meta: { 'cadre.branch': 'feat/t2-moves' } }); await store.createDraft({ title: 'odd', description: 'd', type: 'feature', parent: epic, meta: { 'cadre.branch': 'main' } })
+  await h.board.update(b => ({ ...b, tasks: b.tasks.map(x => ({ ...x, state: 'active' })) })); assert.match((await press(epic)).text, /refused \(busy\)/)   // the board still runs it
+  await h.board.update(b => ({ ...b, tasks: b.tasks.map(x => ({ ...x, state: 'done' })) }))
+  await press(epic); assert.match((await shown(h, `revert:${epic}`)).lines.join('\n'), /removes .*feat\/t1-login/); await ans(`revert:${epic}`, 'a')
+  sh(d, 'checkout', '-q', 'feat/t2-moves'); commit(d, 'later.txt', 'x\n', 'wip: moved after the card'); sh(d, 'checkout', '-q', 'main')
+  assert.match((await ans(`revert-sure:${epic}`, 'z')).text, /changed since the card/); assert.ok(await shown(h, `revert:${epic}`))   // refused, the card is back
+  await ans(`revert:${epic}`, 'a'); await h.git.update(g => ({ ...g, busy: true })); const busy = await ans(`revert-sure:${epic}`, 'z')   // every delete goes through op(): nothing is deleted outside it
+  assert.match(busy.text, /not fully abandoned/); for (const b of [`epic/${epic}-auth`, 'feat/t1-login', 'feat/t2-moves']) assert.ok(Q(b)); assert.equal((await store.get(epic)).meta['cadre.reverted'], undefined)
+  await h.git.update(g => ({ ...g, busy: false })); await press(epic); await ans(`revert:${epic}`, 'a')   // the card shows the moved tip now
+  const out = await ans(`revert-sure:${epic}`, 'z'); assert.match(out.text, /abandoned: 3 recorded branches removed; kept: .*main \(protected\)/)
+  assert.equal(Q('epic/zz-decoy').trim(), 'epic/zz-decoy'); assert.match(Q('feat/zz-unrecorded'), /unrecorded/); assert.match(Q('feat/t9-unrecorded'), /unrecorded/); assert.match(Q('main'), /main/); assert.match(Q('dev'), /dev/)
+  assert.equal(Q(`epic/${epic}-auth`), ''); assert.equal(Q('feat/t1-login'), ''); assert.equal(Q('feat/t2-moves'), '', 'the branch the card showed after it moved is the confirmed one')
+  assert.equal(sh(d, 'status', '--porcelain'), ''); assert.equal((await store.get(epic)).meta['cadre.reverted'], 'abandoned')
+})
+test('a landing that could not be recorded does not fail the integration; the revert says it has no recorded landing', async () => {
+  const { h, epic, press } = await world(true, true); assert.ok(h.logs.some(l => /landed not recorded/.test(l)))
+  assert.match((await press(epic)).text, /refused \(not-landed\)/)
 })

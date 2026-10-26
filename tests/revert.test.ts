@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { fakeHost } from './support'
 import { defaults } from '../config/index'
-import { ROUTES } from '../core/dispatch'
+import { ROUTES, dispatch } from '../core/dispatch'
+import { parse, route, run } from '../commands/cadre'
 import { RevertRefusal, planOf } from '../core/revert'
 
 const S1 = 'a'.repeat(40), M1 = 'b'.repeat(40)
@@ -64,5 +65,30 @@ describe('H9 revert flow (core/revert; git in tests/git/revert.test.mjs)', () =>
     await ask(`revert:${epic}`, 'a'); await ask(`revert-sure:${epic}`, 'z')
     expect(calls.filter(c => c.startsWith('branch -D')).sort()).toEqual(['branch -D epic/p1-auth', 'branch -D feat/t1-a'])
     expect(calls.some(c => c.startsWith('revert') || c.startsWith('merge'))).toBe(false)
+  })
+  test('origins: a typed command only opens the card; first, yes and cancel come from a dialog or press; the model and an unclassified origin are refused', async () => {
+    const { h, t1 } = await world(); await h.secret.update(x => ({ ...x, active: true }))
+    expect(parse(`revert ${t1.id}`)).toEqual({ cmd: 'revert', args: [t1.id] }); expect('hint' in parse('revert')).toBe(true)
+    const send = (args: string[], kind: string) => dispatch(h, { schemaVersion: 1, cmd: 'revert', args, origin: { kind } }, route).then(r => r.text)
+    expect(await send([t1.id], 'composer')).toContain('the card is in the dialog'); expect(((await h.board.read()).decisions ?? []).map(d => d.id)).toEqual([`revert:${t1.id}`])
+    for (const step of ['first', 'yes', 'cancel']) expect(await send([t1.id, step], 'composer')).toContain('cannot decide')
+    for (const kind of ['sdk', 'unclassified', 'plugin']) for (const args of [[t1.id], [t1.id, 'first']]) expect(await send(args, kind)).toContain('cannot decide')
+    expect(((await h.board.read()).decisions ?? []).map(d => d.id)).toEqual([`revert:${t1.id}`])   // nothing else moved
+    expect((await run(h, { args: `revert ${t1.id}`, origin: { kind: 'composer' } } as any)).text).toContain('the card is in the dialog')
+  })
+  test('a second confirm is bound to the plan: dev moving between the confirms refuses it and shows the card again', async () => {
+    const { h, t1, press, ask, calls } = await world(); await press(t1.id); await ask(`revert:${t1.id}`, 'c')
+    const run0 = h.run
+    h.run = (async (argv: readonly string[], i: any) => (argv.slice(3).join(' ') === `rev-parse --verify ${'dev'}^{commit}` ? { exitCode: 0, stdout: 'c'.repeat(40), stderr: '' } : run0(argv, i))) as any
+    const r = await ask(`revert-sure:${t1.id}`, 'y'); expect(r.text).toContain('changed since the card'); expect(calls.some(c => c.startsWith('revert '))).toBe(false)
+    expect(((await h.board.read()).decisions ?? []).map(d => d.id)).toEqual([`revert:${t1.id}`])
+  })
+  test('refused with a code: a pull-request landing mode, a target still running, and a landing that was never recorded', async () => {
+    const a = await world(), cfg = await (a.h as any).config(); cfg.landing.mode = 'pr'
+    expect(await planOf(a.h, a.epic).then(() => 'ok', (e: RevertRefusal) => e.code)).toBe('pr-mode'); expect((await a.press(a.epic)).text).toContain('not yet supported')
+    const b = await world(); await b.store.setMeta(b.epic, { 'cadre.landed': '' }, 'cadre'); await b.store.setMeta(b.t1.id, { 'cadre.rec.close': '' }, 'cadre')
+    await b.store.close(b.t1.id, { outcome: 'done' }); expect((await b.press(b.t1.id)).text).toMatch(/not-landed.*no recorded landing/)
+    const c = await world(); await c.store.setMeta(c.epic, { 'cadre.landed': '' }, 'cadre'); await c.h.board.update(x => ({ ...x, plan: { id: c.epic, slug: 'a', state: 'integrating', epicBranch: 'epic/p1-auth' } as any }))
+    expect(await planOf(c.h, c.epic).then(() => 'ok', (e: RevertRefusal) => e.code)).toBe('busy')
   })
 })

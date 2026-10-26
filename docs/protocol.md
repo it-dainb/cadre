@@ -15,7 +15,7 @@ Two views of one schema: **human** (the band and pane only; has `seq`, `phaseSin
 
 ## 3. Commands
 `{schemaVersion:1, cmd, args[], origin{kind, name?}}`. The dispatcher (`core/dispatch`) is the only entry. **Adapters cannot send commands** (ADR 0012): there is no `commands` grant and no session token; a `commands` array in a `deliver` reply is refused with one line.
-- **Human origin**: only `press` (a Button) and `dialog` (the `$.ui.ask` answer on a surface with no pane), each bound to the decision's content hash. Typed `composer` may only start `init`/`setup`/`doctor`/`timeline`/a goal.
+- **Human origin**: only `press` (a Button) and `dialog` (the `$.ui.ask` answer on a surface with no pane), each bound to the decision's content hash. Typed `composer` may only start `init`/`setup`/`doctor`/`timeline`/a goal, or open a revert card (`revert <id>`, one argument); the card's confirms (`revert <id> first|yes|cancel`) are `press`/`dialog` only.
 
 ## 4. Adapter protocol (`cadre-adapter` v1)
 **Config.** Project (`.cadre/config.json`): `sync.<target> = {adapter, url?, project, mapping, direction: both|push|pull|off}`. User (`~/.claude/cadre.json`): `adapters.<name> = {command: argv[], credentialEnv?: "NAME", grants: ["sync"|"events"]}`. Only the env var **name** is stored; the adapter reads the value from its inherited environment and cadre checks it is set (else `Auth`).

@@ -94,8 +94,8 @@ export function inspector(v: View, w: number, one: boolean, a?: Acts): Line[] {
   const lines: Line[] = [[]]
   for (const p of pipe) { const l = lines[lines.length - 1]; if (l.length && lw(l) + 2 + lw(p) > w - 2) lines.push([]); const x = lines[lines.length - 1]; if (x.length) x.push(S('  ')); x.push(...p) }
   const ups = t.deps.map(d => d.id), downs = ts.filter(x => x.deps.some(d => d.id === t.id)).map(x => x.id)
-  const rel = [ups.length ? `after ${ups.join(' ')}` : '', downs.length ? `unblocks ${downs.join(' ')}` : '', t.owner && t.state !== 'done' ? t.owner.split(' ')[0] : ''].filter(Boolean).join(`${SEP}`)
-  const rv = t.state === 'done' && t.merges && a?.revert ? [sp(S('  '), S('revert to this point', undefined, { k: `rv:${t.id}`, p: () => a.revert!(t.id) }))] : []   // opens the card (a dialog: preview, then two confirms)
+  const rel = [ups.length ? `after ${ups.join(' ')}` : '', downs.length ? `unblocks ${downs.join(' ')}` : '', t.owner && t.state !== 'done' ? t.owner.split(' ')[0] : '', t.flags.includes('reverted') ? 'reverted' : ''].filter(Boolean).join(`${SEP}`)
+  const rv = t.state === 'done' && t.merges && !t.flags.includes('reverted') && a?.revert ? [sp(S('  '), S('revert to this point', undefined, { k: `rv:${t.id}`, p: () => a.revert!(t.id) }))] : []   // opens the card (a dialog: preview, then two confirms)
   return [head, ...lines.map(l => sp(S('  '), ...l)), sp(S(clip(`  ${rel || 'no dependencies'}`, w), color('muted'))), ...rv]
 }
 
