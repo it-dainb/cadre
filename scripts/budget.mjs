@@ -65,4 +65,4 @@ export const BUDGET = ${JSON.stringify({ coreLoc: sum(modules), uiLoc: sum(ui), 
 if (process.argv.includes('--check')) { if (!existsSync(out) || readFileSync(out, 'utf8') !== body) { console.error('budget.generated.ts is stale: run node scripts/budget.mjs'); process.exit(1) } }
 else writeFileSync(out, body)
 if (modelExits.length) console.error(`model-visible exits outside modelText():\n${modelExits.join('\n')}`); if (modelExits.length) process.exitCode = 1
-console.log(`core ${sum(modules)} / 7400 (core cap 7400) · ui ${sum(ui)} / 1100 · memory store ${memoryStore} / 150 · skills ${skills} · gating hooks without .catch ${gatingMissing} · model exits outside modelText ${modelExits.length} · role prompt bytes ${Object.entries(promptBytes).map(([r, n]) => `${r} ${n}`).join(', ')} (cap 2048)`)
+console.log(`core ${sum(modules)} / 7700 (core cap 7700) · ui ${sum(ui)} / 1300 · memory store ${memoryStore} / 150 · skills ${skills} · gating hooks without .catch ${gatingMissing} · model exits outside modelText ${modelExits.length} · role prompt bytes ${Object.entries(promptBytes).map(([r, n]) => `${r} ${n}`).join(', ')} (cap 2048)`)
