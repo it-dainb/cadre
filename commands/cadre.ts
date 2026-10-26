@@ -40,7 +40,7 @@ export async function route(h: Host, c: Command): Promise<Out> {   // every disp
     }
     case 'doctor': return { text: await doctor(h) }
     case 'timeline': {   // H12: the per-repo metrics as text, the records exported under the project (never a host path in the reply)
-      const why = isHuman(c.origin), p = '.cadre/tmp/timeline.json'; if (why) return { text: `refused: ${why}` }
+      const p = '.cadre/tmp/timeline.json'; if (!['composer', 'press', 'dialog'].includes(c.origin.kind)) return { text: `refused: origin ${c.origin.kind} cannot export the timeline; type /cadre timeline in the prompt` }   // the human's own command, like init/setup
       const rs = await metricsOf(h); await h.write(`${await h.cwd()}/${p}`, JSON.stringify(rs, null, 1)); return { text: modelText('context', `${metricsText(rs)} · exported to ${p}`) }
     }
     case 'deep': return { text: c.origin.kind === 'composer' ? await goal(h, a ?? '', (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto', true) : `refused: origin ${c.origin.kind} cannot start a goal; type it in the prompt` }   // ADR 0020: questions before the plan, even when drive.mode is yolo (the mode applies after approval)

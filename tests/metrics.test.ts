@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { landed, metricsOf, metricsText, meter } from '../core/reuse'
+import { landed, ledger, metricsOf, metricsText, meter } from '../core/reuse'
 import { charge, prune } from '../core/lifecycle'
 import { scoped } from '../commands/init'
-import { parse, route } from '../commands/cadre'
+import { parse, route, run } from '../commands/cadre'
 import { defaults } from '../config/index'
 import { fakeHost } from './support'
 
@@ -34,13 +34,25 @@ describe('H12 per-repo metrics', () => {
     const h = mk(); for (let i = 0; i < 501; i++) await landed(h, defaults(), `t${i}`)
     const rs = await metricsOf(h); expect(rs.length).toBe(500); expect(rs[0].task).toBe('t1'); expect(rs[499].task).toBe('t500'); expect((await h.store.get(await key(h)) as unknown[]).length).toBe(500)
   })
-  test('/cadre timeline: registered, human-only, writes a project-relative export', async () => {
+  test('/cadre timeline: registered, the human types it, writes a project-relative export', async () => {
     expect(parse('timeline')).toEqual({ cmd: 'timeline', args: [] })
     const h = mk(), files: Record<string, string> = {}; h.write = async (p: string, t: string) => { files[p] = t }
     await h.board.update((s: any) => ({ ...s, plan: undefined })); await landed(h, defaults(), 't1')
     const cmd = (kind: string) => route(h, { schemaVersion: 1, cmd: 'timeline', args: [], origin: { kind } } as any)
-    expect((await cmd('composer')).text).toMatch(/^refused:/); expect(Object.keys(files)).toEqual([])
+    expect((await cmd('model')).text).toMatch(/^refused:/); expect((await cmd('unclassified')).text).toMatch(/^refused:/); expect(Object.keys(files)).toEqual([])
+    expect((await run(h, { args: 'timeline', origin: { kind: 'composer' } }, () => ({}))).text).toContain('exported to .cadre/tmp/timeline.json')   // typed: through run(), as the human does it
     const out = await cmd('press'); expect(out.text).toContain('1 landed'); expect(out.text).toContain('exported to .cadre/tmp/timeline.json'); expect(out.text).not.toContain('/repo')
     expect(Object.keys(files)).toEqual(['/repo/.cadre/tmp/timeline.json']); expect(JSON.parse(files['/repo/.cadre/tmp/timeline.json'])[0].task).toBe('t1')
+  })
+  test('the start time is the first metered usage and survives the ledger fold', async () => {
+    const h = mk(); let t = 0; h.now = async () => t; await h.bind.update(() => ({ a1: B('t1') })); await use(h, 'a1', 10)
+    t = 60000; await h.bind.update(() => ({})); await use(h, 'a1', 5); t = 120000; await h.bind.update(() => ({ a1: B('t1') })); await use(h, 'a1', 5)
+    await ledger(h, { setMeta: async () => {} } as any, 'cadre', defaults(), 'a1', 't1')   // the turn.complete fold keeps t0
+    await landed(h, defaults(), 't1'); const [r] = await metricsOf(h); expect(r.start).toBe(0); expect(r.end).toBe(120000)
+  })
+  test('a task id that repeats in another repo keeps its own cost', async () => {
+    const a = mk(), b = Object.assign(a, {}); await a.bind.update(() => ({ a1: B('t1') })); await use(a, 'a1', 100)
+    const k1 = await scoped(a, 'cost:task:t1'); a.cwd = async () => '/other'; const k2 = await scoped(a, 'cost:task:t1')
+    expect(k1).not.toBe(k2); await landed(b, defaults(), 't1'); expect((await metricsOf(b))[0].tokens).toBe(0)
   })
 })
