@@ -58,7 +58,7 @@ describe('a dialog answer that unblocks a task starts it', () => {
   // live (milestone-planners): c-280-1's reviewer sent 6 malformed reports (shape block at review·reviewer); Retry resumed the bound WORKER, which had nothing to report there; its run stayed bound and `running`, no reviewer spawned
   test('a shape block at the reviewer step: Retry does not resume the bound worker; a fresh reviewer spawns', async () => {
     const w = await world({ n: 1, drive: 'auto' }); await arm(w.h, 'auto'); const [a] = w.ids
-    await w.turn(); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' }); await w.turn(); await blocked(w, a, 'shape'); await w.h.board.update((x: any) => ({ ...x, tasks: x.tasks.map((t: any) => ({ ...t, owner: undefined })) })); await w.stop('ag2')   // the worker stays bound; the reviewer's reports were malformed
+    await w.turn(); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' }); await w.turn(); await blocked(w, a, 'shape');; await w.stop('ag2')   // the worker stays bound; the reviewer's reports were malformed
     expect(await resolve(w, a, 'retry')).toContain('its agent starts again')
     expect(w.sent.filter(x => x[0] === 'ag1')).toEqual([]); expect(((await w.h.ui.read()) as any).runs.ag1.state.state).toBe('idle-bound')   // not resumed
     w.spawned.length = 0; await w.turn(); expect(w.spawned.map(x => x[2])).toEqual(['cadre:reviewer'])
@@ -68,5 +68,18 @@ describe('a dialog answer that unblocks a task starts it', () => {
     await w.at('ag1', a, 'worker')
     await w.h.board.update((s: any) => ({ ...s, tasks: s.tasks.map((t: any) => (t.id === a ? { ...t, state: 'review', step: 'reviewer' } : t)) })); await w.stop('ag1')
     expect(((await w.h.ui.read()) as any).runs.ag1.state.state).toBe('ended')
+  })
+  test('Keep on a no-report block at the reviewer step: the worker is not resumed; a fresh reviewer spawns', async () => {
+    const w = await world({ n: 1, drive: 'auto' }); await arm(w.h, 'auto'); const [a] = w.ids
+    await w.turn(); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' }); await w.turn(); await blocked(w, a, 'no-report'); await w.stop('ag2')
+    expect(await resolve(w, a, 'keep')).toContain('continues from the last checkpoint')
+    expect(w.sent.filter(x => x[0] === 'ag1')).toEqual([])
+    w.spawned.length = 0; await w.turn(); expect(w.spawned.map(x => x[2])).toEqual(['cadre:reviewer'])
+  })
+  test('rework: the worker that reported and stopped is resumed by the reviewer\'s changes verdict', async () => {
+    const w = await world({ n: 1, drive: 'auto' }); await arm(w.h, 'auto')
+    await w.turn(); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' }); await w.stop('ag1'); await w.turn()
+    expect(await w.rep('ag2', { role: 'reviewer', verdict: 'changes', summary: 'fix it', findings: [{ severity: 'major', file: 'src/a.ts', issue: 'wrong answer' }], coverage: [{ scenario: 'S1', ok: false }], contractStatus: [] })).toContain('changes (1/'); await w.turn()
+    expect(w.sent.map(x => x[0])).toContain('ag1'); expect(((await w.h.ui.read()) as any).runs.ag1.state.state).toBe('running')
   })
 })
