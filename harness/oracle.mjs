@@ -73,9 +73,9 @@ for (const e of drv.filter(e => e.kind === 'press1' && offered(e.t) && e.t + 500
     if (d.type === 'assistant' && Array.isArray(d.message?.content)) for (const b of d.message.content) if (b.type === 'tool_use') uses.set(b.id, JSON.stringify(b.input))
     const texts = typeof c === 'string' ? (c.startsWith('Stop hook feedback') ? [c] : [])
       : Array.isArray(c) ? c.filter(b => b.type === 'tool_result' && b.is_error).map(b => (typeof b.content === 'string' ? b.content : JSON.stringify(b.content))) : []
-    // a tool's own error that names no file ("File does not exist. Note: your current working directory is …") reads the same for every path: three
-    // different missing files are exploration, so the call's input is part of the key; the same call 3x is still a loop
-    for (const b of Array.isArray(c) ? c : []) if (b.type === 'tool_result' && b.is_error && /^File does not exist\./.test(typeof b.content === 'string' ? b.content : '')) texts[texts.findIndex(x => x === b.content)] = `${uses.get(b.tool_use_id) ?? ''} ${b.content}`
+    // a tool's own error can read the same for different calls ("File does not exist. Note: your current working directory is …"): three
+    // different missing files are exploration, so the producing call's input is part of the key; the same call 3x is still a loop
+    for (const b of Array.isArray(c) ? c : []) if (b.type === 'tool_result' && b.is_error) { const i = texts.findIndex(x => x === (typeof b.content === 'string' ? b.content : JSON.stringify(b.content))); if (i >= 0) texts[i] = `${uses.get(b.tool_use_id) ?? ''} ${texts[i]}` }
     for (const t of texts) n.set(t, (n.get(t) ?? 0) + 1)
   }
   const [t, k] = [...n].sort((a, b) => b[1] - a[1])[0] ?? ['', 0]
