@@ -20,14 +20,14 @@ import { inRepo, modeOf, pkgOf, unitsOfTask } from './specview'
 import * as G from './git'
 import { decided, hardStop, limited, stop } from './drive'
 import { queueBrief } from './lanes'
-import { ask, yoloOn } from './decide'
+import { RESTART, ask, yoloOn } from './decide'
 import { capAsk, coreLanded, refresh, rework, trial } from './rebase'
 import { branchOf, epicOf, goOn } from './milestone'
 import { planStopped } from './planner'
 import { held } from './session'
 import { landed } from './reuse'
 import { specSettle } from './specifier'
-import { REPEAT, charge, prune, retry, runOf, settled, step } from './lifecycle'
+import { REPEAT, charge, prune, reset, retry, runOf, settled, step } from './lifecycle'
 import { drop as dropNeed, helperDone, helperStopped, request } from './needs'
 // the worker's report kept for the reviewer and the merge: the report contract caps its fields (validate.REPORTS), so it is kept whole
 export const reportMeta = (r: any) => JSON.stringify({ summary: String(r.summary ?? ''), risks: r.risks ?? [], questions: r.questions ?? [] })
@@ -468,6 +468,10 @@ ROUTES.resolve = async (h, c) => {
   if (t && b === 'retry' && t.flags.includes('shape')) {   // the shape dialog's Retry: back to its step, its count of malformed reports starts over
     await retry(h, a, 'shapeRefusals'); const e = await unblock(h, d, a, 'Retry from the human: report again in the form the report tool describes (each value within its length cap, only its fields).', 'shape'); if (e) return { text: e }   // unblock resumes the bound worker: one that already ended is retired and the spawner starts a fresh one
     return { text: `${a}: its agent starts again${spawnIt(await h.board.read(), 'spawn it')}` }
+  }
+  if (t && b === 'keep' && t.state === 'blocked' && t.flags.some(x => RESTART.includes(x))) {   // Keep on a stuck agent: the same restart as Retry; its checkpoint stays on the branch, the counters that blocked it start over
+    await retry(h, a, 'silentRuns'); await reset(h, a, 'nudges'); const e = await unblock(h, d, a, 'Keep from the human: continue from the last checkpoint on the task branch, and report when done.', t.flags.find(x => RESTART.includes(x))!); if (e) return { text: e }
+    return { text: `${a}: a fresh agent continues from the last checkpoint${spawnIt(await h.board.read(), 'spawn it')}` }
   }
   if (!t || !['keep', 'accept', 'reject', 'cancel'].includes(b)) return { text: 'usage: /cadre resolve <taskId> keep|accept|reject|cancel · /cadre resolve git keep|restore' }
   const out = async (e: Promise<string | null>) => ({ text: (await e) ?? `${a}: ${b} done` })
