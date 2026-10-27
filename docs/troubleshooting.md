@@ -78,7 +78,7 @@ cadre never runs root commands for you. `/cadre setup` writes each sudo fix to `
 
 - **Blocked flags.** A task flagged `conflict`, `drift`, `integration-failed`, `lost-*`, `git:*` or `quarantine` blocks merges until you answer its dialog (press `1`). Under yolo only these still ask.
 - **Keep going / Cancel task.** An agent stopped for good (`attempts`, `no-report`, `stagnant`, `stale`, `loop`). **Keep going** starts the task again with a fresh agent from the last checkpoint; **Cancel task** ends it and the rest of the plan goes on.
-- **blocked.** A worker stopped with a question. Type your answer in the chat: it goes to the worker, which continues. **Cancel task** ends it.
+- **blocked.** A worker stopped with a question. Type your answer in the chat: it goes to the worker, which continues. **Keep** leaves it waiting for that answer; **Cancel task** ends it.
 - **Already holds.** The red dialog: the tester's test passed at red for named scenarios. **Already holds** records that they hold already (a plan amendment, ledger kept) and a new tester continues; **Retry** fixes the cause and tries red again; **Cancel task** ends it.
 - **Usage limit.** The run stops with the reset time on the band (`usage limit until HH:MM UTC`), goes on by itself then, and charges nothing to the task. `0: resume` goes on at once.
 - **`<plan> is running in another session`.** Another live session holds the plan. Continue it there, or quit that one, then `/cadre continue` here; a session that crashed frees it within 30 s.
