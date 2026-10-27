@@ -39,14 +39,14 @@ const BLOCKING = ['blocks', 'waits-for', 'conditional-blocks']
 export const snapOf = (t: Task, reg: TypeRegistry): SnapTask => {
   const spec = reg[t.type]
   return { id: t.id, title: t.title, type: t.type, kind: spec ? kindOf(spec) : 'code', merges: spec ? merges(spec) : true, state: t.category, ...(t.meta['cadre.lane'] ? { lane: t.meta['cadre.lane'] } : {}), step: t.meta['cadre.step'] ?? '', phaseSince: 0, owner: t.assignee,
-    deps: t.deps.filter(d => BLOCKING.includes(d.type)).map(d => ({ id: d.id, type: d.type as SnapTask['deps'][0]['type'] })), flags: [] }
+    deps: t.deps.filter(d => BLOCKING.includes(d.type)).map(d => ({ id: d.id, type: d.type as SnapTask['deps'][0]['type'] })), flags: t.meta['cadre.reverted'] ? ['reverted'] : [] }
 }
 // store children of the current epic -> board tasks. Existing board tasks keep their machine state (step, owner, flags, card); title/type/deps follow the store.
 export async function mirror(h: Host, store: TaskStore, reg: TypeRegistry): Promise<void> {
   const b0 = await h.board.read(), epic = b0.epic; if (!epic) return
   const cfg = isMs(b0.plan) ? await cfgOf(h) : null, r = cfg && (await roadmap(store, epic, cfg.milestone.maxEpics, cfg.branches.epicPrefix))   // a milestone: the tasks of its epics, and the roadmap (ADR 0015)
   const all = r ? r.tasks : (await store.list({ parent: epic })).filter(t => t.type !== 'gate'), sn = (t: Task) => ({ ...snapOf(t, reg), ...(r ? { epic: t.parent } : {}) })
-  await h.board.update(s => withConditions({ ...s, ...(r && s.plan ? { plan: { ...s.plan, epics: r.epics } } : {}), tasks: all.map(t => { const o = s.tasks.find(x => x.id === t.id); return o ? { ...o, ...sn(t), state: o.state, step: o.step, phaseSince: o.phaseSince, owner: o.owner, flags: o.flags, card: o.card } : sn(t) }) }))
+  await h.board.update(s => withConditions({ ...s, ...(r && s.plan ? { plan: { ...s.plan, epics: r.epics } } : {}), tasks: all.map(t => { const o = s.tasks.find(x => x.id === t.id); return o ? { ...o, ...sn(t), state: o.state, step: o.step, phaseSince: o.phaseSince, owner: o.owner, flags: [...o.flags.filter(f => f !== 'reverted'), ...sn(t).flags], card: o.card } : sn(t) }) }))
 }
 
 // ---- approval: bound to the decision's content hash ----

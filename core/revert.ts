@@ -88,7 +88,8 @@ const dropText = (r: { gone: string[]; kept: string[]; failed: string[] }) => `$
 
 async function perform(h: Host, p: Plan): Promise<string> {
   const [root, cfg, store] = [await h.cwd(), await cfgOf(h), await storeOf(h)]
-  if (!p.sha) { const r = await drop(h, p); if (!r.failed.length) await store.setMeta(p.id, { 'cadre.reverted': 'abandoned' }, 'cadre'); return `${p.id} ${r.failed.length ? 'is not fully abandoned (try again)' : 'abandoned'}: ${dropText(r)}` }
+  const flagAll = async (v: string) => { for (const id of p.ids) await store.setMeta(id, { 'cadre.reverted': v }, 'cadre') }   // the target and everything under it: a child is not reverted again over its epic's revert (the board's flag derives from this)
+  if (!p.sha) { const r = await drop(h, p); if (!r.failed.length) await flagAll('abandoned'); return `${p.id} ${r.failed.length ? 'is not fully abandoned (try again)' : 'abandoned'}: ${dropText(r)}` }
   const gf = Object.keys((await h.git.read()).flags ?? {}).find(f => f.startsWith('git:')); if (gf) return `refused: git flag ${gf} is open; keep or restore it in the dialog first`
   const rb = `revert/${p.id}`, key = repoKeyOf(root), wt = wtPath(await wtRootOf(h, cfg), key, `rev-${p.id}`), tmp = wtPath(await wtRootOf(h, cfg), key, `int-rev-${p.id}`)
   if (cfg.changelog.path.startsWith('/') || cfg.changelog.path.split('/').includes('..')) return `refused: the changelog path ${cfg.changelog.path} leaves the worktree`   // belt and braces: config validation refuses it too
@@ -118,7 +119,7 @@ async function perform(h: Host, p: Plan): Promise<string> {
   if (!(await landDev(h, { dev: p.on, sha: m.sha, old: m.devTip, tmp, epic: rb }))) return stop(`${p.on} moved during the revert; try again`)
   await offer(h, p.on)   // the user has it checked out: the revert waits for them like any landing
   const rec = await store.record('decision', `reverted ${p.id}: ${p.title}`, p.lines.join('\n'), p.id)
-  await store.setMeta(rec, { 'cadre.revert': p.id, 'cadre.branch': rb }, 'cadre'); await store.setMeta(p.id, { 'cadre.reverted': rec }, 'cadre')
+  await store.setMeta(rec, { 'cadre.revert': p.id, 'cadre.branch': rb }, 'cadre'); await flagAll(rec)
   const r = await drop(h, p), mark = new Set(p.ids); await h.board.update(b => ({ ...b, tasks: b.tasks.map(x => (mark.has(x.id) && !x.flags.includes('reverted') ? { ...x, flags: [...x.flags, 'reverted'] } : x)) }))   // the pane shows it
   return `${p.id} reverted: ${p.on} has the revert (${m.sha.slice(0, 7)}); ${dropText(r)}`
   } catch (e) { await worktreeRemove(h.run, root, wt, made ? rb : undefined).catch(() => {}); await worktreeRemove(h.run, root, tmp, made ? rb : undefined).catch(() => {}); throw e }   // a throw leaves no worktree or branch of ours

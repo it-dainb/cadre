@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { fakeHost } from './support'
 import { defaults } from '../config/index'
-import { ROUTES, dispatch } from '../core/dispatch'
+import { ROUTES, dispatch, registryOf, snapOf } from '../core/dispatch'
 import { parse, route, run } from '../commands/cadre'
 import { RevertRefusal, planOf } from '../core/revert'
 
@@ -58,6 +58,12 @@ describe('H9 revert flow (core/revert; git in tests/git/revert.test.mjs)', () =>
     expect(await code(epic)).toBe('already-reverted'); expect(await code('nope')).toBe('unknown')
     const k = await world(); await k.store.setMeta(k.epic, { 'cadre.landed': '' }, 'cadre')
     expect(await planOf(k.h, k.t1.id).then(() => 'ok', (e: RevertRefusal) => e.code)).toBe('not-landed')
+  })
+  test('after an epic is reverted, a child task is refused already-reverted (not a raw git error) and the board offers no button', async () => {
+    const { h, epic, t1, press, ask, store } = await world()
+    await press(epic); await ask(`revert:${epic}`, 'c'); await ask(`revert-sure:${epic}`, 'y')
+    expect(await planOf(h, t1.id).then(() => 'ok', (e: RevertRefusal) => e.code)).toBe('already-reverted'); expect((await store.get(t1.id)).meta['cadre.reverted']).toBeTruthy()
+    expect(snapOf(await store.get(t1.id), await registryOf(h)).flags).toEqual(['reverted'])   // the board derives the flag from the store, so a rebuild keeps it
   })
   test('abandoning an epic that never landed removes only the branches the store recorded, whatever the other names', async () => {
     const w = await world(['dev', 'epic/p1-auth', 'feat/t1-a', 'epic/p1-auth-decoy', 'feat/t9-x']), { h, store, epic, press, ask, calls } = w
