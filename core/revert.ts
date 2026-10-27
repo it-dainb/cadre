@@ -117,6 +117,7 @@ async function perform(h: Host, p: Plan): Promise<string> {
   try { m = await mergeEpic(h, { dev: p.on, epic: rb, tmp, msg: `revert ${p.id}: ${p.title}` }) } catch (e) { return stop((e as Error).message) }
   const red = await runSuites(h, cfg, tmp, (await git(h.run, tmp, ['diff', '--name-only', `${m.devTip}..${m.sha}`])).split('\n').filter(Boolean), p.id); if (red) return stop(red)
   if (!(await landDev(h, { dev: p.on, sha: m.sha, old: m.devTip, tmp, epic: rb }))) return stop(`${p.on} moved during the revert; try again`)
+  await flagAll('landed')   // before anything that can throw: a landed revert is never offered again
   await offer(h, p.on)   // the user has it checked out: the revert waits for them like any landing
   const rec = await store.record('decision', `reverted ${p.id}: ${p.title}`, p.lines.join('\n'), p.id)
   await store.setMeta(rec, { 'cadre.revert': p.id, 'cadre.branch': rb }, 'cadre'); await flagAll(rec)

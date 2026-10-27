@@ -65,6 +65,12 @@ describe('H9 revert flow (core/revert; git in tests/git/revert.test.mjs)', () =>
     expect(await planOf(h, t1.id).then(() => 'ok', (e: RevertRefusal) => e.code)).toBe('already-reverted'); expect((await store.get(t1.id)).meta['cadre.reverted']).toBeTruthy()
     expect(snapOf(await store.get(t1.id), await registryOf(h)).flags).toEqual(['reverted'])   // the board derives the flag from the store, so a rebuild keeps it
   })
+  test('a throw after the revert landed (the offer) cannot leave the target revertable again', async () => {
+    const { h, t1, press, ask, store } = await world(), run = h.run; let landed = false
+    h.run = async (argv: readonly string[]) => { const l = argv.join(' '); if (landed && l.includes('refs/cadre/pending/')) throw new Error('git went away'); if (l.includes('update-ref') && l.includes('refs/heads/dev')) landed = true; return run(argv) }   // dev moved: the offer's lookup then throws
+    await press(t1.id); await ask(`revert:${t1.id}`, 'c'); await ask(`revert-sure:${t1.id}`, 'y').catch(() => {})
+    expect((await store.get(t1.id)).meta['cadre.reverted']).toBeTruthy(); expect(await planOf(h, t1.id).then(() => 'ok', (e: RevertRefusal) => e.code)).toBe('already-reverted')
+  })
   test('abandoning an epic that never landed removes only the branches the store recorded, whatever the other names', async () => {
     const w = await world(['dev', 'epic/p1-auth', 'feat/t1-a', 'epic/p1-auth-decoy', 'feat/t9-x']), { h, store, epic, press, ask, calls } = w
     await store.setMeta(epic, { 'cadre.landed': '' }, 'cadre')
