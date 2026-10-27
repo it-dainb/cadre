@@ -83,16 +83,16 @@ export function usdOf(u: U, cfg: any): number | undefined {   // cost.prices: {<
   return p && (u.in * p.in + u.out * p.out + u.cr * (p.cacheRead ?? 0) + u.cw * (p.cacheWrite ?? 0)) / 1e6
 }
 const ck = (id: string) => `cadre:cost:${id}`, taskKey = (h: Host, id: string) => scoped(h, `cost:task:${id}`)   // a task's total is per repo: task ids repeat across repos
-const efforts = new Map<string, string>()   // agentId -> the effort its binding carried
+const ran = new Map<string, { task: string; effort?: string }>()   // agentId -> the task and effort its binding carried: both outlive the binding
 export async function* meter(h: Host, e: any, next: (e: any) => any): AsyncGenerator<any, any, any> {
   // the routed effort outlives the binding: an agent's last step after its accepted report comes after cadre ended the binding, and ran on Claude Code's default (live: a reviewer's
   // trailing request on medium where the settings say high)
-  const b = e.agentId && (await h.bind.read())[e.agentId], eff = b?.effort ?? (e.agentId ? efforts.get(e.agentId) : undefined)
-  if (b?.effort && e.agentId) { if (!efforts.has(e.agentId) && efforts.size >= 500) efforts.delete(efforts.keys().next().value!); efforts.set(e.agentId, b.effort) }   // FIFO: the oldest goes first
+  const b = e.agentId && (await h.bind.read())[e.agentId], old = e.agentId ? ran.get(e.agentId) : undefined, eff = b?.effort ?? old?.effort
+  if (b && e.agentId) { if (!old && ran.size >= 500) ran.delete(ran.keys().next().value!); ran.set(e.agentId, { task: b.taskId, effort: b.effort ?? old?.effort }) }   // FIFO: the oldest goes first
   const r = yield* next(eff && eff !== 'default' ? { ...e, effort: eff } : e)   // TM-03: the effort admission routed for this run (core/risk.route: roles.<role>.byRisk.<risk>, recorded on the binding); none = the agent file's
   if (r?.usage) await safe(h, 'cost', async () => {
-    const key = b ? await taskKey(h, b.taskId) : ck(e.agentId ?? 'main'), now = await h.now()   // a bound agent's usage goes to its task's total at once: the agent is unbound before the task closes (H12)
-    const prev = (await h.store.get(key)) as (U & { t0?: number }) | undefined; await h.store.set(key, { ...add(prev ?? zero(), r.usage), ...(b ? { t0: prev?.t0 ?? now } : {}) }); const ak = await scoped(h, 'cost:all'); await h.store.set(ak, add(((await h.store.get(ak)) as U) ?? zero(), r.usage))
+    const tid = b?.taskId ?? old?.task, key = tid ? await taskKey(h, tid) : ck(e.agentId ?? 'main'), now = await h.now()   // a bound agent's usage goes to its task's total at once, and so does its last step after the binding ended: the ledger folds a per-agent key only while a binding exists (H12)
+    const prev = (await h.store.get(key)) as (U & { t0?: number }) | undefined; await h.store.set(key, { ...add(prev ?? zero(), r.usage), ...(tid ? { t0: prev?.t0 ?? now } : {}) }); const ak = await scoped(h, 'cost:all'); await h.store.set(ak, add(((await h.store.get(ak)) as U) ?? zero(), r.usage))
     const ctx = (r.usage.input_tokens ?? 0) + (r.usage.cache_read_input_tokens ?? 0) + (r.usage.cache_creation_input_tokens ?? 0)
     if (e.agentId) await patchBinding(h, e.agentId, { ctxTokens: ctx, lastAt: now })
     if (b) { const pct = ctxPct({ ...b, ctxTokens: ctx }); await h.board.update(s => ({ ...s, tasks: s.tasks.map(t => (t.id === b.taskId && t.ctx !== pct ? { ...t, ctx: pct } : t)) })) }   // SnapTask.ctx: the owner's context fill

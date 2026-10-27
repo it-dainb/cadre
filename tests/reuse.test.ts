@@ -352,6 +352,13 @@ describe('round 2: effort, pruning, tester deny log', () => {
     expect(seen.map(e => e.effort)).toEqual(['high', 'high'])
     await h.bind.update(() => ({})); await run('stranger'); expect('effort' in seen[2]).toBe(false)   // an agent that never had a routed effort keeps the file's
   })
+  test('usage on an agent\'s last step, after its binding ended, still lands on its task: no per-agent key the ledger never folds', async () => {
+    const { h, a } = await mk()
+    await bound(h, { late1: B(a, 'S1', { step: 'reviewer' }) })
+    const run = async () => { const g = meter(h, { agentId: 'late1' }, async function* () { return { usage: { input_tokens: 100, output_tokens: 10 } } } as any); let r = await g.next(); while (!r.done) r = await g.next() }
+    await run(); await h.bind.update(() => ({})); await run()
+    expect(((await h.store.get(await scoped(h, `cost:task:${a}`))) as { in: number }).in).toBe(200); expect(await h.store.get('cadre:cost:late1')).toBeUndefined()
+  })
   test('the effort map holds 500 agents: the 501st evicts exactly the oldest, the other 499 stay', async () => {
     const { h, a } = await mk(), ids = Array.from({ length: 501 }, (_, i) => `fifo${i}`), seen: Record<string, any> = {}
     const run = async (agentId: string) => { const g = meter(h, { agentId }, async function* (e: any) { seen[agentId] = e; return { usage: null } } as any); let r = await g.next(); while (!r.done) r = await g.next() }
