@@ -4,7 +4,7 @@ cadre has no compatibility freeze: a Claude Code update may break it. `/cadre do
 
 | Claude Code | Status | Live cells (L) | Offline cells (S) | Account mode |
 |---|---|---|---|---|
-| 2.1.295 (MIN) | tested live | 13 L cells over five 1.0 candidates: 12 passed live at least once (milestone-planners, clarify-vague and needs-setup-node after the fixes they found); needs-setup-python passed only on an offline re-judge of its first run (later runs hit host timeouts, a revoked login and the spec-change loop fixed in RC5) and passes live on 2.1.310 | scripted 24/24 | Team |
+| 2.1.295 (MIN) | tested live | 13 L cells over 1.0 candidates RC1-RC4: 12 passed live at least once (milestone-planners, clarify-vague and needs-setup-node after the fixes they found); needs-setup-python passed only on an offline re-judge of its first run (later runs hit host timeouts, a revoked login and the spec-change loop fixed in RC5) and passes live on 2.1.310; the RC5 spec-change fix was proven live on 2.1.310 only | scripted 24/24 | Team |
 | 2.1.299 | tested offline | none | `CCV=2.1.299 harness/matrix.sh scripted` | none (no login needed) |
 | 2.1.310 | tested live | 13 L cells: 11/13 on the first batch on 1.0.0 (RC5); both failures were harness faults, fixed; needs-setup-python passed on the 1st rerun, needs-setup-node on the 2nd | scripted 24/24 | Max |
 
