@@ -155,7 +155,7 @@ async function plan(h: Host, d: Deps, s: Snapshot, t: SnapTask, task: Task): Pro
   return { mission: s.mission ?? undefined, core: ep?.meta['cadre.coreContract'] || undefined, shared: n.shared, slice: n.slice, lessons: await feed(h, t.id, pathsOf(task)).catch(() => ''),
     others: (await Promise.all(run.map(async x => { const p = pathsOf(await d.store.get(x.id).catch(() => undefined)); return p.length ? `- ${x.id}: ${p.join(', ')}` : '' }))).filter(Boolean) }
 }
-export const DEPS_DROPPED = modelText('tool-result', 'The install you had before the spec change was dropped with it (it conflicted with the merged plan). Request the packages your code and tests need again: report outcome "request" with request {"helper":"setup","ask":"add <package>","why":"..."}.')   // set in cadre.depsDropped by the spec-change reset (core/tdd), until a setup run commits again
+const DEPS_DROPPED = modelText('tool-result', 'The install you had before the spec change was dropped with it (it conflicted with the merged plan). Request the packages your code and tests need again: report outcome "request" with request {"helper":"setup","ask":"add <package>","why":"..."}.')   // set in cadre.depsDropped by the spec-change reset (core/tdd), until a setup run commits again
 export async function setup(h: Host, d: Deps, task: Task, wt: string) {   // `setup` runs in the writable jail (network on)
   const pkg = pkgOf(d, task) as any
   const pkgRoot = !rootOf(pkg) ? wt : `${wt}/${pkg.root}`, scratch = `${d.wtRoot}/${d.key}.scratch/${task.id}`
