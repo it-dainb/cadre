@@ -31,6 +31,8 @@ describe('a blocked worker question', () => {
     const d = flagDecision(id, 'blocked')!
     expect(d.options.map(x => x.label)).toEqual(['Keep', 'Cancel task']); expect(d.lines.join(' ')).not.toContain('fresh agent')
     expect(RESTART).not.toContain('blocked')
+    await ROUTES.resolve!(w.h, { cmd: 'resolve', args: [id, 'keep'] } as any)   // Keep changes nothing: still blocked, still flagged, its card stays
+    const kt = (await w.h.board.read()).tasks.find(x => x.id === id)!; expect(kt.state).toBe('blocked'); expect(kt.flags).toContain('blocked')
     await LIFECYCLE.decision!(w.h, id, { metadata: { decision: '50 per page' } })
     expect((await w.store.get(id)).meta['cadre.decision']).toBe('Decision from the human: 50 per page')   // the human's text, not a bare restart
   })

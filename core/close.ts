@@ -482,6 +482,7 @@ ROUTES.resolve = async (h, c) => {
     await retry(h, a, 'silentRuns'); await reset(h, a, 'nudges'); const e = await unblock(h, d, a, 'Keep from the human: continue from the last checkpoint on the task branch, and report when done.', t.flags.find(x => RESTART.includes(x))!); if (e) return { text: e }
     return { text: `${a}: a fresh agent continues from the last checkpoint${spawnIt(await h.board.read(), 'spawn it')}` }
   }
+  if (t && b === 'keep' && t.state === 'blocked' && t.flags.includes('blocked')) return { text: `${a}: still waiting for your answer: type it in the chat` }   // a worker's question: Keep changes nothing, the flag and its card stay until the answer comes
   if (!t || !['keep', 'accept', 'reject', 'cancel'].includes(b)) return { text: 'usage: /cadre resolve <taskId> keep|accept|reject|cancel · /cadre resolve git keep|restore' }
   const out = async (e: Promise<string | null>) => ({ text: (await e) ?? `${a}: ${b} done` })
   if (b === 'cancel' || (b === 'reject' && t.flags.some(x => x.startsWith('rework:')))) return out(cancelTask(h, d, a, 'ended by the human'))
