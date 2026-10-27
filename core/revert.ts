@@ -14,7 +14,7 @@ import { reportOf } from './close'
 import { insert } from './changelog'
 import { modelText } from './say'
 
-export type RevertCode = 'unknown' | 'revert-of-revert' | 'already-reverted' | 'not-landed' | 'busy' | 'pr-mode'   // declared: a refusal carries its code, never read from its text
+type RevertCode = 'unknown' | 'revert-of-revert' | 'already-reverted' | 'not-landed' | 'busy' | 'pr-mode'   // declared: a refusal carries its code, never read from its text
 export class RevertRefusal extends Error { constructor(readonly code: RevertCode, msg: string) { super(msg) } }
 type Plan = { id: string; title: string; on: string; sha: string; merge: boolean; branches: Record<string, string>; skipped: string[]; known: string[]; ids: string[]; lines: string[] }   // branches: the recorded ones that exist, with their tips at the card; known: the shas the store recorded
 
