@@ -459,7 +459,8 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     const [hb, ha] = ['home-before', 'home-after'].map(f => new Set(read(join(dir, f)).split('\n').filter(Boolean))), made = [...ha].filter(p => !hb.has(p))
     Object.assign(stats, { setupNeeds: ns.length, depsCommits: cs, homeNew: made.length })
     // cadre ran the install itself: no helper agent was ever started for the request
-    const allRuns = Object.assign({}, ...snaps.map(x => runs(x.s)), ...hist.map(runs)), helperRuns = Object.entries(allRuns).filter(([, r]) => r.role === 'explorer' && ns.some(n => n.task === r.taskId))
+    const after = seq => { const i = seq.findIndex(s => Object.values(pick(s, 'need')).some(n => n.helper === 'setup')), old = new Set(seq.slice(0, Math.max(i, 0)).flatMap(s => Object.keys(runs(s)))); return i < 0 ? [] : seq.slice(i).flatMap(s => Object.entries(runs(s))).filter(([a]) => !old.has(a)) },   // a run first seen after the setup need appeared (the need record is one per task: an earlier explore on the same task is not for the setup)
+      helperRuns = Object.entries(Object.fromEntries([...after(snaps.map(x => x.s)), ...after(hist)])).filter(([, r]) => r.role === 'explorer' && ns.some(n => n.task === r.taskId))
     if (helperRuns.length) fail(o, `${helperRuns.length} helper run(s) for a setup request (cadre runs the install itself): ${helperRuns.map(([a, r]) => `${r.role} ${a}`).join(', ')}`)
     if (!ns.length) fail(o, 'no setup request was made (the worker never asked for the install)')
     else if (ns.some(n => n.ok !== true || n.fails !== 0)) fail(o, `the setup request was not answered ok: ${JSON.stringify(ns[0])}`)

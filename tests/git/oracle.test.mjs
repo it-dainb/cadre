@@ -62,7 +62,7 @@ test('dialog-budget counts main\'s question call once and allows its one clarify
 test('routing allows the model the cell env forces', () => {
   const routing = env => {
     const d = mkdtempSync(join(tmpdir(), 'cadre-oracle-')), t = 1_792_131_660_000
-    cpSync(join(fix, 'panes'), join(d, 'panes'), { recursive: true })
+    cpSync(fix, d, { recursive: true })
     writeFileSync(join(d, 'driver.log'), `${t} start x\n${t + 1000} end\n`)
     writeFileSync(join(d, 'effort.jsonl'), JSON.stringify({ at: t + 500, role: 'reviewer', model: 'claude-haiku-5-5', output_config: { effort: 'high' } }) + '\n')
     if (env) writeFileSync(join(d, 'env.json'), JSON.stringify(env))
@@ -93,7 +93,7 @@ test('stop-loop: one stopped dialog and up to 2 typed lines pass; a second stopp
 test('every reads each run from every journal image and survives a torn last snapshot', () => {
   const every = torn => {
     const d = mkdtempSync(join(tmpdir(), 'cadre-oracle-')), t = 1_792_158_900_000
-    cpSync(join(fix, 'panes'), join(d, 'panes'), { recursive: true })
+    cpSync(fix, d, { recursive: true })
     writeFileSync(join(d, 'driver.log'), `${t} start x\n${t + 30000} end\n`)
     const run = (role, ...st) => ({ role, state: { state: st.at(-1) }, log: st.map(state => ({ state })) })
     const img = (n, runs) => `j/${n}\t${JSON.stringify({ docs: { _control: { revision: String(n), doc: Object.fromEntries(Object.entries(runs).map(([a, r]) => [`run:${a}`, r])) } } })}`
@@ -179,4 +179,19 @@ test('the own-shell check: an install the offline settings refused, or a `uv loc
   assert.equal(refused('Resolved 5 packages in 3ms\nPrepared 2 packages in 1s\nInstalled 2 packages in 2ms\n + foo==1.0\n + bar==2.0', 'uv sync'), false)
   assert.equal(refused('Resolved 3 packages in 9ms\nPrepared 1 package in 1s\nInstalled 1 package in 1ms\n + six==1.16.0', 'uv add six'), false)
   for (const o of ['Resolved 3 packages in 120ms\nAdded six v1.16.0', 'Resolved 3 packages in 120ms\nUpdated six v1.15.0 -> v1.16.0', 'Resolved 3 packages in 120ms\nInstalled 1 package in 1ms', 'Resolved 3 packages in 9ms\n + six==1.16.0', 'added 1 package in 2s', '', undefined]) assert.equal(refused(o, 'uv lock'), false, String(o))
+})
+
+// release016 needs-setup-python: the tester asked an explorer on the task, then the worker's setup request (one need record per task) was run by cadre itself; the explorer was counted as the setup's helper
+test('needs-setup counts only helper runs started after the setup request', () => {
+  const judgeSetup = early => {
+    const d = mkdtempSync(join(tmpdir(), 'cadre-oracle-')), snap = (t, o) => writeFileSync(join(d, 'store', `${t}.json`), JSON.stringify(o)), run = { taskId: 't1', role: 'explorer', state: { state: 'ended' } }
+    mkdirSync(join(d, 'store')); cpSync(fix, d, { recursive: true })
+    snap(1, early ? { 'x:run:e1': run } : {})
+    snap(2, { ...(early ? { 'x:run:e1': run } : {}), 'x:need:t1': { task: 't1', helper: 'setup', ok: true, fails: 0 } })
+    snap(3, { ...(early ? { 'x:run:e1': run } : { 'x:run:e2': run }), 'x:need:t1': { task: 't1', helper: 'setup', ok: true, fails: 0 } })
+    try { execFileSync('node', [join(root, 'harness/oracle.mjs'), d], { stdio: 'pipe', env: { ...process.env, ORACLE: 'needs-setup' } }) } catch {}
+    return JSON.parse(readFileSync(join(d, 'verdict.json'), 'utf8')).fails.filter(f => /helper run/.test(f.evidence)).length
+  }
+  assert.equal(judgeSetup(true), 0)    // an explore before the setup request on the same task is not for it
+  assert.equal(judgeSetup(false), 1)   // a helper started after the setup request still is
 })
