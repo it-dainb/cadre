@@ -40,7 +40,12 @@ band() { awk "$AWK_BAND" <<<"$1"; }
 # the key press that answers a dialog: Enter on the default (option 1); the red dialog that offers "Already holds" gets that option (the tests pin existing behaviour), else Retry (1)
 answer() { local n c; n=$(flat "$1" | grep -oE '[0-9]+\. Already holds' | head -1 | cut -d. -f1); c=$(grep -oE '❯ [0-9]+\.' <<<"$1" | head -1 | grep -oE '[0-9]+'); if [ -n "$n" ] && [ -n "$c" ] && grep -q 'cannot be made red' <<<"$2"; then for ((i = c; i < n; i++)); do key Down; done; fi; key Enter; }   # from the cursor the pane shows now, so a repeat press never moves past the option
 key() { for i in 1 2 3; do docker exec "cadre-tui-$N" tmux send-keys -t q "$@" 2>&1 | grep -q "OCI runtime exec failed" || break; sleep 1; done; }
-comp() { awk '/^─{20}/{b[++nb]=NR} {L[NR]=$0} END{x=L[b[nb-1]+1]; sub(/^❯/,"",x); gsub(/[ \302\240]/,"",x); print x}' <<<"$1"; }   # what is typed in the composer
+comp() { awk '{L[NR]=$0; x=$0; gsub(/\033\[[0-9;]*m/,"",x)} x ~ /^─{20}/{b[++nb]=NR}
+  END{x=L[b[nb-1]+1]; o=""; d=dim=inv=gr=0
+    while(match(x,/\033\[[0-9;]*m/)){ if(!d)o=o substr(x,1,RSTART-1); n=split(substr(x,RSTART+2,RLENGTH-3),a,";"); if(n==0)a[n=1]=0
+      for(i=1;i<=n;i++){c=a[i]+0; if(c==0)dim=inv=gr=0; else if(c==2)dim=1; else if(c==22)dim=0; else if(c==7)inv=1; else if(c==27)inv=0; else if(c==90||c==39)gr=(c==90); else if(c==38){ if(a[i+1]==5){g=a[i+2]+0; gr=(g>=240||g==8||g==7); i+=2} else if(a[i+1]==2){gr=(a[i+2]==a[i+3]&&a[i+3]==a[i+4]); i+=4} } else if(c>=30&&c<=37)gr=0 }
+      d=dim||inv||gr; x=substr(x,RSTART+RLENGTH)}
+    if(!d)o=o x; sub(/^❯/,"",o); gsub(/[ \302\240]/,"",o); print o}' <<<"$1"; }   # what is typed in the composer. Given a `capture-pane -e` pane it leaves out dim, inverse (the cursor) and grey text: Claude Code'"'"'s prompt suggestion ("approve the plan") is not a draft (CC 2.1.310). A plain pane has no styles: all of it counts
 # Claude Code keeps only the last ~2 min of a debug log once a run idles for long (live: a 28 min stall left 03:31-03:33 of a run that began 03:05): the watcher
 # appends the lines newer than the last kept one to keep-<log> every 10 s, so the stall window survives (about the size of the log itself per cell).
 # One awk pass reads the log once: it prints the new lines (a continuation line follows its timestamped line) and writes its state in END: the last timestamp and
@@ -52,9 +57,10 @@ keeplogs() { local f n; for f in "$D"/out/debug*.log; do [ -f "$f" ] || continue
     END { if (m != "") { print m > st ".new"; for (l in at) print l >> st ".new"; if (m == t) for (l in seen) if (!(l in at)) print l >> st ".new" } close(st ".new") }' "$f" >>"$O/keep-$n"
   [ -f "$O/.ts-$n.new" ] && mv "$O/.ts-$n.new" "$O/.ts-$n"; done; }
 watcher() {
-  local prev= seen= since=0 last1=0 lastt= tnew=0 bsince=0 bask= fault= kept=0 cur p t now
+  local pe prev= seen= since=0 last1=0 lastt= tnew=0 bsince=0 bask= fault= kept=0 cur p t now
   while kill -0 "$CELL" 2>/dev/null; do   # the cell is gone: so is the watcher, whatever left it running
     p=$(docker exec "cadre-tui-$N" tmux capture-pane -t q -p 2>/dev/null) || { sleep 2; continue; }
+    pe=$(docker exec "cadre-tui-$N" tmux capture-pane -t q -p -e 2>/dev/null)   # with styles, for comp: the composer's ghost text is dim/grey
     now=$(date +%s%3N); [ $((now - kept)) -ge 10000 ] && { keeplogs; kept=$now; }
     [ "$p" != "$prev" ] && { printf '%s\n' "$p" >"$O/panes/$now.txt"; prev=$p; }
     cur=$(grep -E 'press 1|answer the dialog|1: answer' <<<"$p" | tail -1 | sed 's/  */ /g; s/^ //' | cut -c1-120)
@@ -83,11 +89,11 @@ watcher() {
       # the band's "1: answer" too (5 s after it shows, then every 15 s while it stays). Only with nothing typed, no turn running, and not on hold.
       [ -z "$cur" ] && tnew=0; [ -n "$cur" ] && [ "$cur" != "$lastt" ] && [ $tnew = 0 ] && tnew=$now   # a text that scrolled away asks for nothing
       bask=$(band "$p" | grep -m1 '1: answer'); [ -z "$bask" ] && bsince=0; [ -n "$bask" ] && [ $bsince = 0 ] && bsince=$now
-      if grep -q 'type anything' <<<"$(flat "$p")" && [ -z "$(comp "$p")" ] && ! grep -q 'esc to interrupt' <<<"$p" && [ $((now - last1)) -gt 15000 ] && [ ! -f "$O/hold" ]; then
+      if grep -q 'type anything' <<<"$(flat "$p")" && [ -z "$(comp "$pe")" ] && ! grep -q 'esc to interrupt' <<<"$p" && [ $((now - last1)) -gt 15000 ] && [ ! -f "$O/hold" ]; then
         tui send "$N" "go on" >/dev/null; last1=$now; log "type go on"   # after an Esc the band asks for a typed line (its dialog has no retry): a user types one
-      elif { { [ $tnew -gt 0 ] && [ $((now - tnew)) -ge 5000 ]; } || { [ $bsince -gt 0 ] && [ $((now - bsince)) -ge 5000 ]; }; } && [ -z "$(comp "$p")" ] && ! grep -q 'esc to interrupt' <<<"$p" && [ $((now - last1)) -gt 15000 ] && [ ! -f "$O/hold" ]; then
+      elif { { [ $tnew -gt 0 ] && [ $((now - tnew)) -ge 5000 ]; } || { [ $bsince -gt 0 ] && [ $((now - bsince)) -ge 5000 ]; }; } && [ -z "$(comp "$pe")" ] && ! grep -q 'esc to interrupt' <<<"$p" && [ $((now - last1)) -gt 15000 ] && [ ! -f "$O/hold" ]; then
         key 1; last1=$now; lastt=$cur; tnew=0; log "press1 $cur"
-      elif [ $last1 -gt 0 ] && [ $((now - last1)) -gt 6000 ] && [[ $(comp "$p") =~ ^1+$ ]]; then key C-u; log "typed 1 cleared"   # the 1 went into the composer: no dialog took it
+      elif [ $last1 -gt 0 ] && [ $((now - last1)) -gt 6000 ] && [[ $(comp "$pe") =~ ^1+$ ]]; then key C-u; log "typed 1 cleared"   # the 1 went into the composer: no dialog took it
       fi
     fi
     sleep 2

@@ -195,3 +195,13 @@ test('needs-setup counts only helper runs started after the setup request', () =
   assert.equal(judgeSetup(true), 0)    // an explore before the setup request on the same task is not for it
   assert.equal(judgeSetup(false), 1)   // a helper started after the setup request still is
 })
+
+// release016 needs-setup-node (CC 2.1.310): the composer showed the grey prompt suggestion "approve the plan"; comp() read it as a draft and the watcher never pressed 1.
+// A `capture-pane -e` pane styles the suggestion dim/grey (the cursor inverse); a typed draft is default-colored and still counts. The styles are a reasoned guess: no -e pane was saved.
+test('cell.sh comp(): the composer\'s suggestion is not a draft, a typed line is', () => {
+  const sh = `eval "$(sed -n '/^comp() {/,/^# Claude Code keeps/p' ${join(root, 'harness/cell.sh')} | sed '$d')"; R=$(printf '─%.0s' $(seq 30)); e=$(printf '\\033')
+    t() { printf 'x\\n%s\\n%s\\n%s\\n  status\\n' "$R" "$1" "$R"; }
+    echo "A[$(comp "$(t "$e[39m❯ $e[7ma$e[0;2mpprove the plan$e[0m")")]"; echo "B[$(comp "$(t "❯ $e[38;5;244mapprove the plan$e[39m")")]"
+    echo "C[$(comp "$(t "❯ $e[0mfix it$e[7m $e[0m")")]"; echo "D[$(comp "$(t "❯ 1")")]"`
+  assert.equal(execFileSync('bash', ['-c', sh], { encoding: 'utf8' }), 'A[]\nB[]\nC[fixit]\nD[1]\n')
+})
