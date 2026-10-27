@@ -22,9 +22,9 @@ test('the MIN Claude Code version in the docs is the one the code refuses below'
   expect(README).toContain(`Claude Code ${MIN_CC}`); expect([...new Set(README.match(/2\.1\.\d+/g))]).toEqual([MIN_CC])
   expect(BUDGET.docs.compat).toContain(`2.1.295 (MIN)`); expect(BUDGET.docs.troubleshooting).toContain(`Claude Code ${MIN_CC} or newer`)
 })
-test('commands.md lists timeline and revert; compat names its pending cells and the offline run', () => {
+test('commands.md lists timeline and revert; compat names the live results, account modes and the offline run', () => {
   for (const c of ['timeline', 'revert <id>']) expect(BUDGET.docs.commands).toContain(`| \`${c}`)
-  expect(BUDGET.docs.compat).toContain('CCV=2.1.299 harness/matrix.sh scripted'); expect(BUDGET.docs.compat).toContain('PENDING')
+  expect(BUDGET.docs.compat).toContain('CCV=2.1.299 harness/matrix.sh scripted'); expect(BUDGET.docs.compat).not.toContain('PENDING'); expect(BUDGET.docs.compat).toContain('| 2.1.310 | tested live'); expect(BUDGET.docs.compat).toContain('| Team |'); expect(BUDGET.docs.compat).toContain('| Max |')
 })
 test('the guide covers the dialogs and the metrics', () => {
   for (const s of ['Keep going', 'Cancel task', 'Already holds', 'Revert', '/cadre timeline']) expect(BUDGET.docs.guide).toContain(s)
