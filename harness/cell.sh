@@ -43,7 +43,7 @@ key() { for i in 1 2 3; do docker exec "cadre-tui-$N" tmux send-keys -t q "$@" 2
 comp() { awk '{L[NR]=$0; x=$0; gsub(/\033\[[0-9;]*m/,"",x)} x ~ /^─{20}/{b[++nb]=NR}
   END{x=L[b[nb-1]+1]; o=""; d=dim=inv=gr=0
     while(match(x,/\033\[[0-9;]*m/)){ if(!d)o=o substr(x,1,RSTART-1); n=split(substr(x,RSTART+2,RLENGTH-3),a,";"); if(n==0)a[n=1]=0
-      for(i=1;i<=n;i++){c=a[i]+0; if(c==0)dim=inv=gr=0; else if(c==2)dim=1; else if(c==22)dim=0; else if(c==7)inv=1; else if(c==27)inv=0; else if(c==90||c==39)gr=(c==90); else if(c==38){ if(a[i+1]==5){g=a[i+2]+0; gr=(g>=240&&g<=250||g==8); i+=2} else if(a[i+1]==2){g=a[i+2]+0; gr=(g==a[i+3]&&g==a[i+4]&&g>=60&&g<=200); i+=4} } else if(c>=30&&c<=37)gr=0 }
+      for(i=1;i<=n;i++){c=a[i]+0; if(c==0)dim=inv=gr=0; else if(c==2)dim=1; else if(c==22)dim=0; else if(c==7)inv=1; else if(c==27)inv=0; else if(c==90||c==39)gr=(c==90); else if(c==38){ if(a[i+1]==5){g=a[i+2]+0; gr=(g>=240&&g<=250||g==8); i+=2} else if(a[i+1]==2){g=a[i+2]+0; gr=(g==a[i+3]&&g==a[i+4]&&g>=60&&g<=200); i+=4} } else if(c==48){ if(a[i+1]==5)i+=2; else if(a[i+1]==2)i+=4 } else if(c>=30&&c<=37)gr=0 }
       d=dim||inv||gr; x=substr(x,RSTART+RLENGTH)}
     if(!d)o=o x; sub(/^❯/,"",o); gsub(/[ \302\240]/,"",o); print o}' <<<"$1"; }   # what is typed in the composer. Given a `capture-pane -e` pane it leaves out dim, inverse (the cursor) and grey text: Claude Code'"'"'s prompt suggestion ("approve the plan") is not a draft (CC 2.1.310). A plain pane has no styles: all of it counts
 # Claude Code keeps only the last ~2 min of a debug log once a run idles for long (live: a 28 min stall left 03:31-03:33 of a run that began 03:05): the watcher
