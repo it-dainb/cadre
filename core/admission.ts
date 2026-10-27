@@ -228,7 +228,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
   const live = leaseLive(task, now)
   if (live && !mine.length && (await held(h, await ownerOf(h, t.id))) === 'other') return deny(`${t.id} is being worked on from another session; leave it`)   // a claim of a gone session (quit) or of this process (/clear) does not wait for the lease to lapse
   if (live && mine.some(a => bind[a].role === role && !bind[a].retired)) return deny(`${t.id} is running; wait for its result (status)`)   // retired (core/reuse: context or TTL over) = rebind fresh
-  if (t.state === 'blocked' && task.meta['cadre.decision'] === undefined) return deny(`${t.id} is blocked; ask the human to decide (they answer it in the cadre dialog)`)
+  if (t.state === 'blocked' && task.meta['cadre.decision'] === undefined) return deny(`${t.id} is blocked; ask the human for the answer (they type it in the chat), then status {id, decision}`)
   const spike = kindOf(d.reg[t.type]) === 'spike', wt = task.meta['cadre.worktree'] ?? wtPath(d.wtRoot, d.key, t.id), branch = task.meta['cadre.branch'] ?? ''
   if (!spike) {
     const how = await ensureWt(h, d, wt, branch)

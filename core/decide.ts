@@ -31,7 +31,7 @@ export function flagDecision(taskId: string, flag: string, title?: string): Deci
     : flag === 'spec_change' ? [O('a', 'Accept', r('accept'), 'accept'), O('x', 'Reject', r('reject'), 'reject')]
     : flag === 'shape' ? [O('r', 'Retry', r('retry'), 'accept'), O('x', 'Cancel task', r('cancel'), 'cancel')]
     : flag === 'lost-epic' ? [O('r', 'Re-cut', r('recut'), 'restore'), O('x', 'End epic', r('cancel'), 'cancel')]
-    : [...(flag === 'conflict' || flag === 'drift' ? [O('a', 'Accept', r('accept'), 'accept')] : []), O('k', RESTART.includes(flag) ? 'Keep going' : 'Keep', r('keep')), ...(flag === 'integration-failed' ? [] : [O('x', 'Cancel task', r('cancel'), 'cancel')])]
+    : [...(flag === 'conflict' || flag === 'drift' ? [O('a', 'Accept', r('accept'), 'accept')] : []), ...(flag === 'blocked' ? [] : [O('k', RESTART.includes(flag) ? 'Keep going' : 'Keep', r('keep'))]), ...(flag === 'integration-failed' ? [] : [O('x', 'Cancel task', r('cancel'), 'cancel')])]
   const text = git ? `${flag} · ${flag.split(':')[1] ?? flag} moved outside a cadre merge · merges blocked` : `${taskId} flagged ${flag}`
   const why = git ? 'a branch moved outside a cadre merge. Restore: the tip is saved under refs/cadre/quarantine and the branch goes back. Keep: accept the move.'
     : flag === 'spec_change' ? 'the worker asks to change the locked spec. Accept: the tester amends it and a new red follows. Reject: it conforms to the locked tests.'

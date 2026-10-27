@@ -29,7 +29,7 @@ describe('a blocked worker question', () => {
     const w = await world(), [id] = w.ids; await w.at('ag1', id, 'worker')
     expect(await w.rep('ag1', { role: 'worker', outcome: 'blocked', summary: 's', reason: 'which page size?' })).toContain('Stop and wait')
     const d = flagDecision(id, 'blocked')!
-    expect(d.options.map(x => x.label)).toEqual(['Keep', 'Cancel task']); expect(d.lines.join(' ')).not.toContain('fresh agent')
+    expect(d.options.map(x => x.label)).toEqual(['Cancel task']); expect(d.lines.join(' ')).not.toContain('fresh agent')
     expect(RESTART).not.toContain('blocked')
     await LIFECYCLE.decision!(w.h, id, { metadata: { decision: '50 per page' } })
     expect((await w.store.get(id)).meta['cadre.decision']).toBe('Decision from the human: 50 per page')   // the human's text, not a bare restart
