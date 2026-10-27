@@ -49,12 +49,12 @@ export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; fact
   const started = (await h.secret.read()).start; if (started?.failed) add(['warn', `cadre started only in part this session (${started.failed})`, 'restart Claude Code; if it repeats, report it with /cadre doctor'])   // hooks/register session.start
   const inj = ((await h.store.get(await scoped(h, 'injected'))) as string[] | undefined) ?? []; if (inj.length) add(['warn', `tools Claude Code gave the agents that cadre does not know: ${inj.join(', ')}`])   // exit rule 3: observed, judged like any other call
   const g = await r(['git', '--version']), gv = ver(text(g))
-  add(!g || g.exitCode || !gv ? ['crit', 'git not found', fix('git', 'installs git (needed for worktrees).', `apt install git`)] : atLeast(gv, '2.17') ? ['ok', `git ${gv}`] : ['crit', `git ${gv} is too old for worktrees`, fix('git', 'upgrades git to 2.17 or newer (needed for worktrees).', `apt install git`)])
+  add(!g || g.exitCode || !gv ? ['crit', 'git not found', fix('git', 'installs git (needed for worktrees).', 'apt install git')] : atLeast(gv, '2.17') ? ['ok', `git ${gv}`] : ['crit', `git ${gv} is too old for worktrees`, fix('git', 'upgrades git to 2.17 or newer (needed for worktrees).', 'apt install git')])
   const id = g && !g.exitCode ? await identity(h.run, await h.env()) : undefined   // commits land on the user's branches: their own name and email, asked, never made up (ADR 0009)
   if (id?.ok) add(['ok', 'git identity set'])
   else if (id) add(['crit', 'git identity missing: commits need your name and email', 'ask for them, then git config --global user.name and user.email'])
   const w = await r(['bwrap', '--version']), wv = ver(text(w)); facts.bwrap = wv; facts.jail = await jailMode(h.run)
-  if (!w || w.exitCode) add(['crit', 'bwrap not found: checks run unjailed', fix('bwrap', 'installs bubblewrap and socat (Claude Code needs them to run commands safely).', `apt install bubblewrap socat`)])
+  if (!w || w.exitCode) add(['crit', 'bwrap not found: checks run unjailed', fix('bwrap', 'installs bubblewrap and socat (Claude Code needs them to run commands safely).', 'apt install bubblewrap socat')])
   else if (facts.jail === 'none') {
     const apparmor = (await h.readText('/proc/sys/kernel/apparmor_restrict_unprivileged_userns'))?.trim(), clone = (await h.readText('/proc/sys/kernel/unprivileged_userns_clone'))?.trim()
     if (apparmor === '1') {
@@ -65,7 +65,7 @@ export async function machine(h: Host, cfg: Config): Promise<{ rows: Row[]; fact
     else add(['warn', `bwrap ${wv} cannot create a user namespace`, 'see https://code.claude.com/docs/en/sandboxing'])
   } else add(facts.jail === 'copy' ? ['ok', `bwrap ${wv}: copy jail (overlay needs >= 0.11; works, a little slower)`] : ['ok', `bwrap ${wv}: overlay jail`])
   const s = await r(['socat', '-V'])
-  add(!s || s.exitCode ? ['crit', 'socat not found (Claude Code needs it on Linux)', fix('socat', 'installs socat (Claude Code needs it on Linux).', `apt install socat`)] : ['ok', 'socat present'])
+  add(!s || s.exitCode ? ['crit', 'socat not found (Claude Code needs it on Linux)', fix('socat', 'installs socat (Claude Code needs it on Linux).', 'apt install socat')] : ['ok', 'socat present'])
   const root = await wtRootOf(h, cfg); let p = root   // read-only: the nearest existing ancestor must be writable
   while (p.length > 1 && !(await h.stat(p))) p = p.slice(0, p.lastIndexOf('/')) || '/'
   if ((await r(['test', '-w', p]))?.exitCode === 0) add(['ok', `Linux; worktree root ${root} is writable`])
