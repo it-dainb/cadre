@@ -70,6 +70,7 @@ async function top($): Promise<string> {
   tops.set(r, { v, at: now }); return v
 }
 
+const platLine = (os: string) => `cadre runs on Linux only; this is ${os}. It stays off.`
 let options: Host['options'] = {}   // set by register(); module vars reset on reload, which re-runs register
 
 // Host per hook entry: literal closures over $. Additions are append-only (types/index.d.ts).
@@ -196,8 +197,8 @@ export const register: Register = (on, opts) => {
     const v = String((await $.session.version().catch(() => null))?.version ?? ''), old = tooOld(v) ? v : undefined   // outside the try: a step that throws never lets cadre run on a Claude Code that is too old
     try {
     const os = ((await $.process.run(['uname', '-s'], { timeoutMs: 5000 }).catch(() => undefined))?.stdout ?? '').trim()   // a probe error is not proof of another OS: it starts normally
-    if (os && os !== 'Linux') { await update($, secret, x => ({ ...x, platform: os })); const l = `cadre runs on Linux only; this is ${os}. It stays off.`; void $.ui.log(l); void $.ui.toast(l); return next(e) }   // before /cadre and the roots write; wake() keeps every other hook a pass-through
     await $.command.register({ name: 'cadre', description: 'cadre: plan, approve, status, resolve, release, drive, init, setup, doctor', argumentHint: '<sub> [args]', immediate: true })
+    if (os && os !== 'Linux') { await update($, secret, x => ({ ...x, platform: os })); const l = platLine(os); void $.ui.log(l); void $.ui.toast(l); return next(e) }   // /cadre is registered above and repeats the line; before the roots write; wake() keeps every other hook a pass-through
     await update($, secret, x => ({ ...x, old }))
     if (old) { void $.ui.log(oldLine(old)); void $.ui.toast(oldLine(old)); return next(e) }   // too old: one loud line, /cadre repeats it, no tools, no tick; wake() keeps every other hook a pass-through
     const root = await top($); await update($, secret, x => ({ ...x, root })); await $.store.set('cadre:roots', { ...(((await $.store.get('cadre:roots')) ?? {}) as object), [repoKeyOf(root)]: root })   // the repo root for every hook. Never $.session.cwd(): it follows a Bash `cd` (main in a package folder read its checks and store there after a /clear, live 0.9.1) and in a subagent hook it is the agent's view/worktree
@@ -248,7 +249,7 @@ export const register: Register = (on, opts) => {
   on('prompt.attachment', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return attachment(host($), e, next) })
   on('turn.step', async function* ($, e, next) { const h = host($); if (!(await wake(h))) return yield* next(e); return yield* meter(h, e, e2 => exitStep(h, e2, next)) })   // the cost meter sees cadre's own zero-token answers too
   on('session.compact', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return compact(host($), e, next) }).catch(passOn)
-  on('command.run', { command: 'cadre' }, async ($, e, next) => { await roles($, true).catch(() => {}); const old = (await read($, secret)).old; if (old) return { text: oldLine(old) }; const h = spawner($, next); await ack(h).catch(() => {}); const r = await run(h, e, next); if (await wake(h).catch(() => false)) await spawnStep(h, next.event).catch(x => $.ui.log(`spawner: ${x}`)); return r }).catch(denyCmd)   // a typed /cadre (continue) is a frame to start agents from (core/spawner)
+  on('command.run', { command: 'cadre' }, async ($, e, next) => { await roles($, true).catch(() => {}); const { old, platform } = await read($, secret); if (old) return { text: oldLine(old) }; if (platform) return { text: platLine(platform) }; const h = spawner($, next); await ack(h).catch(() => {}); const r = await run(h, e, next); if (await wake(h).catch(() => false)) await spawnStep(h, next.event).catch(x => $.ui.log(`spawner: ${x}`)); return r }).catch(denyCmd)   // a typed /cadre (continue) is a frame to start agents from (core/spawner)
   on('command.run', { command: 'goal' }, ($, e, next) => goal(host($), e, next)).catch(passOn)   // observer only: pass-through, never rewritten (9)
   on('config.set', async ($, e, next) => { if (!(await wake(host($)))) return next(e); return configSet(host($), e, next) }).catch(denySpawn)
   // ui (UI-DESIGN): every ui.render hook names its component (U7); render is pure, state is written from handlers only

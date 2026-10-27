@@ -16,10 +16,11 @@ const boot = async ($: any, on: any, uname: 'Darwin' | 'Linux' | 'throws') => {
   return { runs, sets, said, commands, tools }
 }
 
-test('not Linux: one line, only uname spawned, only the platform flag written, no command, no tools, no tick, every call passes', ENGINE, async ($, on) => {
+test('not Linux: one line, only uname spawned, only the platform flag written, /cadre registered and repeating the line, no tools, no tick, every call passes', ENGINE, async ($, on) => {
   const r = await boot($, on, 'Darwin')
   expect(r.runs).toEqual(['uname -s']); expect(r.sets).toEqual([])   // the platform flag is the session secret, an atom: no store key (cadre:roots) is written
-  expect(new Set(r.said).size).toBe(1); expect(r.said[0]).toContain('Linux only'); expect(r.commands).toEqual([]); expect(r.tools).toEqual([])
+  expect(new Set(r.said).size).toBe(1); expect(r.said[0]).toContain('Linux only'); expect(r.commands.map(c => c.name)).toEqual(['cadre']); expect(r.tools).toEqual([])
+  expect((await $.command.run({ command: 'cadre', args: 'status' })).text).toBe(r.said[0]); expect(r.runs).toEqual(['uname -s'])   // /cadre says the platform line and spawns nothing
   expect(await $.tool.call({ tool: 'Bash', command: 'ls' })).toEqual({ result: 'ran' })   // an initialised repo, yet no guard: cadre is off
 })
 
