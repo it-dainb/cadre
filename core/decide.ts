@@ -22,7 +22,7 @@ export const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? ''
 export const settleIf = async (h: Host, pre: string): Promise<void> => settle(h, ...((await h.board.read()).decisions ?? []).filter(d => d.id.startsWith(pre)).map(d => d.id))
 
 // a flag raised on a task / the epic / a git ref (core/events.emit calls this for every flag.raised; a phase that knows more asks first under the same id and wins)
-export const RESTART = ['attempts', 'no-report', 'stagnant', 'stale', 'loop', 'blocked']   // an agent that stopped for good: Keep going restarts the task with a fresh agent (core/close ROUTES.resolve)
+export const RESTART = ['attempts', 'no-report', 'stagnant', 'stale', 'loop']   // an agent that stopped for good: Keep going restarts the task with a fresh agent (core/close ROUTES.resolve)
 const O = (key: string, label: string, run: string, verb = 'keep') => ({ key, label, verb, run })
 export function flagDecision(taskId: string, flag: string, title?: string): Decision | null {
   if (flag === 'lost-wip') return null   // released automatically, nothing to decide

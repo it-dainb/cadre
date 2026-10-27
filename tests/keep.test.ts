@@ -5,6 +5,7 @@ import { ROUTES } from '../core/dispatch'
 import { charge, budgetOf, step } from '../core/lifecycle'
 import { arm } from '../core/drive'
 import { flagDecision, RESTART } from '../core/decide'
+import { LIFECYCLE } from '../core/plantools'
 import '../core/close'
 
 for (const flag of RESTART) describe(`Keep on ${flag}`, () => {
@@ -20,5 +21,17 @@ for (const flag of RESTART) describe(`Keep on ${flag}`, () => {
     expect(await budgetOf(w.h, id)).toMatchObject({ silentRuns: 0, nudges: 0 })
     await w.turn(); expect(w.spawned.map(x => x[0])).toEqual(['ag1', 'ag2'])   // a fresh agent on the next turn
     expect((await w.h.board.read()).drive.on).toBe(true)
+  })
+})
+
+describe('a blocked worker question', () => {
+  test('its dialog has no "Keep going" and no fresh-agent text; the human\'s answer reaches the worker', async () => {
+    const w = await world(), [id] = w.ids; await w.at('ag1', id, 'worker')
+    expect(await w.rep('ag1', { role: 'worker', outcome: 'blocked', summary: 's', reason: 'which page size?' })).toContain('Stop and wait')
+    const d = flagDecision(id, 'blocked')!
+    expect(d.options.map(x => x.label)).toEqual(['Keep', 'Cancel task']); expect(d.lines.join(' ')).not.toContain('fresh agent')
+    expect(RESTART).not.toContain('blocked')
+    await LIFECYCLE.decision!(w.h, id, { metadata: { decision: '50 per page' } })
+    expect((await w.store.get(id)).meta['cadre.decision']).toBe('Decision from the human: 50 per page')   // the human's text, not a bare restart
   })
 })
