@@ -43,7 +43,7 @@ key() { for i in 1 2 3; do docker exec "cadre-tui-$N" tmux send-keys -t q "$@" 2
 comp() { awk '{L[NR]=$0; x=$0; gsub(/\033\[[0-9;]*m/,"",x)} x ~ /^─{20}/{b[++nb]=NR}
   END{x=L[b[nb-1]+1]; o=""; d=dim=inv=gr=0
     while(match(x,/\033\[[0-9;]*m/)){ if(!d)o=o substr(x,1,RSTART-1); n=split(substr(x,RSTART+2,RLENGTH-3),a,";"); if(n==0)a[n=1]=0
-      for(i=1;i<=n;i++){c=a[i]+0; if(c==0)dim=inv=gr=0; else if(c==2)dim=1; else if(c==22)dim=0; else if(c==7)inv=1; else if(c==27)inv=0; else if(c==90||c==39)gr=(c==90); else if(c==38){ if(a[i+1]==5){g=a[i+2]+0; gr=(g>=240||g==8||g==7); i+=2} else if(a[i+1]==2){gr=(a[i+2]==a[i+3]&&a[i+3]==a[i+4]); i+=4} } else if(c>=30&&c<=37)gr=0 }
+      for(i=1;i<=n;i++){c=a[i]+0; if(c==0)dim=inv=gr=0; else if(c==2)dim=1; else if(c==22)dim=0; else if(c==7)inv=1; else if(c==27)inv=0; else if(c==90||c==39)gr=(c==90); else if(c==38){ if(a[i+1]==5){g=a[i+2]+0; gr=(g>=240&&g<=250||g==8); i+=2} else if(a[i+1]==2){g=a[i+2]+0; gr=(g==a[i+3]&&g==a[i+4]&&g>=60&&g<=200); i+=4} } else if(c>=30&&c<=37)gr=0 }
       d=dim||inv||gr; x=substr(x,RSTART+RLENGTH)}
     if(!d)o=o x; sub(/^❯/,"",o); gsub(/[ \302\240]/,"",o); print o}' <<<"$1"; }   # what is typed in the composer. Given a `capture-pane -e` pane it leaves out dim, inverse (the cursor) and grey text: Claude Code'"'"'s prompt suggestion ("approve the plan") is not a draft (CC 2.1.310). A plain pane has no styles: all of it counts
 # Claude Code keeps only the last ~2 min of a debug log once a run idles for long (live: a 28 min stall left 03:31-03:33 of a run that began 03:05): the watcher
@@ -60,7 +60,7 @@ watcher() {
   local pe prev= seen= since=0 last1=0 lastt= tnew=0 bsince=0 bask= fault= kept=0 cur p t now
   while kill -0 "$CELL" 2>/dev/null; do   # the cell is gone: so is the watcher, whatever left it running
     p=$(docker exec "cadre-tui-$N" tmux capture-pane -t q -p 2>/dev/null) || { sleep 2; continue; }
-    pe=$(docker exec "cadre-tui-$N" tmux capture-pane -t q -p -e 2>/dev/null)   # with styles, for comp: the composer's ghost text is dim/grey
+    pe=$(docker exec "cadre-tui-$N" tmux capture-pane -t q -p -e 2>/dev/null); [ -n "$pe" ] || { sleep 2; continue; }   # with styles, for comp: the composer's ghost text is dim/grey
     now=$(date +%s%3N); [ $((now - kept)) -ge 10000 ] && { keeplogs; kept=$now; }
     [ "$p" != "$prev" ] && { printf '%s\n' "$p" >"$O/panes/$now.txt"; prev=$p; }
     cur=$(grep -E 'press 1|answer the dialog|1: answer' <<<"$p" | tail -1 | sed 's/  */ /g; s/^ //' | cut -c1-120)
