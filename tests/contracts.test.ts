@@ -1,6 +1,7 @@
 // Agent contracts: per-role/outcome report schemas, caps that reject, a report-less end that is never accepted, the 5-field handoff, the amendment ledger
 import { describe, expect, test } from 'claude-code/testing'
-import { REPORTS, validateReport } from '../core/validate'
+import { REPORTS, reportRefusal } from '../core/validate'
+const validateReport = (r: any): string | null => reportRefusal(r)?.msg ?? null
 import { handoffOf } from '../core/briefs'
 import { runOf } from '../core/lifecycle'
 import { judge } from '../policy/guards'
@@ -12,7 +13,7 @@ import { FULL, world } from './fixtures/native/world'
 const R = (role: string, o: object) => validateReport({ schemaVersion: 1, role, ...o })
 describe('report contracts: role × outcome', () => {
   test('each role has its contract; a good report of each passes', () => {
-    expect(Object.keys(REPORTS)).toEqual(['worker', 'tester', 'reviewer', 'explorer', 'planner', 'specifier'])
+    expect(Object.keys(REPORTS())).toEqual(['worker', 'tester', 'reviewer', 'explorer', 'planner', 'specifier'])
     expect(R('worker', { outcome: 'done', summary: 's' })).toBeNull()
     expect(R('tester', { outcome: 'done', summary: 's', tests: [{ path: 't', name: 'S1', ids: ['S1'] }] })).toBeNull()
     expect(R('reviewer', { verdict: 'pass', summary: 's', findings: [], coverage: [], contractStatus: [] })).toBeNull()

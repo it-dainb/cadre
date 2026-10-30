@@ -50,7 +50,7 @@ describe('roles as data: zero behaviour change', () => {
     for (const [n, c] of Object.entries({ base, mod })) for (const r of ROLES) expect(spec(r, { roles: c.roles, mcpAllow: c.mcpAllow })).toEqual(GOLD.spec[`${n}/${r}`])
     for (const r of ROLES) { expect(allowlist(r)).toEqual(GOLD.allow[r]); expect(allowlist(r, ['mcp__a__b'])).toEqual(GOLD.allow[`${r}+mcp`]); expect(file(r)).toBe(GOLD.file[r]) }
     expect(TTL).toEqual(GOLD.ttl); expect(ROLES).toEqual(GOLD.roles); expect([...MAIN_TOOLS]).toEqual(GOLD.main); expect(TOOLS).toEqual(GOLD.tools)
-    expect(JSON.parse(JSON.stringify(REPORTS))).toEqual(GOLD.reports)
+    expect(JSON.parse(JSON.stringify(REPORTS()))).toEqual(GOLD.reports)
   })
   test('golden: routeOf over role x risk x round x unit routing', async () => {
     const d = { cfg: defaults() } as any

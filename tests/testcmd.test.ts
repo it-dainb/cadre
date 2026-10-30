@@ -1,7 +1,8 @@
 // The tester proposes the command that runs its tests; cadre verifies it (ADR 0023): the report schema and the brief. The JUnit reader and the verdict are in junit.test.ts and gate.test.ts.
 import { describe, expect, test } from 'claude-code/testing'
 import { SPECS } from '../tools/index'
-import { runShape, validateReport } from '../core/validate'
+import { runShape, reportRefusal } from '../core/validate'
+const validateReport = (r: any): string | null => reportRefusal(r)?.msg ?? null
 import { RUN_ASK, brief } from '../core/briefs'
 
 const rep = { schemaVersion: 1, role: 'tester', outcome: 'done', summary: 's', tests: [{ path: 'test/a.test.mjs', name: 'S1 ok', ids: ['S1'] }] }

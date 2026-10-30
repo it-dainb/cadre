@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { defaults } from '../task-management/registry'
-import { capped, clearRetries, missingLine, missingList, missingOf, refuse, validateFields, validateReport } from '../core/validate'
+import { capped, clearRetries, missingLine, missingList, missingOf, refuse, validateFields, reportRefusal } from '../core/validate'
+const validateReport = (r: any): string | null => reportRefusal(r)?.msg ?? null
 import { FULL } from './fixtures/native/world'
 import { fakeHost } from './support'
 
