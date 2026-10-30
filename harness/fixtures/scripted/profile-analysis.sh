@@ -9,7 +9,7 @@ if [ "$r" = 1 ]; then body='<failure message="no Conclusion line"/>'; else body=
 printf '<testsuite name="analysis" tests="1" failures="%s"><testcase name="the summary states a conclusion">%s</testcase></testsuite>\n' "$r" "$body" > "$CADRE_JUNIT"
 exit $r
 EOF
-echo '{ "units": [{"root":".","checks":{"setup":["node","--version"],"check":["sh",".cadre/check.sh"]}}] }' >.cadre/config.json
+echo '{ "units": [{"root":".","verify":["check"],"checks":{"setup":["node","--version"],"check":["sh",".cadre/check.sh"]}}] }' >.cadre/config.json
 git add -f .cadre/check.sh .cadre/config.json
 git commit -qm 'chore: check script'
 git branch -f dev main
