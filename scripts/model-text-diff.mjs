@@ -17,7 +17,8 @@ for (const l of git('diff', '-U0', '--no-color', range, '--', ...['core', 'nativ
   const src = line.replace(/\/\/ .*$/, '').replace(/\bh\.(log|toast)\((`[^`]*`|'[^']*'|[^)])*\)/g, ''), at = src.search(SITE)   // on a call site: only what is inside the call, not a log line next to it
   const part = BUILDERS.includes(file) ? src : at < 0 ? '' : src.slice(at).split(/\.catch\(|\bh\.log\(/)[0]
   const texts = md ? [line.trim()] : (part.match(LIT) ?? []).filter(s => /[a-z]{3,}\s/i.test(s))
-  for (const t of texts) { const hit = leaks(/^guides\/|^native\/tasks\.ts/.test(file) ? 'context' : 'agent-file', t).length > 0; bad += +hit; n++; console.log(`${hit ? '!' : ' '} ${file}: ${t.slice(0, 200)}`) }
+  // main's own planning files (lanes, plan tools) may name lanes: the lane ban is for what a task agent reads
+  for (const t of texts) { const hit = leaks(/^guides\/|^native\/tasks\.ts|^core\/(lanes|plantools)\.ts/.test(file) ? 'context' : 'agent-file', t).length > 0; bad += +hit; n++; console.log(`${hit ? '!' : ' '} ${file}: ${t.slice(0, 200)}`) }
 }
 console.log(`${n} model-visible text(s) added or changed in ${range}${bad ? ` · ${bad} rejected by the lint (! lines)` : ''}`)
 if (bad) process.exitCode = 1
