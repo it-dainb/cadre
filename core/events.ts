@@ -25,8 +25,6 @@ export const TABLE: Record<EventType, Row> = {
   'plan.landed': ['mod', 'info', false, ['planId', 'sha']],
   'plan.released': ['mod', 'info', false, ['version', 'sha']],
   'release.proposed': ['mod', 'info', true, ['version']],
-  'help.asked': ['mod', 'info', false, ['taskId', 'helper']],   // a run asked a helper (core/needs) and waits
-  'help.done': ['mod', 'info', false, ['taskId', 'helper', 'ok']],   // its one answer: ok false = the helper failed
   'lesson.pass': ['mod', 'info', false, ['n', 'ok']],   // a lessons pass (core/lessons): n = passes today, ok false = the model did not answer
   'lesson.added': ['mod', 'info', false, ['id', 'ev']],
   'decision.answered': ['human', 'info', false, ['choice'], ['id']],   // the human's answer in the dialog (core/dispatch.answer): an input of the lessons pass

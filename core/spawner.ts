@@ -19,7 +19,6 @@ import { emit } from './events'
 import { modelText } from './say'
 import { isMs } from './milestone'
 import { charge, intend, settleIntent } from './lifecycle'
-import { pending, settleSetups } from './needs'
 import { specNeeded } from './specifier'
 import { sessionOf } from './board'
 
@@ -43,12 +42,11 @@ export async function syncMode(h: Host): Promise<void> {
 DRIVE.sync = syncMode
 DRIVE.wanted = async h => (await wanted(h, await cfgOf(h))).go.length   // the idle fallback (core/drive) asks this, never an import: drive and spawner would load each other
 
-// what the spawner would start right now, before anything is held: the board's wants and the helpers', the specifier's turn before a claim, each want's unit and model, then the
+// what the spawner would start right now, before anything is held: the board's wants, the specifier's turn before a claim, each want's unit and model, then the
 // same grant (task, unit, model and provider caps). spawnStep starts these; the idle fallback asks the same question, so the two can never disagree about "work to start"
 export async function wanted(h: Host, cfg: Awaited<ReturnType<typeof cfgOf>>): Promise<{ go: Q.Want[]; cands: Q.Want[] }> {
-  const need = await pending(h)   // a requester waits for its helper's answer, so no agent takes its step; a request no helper runs gets one, at the head (the requester's slot is lent to it)
   const s = await h.board.read()
-  let cands = [...spawnable(modelView(s), await h.bind.read()).filter(x => !need.hold.includes(x.id)), ...need.start.map(id => ({ id, role: 'helper' }))].filter(x => !Q.has(x.id, x.role) && !(x.role !== 'claim' && Q.has(x.id, 'claim'))).map((x): Q.Want => ({ ...x, head: x.role !== 'claim' }))
+  let cands = spawnable(modelView(s), await h.bind.read()).filter(x => !Q.has(x.id, x.role) && !(x.role !== 'claim' && Q.has(x.id, 'claim'))).map((x): Q.Want => ({ ...x, head: x.role !== 'claim' }))
   if (cfg.roles.specifier.enabled) {   // the specifier's turn before a claim: no task slot, and the task waits while it works (core/specifier)
     const sd = await resolveDeps(h)
     cands = (await Promise.all(cands.map(async x => { if (x.role !== 'claim') return x; const n = await specNeeded(h, sd, x.id).catch(() => 'claim' as const); return n === 'wait' ? null : n === 'specify' ? { ...x, role: 'specify', head: false } : x }))).filter((x): x is Q.Want => !!x)
@@ -74,7 +72,6 @@ export async function spawnStep(h: Host, event: string): Promise<void> {
   if (!modOn(await h.board.read()) || !(await ready(h))) return
   const t = await h.now(); await h.ui.update(u => ({ ...u, idleAt: t }))   // a sign of life: the watchdog's window starts over
   if (await land(h) && !(await ready(h))) return   // what landed may finish the run
-  if ((await pending(h)).setup.length) await settleSetups(h, await resolveDeps(h), () => sendQueued(h))   // a requester waits for an install: cadre runs it (no helper), the result resumes it
   await sendQueued(h)   // a rework a close queued (a conflict on the plan tip): its worker is resumed now
   const cfg = await cfgOf(h), usd = (await h.usage?.().catch(() => undefined))?.cost?.usd
   const go = await picking(async () => {   // one frame of this process at a time: read the board, pick within the slots, count them on the drive (a CAS three frames would contend on)

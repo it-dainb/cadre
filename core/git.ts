@@ -104,16 +104,6 @@ export const homeScratchJail = (j: J & { scratchHome: string }): string[] => {
   const h = j.scratchHome
   return writableJail({ ...j, writable: [...(j.writable ?? []), h], env: { ...j.env, HOME: h, XDG_CACHE_HOME: `${h}/.cache`, XDG_CONFIG_HOME: `${h}/.config`, XDG_DATA_HOME: `${h}/.local/share` } })
 }
-// An install run (core/helpers.setup): nothing of the host leaks in. clearenv + the given env only; the real $HOME is hidden behind a tmpfs, and the folders the run needs (the
-// worktree, its scratch HOME, the tool folders on PATH that lie under the real home) are bound back on top. A PATH entry <prefix>/bin deeper than two levels under the home
-// (nvm, pyenv, asdf versions) binds its prefix so its symlinks resolve; shallower ones (~/.cargo/bin, ~/.local/bin) bind only the folder itself, never ~/.cargo or ~/.local (credentials).
-// Own pid and ipc namespaces (a fresh /proc shows no host process), /run and /var/run empty (docker.sock, the user bus, agent sockets), gone with its parent.
-export const setupJail = (j: J & { scratchHome: string; home: string; path: string; tools: string[]}): string[] => {   // home and tools: real paths; tools: the PATH entries that exist
-  // the host is not mounted whole: only the system folders and the tool folders on PATH are visible (a file under /opt, /srv, /var is not)
-  const h = j.scratchHome, SYS = ['/usr', '/bin', '/lib', '/lib64', '/lib32', '/etc'], bins = j.tools.filter(p => p !== j.home && !SYS.some(d => p === d || p.startsWith(`${d}/`)) && ![j.wt, j.scratch].some(d => p === d || p.startsWith(`${d}/`))).map(p => (p.startsWith(`${j.home}/`) && p.endsWith('/bin') && p.slice(j.home.length + 1).split('/').length > 3 ? p.slice(0, -4) : p))
-  return ['bwrap', '--clearenv', '--unshare-pid', '--unshare-ipc', '--die-with-parent', ...SYS.flatMap(d => ['--ro-bind-try', d, d]), '--dev', '/dev', '--proc', '/proc', '--bind', j.scratch, '/tmp', '--tmpfs', '/run', '--ro-bind-try', '/run/systemd/resolve', '/run/systemd/resolve', '--tmpfs', '/var/run', '--tmpfs', j.home, ...[...new Set(bins)].flatMap(b => ['--ro-bind', b, b]), '--bind', j.wt, j.wt, '--bind', h, h,
-    ...tail({ ...j, env: { PATH: j.path, HOME: h, XDG_CACHE_HOME: `${h}/.cache`, XDG_CONFIG_HOME: `${h}/.config`, XDG_DATA_HOME: `${h}/.local/share`, ...j.env } })]
-}
 // Probe once per hook: overlay (bwrap with --overlay-src), copy (bwrap works, no overlay) or none (no usable bwrap: unjailed throwaway copy, network unenforced).
 export async function jailMode(run: Run): Promise<'overlay' | 'copy' | 'none'> {
   const t = await run(['bwrap', '--ro-bind', '/', '/', 'true']).catch(() => undefined)

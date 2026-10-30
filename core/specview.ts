@@ -9,7 +9,6 @@ import { renderContract } from './briefs'
 import * as G from './git'
 import { ownerOf, unitsOf } from './discover'
 import { pathsOf } from './validate'
-import { MANIFEST } from './helpers'
 
 export interface Pkg { root: string; setup?: string[]; checks: Record<string, string[]>; verify?: string[]; knownRed?: string[]; viewInclude?: string[]; routing?: Record<string, { model: string; effort?: string }>; ownGit?: boolean; runner?: 'junit' | 'text'; concurrency?: number; tdd?: { check?: string; paths: string[]; report?: string; stubs?: string[]; skeleton?: string[] } }
 
@@ -22,10 +21,6 @@ export const pkgOf = (d: Pick<Deps, 'cfg'>, task: Pick<Task, 'meta'>): Pkg | und
   return ownerOf(all, at)
 }
 // a task's paths lie in one repository: a submodule unit's edits are committed in its own repository, the rest in the parent's, so a task across both is split
-// a task whose own files are all manifests or lockfiles is the install itself, not work to plan: the task that uses the package asks for the install while it works
-// (live: three setup runs planned "Declare six/ms as a dependency" with Files: pyproject.toml, uv.lock, then stalled on a lock step the shell cannot run offline)
-export const manifestOnly = (paths: unknown): string | null =>
-  Array.isArray(paths) && paths.length > 0 && paths.every(p => MANIFEST.test(String(p).split('/').pop() ?? '')) ? 'metadata.paths: these are only manifest and lock files, and a package is not a task: plan the code that uses it (with its tests); that task asks for the install while it works' : null
 // an epic whose every path is one cadre refuses its task agents (git.PROTECTED, the configured changelog) can never be planned into a task: refused where its paths are written
 export const protectedOnly = (cfg: any, paths: unknown): string | null => {
   const ps = Array.isArray(paths) ? paths.map(String) : []

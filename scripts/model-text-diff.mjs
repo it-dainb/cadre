@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process'
 const { leaks } = await import(new URL('../core/say.ts', import.meta.url).href)
 const git = (...a) => execFileSync('git', a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
 const range = process.argv[2] ?? (() => { try { git('rev-parse', '@{upstream}'); return '@{upstream}..HEAD' } catch { return 'HEAD~1..HEAD' } })()
-const BUILDERS = ['core/briefs.ts', 'core/render.ts', 'core/asks.ts', 'core/say.ts', 'agents/prompts.ts', 'native/tasks.ts', 'tools/index.ts', 'policy/guards.ts', 'core/close.ts', 'core/needs.ts', 'core/plantools.ts', 'core/admission.ts', 'core/specview.ts', 'core/lanes.ts', 'core/dispatch.ts', 'core/reuse.ts', 'core/effect.ts', 'core/helpers.ts', 'core/tdd.ts', 'core/risk.ts', 'core/decide.ts', 'core/validate.ts']
+const BUILDERS = ['core/briefs.ts', 'core/render.ts', 'core/asks.ts', 'core/say.ts', 'agents/prompts.ts', 'native/tasks.ts', 'tools/index.ts', 'policy/guards.ts', 'core/close.ts', 'core/plantools.ts', 'core/admission.ts', 'core/specview.ts', 'core/lanes.ts', 'core/dispatch.ts', 'core/reuse.ts', 'core/effect.ts', 'core/tdd.ts', 'core/risk.ts', 'core/decide.ts', 'core/validate.ts']
 const SITE = /modelText\(|modelData\(|h\.write\(`\$\{view\}/
 const LIT = /'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g
 let file = '', n = 0, bad = 0

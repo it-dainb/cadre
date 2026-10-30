@@ -14,7 +14,7 @@ import { apply } from './machine'
 import { emit } from './events'
 import { settleIf, yoloOn } from './decide'
 import { DRIVE, cfgOf, draftsOf, mirror, registryOf, storeOf, touched } from './dispatch'
-import { manifestOnly, protectedOnly, repoSplit } from './specview'
+import { protectedOnly, repoSplit } from './specview'
 import { scoped } from '../commands/init'
 import { retouch, roadmapRules } from './lanes'
 import { MS, epicOf, isMs, planEpic } from './milestone'
@@ -33,7 +33,7 @@ export const planRules = (reg: TypeRegistry): string => [
   '- Each task is a vertical slice: shown working on its own, fits one fresh context, has its wiring and one smoke assertion.',
   '- With 2+ tasks: paths per task. Code 2+ tasks need: ONE thin core task first (core:true; interfaces, minimal code, contract tests) that the others wait for (after). Two tasks on one path need an after dependency.',
   '- Exploration 2+ tasks need: one explore before the plan; its findings go in the plan\'s notes as [{"paths":[…],"text":"…"}] (no paths: all tasks).',
-  '- A package the work needs is not a task of its own: the task that uses it asks for the install.',
+  '- A package the work needs is not a task of its own: the task that uses it installs it.',
   '- holds ["S2"]: scenarios whose behaviour already exists; their tests pass at red.',
   '- A draft may be incomplete: "missing:" says what approval needs.',
   '- Only the human approves. An approved task changes only through amend, with reason and evidence.',
@@ -90,7 +90,7 @@ type W = { error: string } | { id: string; context: string[] }
 async function create(h: Host, store: TaskStore, reg: TypeRegistry, title: string, description: string, m: In): Promise<W> {
   const key = `create:${title}`
   if (await capped(h, key)) return { error: await refuse(h, key, 'draft refused') }
-  const err = validateFields(m, reg) ?? repoSplit(await cfgOf(h), m.paths) ?? manifestOnly(m.paths) ?? (m.holds ? holdsGap(m.holds, (m.scenarios as string[] | undefined)?.join('\n')) : null); if (err) return { error: await refuse(h, key, err) }
+  const err = validateFields(m, reg) ?? repoSplit(await cfgOf(h), m.paths) ?? (m.holds ? holdsGap(m.holds, (m.scenarios as string[] | undefined)?.join('\n')) : null); if (err) return { error: await refuse(h, key, err) }
   await clearRetries(h, key)
   const s = await h.board.read()
   if (m.kind === 'mission' && (await h.secret.read()).run?.goal) return { error: 'not now: the user\'s goal comes next, and its plan carries the mission (plan mission). Go on with the next setup step.' }   // ADR 0014: one dialog for mission + plan
@@ -129,7 +129,7 @@ async function edit(h: Host, store: TaskStore, reg: TypeRegistry, id: string, i:
   const { title, description, after = [], ...m } = i, s = await h.board.read()
   const no2 = async (why: string): Promise<W> => ({ error: await refuse(h, id, why) })
   if (m.critique !== undefined && !Object.values(((await h.ui.read()).asks ?? {}) as Record<string, { answer?: string }>).some(a => a.answer !== undefined)) return no2('critique: ask the critic first (explore with the whole roadmap) and use its answer')
-  const err = validateFields(m, reg) ?? repoSplit(await cfgOf(h), m.paths) ?? manifestOnly(m.paths) ?? (t.type === 'epic' ? protectedOnly(await cfgOf(h), m.paths) : null) ?? (m.holds !== undefined || m.scenarios !== undefined ? holdsGap(m.holds !== undefined ? m.holds : holdsOf(t), m.scenarios ? (m.scenarios as string[]).join('\n') : t.acceptance) : null) ?? (m.type !== undefined && m.type !== t.type ? `type: fixed at creation (${t.type}); remove the draft and add a new task` : null); if (err) return no2(err)
+  const err = validateFields(m, reg) ?? repoSplit(await cfgOf(h), m.paths) ?? (t.type === 'epic' ? protectedOnly(await cfgOf(h), m.paths) : null) ?? (m.holds !== undefined || m.scenarios !== undefined ? holdsGap(m.holds !== undefined ? m.holds : holdsOf(t), m.scenarios ? (m.scenarios as string[]).join('\n') : t.acceptance) : null) ?? (m.type !== undefined && m.type !== t.type ? `type: fixed at creation (${t.type}); remove the draft and add a new task` : null); if (err) return no2(err)
   const isEpic = id === s.epic, draft = t.category === 'draft' && !(isEpic && s.plan && s.plan.state !== 'draft')   // approval leaves the epic itself draft: its board state is the truth
   if (!draft) {
     if (isEpic) return { error: REFUSED }

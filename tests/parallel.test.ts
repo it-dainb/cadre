@@ -31,18 +31,6 @@ describe('declared paths and the overlap check', () => {
     expect(await w.text({ cmd: 'approve', args: [p] })).toEqual({ text: `refused: incomplete, missing: ${a}+${b} both change src/login.ts: move it into one core task or add a blocks dependency` })
     await w.call('TaskUpdate', { taskId: b, addBlockedBy: [a] }); expect((await w.h.board.read()).approval.missing).toEqual([])
   })
-  test('a task whose files are only manifests and lockfiles is refused: a package is not a task', async () => {
-    const w = await world(), { plan: p } = await plan(w); const before = (await w.h.board.read()).tasks.length
-    const r = await w.call('TaskCreate', { subject: 'Declare six as a dependency', description: 'd', metadata: { ...FULL, paths: ['pyproject.toml', 'uv.lock'] } })
-    expect(JSON.stringify(r)).toMatch(/a package is not a task: plan the code that uses it/); expect((await w.h.board.read()).tasks.length).toBe(before)
-    expect(JSON.stringify(await w.call('TaskCreate', { subject: 'Use six', description: 'd', metadata: { ...FULL, paths: ['pyproject.toml', 'src/textlib/text.py'] } }))).not.toMatch(/a package is not a task/)
-    expect(p).toBeTruthy()
-  })
-  test('an edit that leaves a task with only manifest and lock files is refused too', async () => {
-    const w = await world(), { plan: p, task: a } = await plan(w); expect(p).toBeTruthy()
-    const r = await w.call('TaskUpdate', { taskId: a, metadata: { paths: ['package.json', 'package-lock.json'] } })
-    expect(JSON.stringify(r)).toMatch(/a package is not a task: plan the code that uses it/)
-  })
   test('one code task (and a spike) needs no paths', () => {
     const t = (id: string, type: string, meta: Record<string, string> = {}) => ({ id, title: id, description: 'd', type, deps: [], labels: [], meta: { 'cadre.lane': 'lite', 'cadre.changelog': '{}', ...meta } }) as any
     expect(missingList([t('a', 'bug'), t('s', 'spike')], reg)).toEqual([])

@@ -121,13 +121,6 @@ test('errors skips a hook CC aborted at a quit; any other hook failure still fai
   assert.equal(errs('TypeError: x is undefined'), true)
 })
 
-// release016 on 37ddade: a worker ran `…; uv lock --check 2>&1 | tail -3` to look at the lock; the oracle read it as an install the offline settings did not stop
-test('the own-shell check: installs are commands that install; a check, a dry run, a listing or a mention is not', async () => {
-  const { installs } = await import('../../harness/installs.mjs')
-  for (const c of ['npm install ms', 'cd x && npm i ms', 'ls; uv add six', 'uv sync', 'uv lock', 'pip install x | tail -2', 'sudo npm ci', 'git show HEAD | head; uv lock 2>&1']) assert.equal(installs(c), true, c)
-  for (const c of ['uv lock --check 2>&1 | tail -3', 'git show --stat HEAD; ls .venv; uv lock --check', 'npm install --dry-run ms', 'uv --version', 'echo npm install', 'git commit -m "npm install ms"', 'grep -r "npm ci" .', 'uv run pytest', 'ls .venv/lib', undefined]) assert.equal(installs(c), false, String(c))
-})
-
 // release016 continue-after-quit.r2: Claude Code met a real 429 (lines 4889-4890 of its debug log) and cadre stopped the drive "usage limit until". That is the account's limit, not a verdict on
 // cadre: inconclusive, rerun. A lone 429 (CC retries and may recover) and the stub's injected usage_limit (the usage-limit S cell expects the toast) are not.
 // Security review R-09: a cell that ALSO broke an invariant is a FAIL (the console line names it), never inconclusive.
@@ -164,36 +157,6 @@ test('refusal-loop keys on the producing call\'s input, per agent transcript', (
   assert.ok(loop([{ id: 1 }, { id: 1 }, { id: 1 }]).includes('refusal-loop'))
   assert.ok(!loop([{ id: 1 }], 3).includes('refusal-loop'))   // three agents, the same call refused once each
   assert.ok(loop([{ id: 1 }, { id: 1 }, { id: 1 }], 2).includes('refusal-loop'))   // one agent 3x, whoever else is around
-})
-
-// release016 needs-setup-python: `uv lock` printed "Because six was not found in the cache ... the network was disabled" or only "Resolved 1 package" and changed nothing; the oracle called it an install
-test('the own-shell check: an install the offline settings refused, or a `uv lock` that only re-resolved, is no install; a real install is', async () => {
-  const { refused } = await import('../../harness/installs.mjs')
-  const refusals = ['npm error code ENOTCACHED', 'only-if-cached', 'hint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.', 'Network connectivity is disabled, but the requested data wasn\'t found in the cache', 'offline mode is enabled', 'ERROR: No matching distribution found for six']
-  for (const o of refusals) assert.equal(refused(o, 'uv lock'), true, o)
-  assert.equal(refused(refusals[2], 'uv add six'), true)
-  const noop = 'uv 0.11.29\nResolved 1 package in 1ms\nEXIT=0'
-  assert.equal(refused(noop, 'uv --version; uv lock 2>&1 | tail'), true)
-  assert.equal(refused(noop, 'uv lock && uv sync'), false)   // another install form in the command
-  assert.equal(refused('Resolved 5 packages in 3ms\nAudited 5 packages in 0.1ms', 'uv sync'), false)   // decided: only `uv lock` has the no-op rule
-  assert.equal(refused('Resolved 5 packages in 3ms\nPrepared 2 packages in 1s\nInstalled 2 packages in 2ms\n + foo==1.0\n + bar==2.0', 'uv sync'), false)
-  assert.equal(refused('Resolved 3 packages in 9ms\nPrepared 1 package in 1s\nInstalled 1 package in 1ms\n + six==1.16.0', 'uv add six'), false)
-  for (const o of ['Resolved 3 packages in 120ms\nAdded six v1.16.0', 'Resolved 3 packages in 120ms\nUpdated six v1.15.0 -> v1.16.0', 'Resolved 3 packages in 120ms\nInstalled 1 package in 1ms', 'Resolved 3 packages in 9ms\n + six==1.16.0', 'added 1 package in 2s', '', undefined]) assert.equal(refused(o, 'uv lock'), false, String(o))
-})
-
-// release016 needs-setup-python: the tester asked an explorer on the task, then the worker's setup request (one need record per task) was run by cadre itself; the explorer was counted as the setup's helper
-test('needs-setup counts only helper runs started after the setup request', () => {
-  const judgeSetup = early => {
-    const d = mkdtempSync(join(tmpdir(), 'cadre-oracle-')), snap = (t, o) => writeFileSync(join(d, 'store', `${t}.json`), JSON.stringify(o)), run = { taskId: 't1', role: 'explorer', state: { state: 'ended' } }
-    mkdirSync(join(d, 'store')); cpSync(fix, d, { recursive: true })
-    snap(1, early ? { 'x:run:e1': run } : {})
-    snap(2, { ...(early ? { 'x:run:e1': run } : {}), 'x:need:t1': { task: 't1', helper: 'setup', ok: true, fails: 0 } })
-    snap(3, { ...(early ? { 'x:run:e1': run } : { 'x:run:e2': run }), 'x:need:t1': { task: 't1', helper: 'setup', ok: true, fails: 0 } })
-    try { execFileSync('node', [join(root, 'harness/oracle.mjs'), d], { stdio: 'pipe', env: { ...process.env, ORACLE: 'needs-setup' } }) } catch {}
-    return JSON.parse(readFileSync(join(d, 'verdict.json'), 'utf8')).fails.filter(f => /helper run/.test(f.evidence)).length
-  }
-  assert.equal(judgeSetup(true), 0)    // an explore before the setup request on the same task is not for it
-  assert.equal(judgeSetup(false), 1)   // a helper started after the setup request still is
 })
 
 // release016 needs-setup-node (CC 2.1.310): the composer showed the grey prompt suggestion "approve the plan"; comp() read it as a draft and the watcher never pressed 1.

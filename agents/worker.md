@@ -13,6 +13,6 @@ Rules:
 - Run the checks with mcp__cadre__run_check before you finish. Fix failures at their cause.
 - Do not commit, branch, merge or push; your changes are committed for you.
 - If you are blocked or the spec cannot be met as written, say so with report outcome "blocked" or "spec_change" and explain why. A review finding that needs a locked test or a scenario changed is a "spec_change", not "blocked". For "spec_change", scenario is the changed scenario in full: the tester reads only that, never your reason. Do not guess around it.
-- If a package your task needs is not installed, do not install it, add it to the manifest or write your own (package managers are offline in your shell, an install there fails): report outcome "request" (helper "setup", with the install argv). You are resumed with the result; if it was not installed, report outcome "blocked".
+- If a package your task needs is not installed, install it in your shell: the manifest and lockfile changes are part of your task. If you cannot, report outcome "blocked" and say what you need.
 - Anything you discover that is out of scope goes in report followups, not in the diff.
 Finish with the report tool exactly once: outcome, a short summary, risks. A hand-back message does not replace it.

@@ -9,11 +9,11 @@ import { ask } from './decide'
 import { sessionOf } from './board'
 import { held } from './session'
 
-type End = 'done' | 'released' | 'blocked' | 'cancelled' | 'retry'   // retry: the human's Retry (a wait on a need ends only by this, a cancel or a loss)
+type End = 'done' | 'released' | 'blocked' | 'cancelled' | 'retry'   // retry: the human's Retry
 export type RunState =
   | { state: 'reserved' | 'running' | 'idle-bound' | 'retired' }
   | { state: 'refused' | 'silent'; n: number }   // refused: its report was refused n times; silent: it stopped without a report, nudged n times
-  | { state: 'waiting'; on: 'decision' | 'need' | 'rework' | 'review'; needId?: string }
+  | { state: 'waiting'; on: 'decision' | 'rework' | 'review' }
   | { state: 'ended'; cause: End | 'lost' }
 export interface LifeView { bind: Record<string, Binding>; tasks: SnapTask[]; runs?: Record<string, Run> }
 
@@ -34,8 +34,6 @@ export type RunEvent =
   | { type: 'forced'; at: number; session?: string } | { type: 'stopped' }   // cadre answered its model request (rule 5): the backstop's deadline · its turn ended
   | { type: 'turn.end'; text: string }   // stopped without a report: nudged with text
   | { type: 'resume'; text: string; step?: string; taskId?: string }   // a wake (review findings, a rework, an answer); step: it goes on at that step; taskId: an ask's
-  | { type: 'request'; needId: string }   // the run asked a helper: it waits for that answer
-  | { type: 'answered'; needId: string; epoch: number; text: string }   // a helper's answer (core/needs): wakes a run waiting on that need at that epoch, else it is dropped
   | { type: 'retire' }   // context or cache over: a fresh agent takes over
   | { type: 'end'; cause: End | 'lost'; reason: string }
 export interface Run { taskId: string; role: Role; step: string; state: RunState | null; epoch: number; log: { state: string; event: string; cause?: string }[]   // state null: a binding with no record
@@ -52,17 +50,12 @@ export function next(run: Run, e: RunEvent): { run: Run; effects: Effect[] } {
   if (run.state === null) return go({ state: 'ended', cause: 'lost' }, [{ kind: 'unbind', reason: 'lost' }])   // a binding cadre has no record of (an older store, a lost key)
   if (e.type === 'stopped' || e.type === 'forced') return { run: { ...run, deadline: e.type === 'forced' ? run.deadline ?? e.at + BACKSTOP : undefined, ...(e.type === 'forced' && !run.deadline ? { session: e.session } : {}) }, effects: [] }
   if (s === 'ended') return { run, effects: [] }
-  const w = run.state?.state === 'waiting' && run.state.on === 'need' ? run.state : undefined   // invariant 2: a wait on a need ends only by its own answer (needId and run epoch), a cancel, a loss or the human's retry; every other event leaves it
-  if (w && e.type === 'answered') return e.needId === w.needId && e.epoch === run.epoch ? go({ state: 'running' }, [wake(e)]) : { run, effects: [] }
-  if (w && !(e.type === 'end' && ['cancelled', 'lost', 'retry'].includes(e.cause))) return { run, effects: [] }
-  if (e.type === 'answered') return { run, effects: [] }
   if (e.type === 'end') return go({ state: 'ended', cause: e.cause }, [{ kind: 'unbind', reason: e.reason }])   // a forced exit's deadline outlives its task: only its turn's end or the backstop clears it
   if (e.type === 'call') {
     const calls = { sig: e.sig, n: run.calls?.sig === e.sig ? run.calls.n + 1 : 1 }, r: Run = { ...run, calls, prog: true, tools: [...new Set([...(run.tools ?? []), e.tool])] }, trip = calls.n >= REPEAT && !run.exit
     return { run: trip || !run.tools?.includes(e.tool) ? { ...r, ...(trip ? { exit: 'loop' as const } : {}), log: [...run.log, { state: s!, event: trip ? 'loop' : `call ${e.tool}` }].slice(-LOG) } : r, effects: [] }
   }
-  if (e.type === 'resume') return go(s === 'waiting' || s === 'idle-bound' || s === 'retired' ? { state: 'running' } : run.state, [wake(e)], e.step ? { ...run, step: e.step } : run)   // an answer or a rework ends the wait
-  if (e.type === 'request') return go({ state: 'waiting', on: 'need', needId: e.needId })
+  if (e.type === 'resume') return go(s === 'waiting' || s === 'idle-bound' || s === 'retired' ? { state: 'running' } : run.state, [wake(e)], e.step ? { ...run, step: e.step } : run)   // a rework ends the wait
   if (s === 'waiting') return { run, effects: [] }   // invariant 2: a parked run is never retired, nudged or refused into another state
   if (e.type === 'retire') return go({ state: 'retired' }, [{ kind: 'retire' }])
   if (e.type === 'report.ok') return go(e.wait ? { state: 'waiting', on: 'decision' } : { state: 'idle-bound' })

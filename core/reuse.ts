@@ -16,7 +16,6 @@ import { checkpoint } from './effect'
 import { type Entry, cardOf, inFlight, qk, savePointer, warm } from './session'
 import { drive, goalSeen } from './drive'
 import { kick, spentOf } from './lessons'
-import { delivered } from './needs'
 
 const counted = (h: Host, q: Entry[], me: string) => h.board.update(s => ({ ...s, resumesQueued: q.filter(x => x.sessionId === me).length }))
 
@@ -54,7 +53,7 @@ async function sendMine(h: Host, store: TaskStore | undefined, cfg: any) {
     const delta = await drainDelta(h, r.agentId)
     await h.ui.update(u => ({ ...u, drainTo: r.agentId }))   // marks cadre's own send so policy/guards.send does not isolate it (reviewer findings quote other ids)
     const res = await h.sendTo!(r.agentId, modelText('nudge', delta ? `${r.text}\n\n${delta}` : r.text)).finally(() => h.ui.update(u => ({ ...u, drainTo: undefined })))
-    if (!res.isDelivered) await retire(h, r.agentId, b); else await delivered(h, r.taskId, r.agentId)   // a helper's answer reached its requester: never put in a brief again
+    if (!res.isDelivered) await retire(h, r.agentId, b)
   }
 }
 

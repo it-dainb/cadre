@@ -12,7 +12,6 @@ import { NUDGE } from '../core/close'
 import { NUDGE as ASK_NUDGE, askCard, askTask } from '../core/asks'
 import { noReportCard } from '../core/render'
 import { reportRefusal } from '../core/validate'
-import { names, nothingToCommit } from '../core/helpers'
 import type { Task } from '../task-management/store'
 
 const code = (md: string) => md.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '')   // prose only: commands and paths in code spans are the reader's to run
@@ -72,14 +71,6 @@ describe('a refusal scrubs absolute host paths only', () => {
     const at = (...p: string[]) => ['', ...p].join('/'), q = (v: unknown) => reportRefusal({ schemaVersion: 1, role: 'worker', outcome: 'done', summary: v })!.msg
     expect(q(['src/a/b.ts'])).toContain('src/a/b.ts'); expect(q(['http://x.io/a/b'])).toContain('http://x.io/a/b')
     expect(q([at('home', 'u', 'f.ts')])).toContain('(a path)'); expect(q([`x=${at('tmp', 'a', 'b')}`])).toContain('x=(a path)'); expect(q([`see ${at('home', 'u', 'f.ts')} now`])).toContain('see (a path) now')
-  })
-})
-
-describe('what the setup reply quotes from a manifest', () => {
-  test('package names are the repo\'s text: capped at 64 characters, a path-like one never quoted, at most 10 listed; the reply passes the lint', () => {
-    const at = (...p: string[]) => ['', ...p].join('/'), listed = ['a'.repeat(70), at('home', 'x', 'y'), '..', ...Array.from({ length: 12 }, (_, n) => `pkg${n}`)]
-    const text = nothingToCommit(['npm', 'install'], listed); expect(text).not.toContain('a'.repeat(65)); expect(text).not.toMatch(/\/home\//); expect(text).toContain('and 5 more'); expect(leaks('tool-result', text)).toEqual([])
-    expect(names([at('tmp', 'p')])).toBe('(a name)')
   })
 })
 
