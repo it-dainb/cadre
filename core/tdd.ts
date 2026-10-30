@@ -72,6 +72,7 @@ async function baseline(h: Host, d: Deps, pkg: Pkg, name: string): Promise<Base 
 }
 // null = a new failure (the gate fails); else why it is not new. With results: fails no test that passed at the start; without: the check was red then too
 async function tolerated(h: Host, d: Deps, pkg: Pkg, name: string, rs?: Result[]): Promise<string | null> {
+  if (active().landing.baseline !== 'tolerate') return null   // `strict`: a red check blocks, whatever the plan started with
   const b = await baseline(h, d, pkg, name).catch(() => null); if (!b?.exit) return null
   const now = failing(rs); if (now && b.fails) return now.some(n => !b.fails!.includes(n)) ? null : `${name} fails only where it failed before the plan`
   return now ? null : `${name} was already red before the plan`
