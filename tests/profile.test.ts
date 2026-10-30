@@ -121,6 +121,8 @@ describe('the repo layer (D18, B23): as is, the repo wins; an invalid one is dor
     for (const p of ['${MODULES}//etc/x.mjs', '${MODULES}/../x.mjs', '${MODULES}/sub/x.mjs', '${MODULES}/x.sh', 'x/${MODULES}/y.mjs', '${MODULES}x.mjs']) expect((await loadProfile(host({ present: ['/repo/.cadre/modules/x.mjs'], repo: LAYER({ hooks: { release: [{ run: ['node', p] }] } }) }))).bad, p).toContain('a plain file name')
     const link = host({ repo: LAYER({ hooks: { release: [{ run: ['node', '${MODULES}/link.mjs'] }] } }) }); link.stat = async (p: string, r?: { resolve?: boolean }) => (p === '/repo/.cadre/modules/link.mjs' ? { kind: r?.resolve ? 'file' : 'symlink', realPath: '/elsewhere/link.mjs' } : { kind: 'dir', realPath: p })
     expect((await loadProfile(link)).bad).toContain('no such module')
+    const dirLink = host({ present: ['/repo/.cadre/modules/x.mjs'], repo: LAYER({ hooks: { release: [{ run: ['node', '${MODULES}/x.mjs'] }] } }) }); dirLink.stat = async (p: string, r?: { resolve?: boolean }) => (p === '/repo/.cadre/modules' ? { kind: r?.resolve ? 'dir' : 'symlink', realPath: '/elsewhere' } : { kind: 'file', realPath: p.replace('/repo/.cadre/modules', '/elsewhere') })
+    expect((await loadProfile(dirLink)).bad).toContain('no such module')
   })
   test('the profile is read once, at session start: an edit mid-session changes nothing until the next start', async () => {
     const h = host({ repo: LAYER({ limits: { rebaseRounds: 6 } }) }); try {

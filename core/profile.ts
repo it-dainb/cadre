@@ -113,7 +113,7 @@ export const check = (l: unknown): string | null => walk(l, Object.fromEntries(O
 // `${MODULES}/<name>.mjs` of a layer: a plain file name that exists in that layer's modules folder (the plugin's, or the repo's .cadre/modules) and is a regular file under it (no link out of it)
 async function modules(h: Host, l: ProfileLayer, dir: string): Promise<string | null> {
   const mine = [...Object.values(l.hooks ?? {}).flat().flatMap(x => ('run' in x ? x.run : [])), ...(l.landing?.provider ? [l.landing.provider] : [])].filter(s => s.includes('${MODULES}'))
-  const real = (await h.stat(dir, { resolve: true }))?.realPath
+  const real = dir && (await h.stat(dir))?.kind === 'dir' ? (await h.stat(dir, { resolve: true }))?.realPath : undefined   // the folder itself is no link either
   for (const s of mine) {
     const name = s.slice('${MODULES}/'.length)
     if (!s.startsWith('${MODULES}/') || !name || name.includes('/') || name.includes('..') || !name.endsWith('.mjs')) return `${s}: a module path is \${MODULES}/<name>.mjs, a plain file name`
@@ -128,7 +128,7 @@ export type Loaded = { profile: Profile; name: string; user?: string; repo?: str
 let LOADED: Loaded | undefined
 export const loaded = (): Loaded | undefined => LOADED
 export async function loadProfile(h: Host): Promise<Loaded> {
-  const cfg = await cfgOf(h), root = await h.cwd(), c = cfg.profile as unknown, name = typeof c === 'string' ? c : 'default', plugin = `${(await h.root?.()) ?? "."}/modules`
+  const cfg = await cfgOf(h), root = await h.cwd(), c = cfg.profile as unknown, name = typeof c === 'string' ? c : 'default', plugin = (r => r ? `${r}/modules` : '')(await h.root?.())
   const out: Loaded = { profile: DEFAULT, name, owner: {} }
   const base = BUILTIN[name]; if (!base) out.name = 'default'
   let p = { ...DEFAULT, ...(base ?? DEFAULT), flags: { ...DEFAULT.flags, ...(base ?? DEFAULT).flags } } as Profile   // a built-in profile replaces the sections it names; its flag rows go over the default's
