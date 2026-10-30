@@ -83,6 +83,11 @@ describe('roadmap draft', () => {
     const ok = (await w.call('TaskCreate', { subject: 'Notes', description: 'g', metadata: { size: 2, paths: ['CHANGELOG.md', 'src/a.ts'] } })).result.task.id
     const u = await w.call('TaskUpdate', { taskId: ok, metadata: { paths: ['CHANGELOG.md'] } }); expect(u.result.error).toContain('every path of this epic is protected')
   })
+  test('a task (not an epic) that names a protected file in its paths is refused at plan time with the reason', async () => {
+    const w = await world(); await w.call('TaskCreate', { subject: 'Goal', description: 'g', metadata: { kind: 'plan', lane: 'full', reason: 'r' } })
+    const r = await w.call('TaskCreate', { subject: 'T', description: 'd', metadata: { type: 'feature', paths: ['src/a.ts', 'CHANGELOG.md'] } })
+    expect(JSON.stringify(r)).toContain('CHANGELOG.md is protected: it is written for you')
+  })
   test('the plan answer carries the roadmap rules; epics need goal, size, paths; overlap and core size go back to the planner', async () => {
     const w = await world(), p = await w.call('TaskCreate', { subject: 'User accounts', description: 'accounts', metadata: MSP }), m = p.result.task.id
     expect(p.context.join('\n')).toContain('Roadmap rules'); expect((await w.h.board.read()).plan!.epicBranch).toBe(`milestone/${m}-user-accounts`)

@@ -15,6 +15,7 @@ import { epicOf, planEpic, stopEpic } from './milestone'
 import { itemSig } from './render'
 import { holdsGap, itemsOf, notesOf, pathsOf, sliceNotes, taskFields, validateFields } from './validate'
 import { fieldsOf } from './plantools'
+import { protectedIn } from './specview'
 import { limited } from './drive'
 
 const syms = (t: Task) => { const s = itemsOf(t.design).filter(x => x.status !== 'unchanged'); return s.length ? ` · contract ${s.map(itemSig).join('; ')}` : '' }
@@ -67,7 +68,7 @@ async function draft(h: Host, store: TaskStore, id: string, tasks: unknown): Pro
     if (typeof t?.subject !== 'string' || !t.subject.trim() || typeof t.description !== 'string') return no(`${at}: needs a subject and a description (strings)`)
     if (typeof m !== 'object' || Array.isArray(m)) return no(`${at}: metadata: expected an object`)
     const { epic, ...meta } = m; if (epic !== undefined && epic !== id) return no(`${at}: metadata.epic: omit it (every task is of ${id})`)
-    const err = validateFields(meta) ?? (meta.holds ? holdsGap(meta.holds, fieldsOf(meta).patch.acceptance) : null) ?? (meta.kind !== undefined ? 'metadata.kind: omit it' : null); if (err) return no(`${at}: ${err}`)
+    const err = validateFields(meta) ?? protectedIn(meta.paths) ?? (meta.holds ? holdsGap(meta.holds, fieldsOf(meta).patch.acceptance) : null) ?? (meta.kind !== undefined ? 'metadata.kind: omit it' : null); if (err) return no(`${at}: ${err}`)
     const f = fieldsOf(meta)
     made.push((await store.createDraft({ title: t.subject, description: t.description, acceptance: f.patch.acceptance, design: f.patch.design, type: meta.type ?? 'feature', parent: id, meta: f.meta })).id)
   }

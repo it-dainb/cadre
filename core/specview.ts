@@ -28,6 +28,11 @@ export const protectedOnly = (paths: unknown): string | null => {
   const ps = Array.isArray(paths) ? paths.map(String) : []
   return ps.length && ps.every(isProtected) ? modelText('tool-result', `metadata.paths: every path of this epic is protected (${ps.join(', ')}): no task may change these files; drop the epic or give it the files it changes`) : null
 }
+// a task that names a protected file in its paths can never finish (no task agent may write it): refused at plan time with the reason
+export const protectedIn = (paths: unknown): string | null => {
+  const ps = (Array.isArray(paths) ? paths.map(String) : []).filter(isProtected)
+  return ps.length ? modelText('tool-result', `metadata.paths: ${ps.join(', ')} is protected: it is written for you, never by a task, so it is neither a path nor an acceptance item of one; drop it`) : null
+}
 export const rootOf = (p?: Pkg) => (!p || p.root === '.' ? '' : p.root)
 // jail: off = run unsandboxed; auto = the sandbox when this machine has one; on = the sandbox or nothing (the check fails with the reason)
 export async function modeOf(h: Host, d: Pick<Deps, 'cfg'>): Promise<'overlay' | 'copy' | 'none'> {
