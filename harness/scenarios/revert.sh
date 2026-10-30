@@ -9,7 +9,7 @@ until_log '^[0-9]+ answer release' 60; until_log '^[0-9]+ answer main has new wo
 M=$(ug log dev --merges -1 --format=%H); EPIC=$(ug log -1 --format=%s "$M" | sed -E 's/.*\(([^()]+)\)$/\1/')
 FILES=$(ug diff --name-only "$M^1" "$M" | grep -v '^CHANGELOG.md$' | tr '\n' ' ')
 SQ=$(ug log --no-merges --grep='^Refs: ' -1 --format=%B "$M^2"); TID=$(sed -nE 's/^Refs: (.*)$/\1/p' <<<"$SQ"); TT=$(ug log --no-merges --grep='^Refs: ' -1 --format=%s "$M^2")   # the squash commit: the changelog hook's commit (B6) sits above it
-BR=$(cd "$H/.." && node --experimental-transform-types --no-warnings --import ./tests/dev/register.mjs -e 'import("./core/branches.ts").then(b => console.log(b.taskBranch(process.argv[1], process.argv[2], process.argv[3])))' "${TT%%:*}" "$TID" "${TT#*: }")
+BR=$(cd "$H/.." && node --experimental-transform-types --no-warnings --import ./tests/dev/register.mjs -e 'import("./core/branches.ts").then(b => console.log(b.taskBranch(process.argv[1], process.argv[2], process.argv[3])))' "${TT%%:*}/" "$TID" "${TT#*: }")
 ug branch "$BR" dev; log "revert $EPIC: files [$FILES] task branch $BR"
 for try in 1 2 3; do send "/cadre revert $EPIC"; until_log '^[0-9]+ (dialog|press1) .*revert it on' 25 && break; log "revert not taken ($try)"; idle 30; done
 for _ in $(seq "$(left)"); do ug log dev --format=%s -1 | grep -q '^revert ' && break; sleep 1; done; log "revert landed"; idle 60
