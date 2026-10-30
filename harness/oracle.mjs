@@ -405,9 +405,12 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
   if (o === 'profile-analysis') {   // the analysis profile: scout > analyst > verify (one failing JUnit case sends it back once) > examiner > landing; the briefs speak the profile's own words (read, no denylist)
     const log = read(join(dir, 'dev-log')).split('\n').filter(Boolean), by = x => subs.filter(s => new RegExp(`${x} brief`).test(s.brief))
     const an = by('Analyst'), ex = by('Examiner'), sc = by('Scout'), n = x => x.length
-    Object.assign(stats, { devLog: log, scouts: n(sc), analysts: n(an), examiners: n(ex), analystPrompts: an[0]?.texts.length ?? 0 })
+    Object.assign(stats, { devLog: log, scouts: n(sc), analysts: n(an), examiners: n(ex), analystReports: an[0]?.uses.filter(u => /report$/.test(u.name)).length ?? 0 })
     if (!n(sc) || n(an) !== 1 || !n(ex)) fail(o, `scout ${n(sc)}x, analyst ${n(an)}x, examiner ${n(ex)}x (want 1 analyst run, sent back once, and the others)`)
-    else if (an[0].texts.length !== 2) fail(o, `the analyst was given ${an[0].texts.length} prompts (want 2: the task, then once back after the failing case)`)
+    else {   // sent back once: its first report is refused with the failing case, the second is accepted
+      const sent = [...an[0].results.values()].filter(x => /states a conclusion/.test(x)).length, reps = an[0].uses.filter(u => /report$/.test(u.name)).length
+      if (sent !== 1 || reps !== 2) fail(o, `the analyst reported ${reps}x and was refused with the failing case ${sent}x (want 2 and 1)`)
+    }
     if (!/A1: the summary names what the data shows/.test(an[0]?.brief ?? '')) fail(o, "the analyst's brief lacks the task's own acceptance item")
     if (!/method, evidence, completeness/.test(ex[0]?.brief ?? '')) fail(o, "the examiner's brief lacks the profile's rubric")
     if (by('Tester').length + by('Worker').length + by('Reviewer').length) fail(o, 'an agent of the default profile ran under the analysis profile')
