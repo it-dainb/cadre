@@ -14,8 +14,8 @@ import type { Host } from '../types'
 type W = Awaited<ReturnType<typeof world>>
 const tool = (w: W, name: string, input: Record<string, unknown>, agentId?: string) => viaEngine(w.h, { tool: `mcp__cadre__${name}`, tool_use_id: 'u1', ...(agentId ? { agentId } : {}), ...input }) as Promise<any>
 const err = (r: any) => (typeof r.result === 'string' ? r.result : '')
-const { type, package: pkg, scenarios, changelog, interface: iface, paths } = FULL
-const TASK = { type, package: pkg, scenarios, changelog, interface: iface, paths }
+const { type, package: pkg, acceptance, changelog, contract: iface, paths } = FULL
+const TASK = { type, package: pkg, acceptance, changelog, contract: iface, paths }
 async function planned(w: W) {
   const p = await tool(w, 'plan', { title: 'Auth login', description: 'goal', lane: 'full', reason: 'two steps' })
   const a = await tool(w, 'task', { title: 'Add login', description: 'impl', ...TASK })
@@ -28,7 +28,7 @@ describe('main tools: valid input is stored with the plan revision', () => {
     const p = await tool(w, 'plan', { title: 'Auth login', description: 'goal', lane: 'full', reason: 'two steps' })
     expect(p.result).toEqual({ id: 'm-1', plan: 'm-1', revision: 1, at: expect.any(Number), by: 'main' })
     const t = await tool(w, 'task', { title: 'Add login', description: 'impl', type: 'feature' })
-    expect(t.result).toMatchObject({ id: 'm-2', plan: 'm-1', revision: 2 }); expect(t.context).toEqual(['missing: m-2: scenarios, changelog, interface, package'])
+    expect(t.result).toMatchObject({ id: 'm-2', plan: 'm-1', revision: 2 }); expect(t.context).toEqual(['missing: m-2: acceptance, changelog, contract, package'])
     expect((await w.store.get('m-1')).meta['cadre.rev']).toBe('2')
     expect((await w.h.board.read()).tasks.map(x => x.id)).toEqual(['m-2'])
   })
@@ -45,7 +45,7 @@ describe('refusals name the field and say how to retry; nothing is stored', () =
   test('schema: unknown field, wrong type, a cap (rejected, never truncated), a missing required field', async () => {
     const w = await world(); await planned(w)
     const before = (await w.store.list({})).length
-    expect(err(await tool(w, 'task', { title: 'x', description: 'y', colour: 'red' }))).toBe('error: colour: unknown field (allowed: title, description, type, package, scope, breaking, scenarios, changelog, interface, paths, core, holds, risk, epic, after); remove it and call again')
+    expect(err(await tool(w, 'task', { title: 'x', description: 'y', colour: 'red' }))).toBe('error: colour: unknown field (allowed: title, description, type, package, scope, breaking, acceptance, changelog, contract, paths, core, holds, risk, epic, after); remove it and call again')
     expect(err(await tool(w, 'task', { title: 5, description: 'y' }))).toBe('error: title: expected a string, got 5; fix it and call again')
     expect(err(await tool(w, 'task', { title: 'x'.repeat(201), description: 'y' }))).toBe('error: title: at most 200 characters, got 201; shorten it and call again')
     expect(err(await tool(w, 'task', { title: 'x', description: 'y', after: Array(21).fill('m-2') }))).toContain('error: after: at most 20 items, got 21')
@@ -54,8 +54,8 @@ describe('refusals name the field and say how to retry; nothing is stored', () =
     // review 0.15 #8, #25: the nested objects are strict too (unknown keys and caps), and plan does not offer fields it always refuses
     expect(err(await tool(w, 'task', { title: 'x', description: 'y', changelog: { category: 'Added', entry: 'e', extra: 1 } }))).toContain('error: changelog.extra: unknown field')
     expect(err(await tool(w, 'task', { title: 'x', description: 'y', changelog: { category: 'Added', entry: 'e'.repeat(501) } }))).toContain('error: changelog.entry: at most 500 characters')
-    expect(err(await tool(w, 'task', { title: 'x', description: 'y', interface: { symbols: [{ name: 'a', kind: 'function', params: [], returns: 'v', status: 'new', note: 'x' }] } }))).toContain('error: interface.symbols[0].note: unknown field')
-    expect(err(await tool(w, 'task', { title: 'x', description: 'y', interface: { symbols: Array(51).fill({ name: 'a' }) } }))).toContain('error: interface.symbols: at most 50 items')
+    expect(err(await tool(w, 'task', { title: 'x', description: 'y', contract: { items: [{ name: 'a', note: 'x' }], extra: 1 } }))).toContain('error: contract.extra: unknown field')
+    expect(err(await tool(w, 'task', { title: 'x', description: 'y', contract: { items: Array(51).fill({ name: 'a' }) } }))).toContain('error: contract.items: at most 50 items')
     expect(err(await tool(w, 'plan', { title: 'x', description: 'y', lane: 'full', reason: 'r', notes: [{ text: 't', who: 'me' }] }))).toContain('error: notes')
     expect(err(await tool(w, 'plan', { title: 'x', description: 'y', paths: ['a.ts'] }))).toContain('error: paths: unknown field')
     expect(MAIN.find(t => t.name === 'plan')!.description).toContain('how big the work is')
@@ -65,7 +65,7 @@ describe('refusals name the field and say how to retry; nothing is stored', () =
     const w = await world()
     expect(err(await tool(w, 'task', { title: 'x', description: 'y' }))).toBe('error: no plan yet: call plan first')
     await planned(w)
-    expect(err(await tool(w, 'task', { title: 'x', description: 'y', scenarios: ['user can log in'] }))).toContain('error: scenarios[0]: expected "S1: Given <state> When <action> Then <outcome>"')
+    expect(err(await tool(w, 'task', { title: 'x', description: 'y', acceptance: [{ id: 'A 1', text: 'user can log in' }] }))).toContain('error: acceptance[0]: expected {"id":"A1","text":"one line"}')
   })
   test('graph: an unknown id and a cycle are refused before the write', async () => {
     const w = await world(); const { a } = await planned(w)

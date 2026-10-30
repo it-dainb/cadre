@@ -36,7 +36,7 @@ node --experimental-transform-types --no-warnings "$(dirname "$0")/../seed.mjs" 
    "description": "Cap a slug at max characters without leaving a trailing dash.",
    "type": "feature",
    "acceptance": "S1: Given the title \"Hello, World!\" When slug_max is called with max 5 Then it returns \"hello\"\nS2: Given the title \"ab cd ef\" When slug_max is called with max 3 Then it returns \"ab\" (no trailing dash)\nS3: Given any title When slug_max is called with a max at least as long as the slug Then it equals the slug",
-   "design": "{\"symbols\":[{\"name\":\"slug_max\",\"kind\":\"function\",\"params\":[\"s: &str\",\"max: usize\"],\"returns\":\"String\",\"status\":\"new\"}]}",
+   "design": "{\"items\":[{\"name\":\"slug_max\",\"kind\":\"function\",\"params\":[\"s: &str\",\"max: usize\"],\"returns\":\"String\",\"status\":\"new\"}]}",
    "meta": {
     "cadre.package": ".",
     "cadre.changelog": "{\"category\":\"Added\",\"entry\":\"slug_max truncates a slug to a maximum length\"}"

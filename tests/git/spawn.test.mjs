@@ -23,7 +23,7 @@ const { modelView } = await import('../../core/board.ts')
 
 const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: o.cwd }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()
-const DESIGN = JSON.stringify({ symbols: [{ name: 'f', kind: 'fn', params: [], returns: 'x', status: 'new' }] })
+const DESIGN = JSON.stringify({ items: [{ name: 'f', kind: 'fn', params: [], returns: 'x', status: 'new' }] })
 
 // n tasks of one approved plan, drive armed in mod mode (CADRE_SPAWN=mod); `turn()` = an agent's turn end reaching the spawner registration
 async function world(n = 1, o = {}) {

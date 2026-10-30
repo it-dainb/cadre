@@ -9,6 +9,9 @@ import { leaks, modelText } from './say'
 export type RoleSpec = Pick<ProfileRole, 'description' | 'prompt' | 'tools' | 'write' | 'ttl' | 'nudge' | 'mcpAllow' | 'effort' | 'disallowedTools' | 'maxTurns'>
 const R = 'mcp__cadre__report', C = 'mcp__cadre__run_check', I = 'mcp__cadre__inspect'
 // write: globs under the role's tree; [] = read-only. The tester's tree is its view; fence() subtracts the PROTECTED paths it already refuses (git.PROTECTED) after this match.
+// `cadre:<name>`: main's call of a role (the name's characters: ASCII letters, digits, _ and -)
+export const WORD = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_'
+export const cadreRole = (a: unknown): string | undefined => { const s = String(a ?? '').slice(6); return String(a ?? '').startsWith('cadre:') && s && [...s].every(c => WORD.includes(c) || c === '-') ? s : undefined }
 export const ROLES_DEFAULT: Record<Role, RoleSpec> = {
   ...(defaultRoles as Record<string, RoleSpec>),
   planner: { description: 'drafts the task plan of one epic, read-only', prompt: modelText('agent-file', PROMPTS.planner), tools: ['Read', I, R], write: [], ttl: '1h', effort: 'high' },

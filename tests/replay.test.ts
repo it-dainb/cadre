@@ -91,7 +91,7 @@ describe('replays 1-11: the field failures', () => {
     await w.h.secret.update(x => ({ ...x, goalRun: { text: 'add parse', mode: 'auto', follow: 0, on: true } })); expect(await stopCheck(w.h, {})).toBeNull()
     const v = await native(); await v.call('TaskCreate', { subject: 'Service', description: 'goal', metadata: { kind: 'plan', lane: 'full', reason: 'a feature' } })
     const one = { subject: 'Add parse', description: 'd', metadata: { type: 'feature', paths: ['src/parse.js'] } }, id = (await v.call('TaskCreate', one)).result.task.id
-    expect((await v.call('TaskCreate', { ...one, subject: 'add PARSE' })).deny).toContain(`${id} already covers this`)
+    expect((await v.call('TaskCreate', { ...one, subject: 'add PARSE' })).result.task.id).not.toBe(id)   // B10: no duplicate-task detection
   })
   test('#9 a plan drafted in one turn: no card mid-turn, one card at its end', async () => {
     const w = await native(); await mainTurn(w.h, true)

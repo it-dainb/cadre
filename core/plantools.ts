@@ -8,35 +8,40 @@ import type { Host, Snapshot } from '../types'
 import type { Task, TaskStore } from '../task-management/store'
 import { StoreError } from '../task-management/store'
 import { active } from './pipeline'
+import { cadreRole } from './roles'
 import { canon, modelView } from './board'
 import { apply } from './machine'
 import { emit } from './events'
 import { settleIf, yoloOn } from './decide'
 import { DRIVE, cfgOf, draftsOf, mirror, storeOf, touched } from './dispatch'
-import { protectedOnly, repoSplit } from './specview'
+import { protectedOnly } from './specview'
 import { scoped } from '../commands/init'
 import { retouch, roadmapRules } from './lanes'
 import { MS, epicOf, isMs, planEpic } from './milestone'
 import { epicBranch, slug } from './branches'
-import { capped, clearRetries, holdsGap, holdsOf, missingLine, questionsOf, refuse, validateFields } from './validate'
+import { capped, clearRetries, holdsGap, holdsOf, idOf, missingLine, questionsOf, refuse, validateFields } from './validate'
 import { nextAction, subject, taskText } from './render'
 import { clarifyTool } from './clarify'
 import { idsIn } from './briefs'
 
-// Plan rules (DESIGN 3.1): ≤1.5 KB, byte-stable for one registry. Carried once per plan, in the first answer's `context`.
-export const planRules = (): string => [
-  'Plan rules (v1)',
-  '- A plan starts with plan {title, description, lane:"full", reason}; then one task call per task. Order tasks with after: ["<id>"].',
-  '- Task fields: type, scope?, breaking?, package, scenarios ["S1: Given <state> When <action> Then <outcome>"], changelog {"category":"Added","entry":"…"} or {"none":true,"reason":"…"}, interface {"symbols":[{"name","kind","params":[…],"returns","status":"new|changed|unchanged"}]} or {"none":true,"reason":"…"}.',
-  `- Types and pipelines: ${Object.entries(active().types).map(([t, s]) => `${t} ${s.pipeline.join('>')}`).join('; ')}.`,
-  '- Each task is a vertical slice: shown working on its own, fits one fresh context, has its wiring and one smoke assertion.',
-  '- With 2+ tasks: paths per task. Code 2+ tasks need: ONE thin core task first (core:true; interfaces, minimal code, contract tests) that the others wait for (after). Two tasks on one path need an after dependency.',
-  '- Exploration 2+ tasks need: one explore before the plan; its findings go in the plan\'s notes as [{"paths":[…],"text":"…"}] (no paths: all tasks).',
-  '- A package the work needs is not a task of its own: the task that uses it installs it.',
-  '- holds ["S2"]: scenarios whose behaviour already exists; their tests pass at red.',
-  '- A draft may be incomplete: "missing:" says what approval needs.',
-  '- Only the human approves. An approved task changes only through amend, with reason and evidence.',
-].join('\n')
+// Plan rules (DESIGN 3.1): ≤1.5 KB, byte-stable for one profile. Carried once per plan, in the first answer's `context`. The type list and the acceptance wording come from `profile.types`.
+export const planRules = (): string => {
+  const T = Object.entries(active().types), fmt = [...new Set(T.map(([, s]) => s.acceptance.format))]
+  return [
+    'Plan rules (v1)',
+    '- A plan starts with plan {title, description, lane:"full", reason}; then one task call per task. Order tasks with after: ["<id>"].',
+    '- Task fields: type, scope?, breaking?, package, acceptance [{"id","text"}], changelog {"category":"Added","entry":"…"} or {"none":true,"reason":"…"}, contract {"items":[{"name","status":"new|changed|unchanged"}]} or {"none":true,"reason":"…"}.',
+    `- Types and pipelines: ${T.map(([t, s]) => `${t} ${s.pipeline.join('>')}`).join('; ')}.`,
+    `- Acceptance: ${fmt.map(f => `${T.filter(([, s]) => s.acceptance.format === f).map(([t]) => t).join(', ')}: ${f}`).join('; ')}.`,
+    '- Each task is a vertical slice: shown working on its own, fits one fresh context, with its wiring and one smoke assertion.',
+    '- With 2+ tasks: paths per task. Code 2+ tasks need: ONE thin core task first (core:true; contract, minimal code, tests) the others wait for (after). Two tasks on one path need an after dependency.',
+    '- Exploration 2+ tasks need: one explore before the plan; its findings go in the plan\'s notes as [{"paths":[…],"text":"…"}] (no paths: all tasks).',
+    '- A package is not a task of its own: the task that uses it installs it.',
+    '- holds ["A2"]: acceptance ids already true; their tests pass at red.',
+    '- A draft may be incomplete: "missing:" says what approval needs.',
+    '- Only the human approves. An approved task changes only through amend, with reason and evidence.',
+  ].join('\n')
+}
 
 const NATIVE = { draft: 'pending', todo: 'pending', active: 'in_progress', review: 'in_progress', blocked: 'in_progress', done: 'completed', cancelled: 'completed' } as const
 const REFUSED = 'approved; amend it to return it to draft'
@@ -52,8 +57,8 @@ const fail = (e: unknown): string => (e instanceof StoreError ? `${e.code}: ${e.
 // task fields -> the store's fields. null clears: '' for text/meta.
 export function fieldsOf(m: Record<string, any>): { patch: Parameters<TaskStore['update']>[1]; meta: Record<string, string> } {
   const patch: Parameters<TaskStore['update']>[1] = {}, meta: Record<string, string> = {}, has = (k: string) => m[k] !== undefined
-  if (has('scenarios')) patch.acceptance = m.scenarios === null ? '' : m.scenarios.join('\n')
-  if (has('interface')) patch.design = m.interface === null ? '' : canon(m.interface)
+  if (has('acceptance')) patch.acceptance = m.acceptance === null ? '' : m.acceptance.map((x: { id: string; text: string }) => `${x.id}: ${x.text}`).join('\n')
+  if (has('contract')) patch.design = m.contract === null ? '' : canon(m.contract)
   for (const k of ['package', 'scope', 'critique', 'risk']) if (has(k)) meta[`cadre.${k}`] = m[k] ?? ''
   if (has('breaking')) meta['cadre.breaking'] = String(m.breaking ?? false)
   if (has('changelog')) meta['cadre.changelog'] = m.changelog === null ? '' : canon(m.changelog)
@@ -76,20 +81,12 @@ async function stale(h: Host, store: TaskStore, p: NonNullable<Snapshot['plan']>
   await settleIf(h, 'plan:'); await h.store.del(await scoped(h, 'board'))
   return 'dropped'
 }
-// a second task of the same plan with the subject or the declared files of an open one: two agents would write the same change and conflict at merge (live)
-const norm = (x: string) => x.trim().toLowerCase().replace(/\s+/g, ' '), filesOf = (v?: string) => { try { return JSON.parse(v || '[]').map(String).sort().join('\n') } catch { return '' } }
-export async function twinOf(store: TaskStore, parent: string, title: string, desc: string, paths?: string): Promise<{ id: string; why: string } | null> {   // same files alone may be two steps on one file
-  const open = (await store.list({ parent })).filter(t => t.type !== 'gate' && t.category !== 'done' && t.category !== 'cancelled'), p = filesOf(paths)
-  const t = open.find(x => norm(x.title) === norm(title)) ?? (p ? open.find(x => filesOf(x.meta['cadre.paths']) === p && norm(x.description) === norm(desc)) : undefined)
-  return t ? { id: t.id, why: norm(t.title) === norm(title) ? 'the same title' : 'the same files and description' } : null
-}
-
 // ---- the writes (each returns a refusal or {id, context}) ----
 type W = { error: string } | { id: string; context: string[] }
 async function create(h: Host, store: TaskStore, title: string, description: string, m: In): Promise<W> {
   const key = `create:${title}`
   if (await capped(h, key)) return { error: await refuse(h, key, 'draft refused') }
-  const err = validateFields(m) ?? repoSplit(await cfgOf(h), m.paths) ?? (m.holds ? holdsGap(m.holds, (m.scenarios as string[] | undefined)?.join('\n')) : null); if (err) return { error: await refuse(h, key, err) }
+  const err = validateFields(m) ?? (m.holds ? holdsGap(m.holds, fieldsOf(m).patch.acceptance) : null); if (err) return { error: await refuse(h, key, err) }
   await clearRetries(h, key)
   const s = await h.board.read()
   if (m.kind === 'mission' && (await h.secret.read()).run?.goal) return { error: 'not now: the user\'s goal comes next, and its plan carries the mission (plan mission). Go on with the next setup step.' }   // ADR 0014: one dialog for mission + plan
@@ -117,7 +114,6 @@ async function create(h: Host, store: TaskStore, title: string, description: str
   if (ms && !road && !['ready', 'planning'].includes(ep?.state ?? '')) return { error: `name the epic these tasks plan in epic; ready to plan: ${(s.plan.epics ?? []).filter(x => x.state === 'ready' || x.state === 'planning').map(x => x.id).join(', ') || 'none (wait for the next: line)'}` }
   if (!ms && m.epic !== undefined) return { error: 'epic: only in a milestone; omit it' }
   const pe = road ? protectedOnly(m.paths) : null; if (pe) return { error: await refuse(h, key, pe) }   // an epic only of protected paths
-  const twin = await twinOf(store, ep?.id ?? s.epic, title, description, f.meta['cadre.paths']); if (twin) return { error: `${twin.id} already covers this (${twin.why}): amend ${twin.id} instead of adding a second task` }
   const t = await store.createDraft({ title, description, acceptance: f.patch.acceptance, design: f.patch.design, type: road ? 'epic' : m.type ?? 'feature', parent: ep?.id ?? s.epic, meta: f.meta })
   return { id: t.id, context: ctx(ep?.state === 'ready' ? planRules() : '', missingLine(await retouch(h, store))) }
 }
@@ -128,7 +124,7 @@ async function edit(h: Host, store: TaskStore, id: string, i: In): Promise<W> {
   const { title, description, after = [], ...m } = i, s = await h.board.read()
   const no2 = async (why: string): Promise<W> => ({ error: await refuse(h, id, why) })
   if (m.critique !== undefined && !Object.values(((await h.ui.read()).asks ?? {}) as Record<string, { answer?: string }>).some(a => a.answer !== undefined)) return no2('critique: ask the critic first (explore with the whole roadmap) and use its answer')
-  const err = validateFields(m) ?? repoSplit(await cfgOf(h), m.paths) ?? (t.type === 'epic' ? protectedOnly(m.paths) : null) ?? (m.holds !== undefined || m.scenarios !== undefined ? holdsGap(m.holds !== undefined ? m.holds : holdsOf(t), m.scenarios ? (m.scenarios as string[]).join('\n') : t.acceptance) : null) ?? (m.type !== undefined && m.type !== t.type ? `type: fixed at creation (${t.type}); remove the draft and add a new task` : null); if (err) return no2(err)
+  const err = validateFields(m) ?? (t.type === 'epic' ? protectedOnly(m.paths) : null) ?? (m.holds !== undefined || m.acceptance !== undefined ? holdsGap(m.holds !== undefined ? m.holds : holdsOf(t), m.acceptance ? fieldsOf(m).patch.acceptance : t.acceptance) : null) ?? (m.type !== undefined && m.type !== t.type ? `type: fixed at creation (${t.type}); remove the draft and add a new task` : null); if (err) return no2(err)
   const isEpic = id === s.epic, draft = t.category === 'draft' && !(isEpic && s.plan && s.plan.state !== 'draft')   // approval leaves the epic itself draft: its board state is the truth
   if (!draft) {
     if (isEpic) return { error: REFUSED }
@@ -215,13 +211,12 @@ async function epic(h: Host, i: In): Promise<Out> {
 // verbatim and changes once (a second change is the user's). auto: the task goes back to the user's dialog; yolo: main's decision is recorded and stands.
 type Entry = { criterion: string; original: string; reason: string; evidence: string; at: number }
 const ledgerOf = (t: Task): Entry[] => { try { return JSON.parse(t.meta['cadre.amendments'] || '[]') } catch { return [] } }
-const sid = (l: string) => /^S\d+/.exec(l)?.[0] ?? l
-const NOT = ['id', 'expectedRevision', 'scenarios', 'after', 'remove', 'reason', 'evidence']
+const NOT = ['id', 'expectedRevision', 'acceptance', 'after', 'remove', 'reason', 'evidence']
 function criteria(t: Task, i: In): { criterion: string; original: string }[] {   // a value equal to the stored one is no change; after (new waits) is one
-  const was = new Map((t.acceptance ?? '').split('\n').filter(Boolean).map(l => [sid(l), l])), now = new Map(((i.scenarios ?? []) as string[]).map(l => [sid(l), l]))
-  const sc = i.scenarios ? [...new Set([...was.keys(), ...now.keys()])].filter(k => was.get(k) !== now.get(k)).map(k => ({ criterion: `scenario ${k}`, original: was.get(k) ?? '(none)' })) : []
-  const raw = (k: string) => (k === 'title' ? t.title : k === 'description' ? t.description : k === 'interface' ? t.design : k === 'type' ? t.type : t.meta[`cadre.${k}`]) ?? ''
-  const f = fieldsOf(i), given = (k: string) => (k === 'title' || k === 'description' || k === 'type' ? i[k] : k === 'interface' ? f.patch.design : f.meta[`cadre.${k}`])
+  const was = new Map((t.acceptance ?? '').split('\n').filter(Boolean).map(l => [idOf(l), l])), now = new Map(((i.acceptance ?? []) as { id: string; text: string }[]).map(x => [x.id, `${x.id}: ${x.text}`]))
+  const sc = i.acceptance ? [...new Set([...was.keys(), ...now.keys()])].filter(k => was.get(k) !== now.get(k)).map(k => ({ criterion: `scenario ${k}`, original: was.get(k) ?? '(none)' })) : []
+  const raw = (k: string) => (k === 'title' ? t.title : k === 'description' ? t.description : k === 'contract' ? t.design : k === 'type' ? t.type : t.meta[`cadre.${k}`]) ?? ''
+  const f = fieldsOf(i), given = (k: string) => (k === 'title' || k === 'description' || k === 'type' ? i[k] : k === 'contract' ? f.patch.design : f.meta[`cadre.${k}`])
   const deps = t.deps.filter(d => BLOCK.includes(d.type)).map(d => d.id), after = ((i.after ?? []) as string[]).filter(x => !deps.includes(x))
   return [...sc, ...Object.keys(i).filter(k => !NOT.includes(k) && given(k) !== raw(k)).map(k => ({ criterion: k, original: raw(k) || '(none)' })), ...(after.length ? [{ criterion: 'after', original: deps.join(', ') || '(none)' }] : [])]
 }
@@ -309,7 +304,7 @@ export const PLAN_TOOLS: Record<string, (h: Host, i: In) => Promise<Out>> = { pl
 // An agent's own calls carry agentId and pass.
 export const TASK_TOOLS = ['TaskCreate', 'TaskGet', 'TaskList', 'TaskUpdate']
 // main's call of a role of its own (a role of the profile that no step runs): a cadre: name that is neither the role of a step of the profile nor the planner (generated from the profile's steps; specifier stays as in 1.0.1)
-const isCustom = (a: string) => /^cadre:[\w-]+$/.test(a) && ![...Object.values(active().steps).flatMap(s => ('role' in s ? [s.role] : [])), 'planner'].includes(a.slice(6))
+const isCustom = (a: string) => { const r = cadreRole(a); return !!r && ![...Object.values(active().steps).flatMap(s => ('role' in s ? [s.role] : [])), 'planner'].includes(r) }
 export const mainAgent = (e: { tool?: string; agentId?: string; prompt?: string; subagent_type?: string }, ids: string[], origin?: { plugin?: string }) => (e.agentId || (origin?.plugin && origin.plugin !== 'engine') ? undefined   // a plugin's own call (cadre's spawner starting an explorer or a task) passes
   : e.tool === 'Agent' && !idsIn(String(e.prompt ?? ''), ids).length && !isCustom(String(e.subagent_type ?? '')) ? { deny: modelText('deny', 'plan the work with plan and task; to learn about the code or ask a critic, call explore with your question') }
   : TASK_TOOLS.includes(String(e.tool)) ? { deny: modelText('deny', 'plan with the plan tools instead: plan, task, epic, amend; status reads the plan and moves a task on') } : undefined)

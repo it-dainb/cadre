@@ -22,7 +22,7 @@ const { repoKeyOf } = await import('../../commands/init.ts')
 
 const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: o.cwd }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()
-const DESIGN = JSON.stringify({ symbols: [{ name: 'f', kind: 'fn', params: [], returns: 'x', status: 'new' }] })
+const DESIGN = JSON.stringify({ items: [{ name: 'f', kind: 'fn', params: [], returns: 'x', status: 'new' }] })
 const hooks = h => PL.setProfile({ ...sessionProfile, hooks: h })
 const node = (code, commit) => ({ run: ['node', '-e', code], ...(commit ? { commit } : {}) })
 

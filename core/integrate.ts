@@ -139,7 +139,6 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
   const open = s.tasks.filter(t => (!ep || t.epic === epicId) && t.state !== 'done' && t.state !== 'cancelled').map(t => t.id)
   if (open.length) return `children still open: ${open.join(', ')}`
   const gf = await gitFlags(h); if (gf.length) return `git flag ${gf[0]} is open (someone changed a protected ref); ask the human to keep or restore it in the cadre dialog first`
-  const units = unitsOf(await cfgOf(h)), own = units.find(u => u.ownGit); if (own) return `${own.root} is its own repository: landing a submodule is not supported`
   await autoLand(h).catch(x => h.log(`land: ${x}`))   // a landing that waited for the user's checkout goes first where it can
   let got = false; await h.board.update(b => { got = b.plan?.state === 'approved'; return got ? { ...b, plan: { ...b.plan!, state: 'integrating' } } : b })
   if (!got) return 'integration is already running'

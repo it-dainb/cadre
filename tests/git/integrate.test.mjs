@@ -178,11 +178,6 @@ test('knownRed runs and never gates; baseline tolerate keeps a check that was re
     const out = await integrateEpic(w.h, w.epic); want ? assert.match(out, new RegExp(want)) : assert.equal(out, null)
   }
 })
-test('a unit that is its own repository is refused at integration with one line, and nothing moves (B7)', async () => {
-  const { d, h } = await world(['true'], 'off', [{ root: '.', checks: { test: ['true'] } }, { root: 'lib', kind: 'submodule', ownGit: true, checks: { test: ['true'] } }]), old = sh(d, 'rev-parse', 'dev')
-  assert.equal(await integrateEpic(h, 'p3'), 'lib is its own repository: landing a submodule is not supported'); assert.equal(sh(d, 'rev-parse', 'dev'), old); assert.equal((await h.board.read()).plan.state, 'approved')
-})
-
 test('integration: a unit setup may write the folders settings.jailWritable names (a package cache), as at admission', async () => {
   const { d, h } = await world(['true'], 'auto'), cfg = await h.config(), w = mkdtempSync(join(tmpdir(), 'cadre-cache-'))
   cfg.jailWritable = [w]; cfg.units[0].checks.setup = ['sh', '-c', `echo ok > ${w}/marker`]

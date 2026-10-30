@@ -7,7 +7,7 @@ export const ELSEWHERE: Record<string, [string, string]> = {
   'concurrency.models': ['tests/concurrency.test.ts', 'settings: concurrency.models'], 'concurrency.providers': ['tests/concurrency.test.ts', 'settings: concurrency.providers'], 'models.allow': ['tests/config.test.ts', 'settings: models.allow'],
   'concurrency.default': ['tests/admission.test.ts', 'd.cfg.concurrency.default = 2'], 'milestone.maxEpics': ['tests/milestone.test.ts', 'cfg.milestone.maxEpics = maxEpics'],
   'roles.testerView': ['tests/admission.test.ts', "d.cfg.roles.testerView = 'full'"], 'roles.tdd.author': ['tests/admission.test.ts', "d.cfg.roles.tdd.author = 'same'"],
-  'milestone.epicPlanner': ['tests/planner.test.ts', "cfg.milestone.epicPlanner = 'main'"], 'planner.maxRounds': ['tests/planner.test.ts', 'cfg.planner.maxRounds = 2'],
+  'milestone.epicPlanner': ['tests/plan-tools.test.ts', "cfg.milestone.epicPlanner = 'main'"], 'planner.maxRounds': ['tests/plan-tools.test.ts', 'cfg.planner.maxRounds = 2'],
   units: ['tests/admission.test.ts', "d.cfg = { ...d.cfg, units: [{ root: '.', kind: 'service'"],
   adapters: ['tests/modules/sync.test.mjs', 'const config = { ...defaults(), adapters, sync }'], sync: ['tests/modules/sync.test.mjs', 'const config = { ...defaults(), adapters, sync }'],
   'lessons.model': ['tests/lessons.test.ts', 'settings: lessons.model'], 'lessons.passesPerDay': ['tests/lessons.test.ts', 'settings: lessons.passesPerDay'], 'lessons.repeats': ['tests/lessons.test.ts', 'settings: lessons.repeats'], 'lessons.repos': ['tests/lessons.test.ts', 'settings: lessons.repos'],

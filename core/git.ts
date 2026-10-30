@@ -124,7 +124,7 @@ export async function jailMode(run: Run): Promise<'overlay' | 'copy' | 'none'> {
   const t = await run(['bwrap', '--ro-bind', '/', '/', 'true']).catch(() => undefined)
   if (!t || t.exitCode) return 'none'
   const hp = await run(['bwrap', '--help']).catch(() => undefined)
-  return /--overlay-src/.test(`${hp?.stdout}${hp?.stderr}`) ? 'overlay' : 'copy'
+  return `${hp?.stdout}${hp?.stderr}`.includes('--overlay-src') ? 'overlay' : 'copy'
 }
 // the profile's `sandbox.env`, filled in (core/pipeline sets it at load; a leaf module takes it by this hook)
 export const SANDBOX: { env?: (v: Record<string, string>) => Record<string, string> } = {}
@@ -142,7 +142,9 @@ export async function checkRun(run: Run, mode: 'overlay' | 'copy' | 'none', j: J
 }
 // a worktree's submodules, checked out at the commits it records, cloned from the main checkout's own copy of each (no network). Returns why not, or null.
 export async function subInit(run: Run, root: string, wt: string): Promise<string | null> {
-  for (const [, sha, path] of (await run(['git', '-C', wt, 'submodule', 'status'])).stdout.split('\n').map(l => /^-([0-9a-f]{40}) (\S+)/.exec(l) ?? []).filter(m => m.length)) {
+  for (const l of (await run(['git', '-C', wt, 'submodule', 'status'])).stdout.split('\n')) {   // `-<40 hex> <path>`: a submodule not checked out yet
+    const sha = l.slice(1, 41), path = l.slice(42).split(' ')[0]
+    if (!l.startsWith('-') || l[41] !== ' ' || ![...sha].every(c => '0123456789abcdef'.includes(c)) || !path) continue
     const src = `${root}/${path}`, names = (await run(['git', '-C', wt, 'config', '-f', '.gitmodules', '--get-regexp', '^submodule\\..*\\.path$'])).stdout.split('\n'), name = names.find(x => x.endsWith(` ${path}`))?.split(' ')[0].slice(10, -5) ?? path
     if ((await run(['git', '-C', src, 'cat-file', '-e', `${sha}^{commit}`])).exitCode) return `${path}: the commit the repository records for it (${sha.slice(0, 7)}) is not in ${path}; fetch it there (git -C ${path} fetch), then try again`
     const r = await run(['git', '-C', wt, '-c', 'protocol.file.allow=always', '-c', `submodule.${name}.url=${src}`, 'submodule', 'update', '--init', '--', path]); if (r.exitCode) return `${path}: ${r.stderr.trim().slice(0, 200)}`

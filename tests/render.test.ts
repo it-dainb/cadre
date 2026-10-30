@@ -74,7 +74,7 @@ describe('result card, tags, commit message, beads comment, TaskGet text (golden
   })
   test('TaskGet text: scenarios, contract, changelog, facts line, records sorted', () => {
     const t = { id: 'a1', title: 'Add login', description: 'Email login.', acceptance: 'S1: Given a When b Then c\nS2: Given d When e Then f', type: 'feature', category: 'review' as const, nativeStatus: 'in_review', priority: 2 as const, deps: [], labels: [], updatedAt: '',
-      design: JSON.stringify({ symbols: [{ name: 'login', kind: 'function', params: ['e: string'], returns: 'Session', errors: ['AuthError'], doc: 'logs in', status: 'changed' }] }),
+      design: JSON.stringify({ items: [{ name: 'login', kind: 'function', params: ['e: string'], returns: 'Session', errors: ['AuthError'], doc: 'logs in', status: 'changed' }] }),
       meta: { 'cadre.changelog': JSON.stringify({ none: true, reason: 'internal' }), 'cadre.package': '.', 'cadre.breaking': 'true', 'cadre.rec.green': 'green ✓ test 41s', 'cadre.rec.check': 'lint ✓' } }
     expect(taskText(t, task('a1', { state: 'review', step: 'reviewer', owner: 'ag3', flags: ['edited:pm:title'] }))).toBe(GOLD.get)
     expect(taskText({ ...t, acceptance: undefined, design: JSON.stringify({ none: true, reason: 'no api' }), meta: {} })).toBe('Email login.\nContract: none (no api)\ntype feature')

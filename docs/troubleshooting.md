@@ -5,22 +5,21 @@ Start with `/cadre doctor` (read-only, safe any time). Its rows are in the pane'
 ```text
 symptom ──▶ /cadre doctor ──▶ row + fix ──▶ do the fix ──▶ /cadre doctor again
                                   │
-                                  └─ a sudo fix is a script: read it, run the one line shown
+                                  └─ a root fix is a command listed here: run it yourself
 ```
 
-cadre never runs root commands for you. `/cadre setup` writes each sudo fix to `~/.cache/cadre/fix/` (mode 0700, with a header saying what it does); Doctor shows the line once the script exists.
+cadre never runs root commands for you and writes no script: the fix for a machine row is a command you run yourself, listed below.
 
 ## The machine
 
 | Row says | Do this |
 |---|---|
-| git not found, or git older than 2.17 | `sudo sh ~/.cache/cadre/fix/git.sh` |
-| bwrap not found: checks run unjailed | `sudo sh ~/.cache/cadre/fix/bwrap.sh` |
-| socat not found | `sudo sh ~/.cache/cadre/fix/socat.sh` |
-| bwrap is blocked by AppArmor (Ubuntu 24.04+) | `sudo sh ~/.cache/cadre/fix/bwrap-apparmor.sh` lets only bwrap create user namespaces; the safest fix. Alternatives are in `~/.cache/cadre/fix/README` and are less safe. |
-| bwrap cannot create a user namespace (`unprivileged_userns_clone=0`, Debian) | `sudo sh ~/.cache/cadre/fix/userns-clone.sh` |
+| git not found, or git older than 2.17 | `see docs/troubleshooting.md: The machine`: `sudo apt install git` (or your distribution's package) |
+| bwrap not found: checks run unjailed | `see docs/troubleshooting.md: The machine`: `sudo apt install bubblewrap socat` |
+| socat not found | `see docs/troubleshooting.md: The machine`: `sudo apt install socat` |
+| bwrap is blocked by AppArmor (Ubuntu 24.04+) | `see docs/troubleshooting.md: The machine`: an AppArmor profile that lets only bwrap create user namespaces is the safest fix (`/etc/apparmor.d/bwrap`, profile `bwrap <path of bwrap> flags=(unconfined) { userns, }`, then `sudo systemctl reload apparmor`). The less safe alternative is `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, which allows user namespaces for every program. |
+| bwrap cannot create a user namespace (`unprivileged_userns_clone=0`, Debian) | `see docs/troubleshooting.md: The machine`: `sudo sysctl -w kernel.unprivileged_userns_clone=1` |
 | bwrap cannot create a user namespace (cause unknown) | `see https://code.claude.com/docs/en/sandboxing` |
-| a sudo fix row says to prepare it | `run /cadre setup to prepare the fix` |
 | git identity missing | `ask for them, then git config --global user.name and user.email` (Claude asks you; cadre never makes up an identity) |
 | worktree root is not writable | `set worktrees.root in ~/.claude/cadre.json, or fix the permissions` of the folder shown |
 

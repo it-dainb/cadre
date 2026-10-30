@@ -55,22 +55,16 @@ async function planIt(w: Awaited<ReturnType<typeof approved>>, e: string, k = 1)
 const ev = async (w: { h: any }) => Object.values((await w.h.events.read()).epics).flat() as any[]
 
 describe('lane and override', () => {
-  test('main picks milestone: never overridden; more than 7 tasks offers it; the dialog goes back to one plan', () => {
+  test('main picks milestone: never overridden; a task count changes no lane (B11); the dialog goes back to one plan', () => {
     expect(laneOf('milestone', [T()])).toEqual({ lane: 'milestone' })
     const eight = Array.from({ length: 8 }, (_, i) => T({ id: `t${i}` }))
-    expect(laneOf('full', eight)).toEqual({ lane: 'full', why: '8 tasks: a milestone fits' })
-    expect(laneOf('full', eight.slice(0, 7))).toEqual({ lane: 'full' })
+    expect(laneOf('full', eight)).toEqual({ lane: 'full' }); expect(laneOf('lite', eight.slice(0, 1))).toEqual({ lane: 'lite' })
     const P = (lane: Plan['lane']): Plan => ({ id: 'p', slug: 's', state: 'draft', epicBranch: 'epic/p-s', lane })
-    expect(nextLane(P('full'), eight)).toBe('milestone'); expect(nextLane(P('milestone'), [])).toBe('full')
+    expect(nextLane(P('full'), eight)).toBe('ask'); expect(nextLane(P('milestone'), [])).toBe('full')
   })
-  test('Change lane: full with 8 tasks → milestone drops the tasks, names the milestone branch and briefs the roadmap; back → one plan', async () => {
-    const w = await world(); await w.call('TaskCreate', { subject: 'Accounts', description: 'g', metadata: { kind: 'plan', lane: 'full', reason: 'big' } })
-    for (let i = 0; i < 8; i++) await w.call('TaskCreate', { subject: `T${i}`, description: 'd', metadata: { ...FULL, paths: [`src/t${i}.ts`] } })
+  test('Change lane: a milestone goes back to one plan: its epics are dropped, the plan branch is the plan\'s, main drafts the tasks', async () => {
+    const w = await world(); await w.call('TaskCreate', { subject: 'Accounts', description: 'g', metadata: { kind: 'plan', lane: 'milestone', reason: 'big' } })
     const id = (await w.h.board.read()).plan!.id
-    expect((await w.h.board.read()).decisions?.find(d => d.kind === 'plan')?.options.find(o => o.key.startsWith('l-'))?.label ?? (await w.h.board.read()).approval.missing.join()).toBeTruthy()
-    expect(await changeLane(w.h, w.store, id)).toBe(`${id}: lane milestone`)
-    const s = await w.h.board.read(); expect(s.plan).toMatchObject({ lane: 'milestone', epicBranch: `milestone/${id}-accounts` }); expect(await w.store.list({ parent: id })).toEqual([])
-    const g = String((await w.h.ui.read()).goal); expect(g).toContain('Roadmap rules'); expect(banned(g)).toEqual([])
     expect(await changeLane(w.h, w.store, id)).toBe(`${id}: lane full`)
     expect((await w.h.board.read()).plan!.epicBranch).toBe(`epic/${id}-accounts`); expect(String((await w.h.ui.read()).goal)).toContain('Draft its tasks now')
   })
@@ -133,9 +127,9 @@ describe('one approval, then epics plan themselves', () => {
     expect((await w.call('TaskCreate', { subject: 'X', description: 'd', metadata: { ...FULL, epic: w.es[0] } })).deny).toContain('name the epic')   // waiting on the core
     const t = await w.call('TaskCreate', { subject: 'User record', description: 'd', metadata: { type: 'feature', epic: w.c } })
     expect(t.context.join('\n')).toContain('Plan rules'); expect((await w.store.get(t.result.task.id)).parent).toBe(w.c)
-    let s = await w.board(); expect(s.plan!.epics![0].state).toBe('planning'); expect(s.approval).toEqual({ planId: null, missing: [`${w.c} plan: ${t.result.task.id}: scenarios, changelog, interface, package`] })
+    let s = await w.board(); expect(s.plan!.epics![0].state).toBe('planning'); expect(s.approval).toEqual({ planId: null, missing: [`${w.c} plan: ${t.result.task.id}: acceptance, changelog, contract, package`] })
     expect((await w.call('TaskUpdate', { taskId: w.c, metadata: { planned: true } })).result.error).toContain('incomplete')
-    await w.call('TaskUpdate', { taskId: t.result.task.id, metadata: { scenarios: FULL.scenarios, interface: FULL.interface, package: '.', changelog: FULL.changelog } })
+    await w.call('TaskUpdate', { taskId: t.result.task.id, metadata: { acceptance: FULL.acceptance, contract: FULL.contract, package: '.', changelog: FULL.changelog } })
     const r = await w.call('TaskUpdate', { taskId: w.c, metadata: { planned: true } }); expect(r.result.success).toBe(true)
     s = await w.board(); expect(s.plan!.epics![0].state).toBe('running'); expect(s.tasks).toMatchObject([{ id: t.result.task.id, state: 'todo', epic: w.c }])
     expect((s.decisions ?? []).filter(d => d.kind === 'plan')).toEqual([])   // no dialog: the roadmap was the approval

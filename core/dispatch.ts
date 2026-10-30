@@ -9,7 +9,8 @@ import { emit } from './events'
 import { ask, plural, settle, settleIf } from './decide'
 import { scoped } from '../commands/init'
 import { apply, epicNext } from './machine'
-import { missingList, openQuestions } from './validate'
+import { itemSig } from './render'
+import { itemsOf, missingList, openQuestions } from './validate'
 import { cutEpic } from './branches'
 import { laneLine, laneOption, queueBrief } from './lanes'
 import { isMs, roadmap } from './milestone'
@@ -88,15 +89,14 @@ export async function redraw(h: Host, store: TaskStore): Promise<string[]> {
   return missing
 }
 // the approval sheet data ui/ draws (UI-DESIGN 5.3), on the human view as `board.sheet`; `before` = the prior accepted contract of a changed symbol (closed tasks' design), else absent
-const sig = (s: any) => `${s.name}(${(s.params ?? []).join(', ')}) -> ${s.returns}`
 async function sheetOf(store: TaskStore, drafts: Task[]) {
-  const rows = drafts.filter(t => t.type !== 'epic').map(t => ({ t, d: t.design ? JSON.parse(t.design) : null })), prior = new Map<string, string>()
-  if (rows.some(r => r.d?.symbols?.some((x: any) => x.status === 'changed'))) for (const c of await store.list({})) if (c.category === 'done' && c.design) for (const x of JSON.parse(c.design).symbols ?? []) prior.set(x.name, sig(x))
-  return rows.map(({ t, d }) => {
+  const rows = drafts.filter(t => t.type !== 'epic'), prior = new Map<string, string>()
+  if (rows.some(r => itemsOf(r.design).some(x => x.status === 'changed'))) for (const c of await store.list({})) if (c.category === 'done' && c.design) for (const x of itemsOf(c.design)) prior.set(x.name, itemSig(x))
+  return rows.map(t => {
     const cl = t.meta['cadre.changelog'] ? JSON.parse(t.meta['cadre.changelog']) : null
     return { id: t.id, title: t.title, type: t.type, scope: t.meta['cadre.scope'] || undefined, package: t.meta['cadre.package'] || undefined, tdd: pipeOf(t.type, t.meta['cadre.lane']).includes('red') ? 'required' : 'off',
       changelog: cl && (cl.none ? `none (${cl.reason})` : `${cl.category}: ${cl.entry}`), breaking: t.meta['cadre.breaking'] === 'true' || undefined, scenarios: (t.acceptance ?? '').split('\n').filter(Boolean),
-      contract: (d?.symbols ?? []).map((x: any) => ({ sig: sig(x), status: x.status, ...(x.status === 'changed' && prior.has(x.name) ? { before: prior.get(x.name) } : {}) })) }
+      contract: itemsOf(t.design).map(x => ({ sig: itemSig(x), status: x.status, ...(x.status === 'changed' && prior.has(x.name) ? { before: prior.get(x.name) } : {}) })) }
   })
 }
 // after any draft change: mirror the board, redraw the code, refresh the sheet, announce, stamp seq. Returns the missing list.

@@ -13,16 +13,14 @@ import { fnv1a64 } from './board'
 import * as G from './git'
 import { modelText } from './say'
 import { baseOf } from './branches'
-import { auditView, inRepo, matches, pkgOf, rootOf, type Pkg } from './specview'
-import { holdsOf, specScenario, specTestsOf, untested } from './validate'
+import { auditView, matches, pkgOf, rootOf, type Pkg } from './specview'
+import { holdsOf, itemsOf, specScenario, specTestsOf, untested } from './validate'
 import { adopt, find, runGate, type Declared } from './gate'
 import type { Result } from './junit'
 import { policyOf, setPolicy } from '../policy/guards'
 import { reset, step } from './lifecycle'
 
 export interface Gate { ok: boolean; why?: string; card: string; tests?: Declared; setup?: true; passing?: string[]; secs?: number; structural?: true }   // passing: the scenario ids whose test passed at red (the dialog offers them as already holding)   // setup: the check is broken, not the work (the config must change); the task blocks at once   // structural: red held through valid JUnit results
-export interface Sym { name: string; status: string }
-export const symbolsOf = (design?: string): Sym[] => { try { return (JSON.parse(design ?? '{}').symbols ?? []) as Sym[] } catch { return [] } }
 
 export const verifyOf = (p: Pkg) => (p.verify?.length ? p.verify : [p.checks.test ? 'test' : Object.keys(p.checks).find(k => k !== active().landing.prepare)!])
 export const redOf = (p: Pkg) => p.tdd?.check ?? (verifyOf(p).includes('test') ? 'test' : verifyOf(p)[0])
@@ -62,7 +60,6 @@ async function baseline(h: Host, d: Deps, pkg: Pkg, name: string): Promise<Base 
   const s = await h.board.read(), br = s.plan?.epicBranch; if (!s.epic || !br) return null
   const key = `${pkg.root}:${name}`, all = JSON.parse((await d.store.get(s.epic)).meta['cadre.baseline'] || '{}') as Record<string, Base>
   if (all[key]) return all[key]
-  d = inRepo(d, pkg)
   const start = (await G.git(h.run, d.root, ['merge-base', br, await baseOf(h, d.cfg.branches.dev)])).trim(), tmp = `${d.wtRoot}/${d.key}.scratch/baseline`, root = rootOf(pkg) ? `${tmp}/${pkg.root}` : tmp
   await h.run(['git', '-C', d.root, 'worktree', 'add', '-f', '--detach', tmp, start]); await h.run(['mkdir', '-p', `${tmp}-s`])
   const sub = await G.subInit(h.run, d.root, tmp); if (sub) { h.log(`baseline: ${sub}`); await h.run(['git', '-C', d.root, 'worktree', 'remove', '--force', tmp]); return null }   // no baseline: every red is the task's
@@ -75,6 +72,7 @@ async function baseline(h: Host, d: Deps, pkg: Pkg, name: string): Promise<Base 
 }
 // null = a new failure (the gate fails); else why it is not new. With results: fails no test that passed at the start; without: the check was red then too
 async function tolerated(h: Host, d: Deps, pkg: Pkg, name: string, rs?: Result[]): Promise<string | null> {
+  if (active().landing.baseline !== 'tolerate') return null   // `strict`: a red check blocks, whatever the plan started with
   const b = await baseline(h, d, pkg, name).catch(() => null); if (!b?.exit) return null
   const now = failing(rs); if (now && b.fails) return now.some(n => !b.fails!.includes(n)) ? null : `${name} fails only where it failed before the plan`
   return now ? null : `${name} was already red before the plan`
@@ -102,7 +100,7 @@ export async function green(h: Host, d: Deps, task: Task, wt: string): Promise<G
   return { ok: true, secs: Math.round(ms / 1000), card: `green ✓ ${[...(tr ? ['spec tests'] : []), ...checks].join('+')} (${secs(ms)})${kr.length ? ` · knownRed ${kr.join(' ')}` : ''}` }
 }
 
-// ---- copy-in (4): view files under tdd.paths, only those, by path; skeleton for status:new symbols; one commit = specCommit ----
+// ---- copy-in (4): view files under tdd.paths, only those, by path; skeleton for contract items with status new; one commit = specCommit ----
 export async function copyIn(h: Host, d: Deps, task: Task, wt: string, view: string, pkg: Pkg): Promise<string> {
   const root = rootOf(pkg), scratch = `${d.wtRoot}/${d.key}.scratch/${task.id}-in`, paths = pkg.tdd?.paths ?? []
   const files = (await G.must(h.run, ['find', '.', '-type', 'f', '-print0'], { cwd: view }, 'listing the view failed', '\0')).map(p => (p.startsWith('./') ? p.slice(2) : p)).filter(p => matches(paths, p) && p !== 'SCENARIOS.md' && p !== 'INTERFACE.md')
@@ -112,7 +110,7 @@ export async function copyIn(h: Host, d: Deps, task: Task, wt: string, view: str
     await G.must(h.run, argv, { cwd: view, ...o }, 'copy-in failed')
   }
   await h.run(['rm', '-rf', scratch])
-  if (pkg.tdd?.skeleton && symbolsOf(task.design).some(s => s.status === 'new')) {   // signature-only stubs, writable jail, network off is not required (3.10)
+  if (pkg.tdd?.skeleton && itemsOf(task.design).some(x => x.status === 'new')) {   // signature-only stubs, writable jail, network off is not required (3.10)
     const sc = `${d.wtRoot}/${d.key}.scratch/${task.id}`, env = { CADRE_CONTRACT: `${view}/INTERFACE.md` }, pkgRoot = root ? `${wt}/${pkg.root}` : wt
     await h.run(['mkdir', '-p', sc])
     await (d.cfg.jail === 'off' ? G.must(h.run, pkg.tdd.skeleton, { cwd: pkgRoot, env }, 'skeleton failed') : G.must(h.run, G.writableJail({ wt, scratch: sc, pkgRoot, argv: pkg.tdd.skeleton, writable: d.cfg.jailWritable, env }), {}, 'skeleton failed'))

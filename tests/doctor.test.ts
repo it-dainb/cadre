@@ -58,11 +58,11 @@ describe('the fake host\'s clock (tests/support)', () => {
 })
 describe('machine checks', () => {
   test('a healthy machine is all ok', async () => { expect((await rowsOf(mk())).map(r => r[0])).toEqual(Array(8).fill('ok')) })
-  test('missing tools fail with the exact command for the human', async () => {
+  test('missing tools fail and point at the troubleshooting doc', async () => {
     const rs = await rowsOf(mk({ tools: {} }))
-    expect(lvl(rs, /git/)).toEqual(['crit', 'git not found', '! sudo sh ~/.cache/cadre/fix/git.sh'])
-    expect(lvl(rs, /bwrap/)[2]).toBe('! sudo sh ~/.cache/cadre/fix/bwrap.sh')
-    expect(lvl(rs, /socat/)[2]).toBe('! sudo sh ~/.cache/cadre/fix/socat.sh')
+    expect(lvl(rs, /git/)).toEqual(['crit', 'git not found', 'see docs/troubleshooting.md: The machine'])
+    expect(lvl(rs, /bwrap/)[2]).toBe('see docs/troubleshooting.md: The machine')
+    expect(lvl(rs, /socat/)[2]).toBe('see docs/troubleshooting.md: The machine')
   })
   test('old bwrap is ok in copy-jail mode with no sudo step, no namespaces warns', async () => {
     { const r = await rowsOf(mk({ jail: 'copy' })); expect(lvl(r, /copy jail/)[0]).toBe('ok'); expect(JSON.stringify(r)).not.toContain('bwrap-upgrade') }
@@ -74,14 +74,14 @@ describe('machine checks', () => {
   })
   test('bwrap userns cause: AppArmor (Ubuntu), clone=0 (Debian), unknown', async () => {
     const ub = await machine(mk({ jail: 'none', files: { '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n' } }), defaults() as any)
-    expect(lvl(ub.rows, /AppArmor/)![2]).toBe('! sudo sh ~/.cache/cadre/fix/bwrap-apparmor.sh'); expect(ub.scripts.find(x => x.path.endsWith('bwrap-apparmor.sh'))!.text).toContain('profile bwrap /usr/bin/bwrap'); expect(ub.scripts.find(x => x.path.endsWith('README'))!.text).toContain('less safe')
-    expect(lvl((await machine(mk({ jail: 'none', files: { '/proc/sys/kernel/unprivileged_userns_clone': '0' } }), defaults() as any)).rows, /clone=0/)![2]).toBe('! sudo sh ~/.cache/cadre/fix/userns-clone.sh')
+    expect(lvl(ub.rows, /AppArmor/)![2]).toBe('see docs/troubleshooting.md: The machine'); expect('scripts' in ub).toBe(false)   // cadre writes no fix script
+    expect(lvl((await machine(mk({ jail: 'none', files: { '/proc/sys/kernel/unprivileged_userns_clone': '0' } }), defaults() as any)).rows, /clone=0/)![2]).toBe('see docs/troubleshooting.md: The machine')
     expect(lvl(await rowsOf(mk({ jail: 'none' })), /user namespace/)![2]).toContain('sandboxing')
   })
 })
 
 describe('setup checklist (ADR 0010): checks only, Claude fixes', () => {
-  const NOBD = { git: 'git version 2.43.0', bwrap: 'bubblewrap 0.11.0', socat: 'x' }, DIR = `${HOME}/.cache/cadre/fix`, LINE = 'sudo sh ~/.cache/cadre/fix/bwrap-apparmor.sh'
+  const NOBD = { git: 'git version 2.43.0', bwrap: 'bubblewrap 0.11.0', socat: 'x' }
   const SET = { [USER]: '{"theme":"dark"}' }
   test('nothing open: every item ok and the stamp is written', async () => {
     const h = mk({ files: SET }), its = await setupItems(h)
@@ -114,18 +114,6 @@ describe('setup checklist (ADR 0010): checks only, Claude fixes', () => {
     const h = mk({ files: SET, cc: '2.1.296' }); expect((await setupItems(h)).filter(i => i.st === 'warn')).toHaveLength(1); expect(await h.store.get('cadre:setup')).toMatchObject({ cc: '2.1.296' })
     const n = mk({ files: SET, noIdent: { on: true } }); await setupItems(n); expect(await n.store.get('cadre:setup')).toBeUndefined(); await nudge(n); expect(n.toasts).toEqual(['cadre: run /cadre setup'])
   })
-  test('sudo fixes: a script (0700, set -eu, header, the exact command), the item names the ONE short line; alternatives only in the README', async () => {
-    const h = mk({ jail: 'none', files: { ...SET, '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n' } }), its = await setupItems(h)
-    const sh = h.files[`${DIR}/bwrap-apparmor.sh`]; expect(sh.startsWith('#!/bin/sh\n# cadre setup: ')).toBe(true); expect(sh).toContain(`# Run it once, yourself: ${LINE}\nset -eu\n`); expect(sh).toContain('tee /etc/apparmor.d/bwrap'); expect(sh).not.toContain('sysctl')
-    expect(h.calls).toContainEqual(['chmod', '700', `${DIR}/bwrap-apparmor.sh`]); expect(h.files[`${DIR}/README`]).toContain('sysctl -w kernel.apparmor_restrict_unprivileged_userns=0')
-    expect(its.find(i => /AppArmor/.test(i.name))).toMatchObject({ st: 'warn', why: LINE })
-    const s = mk({ files: SET, tools: { git: 'git version 2.43.0', bd: 'bd version 1.3.1', bwrap: 'bubblewrap 0.11.0' } }); expect((await setupItems(s)).find(i => /socat/.test(i.name))).toEqual({ name: 'socat not found (Claude Code needs it on Linux)', st: 'fail', why: 'sudo sh ~/.cache/cadre/fix/socat.sh' })
-  })
-  test('a script that cannot be written: no path to a missing file, the whole command in ONE log line', async () => {
-    const h = mk({ jail: 'none', files: { ...SET, '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n' } }); (h as any).write = async (p: string) => { if (p.endsWith('.sh')) throw new Error('EROFS: read-only file system') }
-    const it = (await setupItems(h)).find(i => /AppArmor/.test(i.name))!; expect(it.why).toBe("couldn't write the fix script (EROFS: read-only file system); the exact command is in the cadre log")
-    const l = h.logs.filter(x => x.startsWith('fix command: ')); expect(l).toHaveLength(1); expect(l[0]).toContain("sudo sh -c 'printf "); expect(l[0]).not.toContain('\n')
-  })
 })
 
 describe('doctor', () => {
@@ -135,10 +123,10 @@ describe('doctor', () => {
     expect(h.calls.filter(a => a[0] === 'git' && !/rev-parse|for-each-ref|--version|^git var|^git config --get/.test(a.join(' ')))).toEqual([])
     expect(JSON.stringify((await h.ui.read())['doctor.rows'])).toContain('not inside a git repo'); expect(h.logs).toHaveLength(1); expect(h.logs[0]).toMatch(/^doctor: .*see the cadre pane$/)
   })
-  test('read-only even with a sudo fix: no scripts written; the line shows only once setup wrote the script', async () => {
-    const o = { jail: 'none' as const, files: { [USER]: '{}', '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n' } }, h = mk(o), line = 'sudo sh ~/.cache/cadre/fix/bwrap-apparmor.sh'
-    await doctor(h); expect(h.writes).toEqual([]); let rows = JSON.stringify((await h.ui.read())['doctor.rows']); expect(rows).toContain('run /cadre setup to prepare the fix'); expect(rows).not.toContain(line)
-    await setupItems(h); await doctor(h); rows = JSON.stringify((await h.ui.read())['doctor.rows']); expect(rows).toContain(line)
+  test('a root fix is a doc pointer: nothing is written, setup or doctor', async () => {
+    const o = { jail: 'none' as const, files: { [USER]: '{}', '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n' } }, h = mk(o)
+    await doctor(h); expect(h.writes).toEqual([]); expect(JSON.stringify((await h.ui.read())['doctor.rows'])).toContain('see docs/troubleshooting.md: The machine')
+    const its = await setupItems(mk(o)); expect(its.find(i => /AppArmor/.test(i.name))).toMatchObject({ st: 'warn', why: 'see docs/troubleshooting.md: The machine' })
   })
   test('a dormant repo: one warn row for the project, no other project rows', async () => {
     const h = mk({ repo: true }); await h.secret.update(x => ({ ...x, active: false })); await doctor(h)

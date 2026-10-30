@@ -22,8 +22,8 @@ const { skeleton } = await import('../../modules/changelog.mjs')
 
 const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: o.cwd }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()
-const IFACE = { symbols: [{ name: 'f', kind: 'function', params: [], returns: 'string', status: 'new' }] }
-const TASK = (subject, path) => ({ subject, description: `write ${path}`, metadata: { type: 'refactor', package: '.', scenarios: ['S1: Given the repo When it builds Then it passes'], changelog: { none: true, reason: 'internal' }, interface: IFACE, paths: [path] } })
+const IFACE = { items: [{ name: 'f', kind: 'function', params: [], returns: 'string', status: 'new' }] }
+const TASK = (subject, path) => ({ subject, description: `write ${path}`, metadata: { type: 'refactor', package: '.', acceptance: [{ id: 'S1', text: 'Given the repo When it builds Then it passes' }], changelog: { none: true, reason: 'internal' }, contract: IFACE, paths: [path] } })
 
 test('a 2-epic milestone: both epic plans come from planners started by cadre; every task lands; the milestone lands on dev; main takes no turn', async () => {
   const d = mkdtempSync(join(tmpdir(), 'cadre-planner-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')

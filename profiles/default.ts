@@ -55,7 +55,7 @@ export const roles: Record<string, RoleSpec> = {
   worker: { description: 'implements one approved task in its own folder', prompt: modelText('agent-file', PROMPTS.worker), tools: ['Read', 'Edit', 'Write', 'NotebookEdit', 'Bash', 'PowerShell', 'Monitor', 'TodoWrite', R, C], mcpAllow: true, network: 'on', write: ['**'], ttl: '1h',
     onSilent: 'nudge', nudge: modelText('nudge', `${STOP}: {"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"} (or outcome "blocked" with reason).`),
     report: { outcomes: ['done', 'blocked', 'spec_change'], fields: { summary: { text: 800 }, reason: { text: 400 }, scenario: { text: 300 }, risks: text(120), questions: text(120), followups: { list: 5 } }, required: ['summary'], requiredWith: { blocked: ['reason'], spec_change: ['reason', 'scenario'] },
-      ask: { reason: modelText('tool-result', 'required with outcome {outcome}; say what is in the way, then report again'), scenario: modelText('tool-result', 'required with outcome {outcome}; give the changed scenario in full as "S<n>: Given … When … Then …", then report again') } },
+      ask: { reason: modelText('tool-result', 'required with outcome {outcome}; say what is in the way, then report again'), scenario: modelText('tool-result', 'required with outcome {outcome}; give the changed scenario in full as "<id>: <text>", then report again') } },
     routing: { light: cell('haiku', 'high'), standard: cell('haiku', 'high'), thorough: cell('haiku', 'high'), core: cell('haiku', 'high') } },
   tester: { description: 'writes black-box tests for one task from its scenarios', prompt: modelText('agent-file', PROMPTS.tester), tools: ['Read', 'Write', 'Edit', R], network: 'off', write: ['**'], ttl: '1h',
     onSilent: 'nudge', nudge: modelText('nudge', `${STOP} with role "tester", outcome "done", summary and tests.`),
@@ -102,7 +102,7 @@ export const profile: Profile = {
   landing: { provider: 'direct', onEpicDone: 'propose', prepare: 'setup', baseline: 'tolerate', union: ['CHANGELOG.md'] },
   protected: ['CHANGELOG.md'],
   sandbox: { env: { PATH: '${WT}/.venv/bin:${PATH}' } },
-  fields: [{ name: 'scope', store: 'meta', required: false }, { name: 'breaking', store: 'meta', required: false, kind: 'bool' }, { name: 'package', store: 'meta', required: false }, { name: 'changelog', store: 'meta', required: ['feature', 'bug', 'refactor'] }, { name: 'holds', store: 'meta', required: false, kind: 'ids' }, { name: 'lane', store: 'meta', required: false, kind: { enum: ['ask', 'lite', 'full', 'milestone'] } },
+  fields: [{ name: 'scope', store: 'meta', required: false }, { name: 'breaking', store: 'meta', required: false, kind: 'bool' }, { name: 'package', store: 'meta', required: false }, { name: 'changelog', store: 'meta', required: true }, { name: 'holds', store: 'meta', required: false, kind: 'ids' }, { name: 'lane', store: 'meta', required: false, kind: { enum: ['ask', 'lite', 'full', 'milestone'] } },
     { name: 'risk', store: 'meta', required: false, kind: { enum: ['light', 'standard', 'thorough', 'core'] } }],
   limits: { reportRetries: 3, shapeRetries: 6, nudges: 1, stagnantNudges: 3, silentRuns: 3, startFails: 3, limitWaitMinutes: 15, rebaseRounds: 2, specAccepts: 2 },
 }

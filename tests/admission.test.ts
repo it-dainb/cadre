@@ -33,7 +33,7 @@ function world(types: Record<string, string> = {}) {
   }
   const plan = async (...specs: { type?: string; deps?: { id: string; type: any }[] }[]) => {
     await store.init({ types: {} as any, journal: true }); const epic = await store.createEpic('E', 'goal'), ids: string[] = []
-    for (const [i, s] of specs.entries()) ids.push((await store.createDraft({ title: `task ${i}`, description: 'd', acceptance: 'S1: Given x When y Then z', design: JSON.stringify({ symbols: [{ name: 'f', kind: 'fn', params: 'a', returns: 'b', status: 'new' }] }), type: s.type ?? 'feature', parent: epic, deps: s.deps?.map(x => ({ id: ids[+x.id], type: x.type })), meta: { 'cadre.package': '.' } })).id)
+    for (const [i, s] of specs.entries()) ids.push((await store.createDraft({ title: `task ${i}`, description: 'd', acceptance: 'S1: Given x When y Then z', design: JSON.stringify({ items: [{ name: 'f', kind: 'fn', params: 'a', returns: 'b', status: 'new' }] }), type: s.type ?? 'feature', parent: epic, deps: s.deps?.map(x => ({ id: ids[+x.id], type: x.type })), meta: { 'cadre.package': '.' } })).id)
     await store.approve([epic, ...ids]); return { epic, ids }
   }
   const board = async (h: Host, epic: string, ids: string[], over: Partial<SnapTask>[] = []) => {

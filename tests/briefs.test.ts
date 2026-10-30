@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { attachment, brief, context, drainDelta, pushDelta, queueCard, renderCard, renderContract } from '../core/briefs'
+import { attachment, brief, context, drainDelta, pushDelta, queueCard, renderCard } from '../core/briefs'
+import { renderContract } from '../core/render'
 import { viewHash } from '../core/board'
 import { fakeHost, task } from './support'
 import { DESIGN, GOLDEN } from './fixtures/briefs/golden'

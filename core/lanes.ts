@@ -11,22 +11,20 @@ import { fnv1a64 } from './board'
 import { MS } from './milestone'
 import { epicBranch } from './branches'
 import { guideOf } from './clarify'
+import { itemsOf } from './validate'
 
 export type Lane = 'ask' | 'lite' | 'full' | 'milestone'
 export const LANES: readonly Lane[] = ['ask', 'lite', 'full']
-const isPublic = (t: Task) => { try { const c = JSON.parse(t.design || 'null'); return !!c && !c.none && (c.symbols ?? []).some((s: any) => s.status === 'new' || s.status === 'changed') } catch { return false } }
+const isPublic = (t: Task) => itemsOf(t.design).some(x => x.status === 'new' || x.status === 'changed')
 
-// the lane a draft plan gets: main's (or the human's) pick, overridden to full by risk or size; an ask plan holding a code change becomes lite (one task) or full
-type Lim = { fullAt: number; milestoneAt: number }   // the counts S7 deletes (B11); the config keys went with the profile
-const LIM: Lim = { fullAt: 3, milestoneAt: 8 }
-export function laneOf(asked: Lane, drafts: Task[], reg: Record<string, TypeSpec> = active().types, lim: Lim = LIM): { lane: Lane; why?: string } {
+// the lane a draft plan gets: main's (or the human's) pick, overridden to full by a breaking, security or public-contract task (never by a task count, B11); an ask plan holding a code change becomes lite (one task) or full
+export function laneOf(asked: Lane, drafts: Task[], reg: Record<string, TypeSpec> = active().types): { lane: Lane; why?: string } {
   if (asked === 'milestone') return { lane: 'milestone' }   // a roadmap of epics (ADR 0015): never overridden down
-  const big = drafts.length >= lim.milestoneAt, why = big ? `${drafts.length} tasks: a milestone fits` : drafts.some(t => t.meta['cadre.breaking'] === 'true') ? 'a task is breaking'
+  const why = drafts.some(t => t.meta['cadre.breaking'] === 'true') ? 'a task is breaking'
     : drafts.some(t => t.labels?.includes('security') || t.meta['cadre.scope'] === 'security') ? 'a task touches security'
     : drafts.some(isPublic) ? 'a public contract is new or changed'
-    : drafts.length >= lim.fullAt ? `${drafts.length} tasks`
     : asked === 'lite' && drafts.length > 1 ? 'lite is one task' : ''
-  if (why) return asked === 'full' && !big ? { lane: 'full' } : { lane: 'full', why }
+  if (why) return asked === 'full' ? { lane: 'full' } : { lane: 'full', why }
   const code = drafts.some(t => !reg[t.type] || kindOf(t.type) !== 'spike')
   if (asked === 'ask' && code) return drafts.length === 1 ? { lane: 'lite', why: 'it changes code' } : { lane: 'full', why: 'it changes code' }
   return { lane: asked }
@@ -66,14 +64,14 @@ export function laneLine(plan: Plan | null, drafts: Task[], reg: Record<string, 
   return [plan.mode ?? 'auto', plan.lane, n, ty, plan.laneOverride ? `${plan.laneOverride} → ${plan.lane}` : '', plan.laneReason ?? ''].filter(Boolean).join(' · ').slice(0, 160)
 }
 // the Lane → <next> option: ask → lite → full → ask, skipping a lane the plan cannot take; null when there is nothing to change
-export function nextLane(plan: Plan, drafts: Task[], reg: Record<string, TypeSpec> = active().types, lim: Lim = LIM): Lane {
-  if (plan.lane === 'milestone') return 'full'; if (drafts.length >= lim.milestoneAt) return 'milestone'   // lanes.milestoneAt tasks: offer the milestone lane; a roadmap goes back to one plan
+export function nextLane(plan: Plan, drafts: Task[], reg: Record<string, TypeSpec> = active().types): Lane {
+  if (plan.lane === 'milestone') return 'full'   // a roadmap goes back to one plan
   const from = LANES.indexOf(plan.lane ?? 'full')
-  for (let i = 1; i < 3; i++) { const l = LANES[(from + i) % 3]; if (l === 'ask' || laneOf(l, drafts, reg, lim).lane === l) return l }
+  for (let i = 1; i < 3; i++) { const l = LANES[(from + i) % 3]; if (l === 'ask' || laneOf(l, drafts, reg).lane === l) return l }
   return 'ask'
 }
-export const laneOption = (plan: Plan | null, drafts: Task[], reg: Record<string, TypeSpec> = active().types, lim?: Lim): DecisionOption | null =>
-  plan?.lane && plan.state === 'draft' && !plan.approvedAt ? { key: 'l', label: `Lane → ${nextLane(plan, drafts, reg, lim)}`, verb: 'change', run: `lane ${plan.id}` } : null
+export const laneOption = (plan: Plan | null, drafts: Task[], reg: Record<string, TypeSpec> = active().types): DecisionOption | null =>
+  plan?.lane && plan.state === 'draft' && !plan.approvedAt ? { key: 'l', label: `Lane → ${nextLane(plan, drafts, reg)}`, verb: 'change', run: `lane ${plan.id}` } : null
 
 // `lane <planId>` (the plan decision's Lane option, dialog only: commands/cadre). ask drops the draft plan and asks main to spawn the question; full asks main for the missing fields.
 export async function changeLane(h: Host, store: TaskStore, planId: string): Promise<string> {
@@ -93,7 +91,7 @@ export async function changeLane(h: Host, store: TaskStore, planId: string): Pro
   await retouch(h, store)
   if (to === 'milestone') await queueBrief(h, `The user moved plan ${p.id} to the milestone lane: its tasks were dropped. Draft it as a roadmap of epics instead.\n${roadmapRules(p.id)}`)
   else if (ms) await queueBrief(h, `The user made plan ${p.id} one plan instead of a milestone: its epics were dropped. Draft its tasks now (one task call per task, as the plan rules say), then tell the user to approve it in the dialog (key 1 opens it).`)
-  else if (to === 'full') await queueBrief(h, `The user moved plan ${p.id} to the full lane. Give each task what the plan rules ask (scenarios, interface, changelog, package) and split it into tasks if needed; the "missing:" line says what is left. Then tell the user to approve it in the dialog (key 1 opens it).`)
+  else if (to === 'full') await queueBrief(h, `The user moved plan ${p.id} to the full lane. Give each task what the plan rules ask (acceptance, contract, changelog, package) and split it into tasks if needed; the "missing:" line says what is left. Then tell the user to approve it in the dialog (key 1 opens it).`)
   return `${p.id}: lane ${to}`
 }
 

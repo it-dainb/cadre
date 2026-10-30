@@ -49,7 +49,7 @@ machineHost('apparmor', { jail: 'none', files: { '/proc/sys/kernel/apparmor_rest
 machineHost('claude newer', { cc: '2.1.310' }); machineHost('claude older than tested', { cc: '2.1.297' }); machineHost('claude too old', { cc: '2.1.287' }); machineHost('claude 2.1.296', { cc: '2.1.296' })
 machineHost('worktree root not writable', { wtFail: true }); machineHost('claude version unreadable', { noVersion: true })
 machineHost('no git identity', { noIdent: true })
-doctorHost('not a repo, sudo fix not prepared', { jail: 'none', files: { '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n' } })
+doctorHost('not a repo, apparmor blocks bwrap', { jail: 'none', files: { '/proc/sys/kernel/apparmor_restrict_unprivileged_userns': '1\n' } })
 doctorHost('start failed', {}, async h => { await h.secret.update((x: any) => ({ ...x, start: { failed: 'Error: slow' } })) })
 doctorHost('dormant repo', { repo: true }, async h => { await h.secret.update(x => ({ ...x, active: false })) })
 doctorHost('dormant repo with leftover gate keys', { repo: true, files: { '/repo/.claude/settings.local.json': JSON.stringify({ env: { CLAUDE_CODE_ENABLE_TASKS: 'false' } }) } }, async h => { await h.secret.update(x => ({ ...x, active: false })); await h.store.set('cadre:scope:settings', { rev: 1, added: ['CLAUDE_CODE_ENABLE_TASKS'] }) })

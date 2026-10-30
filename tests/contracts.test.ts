@@ -69,27 +69,27 @@ describe('the amendment ledger', () => {
   const tool = (w: Awaited<ReturnType<typeof world>>, name: string, input: object) => viaEngine(w.h, { tool: `mcp__cadre__${name}`, tool_use_id: 'u', ...input }) as Promise<any>
   async function approved(drive?: 'yolo') {
     const w = await world(); await tool(w, 'plan', { title: 'Auth', description: 'g', lane: 'full', reason: 'r' })
-    const { type, package: pkg, scenarios, changelog, interface: iface, paths } = FULL, a = (await tool(w, 'task', { title: 'Add login', description: 'impl', type, package: pkg, scenarios, changelog, interface: iface, paths })).result.id
+    const { type, package: pkg, acceptance, changelog, contract: iface, paths } = FULL, a = (await tool(w, 'task', { title: 'Add login', description: 'impl', type, package: pkg, acceptance, changelog, contract: iface, paths })).result.id
     await w.text({ cmd: 'approve', args: ['m-1'] })
     if (drive) await w.h.board.update(b => ({ ...b, drive: { ...b.drive, on: true, mode: drive } }))
     return { w, a }
   }
-  const S1 = 'S1: Given a user When they log in twice Then one session exists'
+  const S1 = { id: 'S1', text: 'Given a user When they log in twice Then one session exists' }
   test('an approved task needs reason and evidence; the original stays verbatim; a criterion changes once', async () => {
     const { w, a } = await approved()
-    expect((await tool(w, 'amend', { id: a, expectedRevision: 2, scenarios: [S1] })).result).toBe('error: reason: required to change an approved task; give why (reason) and what shows it (evidence: a test output, a file and line), then call again')
-    const r = await tool(w, 'amend', { id: a, expectedRevision: 2, scenarios: [S1], reason: 'a double login made two sessions', evidence: 'test/login.test.js:12 fails' })
+    expect((await tool(w, 'amend', { id: a, expectedRevision: 2, acceptance: [S1] })).result).toBe('error: reason: required to change an approved task; give why (reason) and what shows it (evidence: a test output, a file and line), then call again')
+    const r = await tool(w, 'amend', { id: a, expectedRevision: 2, acceptance: [S1], reason: 'a double login made two sessions', evidence: 'test/login.test.js:12 fails' })
     expect(r.result.revision).toBe(3)
-    expect(JSON.parse((await w.store.get(a)).meta['cadre.amendments'])).toEqual([{ criterion: 'scenario S1', original: FULL.scenarios[0], reason: 'a double login made two sessions', evidence: 'test/login.test.js:12 fails', at: expect.any(Number) }])
+    expect(JSON.parse((await w.store.get(a)).meta['cadre.amendments'])).toEqual([{ criterion: 'scenario S1', original: `S1: ${FULL.acceptance[0].text}`, reason: 'a double login made two sessions', evidence: 'test/login.test.js:12 fails', at: expect.any(Number) }])
     expect((await w.store.get(a)).category).toBe('draft')   // auto: back to the user's dialog
     await w.text({ cmd: 'approve', args: ['m-1'] })
-    expect((await tool(w, 'amend', { id: a, expectedRevision: 3, scenarios: ['S1: Given x When y Then z'], reason: 'r', evidence: 'e' })).result).toBe('error: scenario S1: changed once already; a second change to it is the user\'s: ask them')
+    expect((await tool(w, 'amend', { id: a, expectedRevision: 3, acceptance: [{ id: 'S1', text: 'Given x When y Then z' }], reason: 'r', evidence: 'e' })).result).toBe('error: scenario S1: changed once already; a second change to it is the user\'s: ask them')
     expect((await tool(w, 'amend', { id: a, expectedRevision: 3, description: 'impl, one session', reason: 'r', evidence: 'e' })).result.revision).toBe(4)   // another criterion: fine
   })
   test('holds: an id outside the task\'s scenarios is refused at plan time; a change to it is a ledger entry (original kept), and a second change is the user\'s', async () => {
     const { w, a } = await approved()
     expect((await tool(w, 'amend', { id: a, expectedRevision: 2, holds: ['S9'], reason: 'r', evidence: 'e' })).result).toContain('holds: S9 is not a scenario of this task')
-    expect((await tool(w, 'task', { title: 'Other', description: 'd', type: FULL.type, package: FULL.package, scenarios: FULL.scenarios, changelog: FULL.changelog, interface: FULL.interface, paths: ['src/x.ts'], holds: ['S7'] })).result).toContain('holds: S7 is not a scenario of this task')
+    expect((await tool(w, 'task', { title: 'Other', description: 'd', type: FULL.type, package: FULL.package, acceptance: FULL.acceptance, changelog: FULL.changelog, contract: FULL.contract, paths: ['src/x.ts'], holds: ['S7'] })).result).toContain('holds: S7 is not a scenario of this task')
     const r = await tool(w, 'amend', { id: a, expectedRevision: 2, holds: ['S1'], reason: 'S1 is already true', evidence: 'src/login.ts:3' }); expect(r.result.revision).toBe(3)
     expect(JSON.parse((await w.store.get(a)).meta['cadre.amendments'])).toEqual([{ criterion: 'holds', original: '(none)', reason: 'S1 is already true', evidence: 'src/login.ts:3', at: expect.any(Number) }]); expect((await w.store.get(a)).meta['cadre.holds']).toBe('["S1"]')
     await w.text({ cmd: 'approve', args: ['m-1'] })
@@ -97,8 +97,8 @@ describe('the amendment ledger', () => {
   })
   test('yolo: no dialog; main\'s change stands and is recorded', async () => {
     const { w, a } = await approved('yolo')
-    await tool(w, 'amend', { id: a, expectedRevision: 2, scenarios: [S1], reason: 'r', evidence: 'e' })
+    await tool(w, 'amend', { id: a, expectedRevision: 2, acceptance: [S1], reason: 'r', evidence: 'e' })
     expect((await w.store.get(a)).category).not.toBe('draft'); expect(((await w.h.board.read()).decisions ?? []).some(d => d.id.startsWith('plan:'))).toBe(false)
-    expect((await w.store.get(a)).acceptance).toBe(S1)
+    expect((await w.store.get(a)).acceptance).toBe(`${S1.id}: ${S1.text}`)
   })
 })

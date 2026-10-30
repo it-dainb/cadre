@@ -5,13 +5,13 @@ import type { Host } from '../types'
 import type { Task } from '../task-management/store'
 import { StoreError } from '../task-management/store'
 import type { Deps } from './admission'
-import { renderContract } from './briefs'
+import { renderContract } from './render'
 import * as G from './git'
 import { ownerOf, unitsOf } from './discover'
 import { pathsOf } from './validate'
 import { active } from './pipeline'
 
-export interface Pkg { root: string; setup?: string[]; checks: Record<string, string[]>; verify?: string[]; knownRed?: string[]; viewInclude?: string[]; routing?: Record<string, { model: string; effort?: string }>; ownGit?: boolean; concurrency?: number; tdd?: { check?: string; paths: string[]; stubs?: string[]; skeleton?: string[] } }
+export interface Pkg { root: string; setup?: string[]; checks: Record<string, string[]>; verify?: string[]; knownRed?: string[]; viewInclude?: string[]; routing?: Record<string, { model: string; effort?: string }>; concurrency?: number; tdd?: { check?: string; paths: string[]; stubs?: string[]; skeleton?: string[] } }
 
 // the units a task touches, by its declared paths (H7); more than one = a cross-unit task (core/close runs every one's verify checks on its squash)
 export const unitsOfTask = (d: Pick<Deps, 'cfg'>, task: Pick<Task, 'meta'>): Pkg[] => [...new Set(pathsOf(task).map(f => ownerOf(unitsOf(d.cfg) as Pkg[], f)).filter((u): u is Pkg => !!u))]
@@ -21,7 +21,6 @@ export const pkgOf = (d: Pick<Deps, 'cfg'>, task: Pick<Task, 'meta'>): Pkg | und
   const all = unitsOf(d.cfg) as Pkg[], by = unitsOfTask(d, task), at = task.meta['cadre.package'] || (by.length ? by[0].root : all.length === 1 ? all[0].root : '.')   // a cross-unit task: its first unit gates it green; its squash checks them all
   return ownerOf(all, at)
 }
-// a task's paths lie in one repository: a submodule unit's edits are committed in its own repository, the rest in the parent's, so a task across both is split
 // a path no task agent may change: the fixed set (git.PROTECTED) and the profile's `protected` globs
 export const isProtected = (p: string): boolean => G.isProt(p) || matches(active().protected, p)
 // an epic whose every path is one cadre refuses its task agents can never be planned into a task: refused where its paths are written
@@ -29,14 +28,7 @@ export const protectedOnly = (paths: unknown): string | null => {
   const ps = Array.isArray(paths) ? paths.map(String) : []
   return ps.length && ps.every(isProtected) ? modelText('tool-result', `metadata.paths: every path of this epic is protected (${ps.join(', ')}): no task may change these files; drop the epic or give it the files it changes`) : null
 }
-export const repoSplit = (cfg: any, paths: unknown): string | null => {
-  if (!Array.isArray(paths)) return null
-  const us = unitsOf(cfg) as Pkg[], rs = [...new Set(paths.map(p => { const u = ownerOf(us, String(p)); return u?.ownGit ? u.root : '' }))]
-  return rs.length > 1 ? `metadata.paths: ${rs.map(r => r || 'the main repository').join(' and ')} are separate repositories; split this into one task per repository` : null
-}
-export const rootOf = (p?: Pkg) => (!p || p.root === '.' || p.ownGit ? '' : p.root)   // an own-repository unit's worktree is the unit itself
-// a unit with its own repository (a git submodule, H7): a task's branches, worktree, squash and baseline live in that repository; top = the parent repo
-export const inRepo = <D extends Pick<Deps, 'root'> & { top?: string }>(d: D, u?: Pick<Pkg, 'root' | 'ownGit'>): D => (u?.ownGit && !d.top ? { ...d, root: `${d.root}/${u.root}`, top: d.root } : d)
+export const rootOf = (p?: Pkg) => (!p || p.root === '.' ? '' : p.root)
 // jail: off = run unsandboxed; auto = the sandbox when this machine has one; on = the sandbox or nothing (the check fails with the reason)
 export async function modeOf(h: Host, d: Pick<Deps, 'cfg'>): Promise<'overlay' | 'copy' | 'none'> {
   if (d.cfg.jail === 'off') return 'none'
