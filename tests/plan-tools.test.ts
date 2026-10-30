@@ -138,7 +138,7 @@ describe('plan tools take acceptance [{id,text}] and the type list of the profil
   })
   test('S8: the task-fields line, the planner brief and the lite lane line come from profile.fields: the docs profile is told no changelog and no holds', () => {
     const line = () => planRules().split('\n').find(l => l.startsWith('- Task fields:'))!
-    expect(line()).toContain('changelog {"category"'); expect(line()).toContain('holds? ["A2"]'); expect(line()).toContain('breaking?'); expect(liteFields()).toContain('a changelog')
+    expect(line()).toContain('changelog {"category"'); expect(line()).toContain('holds? acceptance ids already true, e.g. ["A2"]'); expect(line()).toContain('breaking?'); expect(liteFields()).toContain(' and changelog ({"category"')
     expect(planRules()).not.toContain('- holds')
     try {
       setProfile(DOCS)

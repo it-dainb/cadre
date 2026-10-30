@@ -13,10 +13,9 @@ export const ARGS = ['kind', 'amend', 'type', 'acceptance', 'contract', 'lane', 
 // the task fields the profile declares, and the three the engine reads whatever the profile says (the unit a task builds in, the commit message)
 const CORE: Field[] = [{ name: 'package', store: 'meta', required: false }, { name: 'scope', store: 'meta', required: false }, { name: 'breaking', store: 'meta', required: false, kind: 'bool' }]
 const declared = (): Field[] => [...CORE.filter(c => !active().fields.some(f => f.name === c.name)), ...active().fields]
-// how a profile's task fields are written in a plan call: the plan rules, the planner's brief and the lite lane's line read these, so a profile is never told to send a field it refuses
-const FORM: Record<string, string> = { changelog: ' {"category":"Added","entry":"…"} or {"none":true,"reason":"…"}', holds: ' ["A2"] (acceptance ids that already hold)' }
-export const taskFields = (): string => ['type', 'package', 'acceptance [{"id","text"}]', ...declared().filter(f => !['package', 'lane', 'risk'].includes(f.name)).map(f => `${f.name}${f.required === true ? '' : '?'}${FORM[f.name] ?? (typeof f.kind === 'object' ? ` ${f.kind.enum.join('|')}` : '')}`), 'contract {"items":[{"name","status":"new|changed|unchanged"}]} or {"none":true,"reason":"…"}'].join(', ')
-export const liteFields = (): string => { const r = declared().filter(f => f.required === true).map(f => f.name === 'changelog' ? 'a changelog ({"none": true, "reason": "<why>"} when users would not notice the change)' : f.name); return r.length ? ` and ${r.join(', ')}` : '' }
+// how a profile's task fields are written in a plan call (each field's own `want` text): the plan rules, the planner's brief and the lite lane's line read these, so a profile is never told to send a field it refuses
+export const taskFields = (): string => ['type', 'package', 'acceptance [{"id","text"}]', ...declared().filter(f => !['package', 'lane', 'risk'].includes(f.name)).map(f => `${f.name}${f.required === true ? '' : '?'}${f.want ? ` ${f.want}` : typeof f.kind === 'object' ? ` ${f.kind.enum.join('|')}` : ''}`), 'contract {"items":[{"name","status":"new|changed|unchanged"}]} or {"none":true,"reason":"…"}'].join(', ')
+export const liteFields = (): string => { const r = declared().filter(f => f.required === true).map(f => (f.want ? `${f.name} (${f.want})` : f.name)); return r.length ? ` and ${r.join(', ')}` : '' }
 export const FIELDS = (): string[] => [...new Set([...ARGS, ...declared().map(f => f.name)])]
 export const CATEGORIES = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security']
 const str = (v: unknown): v is string => typeof v === 'string' && v.trim() !== ''

@@ -103,7 +103,7 @@ export const profile: Profile = {
   landing: { provider: 'direct', onEpicDone: 'propose', prepare: 'setup', baseline: 'tolerate', union: ['CHANGELOG.md'] },
   protected: ['CHANGELOG.md'],
   sandbox: { env: { PATH: '${WT}/.venv/bin:${PATH}' } },
-  fields: [{ name: 'scope', store: 'meta', required: false }, { name: 'breaking', store: 'meta', required: false, kind: 'bool' }, { name: 'package', store: 'meta', required: false }, { name: 'changelog', store: 'meta', required: true }, { name: 'holds', store: 'meta', required: false, kind: 'ids' }, { name: 'lane', store: 'meta', required: false, kind: { enum: ['ask', 'lite', 'full', 'milestone'] } },
+  fields: [{ name: 'scope', store: 'meta', required: false }, { name: 'breaking', store: 'meta', required: false, kind: 'bool' }, { name: 'package', store: 'meta', required: false }, { name: 'changelog', store: 'meta', required: true, want: modelText('context', '{"category":"Added","entry":"…"} or, if users would not notice, {"none":true,"reason":"…"}') }, { name: 'holds', store: 'meta', required: false, kind: 'ids', want: modelText('context', 'acceptance ids already true, e.g. ["A2"]') }, { name: 'lane', store: 'meta', required: false, kind: { enum: ['ask', 'lite', 'full', 'milestone'] } },
     { name: 'risk', store: 'meta', required: false, kind: { enum: ['light', 'standard', 'thorough', 'core'] } }],
   limits: { reportRetries: 3, shapeRetries: 6, nudges: 1, stagnantNudges: 3, silentRuns: 3, startFails: 3, limitWaitMinutes: 15, rebaseRounds: 2, specAccepts: 2 },
 }
