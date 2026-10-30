@@ -1,0 +1,112 @@
+[
+ {
+  "op": "user-checks-out-dev",
+  "checkedOut": "dev",
+  "devFiles": [
+   "CHANGELOG.md"
+  ],
+  "devSubjects": [
+   "chore: init"
+  ],
+  "pending": false,
+  "branches": [
+   "dev",
+   "epic/$epic-auth",
+   "feat/t1-login",
+   "feat/t9-unrecorded",
+   "main"
+  ],
+  "status": [],
+  "worktrees": 1,
+  "userCommitsOnDev": {},
+  "decisions": [],
+  "epicReverted": false
+ },
+ {
+  "op": "user-commits-on-dev",
+  "checkedOut": "dev",
+  "devFiles": [
+   "CHANGELOG.md",
+   "USER.md"
+  ],
+  "devSubjects": [
+   "docs: user note",
+   "chore: init"
+  ],
+  "pending": false,
+  "branches": [
+   "dev",
+   "epic/$epic-auth",
+   "feat/t1-login",
+   "feat/t9-unrecorded",
+   "main"
+  ],
+  "status": [],
+  "worktrees": 1,
+  "userCommitsOnDev": {
+   "user": true
+  },
+  "decisions": [],
+  "epicReverted": false
+ },
+ {
+  "op": "landing-waits-for-the-checkout",
+  "res": "null",
+  "checkedOut": "dev",
+  "devFiles": [
+   "CHANGELOG.md",
+   "USER.md"
+  ],
+  "devSubjects": [
+   "docs: user note",
+   "chore: init"
+  ],
+  "pending": true,
+  "branches": [
+   "dev",
+   "feat/t1-login",
+   "feat/t9-unrecorded",
+   "main"
+  ],
+  "status": [],
+  "worktrees": 1,
+  "userCommitsOnDev": {
+   "user": true
+  },
+  "decisions": [
+   "pending:dev"
+  ],
+  "epicReverted": false
+ },
+ {
+  "op": "Land (dialog)",
+  "res": "ok",
+  "checkedOut": "dev",
+  "devFiles": [
+   "CHANGELOG.md",
+   "USER.md",
+   "c.txt"
+  ],
+  "devSubjects": [
+   "merge epic/$epic-auth ($epic)",
+   "docs: user note",
+   "chore: init"
+  ],
+  "pending": false,
+  "branches": [
+   "dev",
+   "feat/t1-login",
+   "feat/t9-unrecorded",
+   "main"
+  ],
+  "status": [],
+  "worktrees": 1,
+  "userCommitsOnDev": {
+   "user": true
+  },
+  "decisions": [
+   "release:0.1.0"
+  ],
+  "epicReverted": false
+ }
+]

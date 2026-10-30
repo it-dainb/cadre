@@ -1,0 +1,83 @@
+[
+ {
+  "op": "red leg: the failing test is accepted",
+  "res": {
+   "ok": true,
+   "passing": null,
+   "setup": false,
+   "failing": 1,
+   "held": []
+  },
+  "meta": [
+   "cadre.base",
+   "cadre.locked",
+   "cadre.red",
+   "cadre.redOnly",
+   "cadre.specCommit",
+   "cadre.specTests",
+   "cadre.step",
+   "cadre.testRun",
+   "cadre.view",
+   "cadre.worktree"
+  ],
+  "specCommit": true,
+  "blocked": null
+ },
+ {
+  "op": "green leg: still red",
+  "res": {
+   "ok": false
+  },
+  "meta": [
+   "cadre.base",
+   "cadre.locked",
+   "cadre.red",
+   "cadre.redOnly",
+   "cadre.specCommit",
+   "cadre.specTests",
+   "cadre.step",
+   "cadre.testRun",
+   "cadre.view",
+   "cadre.worktree"
+  ],
+  "specCommit": true,
+  "blocked": null
+ },
+ {
+  "op": "worker makes it pass",
+  "meta": [
+   "cadre.base",
+   "cadre.locked",
+   "cadre.red",
+   "cadre.redOnly",
+   "cadre.specCommit",
+   "cadre.specTests",
+   "cadre.step",
+   "cadre.testRun",
+   "cadre.view",
+   "cadre.worktree"
+  ],
+  "specCommit": true,
+  "blocked": null
+ },
+ {
+  "op": "green leg: passes",
+  "res": {
+   "ok": true
+  },
+  "meta": [
+   "cadre.base",
+   "cadre.locked",
+   "cadre.red",
+   "cadre.redOnly",
+   "cadre.specCommit",
+   "cadre.specTests",
+   "cadre.step",
+   "cadre.testRun",
+   "cadre.view",
+   "cadre.worktree"
+  ],
+  "specCommit": true,
+  "blocked": null
+ }
+]

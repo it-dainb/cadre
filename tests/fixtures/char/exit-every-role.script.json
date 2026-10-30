@@ -1,0 +1,10 @@
+{"kind":"life","world":{"type":"feature"},"ops":[
+ {"op":"arm","mode":"auto"},
+ {"op":"at","agent":"wk","task":"$1","role":"worker","label":"worker-at-work"},
+ {"op":"rep","agent":"wk","body":{"role":"worker","outcome":"done","summary":"did it"},"label":"worker-reports"},
+ {"op":"hb","agent":"wk","label":"worker-hands-back"},
+ {"op":"turn","label":"reviewer-starts"},
+ {"op":"stop","agent":"wk","reason":"answer","label":"worker-turn-end"},
+ {"op":"rep","agent":"ag1","body":{"role":"reviewer","verdict":"pass","summary":"ok","findings":[],"coverage":[{"scenario":"S1","test":"test/a.test.js","ok":true}],"contractStatus":[]},"label":"reviewer-passes"},
+ {"op":"hb","agent":"ag1","label":"reviewer-hands-back"},
+ {"op":"turn","label":"lands"}]}

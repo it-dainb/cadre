@@ -1,0 +1,281 @@
+[
+ {
+  "op": "arm",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "todo",
+    "step": "",
+    "flags": [],
+    "owned": false
+   }
+  ],
+  "decisions": [],
+  "spawned": [],
+  "sent": [],
+  "runs": {},
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.changelog",
+    "cadre.package"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "worker-starts",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "active",
+    "step": "worker",
+    "flags": [],
+    "owned": true
+   }
+  ],
+  "decisions": [],
+  "spawned": [
+   "cadre:worker"
+  ],
+  "sent": [],
+  "runs": {
+   "ag1": "running"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.package",
+    "cadre.runs",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "worker-reports",
+  "res": "ok",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "review",
+    "step": "reviewer",
+    "flags": [],
+    "owned": false
+   }
+  ],
+  "decisions": [],
+  "spawned": [
+   "cadre:worker"
+  ],
+  "sent": [],
+  "runs": {
+   "ag1": "idle-bound"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.checks",
+    "cadre.package",
+    "cadre.rec.report",
+    "cadre.report",
+    "cadre.runs",
+    "cadre.sourceCommit",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": [
+   "wip"
+  ]
+ },
+ {
+  "op": "reviewer-starts",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "review",
+    "step": "reviewer",
+    "flags": [],
+    "owned": true
+   }
+  ],
+  "decisions": [],
+  "spawned": [
+   "cadre:worker",
+   "cadre:reviewer"
+  ],
+  "sent": [],
+  "runs": {
+   "ag1": "idle-bound",
+   "ag2": "running"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.checks",
+    "cadre.package",
+    "cadre.rec.report",
+    "cadre.report",
+    "cadre.reviewTier",
+    "cadre.runs",
+    "cadre.sourceCommit",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": [
+   "wip"
+  ]
+ },
+ {
+  "op": "reviewer-passes",
+  "res": "ok",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "review",
+    "step": "merge",
+    "flags": [],
+    "owned": true
+   }
+  ],
+  "decisions": [],
+  "spawned": [
+   "cadre:worker",
+   "cadre:reviewer"
+  ],
+  "sent": [],
+  "runs": {
+   "ag1": "idle-bound",
+   "ag2": "idle-bound"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.checks",
+    "cadre.package",
+    "cadre.rec.report",
+    "cadre.rec.review",
+    "cadre.report",
+    "cadre.review",
+    "cadre.reviewTier",
+    "cadre.runs",
+    "cadre.sourceCommit",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": [
+   "wip"
+  ]
+ },
+ {
+  "op": "lands",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "done",
+    "step": "merge",
+    "flags": [],
+    "owned": true
+   }
+  ],
+  "decisions": [
+   {
+    "id": "pending:dev",
+    "optionKeys": [
+     "l"
+    ]
+   }
+  ],
+  "spawned": [
+   "cadre:worker",
+   "cadre:reviewer"
+  ],
+  "sent": [],
+  "runs": {
+   "ag1": "gone",
+   "ag2": "gone"
+  },
+  "plan": {
+   "state": "done-on-dev",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.checks",
+    "cadre.package",
+    "cadre.rec.close",
+    "cadre.rec.report",
+    "cadre.rec.review",
+    "cadre.report",
+    "cadre.review",
+    "cadre.reviewTier",
+    "cadre.runs",
+    "cadre.sourceCommit",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": [
+   "wip",
+   "docs"
+  ]
+ }
+]

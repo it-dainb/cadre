@@ -1,0 +1,5 @@
+{"kind":"life","world":{"type":"docs"},"ops":[
+ {"op":"at","agent":"ag1","task":"$1","role":"worker"},
+ {"op":"stop","agent":"ag1","reason":"answer","answer":"I changed a.ts","label":"stop-1-nudged"},
+ {"op":"stop","agent":"ag1","reason":"answer","answer":"I changed a.ts","label":"stop-2-ends-blocked"},
+ {"op":"stop","agent":"ag1","reason":"answer","label":"stop-3-no-second-dialog"}]}

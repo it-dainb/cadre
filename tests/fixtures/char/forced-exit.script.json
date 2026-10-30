@@ -1,0 +1,9 @@
+{"kind":"life","world":{"type":"docs"},"ops":[
+ {"op":"arm","mode":"auto"},
+ {"op":"at","agent":"ag1","task":"$1","role":"worker"},
+ {"op":"exitstep","agent":"ag1","label":"still-working-asks-model"},
+ {"op":"call","agent":"ag1","tool":"Read","input":{"file_path":"/wt/a","limit":5},"n":19,"label":"19-identical-calls"},
+ {"op":"call","agent":"ag1","tool":"Read","input":{"file_path":"/wt/a","limit":5},"n":1,"label":"20th-trips-breaker"},
+ {"op":"exitstep","agent":"ag1","label":"spent-cadre-answers-itself"},
+ {"op":"stop","agent":"ag1","reason":"answer","label":"turn-end-blocks-loop"},
+ {"op":"stop","agent":"ag1","reason":"answer","label":"second-turn-end-no-second-dialog"}]}

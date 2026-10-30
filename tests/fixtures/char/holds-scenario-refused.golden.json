@@ -1,0 +1,21 @@
+[
+ {
+  "op": "S2 passes at red, not marked held: refused, the dialog can offer Already holds",
+  "res": {
+   "ok": false,
+   "passing": [
+    "S2"
+   ],
+   "setup": false,
+   "failing": 0,
+   "held": []
+  },
+  "meta": [
+   "cadre.base",
+   "cadre.view",
+   "cadre.worktree"
+  ],
+  "specCommit": false,
+  "blocked": null
+ }
+]

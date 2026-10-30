@@ -1,0 +1,172 @@
+[
+ {
+  "op": "plan",
+  "res": "ok",
+  "plan": {
+   "state": "draft",
+   "flags": []
+  },
+  "tasks": [],
+  "decisions": [],
+  "rev": 1
+ },
+ {
+  "op": "task-1",
+  "res": "ok",
+  "plan": {
+   "state": "draft",
+   "flags": []
+  },
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "draft",
+    "step": "",
+    "flags": [],
+    "deps": 0
+   }
+  ],
+  "decisions": [
+   {
+    "optionKeys": [
+     "a",
+     "x",
+     "l-ask"
+    ],
+    "kind": "plan"
+   }
+  ],
+  "rev": 2
+ },
+ {
+  "op": "task-2-after-1",
+  "res": "ok",
+  "plan": {
+   "state": "draft",
+   "flags": []
+  },
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "draft",
+    "step": "",
+    "flags": [],
+    "deps": 0
+   },
+   {
+    "id": "m-3",
+    "state": "draft",
+    "step": "",
+    "flags": [],
+    "deps": 1
+   }
+  ],
+  "decisions": [
+   {
+    "optionKeys": [
+     "a",
+     "x",
+     "l-ask"
+    ],
+    "kind": "plan"
+   }
+  ],
+  "rev": 3
+ },
+ {
+  "op": "amend-stale-revision",
+  "res": "refused:stale",
+  "plan": {
+   "state": "draft",
+   "flags": []
+  },
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "draft",
+    "step": "",
+    "flags": [],
+    "deps": 0
+   },
+   {
+    "id": "m-3",
+    "state": "draft",
+    "step": "",
+    "flags": [],
+    "deps": 1
+   }
+  ],
+  "decisions": [
+   {
+    "optionKeys": [
+     "a",
+     "x",
+     "l-ask"
+    ],
+    "kind": "plan"
+   }
+  ],
+  "rev": 3
+ },
+ {
+  "op": "amend-current-revision",
+  "res": "ok",
+  "plan": {
+   "state": "draft",
+   "flags": []
+  },
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "draft",
+    "step": "",
+    "flags": [],
+    "deps": 0
+   },
+   {
+    "id": "m-3",
+    "state": "draft",
+    "step": "",
+    "flags": [],
+    "deps": 1
+   }
+  ],
+  "decisions": [
+   {
+    "optionKeys": [
+     "a",
+     "x",
+     "l-ask"
+    ],
+    "kind": "plan"
+   }
+  ],
+  "rev": 4
+ },
+ {
+  "op": "approve-plan",
+  "res": "ok",
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "todo",
+    "step": "",
+    "flags": [],
+    "deps": 0
+   },
+   {
+    "id": "m-3",
+    "state": "todo",
+    "step": "",
+    "flags": [],
+    "deps": 1
+   }
+  ],
+  "decisions": [],
+  "rev": 4
+ }
+]

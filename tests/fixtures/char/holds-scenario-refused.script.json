@@ -1,0 +1,2 @@
+{"kind":"gate","acceptance":"S1: Given a When b Then c\nS2: Given x When y Then z","ops":[
+ {"op":"tester","files":{"test/s.json":{"name":"S1 new","status":"failure"},"test/s2.json":{"name":"S2 held","status":"passed"}},"tests":["S1 new","S2 held"],"label":"S2 passes at red, not marked held: refused, the dialog can offer Already holds"}]}

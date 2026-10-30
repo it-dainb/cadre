@@ -1,0 +1,8 @@
+{"kind":"life","world":{"type":"docs"},"row":7,"ops":[
+ {"op":"arm","mode":"auto"},
+ {"op":"at","agent":"wk","task":"$1","role":"worker"},
+ {"op":"stop","agent":"wk","reason":"answer","answer":"I changed a.ts","label":"stop-1-nudged"},
+ {"op":"stop","agent":"wk","reason":"answer","answer":"I changed a.ts","label":"stop-2-no-report"},
+ {"op":"resolve","args":["$1","keep"],"label":"Keep going"},
+ {"op":"turn","label":"fresh-worker-starts"},
+ {"op":"rep","agent":"ag1","body":{"role":"worker","outcome":"done","summary":"did it"},"label":"worker-reports"}]}

@@ -1,0 +1,111 @@
+[
+ {
+  "op": "epic-lands-on-dev",
+  "res": "null",
+  "checkedOut": "main",
+  "devFiles": [
+   "CHANGELOG.md",
+   "c.txt"
+  ],
+  "devSubjects": [
+   "merge epic/$epic-auth ($epic)",
+   "chore: init"
+  ],
+  "pending": false,
+  "branches": [
+   "dev",
+   "feat/t1-login",
+   "feat/t9-unrecorded",
+   "main"
+  ],
+  "status": [],
+  "worktrees": 1,
+  "userCommitsOnDev": {},
+  "decisions": [
+   "release:0.1.0"
+  ],
+  "epicReverted": false
+ },
+ {
+  "op": "/cadre revert",
+  "res": "ok",
+  "checkedOut": "main",
+  "devFiles": [
+   "CHANGELOG.md",
+   "c.txt"
+  ],
+  "devSubjects": [
+   "merge epic/$epic-auth ($epic)",
+   "chore: init"
+  ],
+  "pending": false,
+  "branches": [
+   "dev",
+   "feat/t1-login",
+   "feat/t9-unrecorded",
+   "main"
+  ],
+  "status": [],
+  "worktrees": 1,
+  "userCommitsOnDev": {},
+  "decisions": [
+   "release:0.1.0",
+   "revert:$epic"
+  ],
+  "epicReverted": false
+ },
+ {
+  "op": "first-confirm",
+  "res": "ok",
+  "checkedOut": "main",
+  "devFiles": [
+   "CHANGELOG.md",
+   "c.txt"
+  ],
+  "devSubjects": [
+   "merge epic/$epic-auth ($epic)",
+   "chore: init"
+  ],
+  "pending": false,
+  "branches": [
+   "dev",
+   "feat/t1-login",
+   "feat/t9-unrecorded",
+   "main"
+  ],
+  "status": [],
+  "worktrees": 1,
+  "userCommitsOnDev": {},
+  "decisions": [
+   "release:0.1.0",
+   "revert-sure:$epic"
+  ],
+  "epicReverted": false
+ },
+ {
+  "op": "second-confirm",
+  "res": "ok",
+  "checkedOut": "main",
+  "devFiles": [
+   "CHANGELOG.md"
+  ],
+  "devSubjects": [
+   "revert $epic: auth",
+   "merge epic/$epic-auth ($epic)",
+   "chore: init"
+  ],
+  "pending": false,
+  "branches": [
+   "dev",
+   "feat/t9-unrecorded",
+   "main"
+  ],
+  "status": [],
+  "worktrees": 1,
+  "userCommitsOnDev": {},
+  "decisions": [
+   "release:0.1.0"
+  ],
+  "epicReverted": true
+ }
+]

@@ -1,0 +1,8 @@
+{"kind":"life","world":{"type":"docs"},"ops":[
+ {"op":"arm","mode":"auto"},
+ {"op":"turn","label":"worker-starts"},
+ {"op":"repeat","agent":"ag1","n":4,"body":{"role":"worker","outcome":"done","summary":"@x900"},"label":"four-overlong-summaries"},
+ {"op":"rep","agent":"ag1","body":{"role":"worker","outcome":"done","summary":"did it"},"label":"valid-report"},
+ {"op":"turn","label":"reviewer-starts"},
+ {"op":"rep","agent":"ag2","body":{"role":"reviewer","verdict":"pass","summary":"ok","findings":[],"coverage":[{"scenario":"S1","test":"test/a.test.js","ok":true}],"contractStatus":[]},"label":"pass"},
+ {"op":"turn","label":"lands"}]}

@@ -1,0 +1,305 @@
+[
+ {
+  "op": "arm",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "todo",
+    "step": "",
+    "flags": [],
+    "owned": false
+   }
+  ],
+  "decisions": [],
+  "spawned": [],
+  "sent": [],
+  "runs": {},
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.changelog",
+    "cadre.package"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "spec-commit-recorded",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "todo",
+    "step": "",
+    "flags": [],
+    "owned": false
+   }
+  ],
+  "decisions": [],
+  "spawned": [],
+  "sent": [],
+  "runs": {},
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.changelog",
+    "cadre.package",
+    "cadre.specCommit"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "at",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "active",
+    "step": "worker",
+    "flags": [],
+    "owned": true
+   }
+  ],
+  "decisions": [],
+  "spawned": [],
+  "sent": [],
+  "runs": {
+   "wk": "running"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.package",
+    "cadre.specCommit",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "worker-asks-spec-change",
+  "res": "ok",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "blocked",
+    "step": "worker",
+    "flags": [
+     "spec_change"
+    ],
+    "owned": true
+   }
+  ],
+  "decisions": [
+   {
+    "id": "flag:m-2:spec_change",
+    "optionKeys": [
+     "a",
+     "x"
+    ]
+   }
+  ],
+  "spawned": [],
+  "sent": [],
+  "runs": {
+   "wk": "waiting:decision"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.blocked",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.package",
+    "cadre.rec.blocked",
+    "cadre.specChange",
+    "cadre.specCommit",
+    "cadre.specScenario",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "Reject",
+  "res": "ok",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "active",
+    "step": "worker",
+    "flags": [],
+    "owned": true
+   }
+  ],
+  "decisions": [],
+  "spawned": [],
+  "sent": [],
+  "runs": {
+   "wk": "running"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.blocked",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.decision",
+    "cadre.package",
+    "cadre.rec.blocked",
+    "cadre.specChange",
+    "cadre.specCommit",
+    "cadre.specReset",
+    "cadre.specScenario",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "worker-asks-again",
+  "res": "ok",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "blocked",
+    "step": "worker",
+    "flags": [
+     "spec_change"
+    ],
+    "owned": true
+   }
+  ],
+  "decisions": [
+   {
+    "id": "flag:m-2:spec_change",
+    "optionKeys": [
+     "a",
+     "x"
+    ]
+   }
+  ],
+  "spawned": [],
+  "sent": [],
+  "runs": {
+   "wk": "waiting:decision"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.blocked",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.decision",
+    "cadre.package",
+    "cadre.rec.blocked",
+    "cadre.specChange",
+    "cadre.specCommit",
+    "cadre.specReset",
+    "cadre.specScenario",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "Accept",
+  "res": "ok",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "active",
+    "step": "tester",
+    "flags": [],
+    "owned": true
+   }
+  ],
+  "decisions": [],
+  "spawned": [],
+  "sent": [],
+  "runs": {
+   "wk": "waiting:decision"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.blocked",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.decision",
+    "cadre.depsCommits",
+    "cadre.package",
+    "cadre.rec.blocked",
+    "cadre.redOnly",
+    "cadre.sourceCommit",
+    "cadre.specChange",
+    "cadre.specCommit",
+    "cadre.specDecision",
+    "cadre.specReset",
+    "cadre.specScenario",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ }
+]

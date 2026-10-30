@@ -1,0 +1,5 @@
+{"kind":"landing","ops":[
+ {"op":"checkout","branch":"dev","label":"user-checks-out-dev"},
+ {"op":"commit","file":"USER.md","body":"a note the user keeps\n","msg":"docs: user note","as":"user","label":"user-commits-on-dev"},
+ {"op":"integrate","label":"landing-waits-for-the-checkout"},
+ {"op":"land","label":"Land (dialog)"}]}

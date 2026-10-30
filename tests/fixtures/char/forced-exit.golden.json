@@ -1,0 +1,330 @@
+[
+ {
+  "op": "arm",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "todo",
+    "step": "",
+    "flags": [],
+    "owned": false
+   }
+  ],
+  "decisions": [],
+  "spawned": [],
+  "sent": [],
+  "runs": {},
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.changelog",
+    "cadre.package"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "at",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "active",
+    "step": "worker",
+    "flags": [],
+    "owned": true
+   }
+  ],
+  "decisions": [],
+  "spawned": [],
+  "sent": [],
+  "runs": {
+   "ag1": "running"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.package",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "still-working-asks-model",
+  "res": {
+   "asked": 1,
+   "kinds": []
+  },
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "active",
+    "step": "worker",
+    "flags": [],
+    "owned": true
+   }
+  ],
+  "decisions": [],
+  "spawned": [],
+  "sent": [],
+  "runs": {
+   "ag1": "running"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.package",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "19-identical-calls",
+  "res": "ok",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "active",
+    "step": "worker",
+    "flags": [],
+    "owned": true
+   }
+  ],
+  "decisions": [],
+  "spawned": [],
+  "sent": [],
+  "runs": {
+   "ag1": "running"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.package",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "20th-trips-breaker",
+  "res": "deny",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "active",
+    "step": "worker",
+    "flags": [],
+    "owned": true
+   }
+  ],
+  "decisions": [],
+  "spawned": [],
+  "sent": [],
+  "runs": {
+   "ag1": "running"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.package",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "spent-cadre-answers-itself",
+  "res": {
+   "asked": 0,
+   "kinds": [
+    "text",
+    "stop"
+   ],
+   "stop": "end_turn"
+  },
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "active",
+    "step": "worker",
+    "flags": [],
+    "owned": true
+   }
+  ],
+  "decisions": [],
+  "spawned": [],
+  "sent": [],
+  "runs": {
+   "ag1": "running"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.package",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "turn-end-blocks-loop",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "blocked",
+    "step": "worker",
+    "flags": [
+     "loop"
+    ],
+    "owned": true
+   }
+  ],
+  "decisions": [
+   {
+    "id": "flag:m-2:loop",
+    "optionKeys": [
+     "k",
+     "x"
+    ]
+   }
+  ],
+  "spawned": [],
+  "sent": [],
+  "runs": {
+   "ag1": "ended:blocked"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.blocked",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.package",
+    "cadre.rec.blocked",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "second-turn-end-no-second-dialog",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "blocked",
+    "step": "worker",
+    "flags": [
+     "loop"
+    ],
+    "owned": true
+   }
+  ],
+  "decisions": [
+   {
+    "id": "flag:m-2:loop",
+    "optionKeys": [
+     "k",
+     "x"
+    ]
+   }
+  ],
+  "spawned": [],
+  "sent": [],
+  "runs": {
+   "ag1": "ended:blocked"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.blocked",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.package",
+    "cadre.rec.blocked",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ }
+]

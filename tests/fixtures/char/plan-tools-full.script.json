@@ -1,0 +1,7 @@
+{"kind":"native","ops":[
+ {"op":"tool","name":"plan","as":"plan","input":{"title":"Add titleCase and kebabCase to the library","description":"Two public string helpers.","lane":"full","reason":"two new public functions"},"label":"plan"},
+ {"op":"tool","name":"task","as":"t1","input":{"title":"Add titleCase","description":"titleCase(s)","type":"feature","package":".","scenarios":["S1: Given a lower case string When titleCase is called Then each word is capitalised"],"changelog":{"category":"Added","entry":"titleCase"},"interface":{"symbols":[{"name":"titleCase","kind":"function","params":["s: string"],"returns":"string","status":"new"}]},"paths":["src/title.js"]},"label":"task-1"},
+ {"op":"tool","name":"task","as":"t2","input":{"title":"Add kebabCase","description":"kebabCase(s)","type":"feature","package":".","after":["$t1"],"scenarios":["S1: Given a string When kebabCase is called Then it is lower case with dashes"],"changelog":{"category":"Added","entry":"kebabCase"},"interface":{"symbols":[{"name":"kebabCase","kind":"function","params":["s: string"],"returns":"string","status":"new"}]},"paths":["src/kebab.js"]},"label":"task-2-after-1"},
+ {"op":"tool","name":"amend","input":{"id":"$t2","expectedRevision":1,"description":"kebabCase(s), trimming the input first"},"label":"amend-stale-revision"},
+ {"op":"tool","name":"amend","input":{"id":"$t2","expectedRevision":"$rev","description":"kebabCase(s), trimming the input first"},"label":"amend-current-revision"},
+ {"op":"approve","label":"approve-plan"}]}

@@ -1,0 +1,195 @@
+[
+ {
+  "op": "at",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "active",
+    "step": "worker",
+    "flags": [],
+    "owned": true
+   }
+  ],
+  "decisions": [],
+  "spawned": [],
+  "sent": [],
+  "runs": {
+   "ag1": "running"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.package",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "stop-1-nudged",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "active",
+    "step": "worker",
+    "flags": [],
+    "owned": true
+   }
+  ],
+  "decisions": [],
+  "spawned": [],
+  "sent": [
+   "ag1"
+  ],
+  "runs": {
+   "ag1": "silent:1"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.cost",
+    "cadre.package",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {
+   "m-2": {
+    "nudges": 1
+   }
+  },
+  "commits": []
+ },
+ {
+  "op": "stop-2-ends-blocked",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "blocked",
+    "step": "worker",
+    "flags": [
+     "no-report"
+    ],
+    "owned": true
+   }
+  ],
+  "decisions": [
+   {
+    "id": "flag:m-2:no-report",
+    "optionKeys": [
+     "k",
+     "x"
+    ]
+   }
+  ],
+  "spawned": [],
+  "sent": [
+   "ag1"
+  ],
+  "runs": {
+   "ag1": "ended:blocked"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.blocked",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.cost",
+    "cadre.package",
+    "cadre.rec.blocked",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {
+   "m-2": {
+    "nudges": 1
+   }
+  },
+  "commits": []
+ },
+ {
+  "op": "stop-3-no-second-dialog",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "blocked",
+    "step": "worker",
+    "flags": [
+     "no-report"
+    ],
+    "owned": true
+   }
+  ],
+  "decisions": [
+   {
+    "id": "flag:m-2:no-report",
+    "optionKeys": [
+     "k",
+     "x"
+    ]
+   }
+  ],
+  "spawned": [],
+  "sent": [
+   "ag1"
+  ],
+  "runs": {
+   "ag1": "ended:blocked"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.blocked",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.cost",
+    "cadre.package",
+    "cadre.rec.blocked",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {
+   "m-2": {
+    "nudges": 1
+   }
+  },
+  "commits": []
+ }
+]

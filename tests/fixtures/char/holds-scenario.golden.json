@@ -1,0 +1,89 @@
+[
+ {
+  "op": "red: S1 fails, held S2 passes",
+  "res": {
+   "ok": true,
+   "passing": null,
+   "setup": false,
+   "failing": 1,
+   "held": [
+    "S2"
+   ]
+  },
+  "meta": [
+   "cadre.base",
+   "cadre.holds",
+   "cadre.locked",
+   "cadre.red",
+   "cadre.redOnly",
+   "cadre.specCommit",
+   "cadre.specTests",
+   "cadre.step",
+   "cadre.testRun",
+   "cadre.view",
+   "cadre.worktree"
+  ],
+  "specCommit": true,
+  "blocked": null
+ },
+ {
+  "op": "held tests still green on the tree",
+  "res": {
+   "red": 0
+  },
+  "meta": [
+   "cadre.base",
+   "cadre.holds",
+   "cadre.locked",
+   "cadre.red",
+   "cadre.redOnly",
+   "cadre.specCommit",
+   "cadre.specTests",
+   "cadre.step",
+   "cadre.testRun",
+   "cadre.view",
+   "cadre.worktree"
+  ],
+  "specCommit": true,
+  "blocked": null
+ },
+ {
+  "op": "S2 regresses",
+  "meta": [
+   "cadre.base",
+   "cadre.holds",
+   "cadre.locked",
+   "cadre.red",
+   "cadre.redOnly",
+   "cadre.specCommit",
+   "cadre.specTests",
+   "cadre.step",
+   "cadre.testRun",
+   "cadre.view",
+   "cadre.worktree"
+  ],
+  "specCommit": true,
+  "blocked": null
+ },
+ {
+  "op": "held test red is named",
+  "res": {
+   "red": 1
+  },
+  "meta": [
+   "cadre.base",
+   "cadre.holds",
+   "cadre.locked",
+   "cadre.red",
+   "cadre.redOnly",
+   "cadre.specCommit",
+   "cadre.specTests",
+   "cadre.step",
+   "cadre.testRun",
+   "cadre.view",
+   "cadre.worktree"
+  ],
+  "specCommit": true,
+  "blocked": null
+ }
+]

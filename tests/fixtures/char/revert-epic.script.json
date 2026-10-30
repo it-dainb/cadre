@@ -1,0 +1,5 @@
+{"kind":"landing","ops":[
+ {"op":"integrate","label":"epic-lands-on-dev"},
+ {"op":"press","id":"$epic","label":"/cadre revert"},
+ {"op":"ans","id":"revert:$epic","key":"c","label":"first-confirm"},
+ {"op":"ans","id":"revert-sure:$epic","key":"y","label":"second-confirm"}]}

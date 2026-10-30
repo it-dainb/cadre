@@ -1,0 +1,7 @@
+{"kind":"life","world":{"type":"docs"},"ops":[
+ {"op":"arm","mode":"auto"},
+ {"op":"turn","label":"worker-starts"},
+ {"op":"rep","agent":"ag1","body":{"role":"worker","outcome":"done","summary":"added docs/usage.md"},"label":"worker-reports"},
+ {"op":"turn","label":"reviewer-starts"},
+ {"op":"rep","agent":"ag2","body":{"role":"reviewer","verdict":"pass","summary":"docs only","findings":[],"coverage":[{"scenario":"S1","test":"test/a.test.js","ok":true}],"contractStatus":[]},"label":"reviewer-passes"},
+ {"op":"turn","label":"lands"}]}
