@@ -73,6 +73,7 @@ cadre never runs root commands for you. `/cadre setup` writes each sudo fix to `
 | drive stopped | `press 0 on the band to resume` |
 | drive paused | `it continues by itself after you answer` |
 | sync X: ... | `/cadre sync now` |
+| sync X credential NAME: missing | `start Claude Code with that variable set` |
 
 ## Events you will meet
 
