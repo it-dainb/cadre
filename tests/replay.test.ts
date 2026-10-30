@@ -22,7 +22,7 @@ const roles = (w: { spawned: [string, string, string][] }) => w.spawned.map(x =>
 const CHANGES = { role: 'reviewer', verdict: 'changes', summary: 'fix it', findings: [{ severity: 'major', file: 'src/a.ts', issue: 'wrong answer' }], coverage: [{ scenario: 'S1', ok: false }], contractStatus: [] }
 // mod mode: the spawner claims each task (worker agN), every worker reports done, the next turn end starts the reviewers
 const RED_PKG = { root: '.', checks: { compile: ['tsc'] }, tdd: { paths: ['test/**'] } }   // tdd paths, but no check that runs the tests
-const TESTS = [{ path: 'test/a.test.js', name: 'S1: answers', scenario: 'S1' }]
+const TESTS = [{ path: 'test/a.test.js', name: 'S1: answers', ids: ['S1'] }]
 // a session after the one that ran `w` (same $.store and task store, a cold board): another process, or the same one after a /clear
 const next = (w: World, p: string, session = 's2') => { proc.id = p; return world({ store: w.store, kv: w.kv, session }) }
 async function inReview(w: World) {

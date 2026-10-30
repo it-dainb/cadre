@@ -1,5 +1,5 @@
 {"kind":"gate","ops":[
- {"op":"tester","files":{"test/s.json":{"name":"login ok","status":"failure","text":"expected true"}},"tests":["login ok"],"label":"red leg: the failing test is accepted"},
+ {"op":"tester","files":{"test/s.json":{"name":"login ok","status":"failure","text":"expected true"}},"tests":[{"name":"login ok","ids":[]}],"label":"red leg: the failing test is accepted"},
  {"op":"green","label":"green leg: still red"},
  {"op":"write","files":{"test/s.json":{"name":"login ok","status":"passed"}},"label":"worker makes it pass"},
  {"op":"green","label":"green leg: passes"}]}

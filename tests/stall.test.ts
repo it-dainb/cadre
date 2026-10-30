@@ -8,7 +8,7 @@ import { ROUTES } from '../core/dispatch'
 import { LIFECYCLE } from '../core/plantools'
 
 const RED_PKG = { root: '.', checks: { compile: ['tsc'] }, tdd: { paths: ['test/**'] } }
-const TESTS = [{ path: 'test/a.test.js', name: 'S1: answers', scenario: 'S1' }]
+const TESTS = [{ path: 'test/a.test.js', name: 'S1: answers', ids: ['S1'] }]
 // auto mode, one task red-blocked (its dialog pending), main's last turn already ended
 async function redWorld() {
   const w = await world({ n: 1, type: 'feature', pkg: RED_PKG, drive: 'auto' }); await arm(w.h, 'auto'); const [id] = w.ids

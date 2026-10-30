@@ -3,6 +3,7 @@
 // 0.17.0 exception, edited by hand: the specifier role (default off) adds its own entries (spec, allow, file, routes, ttl, roles, tools, reports, the resolved roles.specifier); no other entry differs
 // A4 audit exception, edited by hand: the prompts of worker, tester, reviewer, explorer and planner lose what the tools enforce (prompt and file entries only); nothing else differs
 // S1 exception, edited by hand: the worker, tester and planner prompts, the report schemas (no `request` outcome or field) and the resolved config (no `deps`, no `limits.helpers`) change with B5; nothing else differs
+// S2 exception, edited by hand: the tester report's tests[] items are {path,name,ids} (B2: ids replace the scenario string; the schema now names the item fields) and the resolved config loses tdd.collectErrors (B14); nothing else differs
 export default {
  "spec": {
   "base/worker": {
@@ -1244,21 +1245,7 @@ export default {
      "testerCommand": {
       "use": true,
       "adopt": true
-     },
-     "collectErrors": [
-      "ERROR collecting",
-      "errors? during collection",
-      "ImportError",
-      "ModuleNotFoundError",
-      "Cannot find module",
-      "ERR_MODULE_NOT_FOUND",
-      "SyntaxError",
-      "Test suite failed to run",
-      "\\[build failed\\]",
-      "\\[setup failed\\]",
-      "no tests ran",
-      "No tests found"
-     ]
+     }
     },
     "review": {
      "coverage": {
@@ -1627,21 +1614,7 @@ export default {
      "testerCommand": {
       "use": true,
       "adopt": true
-     },
-     "collectErrors": [
-      "ERROR collecting",
-      "errors? during collection",
-      "ImportError",
-      "ModuleNotFoundError",
-      "Cannot find module",
-      "ERR_MODULE_NOT_FOUND",
-      "SyntaxError",
-      "Test suite failed to run",
-      "\\[build failed\\]",
-      "\\[setup failed\\]",
-      "no tests ran",
-      "No tests found"
-     ]
+     }
     },
     "review": {
      "coverage": {
@@ -2017,21 +1990,7 @@ export default {
      "testerCommand": {
       "use": true,
       "adopt": true
-     },
-     "collectErrors": [
-      "ERROR collecting",
-      "errors? during collection",
-      "ImportError",
-      "ModuleNotFoundError",
-      "Cannot find module",
-      "ERR_MODULE_NOT_FOUND",
-      "SyntaxError",
-      "Test suite failed to run",
-      "\\[build failed\\]",
-      "\\[setup failed\\]",
-      "no tests ran",
-      "No tests found"
-     ]
+     }
     },
     "review": {
      "coverage": {
@@ -2311,7 +2270,29 @@ export default {
      "type": "array",
      "maxItems": 50,
      "items": {
-      "type": "object"
+      "type": "object",
+      "required": [
+       "path",
+       "name"
+      ],
+      "properties": {
+       "path": {
+        "type": "string",
+        "maxLength": 200
+       },
+       "name": {
+        "type": "string",
+        "maxLength": 300
+       },
+       "ids": {
+        "type": "array",
+        "maxItems": 10,
+        "items": {
+         "type": "string",
+         "maxLength": 20
+        }
+       }
+      }
      }
     },
     "run": {

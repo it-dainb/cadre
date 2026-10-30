@@ -93,7 +93,7 @@ describe('init checks (ADR 0010): read-only, one per phase', () => {
 describe('safety settings: written by cadre only after the human confirms the diff on its card', () => {
   test('proposed once the rest passes; nothing written before the confirm; then .bak, settings, the cache allowance, policy, ok', async () => {
     const { h, files } = mk({ files: { ...READY, [`${ROOT}/.claude/settings.local.json`]: '{"permissions":{"allow":["Read"]}}' } })
-    const its = await items(h); expect(Object.values(its).filter(v => v !== 'ok')).toEqual(['wait: confirm them on their card'])
+    const its = await items(h); expect(Object.values(its).filter(v => v !== 'ok' && !v.startsWith('warn'))).toEqual(['wait: confirm them on their card'])   // the JUnit probe line is a warn (a fake runner writes none): it never blocks
     const d = (await card(h, 'init:5'))!; expect(d.title).toBe('init · safety settings · confirm'); expect(d.options.map(o => o.run)).toEqual(['init confirm'])
     expect(d.lines.join('\n')).toContain('sandbox.enabled'); expect(d.lines.join('\n')).toContain(`~/.claude/cadre.json: + repos.${RK}`); expect(d.lines.join('\n')).not.toMatch(/\b[0-9a-f]{8}\b/); expect(await h.secret.read()).not.toHaveProperty('initConfirm')
     expect(files[`${ROOT}/.claude/settings.local.json`]).toBe('{"permissions":{"allow":["Read"]}}'); expect(files[`${HOME}/.claude/cadre.json`]).toBeUndefined()
@@ -101,7 +101,7 @@ describe('safety settings: written by cadre only after the human confirms the di
     expect(await confirm(h)).toBe('init: safety settings written · restart Claude Code for the task-tool settings to apply')
     const s = JSON.parse(files[`${ROOT}/.claude/settings.local.json`]); expect(s.permissions.allow).toEqual(['Read']); expect(s.sandbox.allowUnsandboxedCommands).toBe(false); expect(s.sandbox.filesystem.allowWrite).toContain(`${HOME}/.cache/pnpm`)
     expect(files[`${ROOT}/.claude/settings.local.json.bak`]).toBe('{"permissions":{"allow":["Read"]}}'); expect(JSON.parse(files[`${HOME}/.claude/cadre.json`]).repos[RK].jailWritable).toEqual([`${HOME}/.cache/pnpm`])
-    expect((await policyOf(h)).repo).toBe(ROOT); expect(Object.values(await items(h)).every(v => v === 'ok')).toBe(true)
+    expect((await policyOf(h)).repo).toBe(ROOT); expect(Object.values(await items(h)).every(v => v === 'ok' || v.startsWith('warn'))).toBe(true)
     expect(s.env).toEqual({ CLAUDE_CODE_ENABLE_TASKS: 'false', CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' }); expect(s.permissions.deny).toBeUndefined()   // the task-tool gate; never an Agent deny (it would stop cadre's own spawns)
     expect(await h.store.get(await scoped(h, 'settings'))).toEqual({ rev: 1, added: ['CLAUDE_CODE_ENABLE_TASKS', 'CLAUDE_CODE_ENABLE_TODO_TOOLS'] }); expect(files[`${HOME}/.claude/settings.json`]).toBeUndefined()   // per repo; the user settings untouched
   })
@@ -278,7 +278,7 @@ describe('agent-run init (ADR 0010): the brief, the checklist card, re-checks at
   test('only the human owes something (mission card, safety card): the card says so and nothing is sent to main', async () => {
     const { h, sent, tick } = mk({ files: READY, mission: false }); await h.board.update(b => ({ ...b, plan: { id: 'm', slug: 'mission', state: 'draft', epicBranch: '' } }))
     await start(h, 'init'); await tick(); sent.length = 0; await turnEnd(h, {}); await tick()
-    expect(sent).toEqual([]); expect((await card(h))!.title).toBe('init · 6/8 done · needs you'); expect((await card(h, 'init:5'))).toBeDefined()
+    expect(sent).toEqual([]); expect((await card(h))!.title).toBe('init · 7/9 done · needs you'); expect((await card(h, 'init:5'))).toBeDefined()
   })
   test('done: the run ends (and with it the lease), the card says all done with Close, a toast; a confirm on the safety card finishes it', async () => {
     const { h, tick } = mk({ files: READY }); await start(h, 'init'); await tick()

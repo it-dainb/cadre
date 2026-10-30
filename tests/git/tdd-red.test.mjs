@@ -46,10 +46,10 @@ test('spec view golden: no source bodies, no symlinks, tdd.paths + viewInclude +
   assert.equal(a.calls, 2); assert.equal(a.denied, 1); assert.match(a.text, /^tester audit: 3 file\(s\) changed, 2 outside tdd.paths/)
 })
 
-test('review.coverage.enforce: a tester report with no test named after a scenario is refused and the copy-in undone; naming it passes', async () => {
-  let w = world({ cover: true, acceptance: 'S1: Given a When b Then c\nS2: Given a When b Then d' }), r = await tester(w, { 'test/s.json': tc('S1 login ok', 'failure') }, ['S1 login ok'])
-  assert.equal(r.res.ok, false); assert.match(r.res.why, /no test is named after S2: write a test for every scenario/); assert.equal(w.meta['cadre.specCommit'], undefined); assert.equal(existsSync(join(r.wt, 'test/s.json')), false)
-  w = world({ cover: true, acceptance: 'S1: Given a When b Then c\nS2: Given a When b Then d' }); r = await tester(w, { 'test/s.json': tc('S1 login ok', 'failure'), 'test/t.json': tc('test_s2_rejects', 'failure') }, ['S1 login ok', 'test_s2_rejects'])
+test('review.coverage.enforce: a tester report with no test declaring a scenario id is refused and the copy-in undone; declaring it passes (the name carries nothing)', async () => {
+  let w = world({ cover: true, acceptance: 'S1: Given a When b Then c\nS2: Given a When b Then d' }), r = await tester(w, { 'test/s.json': tc('S1 login ok', 'failure') }, [{ name: 'S1 login ok', ids: ['S1'] }])
+  assert.equal(r.res.ok, false); assert.match(r.res.why, /no test declares S2: write a test for every scenario/); assert.equal(w.meta['cadre.specCommit'], undefined); assert.equal(existsSync(join(r.wt, 'test/s.json')), false)
+  w = world({ cover: true, acceptance: 'S1: Given a When b Then c\nS2: Given a When b Then d' }); r = await tester(w, { 'test/s.json': tc('S1 login ok', 'failure'), 'test/t.json': tc('test_s2_rejects', 'failure') }, [{ name: 'S1 login ok', ids: ['S1'] }, { name: 'test_s2_rejects', ids: ['S2'] }])
   assert.ok(r.res.ok, r.res.why)
 })
 
@@ -66,46 +66,45 @@ test('copy-in by path only, red passes on <failure>, specCommit + lock + advance
   assert.deepEqual(await T.lockedViolations(run, wt, spec, ['test/s.json']), ['test/s.json']); assert.deepEqual(await T.lockedViolations(run, wt, spec, ['src/extra.ts']), [])
 })
 
-test('red refused: tests pass; test missing from the report; a test that passed or skipped', async () => {
+test('red refused: tests pass; a declared test missing from the results; skips alone are no red', async () => {
   for (const [files, tests, why] of [
     [{ 'test/s.json': tc('a', 'passed') }, ['a'], /pass at the spec commit/],
-    [{ 'test/s.json': tc('a', 'failure') }, ['a', 'ghost'], /"ghost" is not in the report/],
-    [{ 'test/s.json': tc('a', 'failure'), 'test/t.json': tc('b', 'skipped') }, ['a', 'b'], /"b" skipped at red/],
+    [{ 'test/s.json': tc('a', 'failure') }, ['a', 'ghost'], /not run: ghost/],
+    [{ 'test/s.json': tc('a', 'passed'), 'test/t.json': tc('b', 'skipped') }, ['a', 'b'], /no test failed/],
   ]) { const w = world(), { res } = await tester(w, files, tests); assert.equal(res.ok, false); assert.match(res.why, why); assert.equal((await w.h.board.read()).tasks[0].step, 'tester') }
 })
 
-test('<error> rule: accepted only for status:new symbols with no skeleton; non-new or unrelated errors refused', async () => {
+test('a skipped test is ignored for the verdict and listed in the card (the verdict table: skip is neither red nor green)', async () => {
+  const w = world(), { res } = await tester(w, { 'test/s.json': tc('a', 'failure', 'x'), 'test/t.json': tc('b', 'skipped') }, ['a'])
+  assert.ok(res.ok, res.why); assert.match(res.card, /red ✓ 1 failing/); assert.match(res.card, /skipped: s\.b/)
+})
+test('B1: an <error> result is bad ("make it compile and run"), even for an import of a new contract symbol; a skeleton changes nothing', async () => {
   const d = JSON.stringify({ symbols: [{ name: 'login', status: 'new' }, { name: 'logout', status: 'unchanged' }] })
-  let w = world({ design: d }), r = (await tester(w, { 'test/s.json': tc('a', 'error', 'ReferenceError: login is not defined') }, ['a'])).res
-  assert.ok(r.ok, r.why)
-  w = world({ design: d }); r = (await tester(w, { 'test/s.json': tc('a', 'error', 'ReferenceError: logout is not defined') }, ['a'])).res
-  assert.equal(r.ok, false); assert.match(r.why, /errors, not failures/)
-  w = world({ design: d }); r = (await tester(w, { 'test/s.json': tc('a', 'error', 'SyntaxError: unexpected token') }, ['a'])).res
-  assert.equal(r.ok, false); assert.match(r.why, /errors, not failures/)
-  w = world({ design: d, pkg: { tdd: { paths: ['test/**'], report: '/tmp/cadre/r.xml', skeleton: ['true'] } } }); r = (await tester(w, { 'test/s.json': tc('a', 'error', 'ReferenceError: login is not defined') }, ['a'])).res
-  assert.equal(r.ok, false); assert.match(r.why, /errors, not failures/)   // a skeleton exists: its stubs must make names resolve
-  assert.equal(T.errorOk('login is not defined', T.symbolsOf(d), false), true); assert.equal(T.errorOk('login and logout', T.symbolsOf(d), false), false)
+  for (const [over, text] of [[{ design: d }, 'ReferenceError: login is not defined'], [{ design: d }, 'ReferenceError: logout is not defined'], [{ design: d, pkg: { tdd: { paths: ['test/**'], skeleton: ['true'] } } }, 'SyntaxError: unexpected token']]) {
+    const w = world(over), r = (await tester(w, { 'test/s.json': tc('a', 'error', text), 'test/t.json': tc('b', 'failure') }, ['a', 'b'])).res
+    assert.equal(r.ok, false); assert.equal(r.setup, undefined); assert.match(r.why, /errored instead of failing: s\.a; make it compile and run/); assert.equal(w.meta['cadre.specCommit'], undefined)   // a tester round, copy-in undone
+  }
 })
 
 test('test type has no red: its tests must pass instead; copy-in sets sourceCommit', async () => {
   let w = world({ type: 'test' }); let r = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a'])
-  assert.equal(r.res.ok, false); assert.match(r.res.why, /must pass/)
+  assert.equal(r.res.ok, false); assert.match(r.res.why, /the check fails \(exit=1\)/)
   w = world({ type: 'test' }); r = await tester(w, { 'test/s.json': tc('a', 'passed') }, ['a'])
   assert.ok(r.res.ok, r.res.why); assert.equal(w.meta['cadre.sourceCommit'], w.meta['cadre.specCommit']); assert.equal((await w.h.board.read()).tasks[0].step, 'reviewer')
 })
 
 test('green: spec tests must be passed (skipped != passed); knownRed runs but never gates; a failing verify refuses', async () => {
   const w = world({ pkg: { knownRed: ['knownbad'] } }), { wt } = await tester(w, { 'test/s.json': tc('login ok', 'failure') }, ['login ok'])
-  let g = await T.green(w.h, w.d, await mkTask(w), wt); assert.equal(g.ok, false); assert.match(g.why, /test fails/)   // still red
+  let g = await T.green(w.h, w.d, await mkTask(w), wt); assert.equal(g.ok, false); assert.match(g.why, /the check fails/)   // still red
   writeFileSync(join(wt, 'test/s.json'), tc('login ok', 'skipped')); writeFileSync(join(wt, 'test/old.json'), tc('old', 'passed'))
-  g = await T.green(w.h, w.d, await mkTask(w), wt); assert.equal(g.ok, false)   // skipped: verify fails and, were it exit 0, the spec test still is not passed
+  g = await T.green(w.h, w.d, await mkTask(w), wt); assert.equal(g.ok, false); assert.match(g.why, /the check fails/)   // the fake check exits 1 on a skipped case: not passed
   writeFileSync(join(wt, 'test/s.json'), tc('login ok', 'passed'))
   g = await T.green(w.h, w.d, await mkTask(w), wt); assert.ok(g.ok, g.why); assert.match(g.card, /knownRed knownbad=1/)   // knownRed exit 1 does not gate
   const ran = Object.values((await w.h.events.read()).epics).flat().filter(x => x.type === 'check.ran')   // UI log: phase / failing / secs
   assert.ok(ran.some(x => x.data.phase === 'red' && x.data.ok === true && x.data.failing === 1 && typeof x.data.secs === 'number'), JSON.stringify(ran)); assert.ok(ran.some(x => x.data.phase === 'green' && x.data.ok === true))
   // a spec test absent from the report is not passed either
-  const w2 = world({ pkg: { verify: ['v2'], checks: { test: ['node', 'run.mjs'], v2: ['true'] }, tdd: { check: 'test', paths: ['test/**'], report: '/tmp/cadre/r.xml' } } }); const t2 = await tester(w2, { 'test/s.json': tc('login ok', 'failure') }, ['login ok'])
-  const g2 = await T.green(w2.h, w2.d, await mkTask(w2), t2.wt); assert.equal(g2.ok, false); assert.match(g2.why, /spec test\(s\) not passed: s\.login ok/)
+  const w2 = world({ pkg: { verify: ['v2'], checks: { test: ['node', 'run.mjs'], v2: ['true'] }, tdd: { check: 'test', paths: ['test/**'] } } }); const t2 = await tester(w2, { 'test/s.json': tc('login ok', 'failure') }, ['login ok'])
+  const g2 = await T.green(w2.h, w2.d, await mkTask(w2), t2.wt); assert.equal(g2.ok, false); assert.match(g2.why, /spec test\(s\) not passed: login ok/)
 })
 
 test('failure baseline: a test red when the plan started does not fail the green gate; a NEW failing test does; measured once per plan', async () => {
@@ -114,7 +113,7 @@ test('failure baseline: a test red when the plan started does not fail the green
   const wt = await worktree(w)
   let g = await T.green(w.h, w.d, await mkTask(w), wt); assert.ok(g.ok, g.why); assert.match(g.card, /test fails only where it failed before the plan/)
   assert.deepEqual(JSON.parse(w.meta['cadre.baseline']), { '.:test': { exit: 1, fails: ['s.old'] } })
-  writeFileSync(join(wt, 'test/new.json'), tc('new', 'failure')); g = await T.green(w.h, w.d, await mkTask(w), wt); assert.equal(g.ok, false); assert.match(g.why, /test fails/)
+  writeFileSync(join(wt, 'test/new.json'), tc('new', 'failure')); g = await T.green(w.h, w.d, await mkTask(w), wt); assert.equal(g.ok, false); assert.match(g.why, /the check fails/)
   const n = w.meta['cadre.baseline']; await T.green(w.h, w.d, await mkTask(w), wt); assert.equal(w.meta['cadre.baseline'], n)   // kept: not measured again
 })
 // ---- the red loop (live 0.12.1, generic names): a refused red never traps the tester; the task blocks once with one dialog naming the check ----
@@ -122,7 +121,7 @@ const CL = await import('../../core/close.ts')
 const { budgetOf } = await import('../../core/lifecycle.ts')
 const { ROUTES } = await import('../../core/dispatch.ts')
 const bindTester = async (w, wt, view) => { w.meta['cadre.worktree'] = wt; await w.h.bind.update(b => ({ ...b, ag1: { taskId: 'm-1', role: 'tester', step: 'tester', worktree: view, sessionId: 's', ctxTokens: 0, startedAt: 0 } })) }
-const rep = { role: 'tester', outcome: 'done', summary: 's', tests: [{ path: 'test/s.json', name: 'a' }] }
+const rep = { role: 'tester', outcome: 'done', summary: 's', tests: [{ path: 'test/s.json', name: 'a', ids: [] }] }
 
 test('a test task (tester -> reviewer): after the accepted tests no owner is left, so the reviewer is spawnable', async () => {
   const { spawnable } = await import('../../core/render.ts')
@@ -158,25 +157,26 @@ test('settings: limits.testerRounds 2: the 2nd refused red blocks the task with 
 delete process.env.NODE_TEST_CONTEXT   // this file runs under node --test; a nested node --test would report to it and exit 0
 const NT = (body, imp = '') => `import { test } from 'node:test'\nimport assert from 'node:assert'\nimport { readFileSync } from 'node:fs'\n${imp}\ntest('S1 login ok', () => { ${body} })\n`
 const LOGIN = NT(`assert.equal(readFileSync(new URL('../src/login.ts', import.meta.url), 'utf8').includes('LOGIN_OK'), true)`)
-const JUNIT = { command: ['node', '--test', '--test-reporter=junit', '--test-reporter-destination=$CADRE_JUNIT', 'test/login.test.mjs'], junit: '$CADRE_JUNIT' }
+const JUNIT = { command: ['node', '--test', '--test-reporter=junit', '--test-reporter-destination=$CADRE_JUNIT', 'test/login.test.mjs'] }
 const noCheck = over => { const w = world({ pkg: { checks: { compile: ['true'] }, verify: undefined, tdd: { paths: ['test/**'] } }, ...over }); w.store.record = async () => 'd-0'; return w }
 const testerRun = async (w, files, run, names = ['S1 login ok']) => {
   const wt = await worktree(w), task = await mkTask(w), view = await V.buildView(w.h, w.d, task, wt)
   for (const [f, c] of Object.entries(files)) { mkdirSync(join(view, f, '..'), { recursive: true }); writeFileSync(join(view, f), c) }
   await w.h.board.update(s => ({ ...s, epic: 'e1', tasks: [snap('m-1', { type: task.type, state: 'active', step: 'tester' })] }))
   w.meta['cadre.base'] = sh(wt, 'rev-parse', 'HEAD')
-  return { wt, view, res: await T.testerDone(w.h, w.d, await mkTask(w), wt, view, names.map(n => ({ path: 'test/login.test.mjs', name: n })), undefined, run) }
+  return { wt, view, res: await T.testerDone(w.h, w.d, await mkTask(w), wt, view, names.map(n => ({ path: 'test/login.test.mjs', name: n, ids: [] })), undefined, run) }
 }
 const recorded = w => { w.records = []; w.store.record = async (kind, title, body, link) => { w.records.push({ kind, title, body, link }); return 'd-1' } }
 
 test('red via the tester command + JUnit (every named test failed); no test check: the command, minus its own file, becomes the test check once, recorded; green runs it', async () => {
   const w = noCheck(); recorded(w)
   const { wt, res } = await testerRun(w, { 'test/login.test.mjs': LOGIN }, JUNIT)
-  assert.ok(res.ok, res.why); assert.match(res.card, /red ✓ 1 failing/); assert.deepEqual(JSON.parse(w.meta['cadre.specTests']), ['test.S1 login ok'])
+  assert.ok(res.ok, res.why); assert.match(res.card, /red ✓ 1 failing/); assert.deepEqual(JSON.parse(w.meta['cadre.specTests']), [{ name: 'S1 login ok', ids: [] }]); assert.equal(w.meta['cadre.coverVia'], 'results')
   assert.deepEqual(JSON.parse(w.meta['cadre.testRun']), JUNIT)
   const cfg = JSON.parse(readFileSync(join(w.root, '.cadre/config.json'), 'utf8')), p = cfg.units[0]
-  assert.deepEqual(p.checks.test, ['node', '--test', '--test-reporter=junit', '--test-reporter-destination=/tmp/cadre/junit.xml']); assert.equal(p.tdd.report, '/tmp/cadre/junit.xml'); assert.equal(p.testBy, 'tester')
-  assert.deepEqual(w.records.map(r => [r.kind, r.title, r.link]), [['decision', 'test check set from the tester: node --test --test-reporter=junit --test-reporter-destination=/tmp/cadre/junit.xml', 'm-1']])
+  assert.deepEqual(p.checks.test, ['node', '--test', '--test-reporter=junit', '--test-reporter-destination=$CADRE_JUNIT']); assert.equal(p.tdd.report, undefined); assert.equal(p.testBy, 'tester')   // B19: the literal $CADRE_JUNIT, no report path
+  assert.deepEqual(w.records.map(r => [r.kind, r.title, r.link]), [['decision', 'test check set from the tester: node --test --test-reporter=junit --test-reporter-destination=$CADRE_JUNIT', 'm-1']])
+  assert.deepEqual(await w.h.store.get(`cadre:${repoKeyOf(w.root)}:junit:.`), { ok: true, argv: p.checks.test })   // the probe is re-recorded yes
   const ev = Object.values((await w.h.events.read()).epics).flat().find(e => e.type === 'drive.decided'); assert.equal(ev.data.kind, 'setting'); assert.equal(ev.actor, 'mod')
   assert.match((await T.green(w.h, w.d, await mkTask(w), wt)).why, /spec tests fail/)   // nothing implemented yet
   writeFileSync(join(wt, 'src/login.ts'), 'export const LOGIN_OK = 1\n'); sh(wt, 'add', '-A'); sh(wt, 'commit', '-qm', 'impl')
@@ -186,23 +186,27 @@ test('red via the tester command + JUnit (every named test failed); no test chec
   assert.ok((await testerRun(w2, { 'test/login.test.mjs': LOGIN }, JUNIT)).res.ok); assert.equal(w2.records.length, 0); assert.equal(existsSync(join(w2.root, '.cadre/config.json')), false)
 })
 
-test('red via the tester command without JUnit: the output must name each test failing', async () => {
-  let w = noCheck(), r = (await testerRun(w, { 'test/login.test.mjs': LOGIN }, { command: ['node', '--test', 'test/login.test.mjs'] })).res
-  assert.ok(r.ok, r.why); assert.match(r.card, /red ✓ exit=1, 1 failing/)
-  w = noCheck(); r = (await testerRun(w, { 'test/login.test.mjs': LOGIN }, { command: ['node', '--test', 'test/login.test.mjs'] }, ['S1 login ok', 'S2 ghost'])).res
-  assert.equal(r.ok, false); assert.match(r.why, /does not show test "S2 ghost" failing/)
+test('B2/B19: a tester command that writes no JUnit is a gate error (a human block, not a red) with the fix line, and nothing is adopted', async () => {
+  const w = noCheck(); recorded(w); const r = (await testerRun(w, { 'test/login.test.mjs': LOGIN }, { command: ['node', '--test', 'test/login.test.mjs'] }, ['S1 login ok'])).res
+  assert.equal(r.ok, false); assert.equal(r.setup, true); assert.match(r.why, /make the runner write JUnit XML to \$CADRE_JUNIT/)
+  assert.equal(w.records.length, 0); assert.equal(existsSync(join(w.root, '.cadre/config.json')), false)
 })
 
-test('red refused: a collection error is named back to the tester ("the tests did not run: <line>", no host path); passing tests are refused', async () => {
-  const sym = { design: JSON.stringify({ symbols: [{ name: 'signin', kind: 'function', status: 'new' }] }) }, imp = f => NT('assert.ok(x)', `import { x } from '../src/${f}.mjs'`)
-  const ok = (await testerRun(noCheck(sym), { 'test/login.test.mjs': imp('signin') }, { command: ['node', '--test', 'test/login.test.mjs'] })).res   // importing a new contract symbol (no skeleton) is the right red
-  assert.ok(ok.ok, ok.why); assert.match(ok.card, /red ✓ exit=1: .*signin/)
-  const w = noCheck(sym), bad = imp('nope')
-  const { wt, view, res } = await testerRun(w, { 'test/login.test.mjs': bad }, { command: ['node', '--test', 'test/login.test.mjs'] })
-  assert.equal(res.ok, false); assert.equal(res.setup, undefined); assert.match(res.why, /^the tests did not run: .*Cannot find module 'nope\.mjs'/); assert.doesNotMatch(res.why, /\/home\/|\/tmp\//)
+test('B19: exit-only is never adopted: a command that names $CADRE_JUNIT but writes no report (a test task with no declared tests) is accepted by its exit and the unit gets no test check', async () => {
+  const w = noCheck({ type: 'test' }); recorded(w)
+  const r = (await testerRun(w, { 'test/login.test.mjs': NT('assert.ok(true)') }, { command: ['node', '-e', '0', '$CADRE_JUNIT'] }, [])).res
+  assert.ok(r.ok, r.why); assert.equal(r.structural, undefined); assert.equal(w.records.length, 0); assert.equal(existsSync(join(w.root, '.cadre/config.json')), false); assert.equal(w.meta['cadre.coverVia'], 'report')
+})
+
+test('B1/B3: an import failure with JUnit is "not run" (a tester round, copy-in undone, no host path); without a report it is a gate error; passing tests are refused', async () => {
+  const imp = f => NT('assert.ok(x)', `import { x } from '../src/${f}.mjs'`), w = noCheck()
+  const { wt, view, res } = await testerRun(w, { 'test/login.test.mjs': imp('nope') }, JUNIT)
+  assert.equal(res.ok, false); assert.equal(res.setup, undefined); assert.match(res.why, /not run: S1 login ok/); assert.doesNotMatch(res.why, /\/home\/|\/tmp\//)
   assert.equal(w.meta['cadre.specCommit'], undefined)   // copy-in undone
   await bindTester(w, wt, view)   // through the report: a refusal the tester may retry, bounded by limits.testerRounds
-  await assert.rejects(CL.report(w.h, w.d, 'ag1', { ...rep, tests: [{ path: 'test/login.test.mjs', name: 'S1 login ok' }], run: { command: ['node', '--test', 'test/login.test.mjs'] } }), /red gate refused: the tests did not run/)
+  await assert.rejects(CL.report(w.h, w.d, 'ag1', { ...rep, tests: [{ path: 'test/login.test.mjs', name: 'S1 login ok', ids: [] }], run: JUNIT }), /red gate refused: tests? not run/)
+  const nj = (await testerRun(noCheck(), { 'test/login.test.mjs': imp('nope') }, { command: ['node', '--test', 'test/login.test.mjs'] })).res
+  assert.equal(nj.ok, false); assert.equal(nj.setup, true)   // exit 1 with declared tests and no results: the check is broken, not the work
   const p = noCheck(), r = (await testerRun(p, { 'test/login.test.mjs': NT('assert.ok(true)') }, JUNIT)).res
   assert.equal(r.ok, false); assert.match(r.why, /pass at the spec commit/); assert.equal(existsSync(join(p.root, '.cadre/config.json')), false)   // nothing adopted from a refused red
 })
@@ -216,12 +220,4 @@ test('settings: tdd.testerCommand.use off: the command is ignored; with no test 
 test('settings: tdd.testerCommand.adopt off: red runs the command, nothing is written or recorded', async () => {
   const w = noCheck(); recorded(w); w.d.cfg.tdd = { ...w.d.cfg.tdd, testerCommand: { use: true, adopt: false } }
   assert.ok((await testerRun(w, { 'test/login.test.mjs': LOGIN }, JUNIT)).res.ok); assert.equal(w.records.length, 0); assert.equal(existsSync(join(w.root, '.cadre/config.json')), false)
-})
-
-test('settings: tdd.collectErrors: a project pattern turns a line into "the tests did not run"', async () => {
-  const body = NT("console.log('DB UNREACHABLE'); assert.fail('x')")
-  let w = noCheck(), r = (await testerRun(w, { 'test/login.test.mjs': body }, { command: ['node', '--test', 'test/login.test.mjs'] })).res
-  assert.ok(r.ok, r.why)
-  w = noCheck(); w.d.cfg.tdd = { ...w.d.cfg.tdd, collectErrors: ['DB UNREACHABLE'] }; r = (await testerRun(w, { 'test/login.test.mjs': body }, { command: ['node', '--test', 'test/login.test.mjs'] })).res
-  assert.equal(r.ok, false); assert.match(r.why, /the tests did not run: .*DB UNREACHABLE/)
 })

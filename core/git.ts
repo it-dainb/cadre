@@ -82,6 +82,8 @@ export async function squash(run: Run, wt: string, epicTip: string, source: stri
 // Ref CAS: update-ref <ref> <new> <old>; false when the ref moved under us.
 export const casRef = (run: Run, root: string, ref: string, next: string, old: string) => ok(run, root, ['update-ref', ref, next, old])
 // diff facts the mod computes (6.1): stat + capped patch of a range
+// one command that must succeed: its stdout split on `sep`, else it throws `<what>: <the end of stderr>` (the caller decides who reads that)
+export async function must(run: Run, argv: readonly string[], init: Parameters<Run>[1], what: string, sep = '\n'): Promise<string[]> { const r = await run(argv, init); if (r.exitCode) throw new Error(`${what}: ${r.stderr.slice(-200)}`); return r.stdout.split(sep).filter(Boolean) }
 export const diffStat = (run: Run, wt: string, range: string) => git(run, wt, ['diff', '--stat', range])
 export async function diffPatch(run: Run, wt: string, range: string, cap = 3072): Promise<string> { return (await git(run, wt, ['diff', range])).slice(0, cap) }
 

@@ -1,0 +1,12 @@
+{
+  "xmldom": {
+    "package": "@xmldom/xmldom",
+    "version": "0.9.12",
+    "license": "MIT",
+    "tarballSha256": "08245e18c248b957b4c6e07f8549ad5f55ae11b7a8abd4c1113a0fd61ddc67ee",
+    "file": "xmldom/xmldom.mjs",
+    "sha256": "30c57aa45faeaac4e8304274f7fa9b2bbed4dcde0b6ccb4c02b18703d61f8ef7",
+    "build": "npm pack @xmldom/xmldom@0.9.12; tar xzf; npx esbuild@0.24.0 package/lib/index.js --bundle --format=esm --platform=neutral --outfile=xmldom.mjs",
+    "why": "the mod loader has no require: one ESM file, imported only by core/junit.ts (ADR 0031, Slice 0 spike 7)"
+  }
+}

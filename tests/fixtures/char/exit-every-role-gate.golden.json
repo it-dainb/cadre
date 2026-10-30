@@ -10,6 +10,7 @@
   },
   "meta": [
    "cadre.base",
+   "cadre.coverVia",
    "cadre.locked",
    "cadre.red",
    "cadre.redOnly",
@@ -30,6 +31,7 @@
   },
   "meta": [
    "cadre.base",
+   "cadre.coverVia",
    "cadre.locked",
    "cadre.red",
    "cadre.redOnly",
@@ -47,6 +49,7 @@
   "op": "worker makes it pass",
   "meta": [
    "cadre.base",
+   "cadre.coverVia",
    "cadre.locked",
    "cadre.red",
    "cadre.redOnly",
@@ -67,6 +70,7 @@
   },
   "meta": [
    "cadre.base",
+   "cadre.coverVia",
    "cadre.locked",
    "cadre.red",
    "cadre.redOnly",

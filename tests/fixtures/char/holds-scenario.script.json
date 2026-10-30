@@ -1,5 +1,5 @@
 {"kind":"gate","acceptance":"S1: Given a When b Then c\nS2: Given x When y Then z","holds":["S2"],"ops":[
- {"op":"tester","files":{"test/s.json":{"name":"S1 new","status":"failure"},"test/s2.json":{"name":"S2 held","status":"passed"}},"tests":["S1 new","S2 held"],"label":"red: S1 fails, held S2 passes"},
+ {"op":"tester","files":{"test/s.json":{"name":"S1 new","status":"failure"},"test/s2.json":{"name":"S2 held","status":"passed"}},"tests":[{"name":"S1 new","ids":["S1"]},{"name":"S2 held","ids":["S2"]}],"label":"red: S1 fails, held S2 passes"},
  {"op":"holdsRed","label":"held tests still green on the tree"},
  {"op":"write","files":{"test/s2.json":{"name":"S2 held","status":"failure"}},"label":"S2 regresses"},
  {"op":"holdsRed","label":"held test red is named"}]}

@@ -21,17 +21,19 @@ Otherwise ask the user with AskUserQuestion, in one round: the goal in one line,
 Tell the user to approve the mission in the cadre dialog (key 1 opens it). Do not wait for it: go on with phase 4.
 
 ## Phase 4: build and test commands
-Find how this project installs, builds and tests. Read, in this order (CI wins over prose): CI config (`ls .github/workflows` and the files there, or other CI files), task runners (`Makefile`, `justfile`, `package.json` scripts, `pyproject.toml`, `Cargo.toml`, `go.mod`), then `README` and `CONTRIBUTING`. `git ls-files` shows what exists.
+Find how this project installs, builds and tests. Read, in this order (CI wins over prose): CI config (`.github/workflows`, other CI files), build tools (`Makefile`, `justfile`, `package.json` scripts, `pyproject.toml`, `Cargo.toml`, Go modules), then `README` and `CONTRIBUTING`. `git ls-files` shows what exists.
 Write the result into `.cadre/config.json` as `"units"` (keep `branches`):
 ```
 "units": [
-  { "root": ".", "setup": ["npm", "ci"], "runner": "junit", "checks": { "test": ["npm", "test"], "lint": ["npm", "run", "lint"] }, "tdd": { "paths": ["test/**"] } }
+  { "root": ".", "setup": ["npm", "ci"], "checks": { "test": ["npm", "test"], "lint": ["npm", "run", "lint"] }, "tdd": { "paths": ["test/**"] } }
 ]
 ```
 - One entry per unit (a package, service, app or submodule); `setup` is `[]` when there is none.
-- `runner` is `"junit"` when the test command can write a JUnit report, else `"text"` (its output is read: red then means any failing exit plus the test names found in the output).
+- Pick each unit's `test` argv so it writes JUnit XML to `$CADRE_JUNIT` (`--junitxml=$CADRE_JUNIT`); install a reporter if needed.
+- No tests: write the unit without `checks.test`.
+- Not code (docs, analysis): ask the user whether to use the docs or analysis profile.
 - `tdd.paths` are the globs of the test files.
-If the user's goal comes next and a check fails because of the very problem that goal is about, keep the check as it is: cadre shows it to the user as known red, and the goal's fix must turn it green. Never weaken or delete a test. You may run a check once to see that it works.
+If the user's goal comes next and a check fails because of the very problem that goal is about, keep the check as it is: cadre shows it to the user as known red, and the goal's fix must turn it green. Never weaken or delete a test.
 
 ## Phase 5: changelog
 `CHANGELOG.md` must follow Keep a Changelog 1.1.0. If it does not exist, Write exactly:

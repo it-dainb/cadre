@@ -58,13 +58,13 @@ describe('units rows (Settings, Workspace units)', () => {
     const files: Record<string, string> = { [REPO]: JSON.stringify({ units: U }) }, h = fakeHost({ files }), writes: string[] = [], w = h.write
     h.write = async (p: string, t: string) => { writes.push(p); return w(p, t) }
     await refreshSettings(h)
-    expect(((await h.ui.read())['settings.rows'] as any[]).filter(r => r.key.startsWith('units.')).map(r => r.key)).toHaveLength(6)
-    expect((await configPress(h, 'set units.1.runner text')).text).toBe('api runner = "text" · saved to the repo')
-    expect(writes).toEqual([`${REPO}.bak`, REPO]); expect(JSON.parse(files[REPO]).units[1]).toEqual({ ...U[1], runner: 'text' }); expect(files[`${REPO}.bak`]).toBe(JSON.stringify({ units: U }))
+    expect(((await h.ui.read())['settings.rows'] as any[]).filter(r => r.key.startsWith('units.')).map(r => r.key)).toHaveLength(4)
+    expect((await configPress(h, 'set units.1.concurrency 3')).text).toBe('api concurrency = 3 · saved to the repo')
+    expect(writes).toEqual([`${REPO}.bak`, REPO]); expect(JSON.parse(files[REPO]).units[1]).toEqual({ ...U[1], concurrency: 3 }); expect(files[`${REPO}.bak`]).toBe(JSON.stringify({ units: U }))
     await configPress(h, 'set units.0.concurrency 2'); await configPress(h, 'set units.0.setup ["make","deps"]')
     expect(JSON.parse(files[REPO]).units[0]).toMatchObject({ concurrency: 2, setup: ['make', 'deps'] })
     writes.length = 0
-    for (const bad of ['set units.0.runner xml', 'set units.0.concurrency -1', 'set units.0.setup nope', 'set units.9.runner text']) expect((await configPress(h, bad)).text).toMatch(/^refused: /)
+    for (const bad of ['set units.0.runner xml', 'set units.0.concurrency -1', 'set units.0.setup nope', 'set units.9.concurrency 2']) expect((await configPress(h, bad)).text).toMatch(/^refused: /)
     expect(writes).toEqual([])
   })
 })

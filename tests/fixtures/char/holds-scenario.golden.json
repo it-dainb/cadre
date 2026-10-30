@@ -12,6 +12,7 @@
   },
   "meta": [
    "cadre.base",
+   "cadre.coverVia",
    "cadre.holds",
    "cadre.locked",
    "cadre.red",
@@ -33,6 +34,7 @@
   },
   "meta": [
    "cadre.base",
+   "cadre.coverVia",
    "cadre.holds",
    "cadre.locked",
    "cadre.red",
@@ -51,6 +53,7 @@
   "op": "S2 regresses",
   "meta": [
    "cadre.base",
+   "cadre.coverVia",
    "cadre.holds",
    "cadre.locked",
    "cadre.red",
@@ -72,6 +75,7 @@
   },
   "meta": [
    "cadre.base",
+   "cadre.coverVia",
    "cadre.holds",
    "cadre.locked",
    "cadre.red",

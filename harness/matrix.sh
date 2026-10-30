@@ -42,6 +42,7 @@ usage-limit|single ready scripted/limit|limit|MODEL=haiku CC_VERSION=2.1.295 S=1
 report-less-end|single ready scripted/silent|silent|MODEL=haiku CC_VERSION=2.1.295 S=1 BUDGET=420 ORACLE=noreport
 shape-refusal-budget|single ready scripted/shape|shape|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=420 ORACLE=shape
 holds-scenario|single ready scripted/holds|holds|MODEL=haiku CC_VERSION=2.1.295 S=1 PERM=auto LANDED=1 BUDGET=420 ORACLE=holds
+gate-results|single ready scripted/gate-results|gate-results|MODEL=haiku CC_VERSION=2.1.295 S=1 PERM=auto LANDED=1 BUDGET=150 ORACLE=gate-results
 dev-moved|single ready scripted/slow|devmoved|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=600 ORACLE=devmoved
 clear-bg-agents|single ready|clear|MODEL=haiku CC_VERSION=2.1.295 LANDED=1 BUDGET=1800 PROXY=1 ORACLE=clear
 # the 0.15 cells (plan "S cells named per slice"): S every commit

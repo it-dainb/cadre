@@ -14,7 +14,7 @@ describe('report contracts: role × outcome', () => {
   test('each role has its contract; a good report of each passes', () => {
     expect(Object.keys(REPORTS)).toEqual(['worker', 'tester', 'reviewer', 'explorer', 'planner', 'specifier'])
     expect(R('worker', { outcome: 'done', summary: 's' })).toBeNull()
-    expect(R('tester', { outcome: 'done', summary: 's', tests: [{ path: 't', name: 'S1', scenario: 'S1' }] })).toBeNull()
+    expect(R('tester', { outcome: 'done', summary: 's', tests: [{ path: 't', name: 'S1', ids: ['S1'] }] })).toBeNull()
     expect(R('reviewer', { verdict: 'pass', summary: 's', findings: [], coverage: [], contractStatus: [] })).toBeNull()
     expect(R('explorer', { answer: 'a', citations: [] })).toBeNull(); expect(R('planner', { tasks: [] })).toBeNull()
   })

@@ -16,3 +16,14 @@ test('B5: the helper and need modules are gone from the module list', async () =
   expect(Object.keys(BUDGET.modules).filter(m => /^core\/(helpers|needs)\.ts$/.test(m))).toEqual([])
   expect(Object.keys(BUDGET.modules).length).toBeGreaterThan(40)   // the list is the real one, not an empty scan
 })
+test('D14: the vendored xmldom matches the sha in VENDOR.json, its LICENSE ships, and only core/junit.ts imports it', async () => {
+  expect(BUDGET.vendor.sha).toBe(BUDGET.vendor.pinned); expect(BUDGET.vendor.version).toBe('0.9.12'); expect(BUDGET.vendor.license).toBe(true); expect(BUDGET.vendor.importers).toEqual([])
+  expect(Object.keys(BUDGET.modules).filter(m => m.startsWith('core/vendor/'))).toEqual([])   // outside the core cap
+})
+test('7(b): the NO_REGEX list holds the S2 files and is regex-free; no stdout/stderr read in gate code outside modelData(', async () => {
+  expect(BUDGET.noRegex).toEqual(expect.arrayContaining(['core/gate.ts', 'core/junit.ts', 'core/tdd.ts', 'profiles/default.ts'])); expect(BUDGET.regexHits).toEqual([])
+  expect(BUDGET.noStdio).toEqual(['core/gate.ts', 'core/tdd.ts']); expect(BUDGET.stdioReads).toEqual([])
+})
+test('7(c): profiles/ is in the model-exit scan and counted apart from core (the fixture case is tests/git/budget-lint.test.mjs)', async () => {
+  expect(BUDGET.profilesLoc).toBeGreaterThan(0); expect(BUDGET.profilesLoc).toBeLessThanOrEqual(350); expect(BUDGET.modelExits).toEqual([])
+})

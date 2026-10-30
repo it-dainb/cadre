@@ -16,7 +16,7 @@ import { budgetOf } from '../core/lifecycle'
 import { check } from '../config/index'
 
 const RED_PKG = { root: '.', checks: { compile: ['tsc'] }, tdd: { paths: ['test/**'] } }   // no check that runs the tests: red blocks with one dialog
-const TESTS = [{ path: 'test/a.test.js', name: 'S1: answers', scenario: 'S1' }]
+const TESTS = [{ path: 'test/a.test.js', name: 'S1: answers', ids: ['S1'] }]
 // yolo, every task's tester reported a red that cannot be made: each task blocked with flag red and its dialog; a turn end stops the run on the first
 async function redStopped(n = 1) {
   const w = await world({ n, type: 'feature', pkg: RED_PKG, drive: 'yolo' }); await arm(w.h, 'yolo')
