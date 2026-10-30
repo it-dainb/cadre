@@ -86,7 +86,7 @@ async function audit(c: Ctx): Promise<{ why: string | null; caches: string[]; re
 // what the probe found, per unit: a line for main on each "no" and on a unit with no test check (D15, D16)
 const probed = async (c: Ctx): Promise<Item[]> => (await Promise.all(D.unitsOf(c.cfg).map(async u => [u.root, await probeOf(c.h, u)] as const))).flatMap(([r, s]): Item[] => s === 'yes' ? [{ name: `unit ${r}: test check writes JUnit`, st: 'ok' }]
   : s === 'no' ? [{ name: `unit ${r}: test check writes JUnit`, st: 'warn', why: modelText('tool-result', `unit ${r}: the test check wrote no valid JUnit at $CADRE_JUNIT, so red is exit-code only; change its test argv to write JUnit (install a reporter if needed), then rerun /cadre init`) }]
-  : s === 'none' ? [{ name: `unit ${r}: test check`, st: 'ok', why: modelText('tool-result', 'no test check yet: the first test-driven task sets one up, or choose a lite/docs pipeline') }] : [])
+  : s === 'none' ? [{ name: `unit ${r}: test check`, st: 'ok', why: modelText('tool-result', 'no test check yet: the first test-driven task sets one up, or use a pipeline that has no tests') }] : [])
 function workflow(c: Ctx): string | null {
   const errs = regErrors(c.cfg.types as any)
   for (const r of ['worker', 'tester', 'reviewer', 'explorer'] as const) if (!spec(r, { roles: c.cfg.roles as any, mcpAllow: c.cfg.mcpAllow }).prompt) errs.push(`roles.${r} does not render`)
