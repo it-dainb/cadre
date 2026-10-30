@@ -7,6 +7,7 @@
 // S2 exception, edited by hand: the tester report's tests[] items are {path,name,ids} (B2: ids replace the scenario string; the schema now names the item fields) and the resolved config loses tdd.collectErrors (B14); nothing else differs
 // S5 exception, edited by hand: the config keys the profile took over (types, tdd, review, lanes, roles.custom, limits.testerRounds) are gone from the resolved config; `profile` and `limits.specAccepts` are new (B16)
 // S6 exception, edited by hand: the config keys the profile took over (changelog, suites, release, landing.mode/review/remote) are gone from the resolved config (B16)
+// S8 exception, edited by hand: the six role prompts are rewritten profile-neutral and shorter (spec.prompt and file entries only; the planner prompt names risk and points at its brief's task fields); nothing else differs
 export default {
  "spec": {
   "base/worker": {
