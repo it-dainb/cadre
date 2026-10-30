@@ -59,3 +59,39 @@ describe('discovered work (3.1)', () => {
     expect(ds.every(x => x.category === 'draft' && x.deps.some(y => y.type === 'discovered-from' && y.id === t))).toBe(true)
   })
 })
+
+// ---- S4: a run's end follows its role's spec (core/close.endedRun, RoleSpec.onSilent: S0 gap G1), not the role's name ----
+import { world, PASS } from './fixtures/replay/world'
+import { roles } from '../profiles/default'
+import { setRoles } from '../core/roles'
+import { budgetOf, runOf } from '../core/lifecycle'
+import { arm } from '../core/drive'
+
+describe('endedRun: onSilent nudge | block | retry', () => {
+  const as = async (onSilent: 'nudge' | 'block' | 'retry', f: () => Promise<void>) => { setRoles({ ...roles, worker: { ...roles.worker, onSilent } }); try { await f() } finally { setRoles(roles) } }
+  const flags = async (w: any, id: string) => (await w.h.board.read()).tasks.find((t: any) => t.id === id)
+  test('nudge: nudged limits.nudges times with the role\'s own text, then blocked with no-report', () => as('nudge', async () => {
+    const w = await world(), [id] = w.ids; await w.at('ag1', id, 'worker')
+    await w.stop('ag1'); expect(w.sent).toEqual([['ag1', roles.worker.nudge!]]); expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'silent', n: 1 })
+    await w.stop('ag1'); expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'ended', cause: 'blocked' }); expect(await flags(w, id)).toMatchObject({ state: 'blocked', flags: ['no-report'] })
+  }))
+  test('block: no nudge, the first silent end blocks the task', () => as('block', async () => {
+    const w = await world(), [id] = w.ids; await w.at('ag1', id, 'worker')
+    await w.stop('ag1'); expect(w.sent).toEqual([]); expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'ended', cause: 'blocked' }); expect(await flags(w, id)).toMatchObject({ state: 'blocked', flags: ['no-report'] })
+  }))
+  test('retry: nudged, then the run ends released: no flag, no silentRuns charge, the task is given back (the role name is not what decides)', () => as('retry', async () => {
+    const w = await world(), [id] = w.ids; await w.at('ag1', id, 'worker')
+    await w.stop('ag1'); expect(w.sent.length).toBe(1)
+    await w.stop('ag1'); expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'ended', cause: 'released' })
+    expect((await flags(w, id)).flags).toEqual([]); expect((await budgetOf(w.h, id)).silentRuns ?? 0).toBe(0); expect((await flags(w, id)).owner).toBeUndefined()
+  }))
+  test('the built-in reviewer is a retry role: a silent reviewer is released, never blocked (1.0.1)', () => { expect(roles.reviewer.onSilent).toBe('retry'); expect(['worker', 'tester', 'explorer'].map(r => roles[r].onSilent)).toEqual(['nudge', 'nudge', 'nudge']) })
+})
+
+describe('a reviewer pass that misses coverage is refused (acceptance cover:\'report\': the reviewer\'s own coverage, ADR 0022)', () => {
+  test('a scenario the reviewer did not mark ok is refused with the scenario named; marked ok it passes', async () => {
+    const w = await world({ n: 1, drive: 'auto' }); await arm(w.h, 'auto'); await w.turn(); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' }); await w.turn()
+    expect(await w.rep('ag2', { ...PASS, coverage: [{ scenario: 'S1', ok: false }] })).toContain('scenario S1 is not covered by a test that checks it')
+    expect(await w.rep('ag2', PASS)).not.toContain('is not covered')
+  })
+})
