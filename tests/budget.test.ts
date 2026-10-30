@@ -21,8 +21,8 @@ test('D14: the vendored xmldom matches the sha in VENDOR.json, its LICENSE ships
   expect(BUDGET.vendor.sha).toBe(BUDGET.vendor.pinned); expect(BUDGET.vendor.version).toBe('0.9.12'); expect(BUDGET.vendor.license).toBe(true); expect(BUDGET.vendor.importers).toEqual([])
   expect(Object.keys(BUDGET.modules).filter(m => m.startsWith('core/vendor/'))).toEqual([])   // outside the core cap
 })
-test('7(b): the NO_REGEX list holds the S2 and S3 files (S3: flags, decide, close) and is regex-free; no stdout/stderr read in gate code outside modelData(', async () => {
-  expect(BUDGET.noRegex).toEqual(expect.arrayContaining(['core/gate.ts', 'core/junit.ts', 'core/tdd.ts', 'core/flags.ts', 'core/decide.ts', 'core/close.ts', 'profiles/default.ts'])); expect(BUDGET.regexHits).toEqual([])
+test('7(b): the NO_REGEX list holds the S2, S3 and S5 files (S5: pipeline, profile, machine) and is regex-free; no stdout/stderr read in gate code outside modelData(', async () => {
+  expect(BUDGET.noRegex).toEqual(expect.arrayContaining(['core/gate.ts', 'core/junit.ts', 'core/tdd.ts', 'core/flags.ts', 'core/decide.ts', 'core/close.ts', 'core/pipeline.ts', 'core/profile.ts', 'core/machine.ts', 'profiles/default.ts', 'profiles/docs.ts', 'profiles/analysis.ts'])); expect(BUDGET.regexHits).toEqual([])
   expect(BUDGET.noStdio).toEqual(['core/gate.ts', 'core/tdd.ts']); expect(BUDGET.stdioReads).toEqual([])
 })
 test('7(c): profiles/ is in the model-exit scan and counted apart from core (the fixture case is tests/git/budget-lint.test.mjs)', async () => {

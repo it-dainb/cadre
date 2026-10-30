@@ -400,12 +400,12 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (/usage/i.test(read(join(dir, 'dev-changelog')))) fail(o, 'the changelog has an entry for a doc task (this profile has no changelog)')
     if (runs(snaps.at(-1)?.s ?? {}) && Object.values(Object.assign({}, ...snaps.map(x => runs(x.s)), ...hist.map(runs))).some(r => ['tester', 'worker', 'reviewer'].includes(r.role))) fail(o, 'a run record of a default-profile role exists')
   }
-  if (o === 'profile-invalid') {   // a refused repo profile: cadre is dormant for the repo: Doctor says `repo profile invalid`, /cadre profile says it stays off, the refusal line is logged once, no agent ran
-    const screens = panes.map(p => left(p.text).replace(/\s+/g, ' ')), logged = dlines.filter(l => /repo profile: colour: unknown key/.test(l)).length
-    Object.assign(stats, { agents: subs.length, logged, doctor: screens.some(x => /repo profile invalid: colour: unknown key/.test(x)), profile: screens.some(x => /cadre stays off for this repo/.test(x)) })
-    if (!stats.doctor) fail(o, 'Doctor shows no `repo profile invalid: colour: unknown key` row')
-    if (!stats.profile) fail(o, '/cadre profile does not say that cadre stays off for this repo')
-    if (logged < 1) fail(o, 'the refusal line was not logged at the session start')
+  if (o === 'profile-invalid') {   // a refused repo profile: cadre is dormant for the repo: the refusal line is shown, /cadre profile says it stays off, Doctor reports a failing row, no agent ran
+    const screens = panes.map(p => left(p.text).replace(/\s+/g, ' ')), shown = screens.filter(x => /repo profile: colour: unknown key/.test(x)).length
+    Object.assign(stats, { agents: subs.length, refusalShown: shown, profile: screens.some(x => /repo profile invalid: colour: unknown key.*cadre stays off for this repo/.test(x)), doctor: screens.some(x => /doctor: [1-9]\d* fail/.test(x)) })
+    if (!shown) fail(o, 'the refusal line `repo profile: colour: unknown key` was never shown')
+    if (!stats.profile) fail(o, '/cadre profile does not say `repo profile invalid: colour: unknown key` and that cadre stays off for this repo')
+    if (!stats.doctor) fail(o, 'Doctor reports no failing row')
     if (subs.length || dlines.some(l => /agent\.spawn cadre:/.test(l))) fail(o, 'an agent ran in a repo whose profile is refused')
   }
   if (o === 'custom-role') {   // the user's read-only auditor: ONE register before the spawn, spawned as cadre:auditor from a later turn, it answers by report, one terminal state

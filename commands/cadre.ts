@@ -111,7 +111,7 @@ export const HINT = "that's answered in the dialog now: press 1 on the band or r
 export function parse(text: string): { cmd: string; args: string[] } | { hint: string } {
   const t = text.trim(), [w = '', ...rest] = argsOf(t)
   if (!t) return { cmd: 'pane', args: [] }
-  if (['setup', 'init', 'doctor', 'continue', 'timeline'].includes(w) && !rest.length) return { cmd: w, args: [] }
+  if (['setup', 'init', 'doctor', 'continue', 'timeline', 'profile'].includes(w) && !rest.length) return { cmd: w, args: [] }
   if (w === 'revert' && rest.length === 1) return { cmd: 'revert', args: rest }   // H9: typing it opens the card (a dialog); the confirms are the dialogs' answers
   if (w === 'deep') return rest.length ? { cmd: 'deep', args: [t.slice(4).trim()] } : { hint: 'usage: /cadre deep <goal> · Claude explores, then asks one question at a time until the goal is clear, then plans it' }   // ADR 0020
   if (w === 'yolo') return rest.length ? { cmd: 'yolo', args: [t.slice(4).trim()] } : { hint: 'usage: /cadre yolo <goal> · after you approve the plan, nothing is asked until it lands on dev' }   // ADR 0013
