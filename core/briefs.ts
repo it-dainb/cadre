@@ -50,24 +50,35 @@ export const planBlock = (b: Pick<BriefIn, 'mission' | 'protectedPaths' | 'core'
   const body = join([sec('Mission', b.mission), sec('Protected paths (never change them)', b.protectedPaths), sec('Shared core interface (landed; build on it, do not change it)', renderContract(b.core)), sec('Shared notes', cap(b.shared ?? '', 1000))])
   return body ? `# PLAN\nContext shared by every task of this plan; your own task follows.\n\n${body}` : ''
 }
-export function brief(role: Role, b: BriefIn): string {
-  const spec = (s: string[]) => cap(join(s), 4096), ctx = (s: string[]) => cap(join(s), 3072)
-  const notes = sec('Notes', cap(b.notes ?? '', 500)), head = HEAD[role], plan = planBlock(b), mine = join([sec('Notes on your files', cap(b.slice ?? '', 1000)), sec('Lessons from earlier work', b.lessons)])
-  const contract = sec('Contract', renderContract(b.contract)), files = (why: string) => (b.paths?.length ? `\nFiles: ${b.paths.join(', ')}${why}` : '')   // the task's declared paths, in the task block
-  if (role === 'explorer') return join([plan, head, `# ${b.question !== undefined ? 'QUESTION' : `TASK-${b.id}`}\n${b.question ?? b.title}`, sec('Scope', 'read-only; no edits, no shell'), mine, notes])
-  if (role === 'specifier') return join([plan, head, `# TASK-${b.id} ${b.title} (${b.type})${files('')}`, spec([sec('Description', b.description), sec('Scenarios', b.scenarios), contract]), sec('Scope', 'read-only; no edits, no shell'), mine, notes])
-  if (role === 'tester')   // no `how` here: what the specifier wrote is the worker's, and this template never reads it (tests/specifier.test.ts)
-    return join([plan, head, `# SPEC TASK-${b.id}${files(' (the code this task changes)')}`, spec([sec('Scenarios', b.scenarios), contract]), sec('Decided (apply it to the tests)', b.decisions), sec('Already holding', b.holds?.length ? `${b.holds.join(', ')}: this behaviour exists already: write its test so it PASSES now (named after the id). The other scenarios' tests must fail now.` : ''), sec('Test paths', b.testPaths), b.runAsk ? sec('How your tests run', RUN_ASK) : '', mine, sec('Folder', 'tests only; read FILES.md first: it lists what you can see (you cannot list directories)'), notes])
-  if (role === 'reviewer')
-    return join([plan, head, `# REVIEW TASK-${b.id}${files(' (a change outside these files is a finding, not a fail on its own)')}`, sec('Source commit', b.sourceCommit), sec('Diff', [b.diffStat ?? '', cap(b.diff ?? '', 3072)]),
-      spec([sec('Scenarios', b.scenarios), contract, sec('Spec tests', b.locked)]),
-      sec('Scenario coverage', b.uncovered && [COVER, ...(b.uncovered.length ? [`No spec test is named after: ${b.uncovered.join(', ')}. That alone means verdict changes.`] : [])]),
-      ctx([sec('Red/green cards', [b.redCard ?? '', b.greenCard ?? '']), sec('Tester audit', b.audit), sec('Worker report', b.report), sec('Check', b.focus), sec('Changelog entry (context, written at merge) and commit header', b.changelog), sec('Flags', b.flags)]), mine, notes])
-  return join([plan, head, `# TASK-${b.id} ${b.title} (${b.type})${files(' (make your changes there)')}`, spec([sec('Description', b.description), sec('Scenarios', b.scenarios), contract]),
-    ctx([sec('Locked spec tests', [...(b.locked ?? []), b.redCard ?? '']), sec('Direct dependencies', (b.deps ?? []).map(d => `- ${d.id} ${d.title}${d.out ? `: ${d.out}` : ''}`)),
-      sec('How (the specifier\'s notes; the scenarios stay as written)', b.how), sec('Findings / checks', [...(b.findings ?? []), b.greenCard ?? '']), sec('Decisions', b.decisions), sec('Handoff', b.handoff),
-      sec('Paths of other active tasks', (b.others ?? []).slice(0, 10))]), mine, notes])
+// A brief is one ordered list of blocks per role (LAYOUT); a block is a key of SECTIONS, or a capped group [cap, ...keys] (spec 4 KB, ctx 3 KB). Empty sections drop out. The header, title and
+// the few section titles that differ by role are the role's own keys.
+const sc = (b: BriefIn) => sec('Scenarios', b.scenarios), files = (b: BriefIn, why: string) => (b.paths?.length ? `\nFiles: ${b.paths.join(', ')}${why}` : '')   // the task's declared paths, in the task block
+const task = (b: BriefIn, tag: string, why = '') => `# ${tag ? `${tag} ` : ''}TASK-${b.id}${tag ? '' : ` ${b.title} (${b.type})`}${files(b, why)}`
+const SECTIONS: Record<string, (b: BriefIn, role: Role) => string> = {
+  plan: planBlock, head: (_, role) => HEAD[role], notes: b => sec('Notes', cap(b.notes ?? '', 500)), scope: () => sec('Scope', 'read-only; no edits, no shell'),
+  mine: b => join([sec('Notes on your files', cap(b.slice ?? '', 1000)), sec('Lessons from earlier work', b.lessons)]),
+  description: b => sec('Description', b.description), scenarios: sc, contract: b => sec('Contract', renderContract(b.contract)),
+  question: b => `# ${b.question !== undefined ? 'QUESTION' : `TASK-${b.id}`}\n${b.question ?? b.title}`, title: b => task(b, ''), titleSpec: b => task(b, 'SPEC', ' (the code this task changes)'), titleWorker: b => task(b, '', ' (make your changes there)'),
+  titleReview: b => task(b, 'REVIEW', ' (a change outside these files is a finding, not a fail on its own)'),
+  decided: b => sec('Decided (apply it to the tests)', b.decisions), holding: b => sec('Already holding', b.holds?.length ? `${b.holds.join(', ')}: this behaviour exists already: write its test so it PASSES now (named after the id). The other scenarios' tests must fail now.` : ''),
+  testPaths: b => sec('Test paths', b.testPaths), runAsk: b => (b.runAsk ? sec('How your tests run', RUN_ASK) : ''), folder: () => sec('Folder', 'tests only; read FILES.md first: it lists what you can see (you cannot list directories)'),
+  source: b => sec('Source commit', b.sourceCommit), diff: b => sec('Diff', [b.diffStat ?? '', cap(b.diff ?? '', 3072)]), specTests: b => sec('Spec tests', b.locked),
+  coverage: b => sec('Scenario coverage', b.uncovered && [COVER, ...(b.uncovered.length ? [`No spec test is named after: ${b.uncovered.join(', ')}. That alone means verdict changes.`] : [])]),
+  cards: b => sec('Red/green cards', [b.redCard ?? '', b.greenCard ?? '']), audit: b => sec('Tester audit', b.audit), report: b => sec('Worker report', b.report), check: b => sec('Check', b.focus),
+  changelog: b => sec('Changelog entry (context, written at merge) and commit header', b.changelog), flags: b => sec('Flags', b.flags),
+  locked: b => sec('Locked spec tests', [...(b.locked ?? []), b.redCard ?? '']), deps: b => sec('Direct dependencies', (b.deps ?? []).map(d => `- ${d.id} ${d.title}${d.out ? `: ${d.out}` : ''}`)),
+  how: b => sec('How (the specifier\'s notes; the scenarios stay as written)', b.how), findings: b => sec('Findings / checks', [...(b.findings ?? []), b.greenCard ?? '']), decisions: b => sec('Decisions', b.decisions),
+  handoff: b => sec('Handoff', b.handoff), others: b => sec('Paths of other active tasks', (b.others ?? []).slice(0, 10)),
 }
+const SPEC = ['description', 'scenarios', 'contract']
+const LAYOUT: Record<Role, (string | string[])[]> = {   // the tester reads no `how`: what the specifier wrote is the worker's (tests/specifier.test.ts)
+  explorer: ['plan', 'head', 'question', 'scope', 'mine', 'notes'],
+  specifier: ['plan', 'head', 'title', ['spec', ...SPEC], 'scope', 'mine', 'notes'],
+  tester: ['plan', 'head', 'titleSpec', ['spec', 'scenarios', 'contract'], 'decided', 'holding', 'testPaths', 'runAsk', 'mine', 'folder', 'notes'],
+  reviewer: ['plan', 'head', 'titleReview', 'source', 'diff', ['spec', 'scenarios', 'contract', 'specTests'], 'coverage', ['ctx', 'cards', 'audit', 'report', 'check', 'changelog', 'flags'], 'mine', 'notes'],
+  worker: ['plan', 'head', 'titleWorker', ['spec', ...SPEC], ['ctx', 'locked', 'deps', 'how', 'findings', 'decisions', 'handoff', 'others'], 'mine', 'notes'],
+}
+export const brief = (role: Role, b: BriefIn): string => join(LAYOUT[role].map(k => (typeof k === 'string' ? SECTIONS[k](b, role) : cap(join(k.slice(1).map(x => SECTIONS[x](b, role))), k[0] === 'spec' ? 4096 : 3072))))
 // the tester proposes its test command, cadre runs it (ADR 0023): task language only
 export const RUN_ASK = 'In your report, give run: the command that runs only your test files, as an argument list with no shell, e.g. {"command":["node","--test","test/login.test.js"]}; add cwd (a folder relative to this one) only if the runner must start there. If your runner can write JUnit XML, have it write to $CADRE_JUNIT (pytest --junitxml=$CADRE_JUNIT; node --test --test-reporter=junit --test-reporter-destination=$CADRE_JUNIT; jest with jest-junit). List every test in tests[{path,name,ids}] with the scenario ids it checks. You do not run it: it is run for you, and every test you list must fail with an assertion now, not with an import or setup error.'
 // the reviewer's coverage rule (ADR 0022), task language: enforced by close (a pass with a missing or weak scenario is refused)

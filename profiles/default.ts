@@ -52,21 +52,21 @@ const STOP = 'You stopped without calling report; a hand-back message is not a r
 const cell = (model: string, effort: string) => ({ model, effort })
 const text = (n: number) => ({ list: 5, of: { text: n } })
 export const roles: Record<string, RoleSpec> = {
-  worker: { description: 'implements one approved task in its own folder', prompt: PROMPTS.worker, tools: ['Read', 'Edit', 'Write', 'NotebookEdit', 'Bash', 'PowerShell', 'Monitor', 'TodoWrite', R, C], mcpAllow: true, network: 'on', write: ['**'], ttl: '1h',
+  worker: { description: 'implements one approved task in its own folder', prompt: modelText('agent-file', PROMPTS.worker), tools: ['Read', 'Edit', 'Write', 'NotebookEdit', 'Bash', 'PowerShell', 'Monitor', 'TodoWrite', R, C], mcpAllow: true, network: 'on', write: ['**'], ttl: '1h',
     onSilent: 'nudge', nudge: modelText('nudge', `${STOP}: {"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"} (or outcome "blocked" with reason).`),
     report: { outcomes: ['done', 'blocked', 'spec_change'], fields: { summary: { text: 800 }, reason: { text: 400 }, scenario: { text: 300 }, risks: text(120), questions: text(120), followups: { list: 5 } }, required: ['summary'], requiredWith: { blocked: ['reason'], spec_change: ['reason', 'scenario'] },
       ask: { reason: modelText('tool-result', 'required with outcome {outcome}; say what is in the way, then report again'), scenario: modelText('tool-result', 'required with outcome {outcome}; give the changed scenario in full as "S<n>: Given … When … Then …", then report again') } },
     routing: { light: cell('haiku', 'high'), standard: cell('haiku', 'high'), thorough: cell('haiku', 'high'), core: cell('haiku', 'high') } },
-  tester: { description: 'writes black-box tests for one task from its scenarios', prompt: PROMPTS.tester, tools: ['Read', 'Write', 'Edit', R], network: 'off', write: ['**'], ttl: '1h',
+  tester: { description: 'writes black-box tests for one task from its scenarios', prompt: modelText('agent-file', PROMPTS.tester), tools: ['Read', 'Write', 'Edit', R], network: 'off', write: ['**'], ttl: '1h',
     onSilent: 'nudge', nudge: modelText('nudge', `${STOP} with role "tester", outcome "done", summary and tests.`),
     report: { outcomes: ['done'], fields: { summary: { text: 800 }, tests: { list: 50, of: { object: { path: { text: 200 }, name: { text: 300 }, ids: { list: 10, of: { text: 20 } } }, required: ['path', 'name'] } }, run: 'command' }, required: ['summary'], requiredWith: { done: ['tests'] } },
     routing: { light: cell('haiku', 'high'), standard: cell('sonnet', 'medium'), thorough: cell('sonnet', 'medium'), core: cell('sonnet', 'medium') } },
-  reviewer: { description: 'reviews one task commit against its scenarios', prompt: PROMPTS.reviewer, tools: ['Read', I, C, R], network: 'off', write: [], ttl: '1h',
+  reviewer: { description: 'reviews one task commit against its scenarios', prompt: modelText('agent-file', PROMPTS.reviewer), tools: ['Read', I, C, R], network: 'off', write: [], ttl: '1h',
     onSilent: 'retry', nudge: modelText('nudge', `${STOP} with role "reviewer", verdict, summary, findings, coverage and contractStatus.`),
     report: { outcomes: ['pass', 'fail'], fields: { summary: { text: 1500 }, findings: { list: 50 }, coverage: { list: 50 }, contractStatus: { list: 100 } }, required: ['summary', 'findings', 'coverage', 'contractStatus'] },
     verdict: { pass: 'pass', fail: 'changes', findings: 'files' },
     routing: { light: cell('sonnet', 'high'), standard: cell('sonnet', 'high'), thorough: cell('opus', 'high'), core: cell('sonnet', 'high') } },
-  explorer: { description: 'read-only recon, discovery and spikes', prompt: PROMPTS.explorer, tools: ['Read', I, R], network: 'off', write: [], ttl: '5m', effort: 'low', maxTurns: 40,
+  explorer: { description: 'read-only recon, discovery and spikes', prompt: modelText('agent-file', PROMPTS.explorer), tools: ['Read', I, R], network: 'off', write: [], ttl: '5m', effort: 'low', maxTurns: 40,
     onSilent: 'nudge', nudge: modelText('nudge', `${STOP}, once: {"schemaVersion":1,"role":"explorer","answer":"<your answer>","citations":[{"path":"src/a.ts","line":1}]}`),
     report: { outcomes: [], fields: { answer: { text: 2000 }, citations: { list: 30 } }, required: ['answer'], ask: { answer: 'required for role explorer' } } },
 }

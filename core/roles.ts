@@ -11,8 +11,8 @@ const R = 'mcp__cadre__report', C = 'mcp__cadre__run_check', I = 'mcp__cadre__in
 // write: globs under the role's tree; [] = read-only. The tester's tree is its view; fence() subtracts the PROTECTED paths it already refuses (git.PROTECTED) after this match.
 export const ROLES_DEFAULT: Record<Role, RoleSpec> = {
   ...(defaultRoles as Record<string, RoleSpec>),
-  planner: { description: 'drafts the task plan of one epic, read-only', prompt: PROMPTS.planner, tools: ['Read', I, R], write: [], ttl: '1h', effort: 'high' },
-  specifier: { description: 'writes how-to notes for one approved task, read-only', prompt: PROMPTS.specifier, tools: ['Read', I, R], write: [], ttl: '5m', effort: 'low', maxTurns: 40 },
+  planner: { description: 'drafts the task plan of one epic, read-only', prompt: modelText('agent-file', PROMPTS.planner), tools: ['Read', I, R], write: [], ttl: '1h', effort: 'high' },
+  specifier: { description: 'writes how-to notes for one approved task, read-only', prompt: modelText('agent-file', PROMPTS.specifier), tools: ['Read', I, R], write: [], ttl: '5m', effort: 'low', maxTurns: 40 },
 } as Record<Role, RoleSpec>
 // the work roles the engine runs by their spec (spawnRole, endedRun, validateReport): the profile's table; setRoles replaces it once at boot (S5), tests swap it
 let TABLE: Record<string, ProfileRole> = defaultRoles
