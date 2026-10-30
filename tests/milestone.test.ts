@@ -87,6 +87,8 @@ describe('roadmap draft', () => {
     const w = await world(); await w.call('TaskCreate', { subject: 'Goal', description: 'g', metadata: { kind: 'plan', lane: 'full', reason: 'r' } })
     const r = await w.call('TaskCreate', { subject: 'T', description: 'd', metadata: { type: 'feature', paths: ['src/a.ts', 'CHANGELOG.md'] } })
     expect(JSON.stringify(r)).toContain('CHANGELOG.md is protected: it is written for you')
+    const ok = (await w.call('TaskCreate', { subject: 'T2', description: 'd', metadata: { type: 'feature', paths: ['src/a.ts'] } })).result.task.id
+    expect(JSON.stringify(await w.call('TaskUpdate', { taskId: ok, metadata: { paths: ['src/a.ts', 'CHANGELOG.md'] } }))).toContain('CHANGELOG.md is protected')   // edit
   })
   test('the plan answer carries the roadmap rules; epics need goal, size, paths; overlap and core size go back to the planner', async () => {
     const w = await world(), p = await w.call('TaskCreate', { subject: 'User accounts', description: 'accounts', metadata: MSP }), m = p.result.task.id

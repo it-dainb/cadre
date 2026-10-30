@@ -85,7 +85,7 @@ type W = { error: string } | { id: string; context: string[] }
 async function create(h: Host, store: TaskStore, title: string, description: string, m: In): Promise<W> {
   const key = `create:${title}`
   if (await capped(h, key)) return { error: await refuse(h, key, 'draft refused') }
-  const err = validateFields(m) ?? (m.lane === 'lite' ? protectedIn(m.paths) : null) ?? (m.holds ? holdsGap(m.holds, fieldsOf(m).patch.acceptance) : null); if (err) return { error: await refuse(h, key, err) }
+  const err = validateFields(m) ?? (m.holds ? holdsGap(m.holds, fieldsOf(m).patch.acceptance) : null); if (err) return { error: await refuse(h, key, err) }
   await clearRetries(h, key)
   const s = await h.board.read()
   if (m.kind === 'mission' && (await h.secret.read()).run?.goal) return { error: 'not now: the user\'s goal comes next, and its plan carries the mission (plan mission). Go on with the next setup step.' }   // ADR 0014: one dialog for mission + plan
