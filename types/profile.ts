@@ -58,10 +58,11 @@ export type Step =
 
 export type Outcome = 'done' | 'blocked' | 'spec_change' | 'pass' | 'fail'
 // S0 gap G3: today's report schema caps every value (summary 800, reviewer summary 1500, lists 5..100); a shape refusal is "over its cap". Caps are data, per field.
-export type FieldKind = 'text' | 'list' | 'bool' | { enum: string[] } | { text: number } | { list: number }   // number = max length / max items
+// number = max length / max items; `of` = what each list item is (absent: an object); `command` = the tester's run {command:[argv], cwd?}, checked as a test command
+export type FieldKind = 'text' | 'list' | 'bool' | 'object' | 'command' | { enum: string[] } | { text: number } | { list: number; of?: FieldKind } | { object: Record<string, FieldKind>; required?: string[] }
 export type RoleSpec = {
   description: string; prompt: string             // built-in prompt text stays in agents/prompts.ts, referenced by profiles/default.ts
-  tools: string[]; disallowedTools?: string[]; network: 'on' | 'off'; write: string[]
+  tools: string[]; disallowedTools?: string[]; network: 'on' | 'off'; write: string[]; mcpAllow?: boolean   // mcpAllow: the user's mcpAllow tools are added to this role's list (worker)
   model?: string; effort?: string; maxTurns?: number; ttl: '5m' | '1h'
   // S0 gap G1: nudge = nudge, then block with a `no-report` flag (worker, tester); retry = nudge, then end released with no flag and no silentRuns charge (reviewer: a verdict is never invented);
   // block = no nudge, block at once
@@ -69,8 +70,9 @@ export type RoleSpec = {
   report: {
     outcomes: Outcome[]
     fields: Record<string, FieldKind>
-    required: string[]                            // always required
-    requiredWith?: Partial<Record<Outcome, string[]>>   // S0 gap G2: required only with that outcome (today WHY: reason with blocked/spec_change, scenario with spec_change)
+    required: string[]                            // always required, besides the outcome (the field `outcome`, or `verdict` when the role has one; none when `outcomes` is empty)
+    requiredWith?: Partial<Record<Outcome, string[]>>   // S0 gap G2: required only with that outcome (today WHY: reason with blocked/spec_change, scenario with spec_change); a text field must not be blank
+    ask?: Record<string, string>                  // the refusal line after `<field>: ` for a missing or blank field (`{outcome}` = the report's outcome); default `required; add it and report again`
   }
   verdict?: { pass: string; fail: string; findings?: 'files' | 'text' | 'none' }
   rubric?: string

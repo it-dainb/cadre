@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { REG, defaults, strictOf } from '../config/index'
 import type { Config } from '../config/index'
-import { RISKS, riskOf, route } from '../core/risk'
+import { RISKS, route } from '../core/routing'
 import { laneOf } from '../core/lanes'
 import { boundOf } from '../core/drive'
 import { stale, usdOf } from '../core/reuse'
@@ -24,9 +24,7 @@ import { fakeHost } from './support'
 const put = (c: any, k: string, v: unknown) => { const ks = k.split('.'); ks.slice(0, -1).reduce((o, x) => o[x], c)[ks[ks.length - 1]] = v; return c }
 const host = (c: Config, files: Record<string, string> = {}) => Object.assign(fakeHost({ files }), { config: async () => c })
 const R = (c: Config, r: 'worker' | 'tester' | 'reviewer', k: (typeof RISKS)[number], n: number) => route(r, c.roles[r].byRisk[k], k, n)
-const rv = (c: Config, s: { paths: string[]; lines?: number }, o = {}) => riskOf(c.review, { labels: [], ...s, ...o })
 const T = (n: number) => Array.from({ length: n }, () => ({ type: 'spike', meta: {}, labels: [], design: '' })) as any
-const stat = (files: number, lines: number, path = 'src/a.ts') => ({ paths: Array.from({ length: files }, (_, i) => (i ? `src/f${i}.ts` : path)), lines })
 const rec = { on: true, turns: 50, startedAt: 0 } as any, bound = (c: Config, cost = 5, idle = 2) => boundOf(rec, c.drive, cost, idle, 60 * 60_000)
 const B = { taskId: 't', role: 'worker', step: 'worker', worktree: '/w', sessionId: 's', ctxTokens: 120_000, startedAt: 0, lastAt: 0 } as any
 const started = async (c: Config) => { const h = host(c); await start(h); return { pol: await policyOf(h), ui: (await h.ui.read()).cfg } }
@@ -46,11 +44,6 @@ const PROBES: Record<string, [unknown, (c: Config) => unknown]> = {
   'roles.specifier.model': ['opus', c => route('explorer', c.roles.specifier, '', 0)], 'roles.specifier.effort': ['high', c => route('explorer', c.roles.specifier, '', 0)],
   'roles.explorer.model': ['opus', c => route('explorer', c.roles.explorer, '', 0)], 'roles.explorer.effort': ['high', c => route('explorer', c.roles.explorer, '', 0)],
   'roles.planner.model': ['opus', c => route('planner', c.roles.planner, '', 0)], 'roles.planner.effort': ['medium', c => route('planner', c.roles.planner, '', 0)],
-  'review.coreTask': ['thorough', c => rv(c, { paths: ['a'] }, { coreTask: true })], 'review.coreDiff': ['core', c => rv(c, { paths: ['core/x.ts'], lines: 1 }, { corePaths: ['core/**'] })],
-  'review.tiers.light.paths': [3, c => rv(c, { paths: ['a', 'b', 'c'] })],
-  'review.tiers.light.files': [2, c => rv(c, stat(3, 10))], 'review.tiers.light.lines': [50, c => rv(c, stat(1, 80))],
-  'review.tiers.thorough.files': [10, c => rv(c, stat(15, 10))], 'review.tiers.thorough.lines': [300, c => rv(c, stat(1, 400))],
-  'review.tiers.risky': [['src/**'], c => rv(c, stat(1, 1))],
   'planning.clarify.enabled': [false, c => guideOf((BUDGET.guides as Record<string, string>).goal, c.planning)],
   'planning.clarify.maxQuestions': [1, c => nextStep(VAGUE, c.planning, { mode: 'auto' }).text], 'planning.clarify.threshold': [0.3, c => nextStep(VAGUE, c.planning, { mode: 'auto' }).text],
   'planning.deep.maxRounds': [1, c => nextStep(VAGUE, c.planning, { mode: 'auto', deep: true, asked: 1 }).text],

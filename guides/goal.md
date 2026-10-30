@@ -22,6 +22,8 @@ Not for ask. Call explore ONCE asking what in the project the goal touches (file
 
 **full**: plan with `"lane": "full"` and a reason, then one task call per task, as the plan rules in its answer say.
 
+Each task may carry `"risk"`: `light`, `standard`, `thorough` or `core` (shared code others build on). It sets how closely the task is reviewed and which models run it; leave it out for standard.
+
 **milestone**: plan with `"lane": "milestone"` and a reason, then one epic call per epic, as the roadmap rules in its answer say. Complete each epic when its tasks are done; the milestone lands on dev with its last epic. Shared code found mid-run: task with `"core": true`, no epic.
 
 For lite, full and milestone, tell the user to approve the plan in the dialog (key 1 opens it). Then stop.

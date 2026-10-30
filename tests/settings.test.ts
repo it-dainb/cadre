@@ -80,9 +80,8 @@ describe('buttons', () => {
     expect((await configPress(h, 'repo jail on')).text).toBe('jail = "on" · saved to the repo')   // auto -> on: stricter
     expect((await configPress(h, 'repo effectCheck off')).text).toBe('refused: effectCheck: the repo file may only make it stricter than auto')
     expect((await configPress(h, 'repo strictness advisory')).text).toBe('refused: strictness: the repo file may only make it stricter than strict')
-    expect((await configPress(h, 'repo review.tiers.light.files 9')).text).toBe('refused: review.tiers.light.files: the repo file may only make it stricter than 5')
-    expect((await configPress(h, 'repo review.tiers.light.files 3')).text).toBe('review.tiers.light.files = 3 · saved to the repo')
-    expect(JSON.parse(files[REPO])).toEqual({ review: { maxRework: 8, tiers: { light: { files: 3 } } }, jail: 'on' }); expect(Object.keys(files)).toEqual([REPO, `${REPO}.bak`])   // never the user file
+    expect((await configPress(h, 'repo review.tiers.light.files 9')).text).toBe('refused: review.tiers.light.files is not a setting')   // B9: the risk is the planner's call, no thresholds
+    expect(JSON.parse(files[REPO])).toEqual({ review: { maxRework: 8 }, jail: 'on' }); expect(Object.keys(files)).toEqual([REPO, `${REPO}.bak`])   // never the user file
   })
   test('S tighten is judged against the user value: a user that relaxed strictness may get strict back from the repo; the card lists only stricter values', async () => {
     const { h, files } = await hostWith({ [HOME]: '{"strictness":"advisory","jail":"off"}' })

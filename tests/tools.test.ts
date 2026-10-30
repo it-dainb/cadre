@@ -45,7 +45,7 @@ describe('refusals name the field and say how to retry; nothing is stored', () =
   test('schema: unknown field, wrong type, a cap (rejected, never truncated), a missing required field', async () => {
     const w = await world(); await planned(w)
     const before = (await w.store.list({})).length
-    expect(err(await tool(w, 'task', { title: 'x', description: 'y', colour: 'red' }))).toBe('error: colour: unknown field (allowed: title, description, type, package, scope, breaking, scenarios, changelog, interface, paths, core, repro, holds, epic, after); remove it and call again')
+    expect(err(await tool(w, 'task', { title: 'x', description: 'y', colour: 'red' }))).toBe('error: colour: unknown field (allowed: title, description, type, package, scope, breaking, scenarios, changelog, interface, paths, core, repro, holds, risk, epic, after); remove it and call again')
     expect(err(await tool(w, 'task', { title: 5, description: 'y' }))).toBe('error: title: expected a string, got 5; fix it and call again')
     expect(err(await tool(w, 'task', { title: 'x'.repeat(201), description: 'y' }))).toBe('error: title: at most 200 characters, got 201; shorten it and call again')
     expect(err(await tool(w, 'task', { title: 'x', description: 'y', after: Array(21).fill('m-2') }))).toContain('error: after: at most 20 items, got 21')
@@ -210,7 +210,7 @@ describe('sameTask: the brief heading reads TASK-<id>, but an id may itself begi
 describe('the report tool schema and the report contracts name the same fields', () => {
   test('every field a role may report is a property of the tool schema (additionalProperties is false), and the schema has no field no role accepts; shared fields agree on type', () => {
     const tool = (SPECS as any[]).find(x => x.name === 'report').inputSchema.properties as Record<string, { type?: string }>
-    const per = Object.values(REPORTS).flatMap(r => Object.entries((r as any).properties as Record<string, { type?: string }>))
+    const per = Object.values(REPORTS()).flatMap(r => Object.entries((r as any).properties as Record<string, { type?: string }>))
     const accepted = new Set(per.map(([k]) => k))
     expect([...accepted].filter(k => !(k in tool))).toEqual([]); expect(Object.keys(tool).filter(k => !accepted.has(k))).toEqual([])
     for (const [k, v] of per) if (v.type && tool[k].type) expect([k, tool[k].type]).toEqual([k, v.type])

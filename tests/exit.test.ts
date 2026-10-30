@@ -6,7 +6,7 @@ import { denyCall } from '../hooks/register'
 import { BACKSTOP, REPEAT, backstop, exitStep, pruneRuns, runOf, step } from '../core/lifecycle'
 import { stopped } from '../core/close'
 import { arm } from '../core/drive'
-import { NUDGE } from '../core/close'
+import { ROLES_DEFAULT } from '../core/roles'
 import { PROMPTS } from '../agents/prompts'
 import { machine } from '../commands/doctor'
 import { BUDGET } from './fixtures/budget.generated'
@@ -61,7 +61,7 @@ describe('rule 3: a tool first seen is journaled; an unknown one is noted for Do
 
 describe('a hand-back message is not a report', () => {
   test('the nudge of every task role says so (live: a worker that handed back under auto mode answered "already delivered" and ended with no report)', () => {
-    for (const r of ['worker', 'tester', 'reviewer'] as const) expect(NUDGE[r]).toContain('a hand-back message is not a report')
+    for (const r of ['worker', 'tester', 'reviewer'] as const) expect(ROLES_DEFAULT[r].nudge).toContain('a hand-back message is not a report')
     for (const r of ['worker', 'tester', 'reviewer'] as const) expect(PROMPTS[r]).toContain('A hand-back message does not replace it.')
   })
 })

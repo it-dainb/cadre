@@ -3,6 +3,7 @@ import { attachment, brief, context, drainDelta, pushDelta, queueCard, renderCar
 import { viewHash } from '../core/board'
 import { fakeHost, task } from './support'
 import { DESIGN, GOLDEN } from './fixtures/briefs/golden'
+import { CASES } from './fixtures/briefs-golden'
 import type { Snapshot } from '../types'
 
 const base = { id: 'bd-a1', title: 'Add login', type: 'feature', description: 'Users sign in with a password.', scenarios: 'S1: Given a user When they log in Then a session exists\nS2: Given a bad pw When login Then AuthError', contract: DESIGN, notes: 'start with the happy path' }
@@ -109,4 +110,8 @@ describe('holds in the tester brief', () => {
     expect(bytes(t(['S2'])) - bytes(t())).toBeLessThanOrEqual(200)
     for (const role of ['worker', 'reviewer', 'explorer'] as const) expect(brief(role, { id: 'm-1', title: 't', type: 'feature', holds: ['S2'] } as any)).not.toContain('Already holding')
   })
+})
+
+describe('briefs: the 1.0.1 built-in briefs, recorded before the role spec (S4), byte for byte', () => {
+  for (const c of CASES) test(c.name, async () => { expect(brief(c.role, c.input as any)).toBe(c.out) })
 })

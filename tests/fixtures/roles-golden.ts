@@ -3,6 +3,7 @@
 // 0.17.0 exception, edited by hand: the specifier role (default off) adds its own entries (spec, allow, file, routes, ttl, roles, tools, reports, the resolved roles.specifier); no other entry differs
 // A4 audit exception, edited by hand: the prompts of worker, tester, reviewer, explorer and planner lose what the tools enforce (prompt and file entries only); nothing else differs
 // S1 exception, edited by hand: the worker, tester and planner prompts, the report schemas (no `request` outcome or field) and the resolved config (no `deps`, no `limits.helpers`) change with B5; nothing else differs
+// S4 exception, edited by hand (B9): the resolved config loses review.deepLabels, review.coreTask, review.coreDiff and review.tiers (the planner declares the risk); nothing else differs
 // S2 exception, edited by hand: the tester report's tests[] items are {path,name,ids} (B2: ids replace the scenario string; the schema now names the item fields) and the resolved config loses tdd.collectErrors (B14); nothing else differs
 export default {
  "spec": {
@@ -1251,42 +1252,7 @@ export default {
      "coverage": {
       "enforce": true
      },
-     "deepLabels": [
-      "security",
-      "breaking"
-     ],
      "maxRework": 3,
-     "coreTask": "core",
-     "coreDiff": "thorough",
-     "tiers": {
-      "light": {
-       "files": 5,
-       "lines": 100,
-       "paths": 2
-      },
-      "thorough": {
-       "files": 20,
-       "lines": 500
-      },
-      "risky": [
-       "**/auth/**",
-       "**/security/**",
-       "**/crypto/**",
-       "**/permission*/**",
-       "**/migrations/**",
-       ".github/**",
-       ".gitlab-ci.yml",
-       "Dockerfile",
-       "**/package.json",
-       "**/package-lock.json",
-       "**/pnpm-lock.yaml",
-       "**/yarn.lock",
-       "**/go.mod",
-       "**/Cargo.toml",
-       "**/pyproject.toml",
-       "**/requirements*.txt"
-      ]
-     }
     },
     "limits": {
      "reportRetries": 3,
@@ -1620,42 +1586,7 @@ export default {
      "coverage": {
       "enforce": true
      },
-     "deepLabels": [
-      "security",
-      "breaking"
-     ],
      "maxRework": 3,
-     "coreTask": "core",
-     "coreDiff": "thorough",
-     "tiers": {
-      "light": {
-       "files": 5,
-       "lines": 100,
-       "paths": 2
-      },
-      "thorough": {
-       "files": 20,
-       "lines": 500
-      },
-      "risky": [
-       "**/auth/**",
-       "**/security/**",
-       "**/crypto/**",
-       "**/permission*/**",
-       "**/migrations/**",
-       ".github/**",
-       ".gitlab-ci.yml",
-       "Dockerfile",
-       "**/package.json",
-       "**/package-lock.json",
-       "**/pnpm-lock.yaml",
-       "**/yarn.lock",
-       "**/go.mod",
-       "**/Cargo.toml",
-       "**/pyproject.toml",
-       "**/requirements*.txt"
-      ]
-     }
     },
     "limits": {
      "reportRetries": 3,
@@ -1996,42 +1927,7 @@ export default {
      "coverage": {
       "enforce": true
      },
-     "deepLabels": [
-      "security",
-      "breaking"
-     ],
      "maxRework": 3,
-     "coreTask": "core",
-     "coreDiff": "thorough",
-     "tiers": {
-      "light": {
-       "files": 5,
-       "lines": 100,
-       "paths": 2
-      },
-      "thorough": {
-       "files": 20,
-       "lines": 500
-      },
-      "risky": [
-       "**/auth/**",
-       "**/security/**",
-       "**/crypto/**",
-       "**/permission*/**",
-       "**/migrations/**",
-       ".github/**",
-       ".gitlab-ci.yml",
-       "Dockerfile",
-       "**/package.json",
-       "**/package-lock.json",
-       "**/pnpm-lock.yaml",
-       "**/yarn.lock",
-       "**/go.mod",
-       "**/Cargo.toml",
-       "**/pyproject.toml",
-       "**/requirements*.txt"
-      ]
-     }
     },
     "limits": {
      "reportRetries": 3,

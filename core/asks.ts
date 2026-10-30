@@ -2,6 +2,7 @@
 // Its answer comes only through report (validated); a stop without one is nudged limits.nudges times through the queued resume, then auto-reported from its last text (flag
 // auto-reported). Main never gets the agent's prose: the Agent result (foreground) and the task-notification (background) become the ask card.
 import { modelText } from './say'
+import { roles } from '../profiles/default'
 import type { Host } from '../types'
 import { step } from './lifecycle'
 import { cfgOf } from './dispatch'
@@ -29,7 +30,7 @@ export async function askAnswer(h: Host, agentId: string, r: { answer: string; c
   return 'answer recorded. Stop.'
 }
 export const NUDGE_SPEC = 'You stopped without calling report; a hand-back message is not a report. Call the report tool now, once: {"schemaVersion":1,"role":"specifier","notes":"<how to build it>","deviation":"none"}'
-export const NUDGE = 'You stopped without calling report; a hand-back message is not a report. Call the report tool now, once: {"schemaVersion":1,"role":"explorer","answer":"<your answer>","citations":[{"path":"src/a.ts","line":1}]}'
+export const NUDGE = roles.explorer.nudge!
 // the ask's turn.complete (core/close.observe): no answer -> nudge x2 -> auto-report; an ask whose card said "finishing" gets its answer card sent to main once
 export async function askStopped(h: Host, e: { agentId: string; answer?: string; reason?: string }): Promise<void> {
   const a = await askOf(h, e.agentId); if (!a) return

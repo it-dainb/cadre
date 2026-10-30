@@ -3,7 +3,8 @@ import { describe, expect, test } from 'claude-code/testing'
 import { arm } from '../core/drive'
 import { NUDGE_SPEC } from '../core/asks'
 import { brief } from '../core/briefs'
-import { DEVIATIONS, validateReport } from '../core/validate'
+import { DEVIATIONS, reportRefusal } from '../core/validate'
+const validateReport = (r: any): string | null => reportRefusal(r)?.msg ?? null
 import { world } from './fixtures/replay/world'
 
 const GOOD = { schemaVersion: 1, role: 'specifier', notes: 'Edit src/a.ts: reuse parse() from src/util.ts; do the steps in order.', deviation: 'none' }

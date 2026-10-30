@@ -2,11 +2,13 @@
 // tests/config.test.ts pins REG to the leaves of defaults() 1:1, so neither can drift. Layer class: S = safety (repo may only tighten), U = user-level only, O = ordinary (committed).
 import { defaults as typeDefaults } from '../task-management/registry'
 import { customIssue } from '../core/roles'
+import { roles as profile } from '../profiles/default'
 
 export type Cls = 'S' | 'U' | 'O'
 // one routing cell: the model alias and effort for a role at a risk, and the escalation after `after` failed rounds (0 = never)
 const cell = (model: string, effort: string, after = 0, up = model, upEffort = effort) => ({ model, effort, escalate: { after, model: up, effort: upEffort } })
-const byRisk = (light: Cell, standard: Cell, thorough: Cell, core: Cell) => ({ byRisk: { light, standard, thorough, core } })
+// the default cells are the profile's routing (profiles/default.ts roles); the escalation is the setting's own
+const byRisk = (role: string, ...up: [number, string] | []) => ({ byRisk: Object.fromEntries(Object.entries(profile[role].routing!).map(([k, c]) => [k, cell(c.model, c.effort!, up[0], up[1] ?? c.model)])) as Record<'light' | 'standard' | 'thorough' | 'core', Cell> })
 type Cell = ReturnType<typeof cell>
 export const defaults = () => ({
   strictness: 'strict', mcpAllow: [] as string[],
@@ -14,9 +16,7 @@ export const defaults = () => ({
   changelog: { path: 'CHANGELOG.md' },
   roles: {   // ADR 0017 locked routing, every role x risk cell explicit (ADR 0019): nothing is routed by a rule outside these
     testerView: 'view', tdd: { author: 'separate' },
-    worker: byRisk(cell('haiku', 'high', 1, 'sonnet'), cell('haiku', 'high', 1, 'sonnet'), cell('haiku', 'high', 1, 'sonnet'), cell('haiku', 'high', 1, 'sonnet')),
-    tester: byRisk(cell('haiku', 'high'), cell('sonnet', 'medium'), cell('sonnet', 'medium'), cell('sonnet', 'medium')),
-    reviewer: byRisk(cell('sonnet', 'high'), cell('sonnet', 'high'), cell('opus', 'high'), cell('sonnet', 'high')),
+    worker: byRisk('worker', 1, 'sonnet'), tester: byRisk('tester'), reviewer: byRisk('reviewer'),
     explorer: { model: 'haiku', effort: 'low' },
     specifier: { enabled: false, model: 'haiku', effort: 'low' },   // A1: a new role ships off until the fold-vs-keep check says otherwise
     planner: { model: 'sonnet', effort: 'high' },   // drafts each epic's task plan in a milestone (ADR 0021)
@@ -32,7 +32,7 @@ export const defaults = () => ({
   suites: { integration: 'all' as string | string[] },
   // ADR 0023: the tester proposes the command that runs its tests, cadre runs it for red (and green); with no test check it becomes the package's
   tdd: { testerCommand: { use: true, adopt: true } },
-  review: { coverage: { enforce: true }, deepLabels: ['security', 'breaking'], maxRework: 3, coreTask: 'core', coreDiff: 'thorough', tiers: { light: { files: 5, lines: 100, paths: 2 }, thorough: { files: 20, lines: 500 }, risky: ['**/auth/**', '**/security/**', '**/crypto/**', '**/permission*/**', '**/migrations/**', '.github/**', '.gitlab-ci.yml', 'Dockerfile', '**/package.json', '**/package-lock.json', '**/pnpm-lock.yaml', '**/yarn.lock', '**/go.mod', '**/Cargo.toml', '**/pyproject.toml', '**/requirements*.txt'] } },
+  review: { coverage: { enforce: true }, maxRework: 3 },
   limits: { reportRetries: 3, shapeRetries: 6, nudges: 1, stagnantNudges: 3, silentRuns: 3, startFails: 3, limitWaitMinutes: 15, rebaseRounds: 2, testerRounds: 3 },
   lifecycle: { firstOutputSec: 240, staleMin: 45, goneSec: 60 },   // stall timers (core/close stalls)
   lanes: { fullAt: 3, milestoneAt: 8 },
@@ -89,17 +89,12 @@ export const REG: Record<string, Meta> = {
   'milestone.maxEpics': m(P, 'epics of a milestone running at once (0 = no cap)', N(0, 100)),
   ...roleRows('worker'), ...roleRows('tester'), ...roleRows('reviewer'),
   'roles.explorer.model': m(M, 'explorer (a question without a task): model', { ok: mdl }), 'roles.explorer.effort': m(M, 'explorer: effort', { opts: EFFORT }),
-  'review.deepLabels': m(R, 'task labels that make a task thorough risk', { ok: strs }), 'review.maxRework': m(R, 'review rounds before a task blocks', N(1, 20)),
-  'review.tiers.light.files': m(R, 'at most this many files: light review', { tighten: 'min', ...N(0) }), 'review.tiers.light.lines': m(R, 'at most this many lines: light review', { tighten: 'min', ...N(0) }),
-  'review.tiers.thorough.files': m(R, 'more files than this: thorough review', { tighten: 'min', ...N(0) }), 'review.tiers.thorough.lines': m(R, 'more lines than this: thorough review', { tighten: 'min', ...N(0) }),
-  'review.tiers.light.paths': m(R, 'at claim, a task declaring at most this many paths is light risk', { tighten: 'min', ...N(0, 100) }),
+  'review.maxRework': m(R, 'review rounds before a task blocks', N(1, 20)),
   'review.coverage.enforce': m(R, "every scenario needs a spec test named after it, and the reviewer's coverage must be ok for each; off: the reviewer's word decides"),
   'lessons.model': m(M, 'the side model that turns records into lessons (no agent, one short request per pass)', { cls: 'U', ok: mdl }), 'lessons.passesPerDay': m(M, 'lesson passes per day, counted in the store (0 = lessons off)', { cls: 'U', ...N(0, 100) }),
   'lessons.repeats': m(PL, 'a lesson reinforced this many times in a repo moves to your user scope', N(1, 20)), 'lessons.repos': m(PL, 'a lesson seen in this many repos moves to your user scope', N(2, 20)),
   'lessons.decayDays': m(PL, 'a lesson unused this long is dropped', N(1, 365)), 'lessons.maxAgeDays': m(PL, 'a lesson older than this is dropped, used or not', N(1, 3650)), 'lessons.perBrief': m(PL, 'lessons one task brief carries (its text stays within 1.5 KB)', N(0, 20)),
   'notes.slice': m(PL, "each task's brief carries only the plan notes on its paths (notes without paths go to every task); off: every note goes to every task"),
-  'review.coreTask': m(R, 'the risk of a task in the core epic', { opts: RISK }), 'review.coreDiff': m(R, "the risk of a change that touches the landed core's paths", { opts: RISK }),
-  'review.tiers.risky': m(R, 'paths whose change always gets the thorough review', { tighten: 'grow', ok: strs }),
   'limits.reportRetries': m(R, 'refused reports before one is accepted unvalidated and flagged', N(1, 3)),
   'limits.shapeRetries': m(R, 'malformed reports (an over-long value, an unknown field, a wrong type) of one task before it blocks for you; they never count against the 3 tries', N(1, 10)),
   'lanes.fullAt': m(PL, 'a plan of this many tasks takes the full lane', N(2, 50)), 'lanes.milestoneAt': m(PL, 'a plan of this many tasks should be a milestone', N(2, 100)),

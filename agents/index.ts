@@ -3,7 +3,6 @@
 import { ROLES_DEFAULT } from '../core/roles'
 import { modelText } from '../core/say'
 import type { Role } from '../types'
-import { PROMPTS } from './prompts'
 
 const I = 'mcp__cadre__inspect'
 export const TOOLS = Object.fromEntries(Object.entries(ROLES_DEFAULT).map(([r, x]) => [r, x.tools])) as Record<Role, readonly string[]>
@@ -18,7 +17,7 @@ export interface Roles { [k: string]: { model?: string; effort?: string; byRisk?
 // A role's spec as config resolves it (init stage 6 renders one per role): model/effort of its standard-risk cell (explorer: its own), 'default' effort left out.
 export function spec(role: Role, cfg: { roles: Roles; mcpAllow: readonly string[] }) {
   const r0 = cfg.roles[role] ?? {}, r = r0.byRisk?.standard ?? r0
-  return { name: role, description: DESC[role], prompt: modelText('agent-brief', PROMPTS[role]), tools: allowlist(role, cfg.mcpAllow), ...(r.model ? { model: r.model } : {}), ...(r.effort && r.effort !== 'default' ? { effort: r.effort } : {}) }
+  return { name: role, description: DESC[role], prompt: modelText('agent-brief', ROLES_DEFAULT[role].prompt), tools: allowlist(role, cfg.mcpAllow), ...(r.model ? { model: r.model } : {}), ...(r.effort && r.effort !== 'default' ? { effort: r.effort } : {}) }
 }
 // The plugin agent file agents/<role>.md, byte for byte (tests compare it with the shipped file). No model: admission sets it per spawn from config.
 // Prompt-cache TTL per role (A28, S44, ADR 0022): 1h for worker/tester/reviewer (same-role spawns are 5-60 min apart) and the planner (a milestone's planners
@@ -26,4 +25,4 @@ export function spec(role: Role, cfg: { roles: Roles; mcpAllow: readonly string[
 export const TTL = Object.fromEntries(Object.entries(ROLES_DEFAULT).map(([r, x]) => [r, x.ttl])) as Record<Role, '5m' | '1h'>
 export const ROLES: readonly Role[] = ['worker', 'tester', 'reviewer', 'explorer', 'planner', 'specifier']
 export const file = (role: Role): string => ['---', `name: ${role}`, `description: "${DESC[role]}"`, `tools: ${TOOLS[role].join(', ')}`,
-  ...(ROLES_DEFAULT[role].effort ? [`effort: ${ROLES_DEFAULT[role].effort}`] : []), ...(ROLES_DEFAULT[role].maxTurns ? [`maxTurns: ${ROLES_DEFAULT[role].maxTurns}`] : []), 'experimental:', `  cacheTtl: ${TTL[role]}`, '---', PROMPTS[role], ''].join('\n')
+  ...(ROLES_DEFAULT[role].effort ? [`effort: ${ROLES_DEFAULT[role].effort}`] : []), ...(ROLES_DEFAULT[role].maxTurns ? [`maxTurns: ${ROLES_DEFAULT[role].maxTurns}`] : []), 'experimental:', `  cacheTtl: ${TTL[role]}`, '---', ROLES_DEFAULT[role].prompt, ''].join('\n')

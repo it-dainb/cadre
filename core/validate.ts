@@ -5,8 +5,11 @@ import type { Task } from '../task-management/store'
 import { kindOf } from '../task-management/registry'
 import type { TypeRegistry } from '../task-management/registry'
 import { matches } from './specview'
+import { roleSpec, roleSpecs } from './roles'
+import { RISKS, type Tier } from './routing'
+import type { FieldKind, Outcome, RoleSpec as ProfileRole } from '../types/profile'
 
-export const FIELDS = ['kind', 'amend', 'type', 'scope', 'breaking', 'package', 'scenarios', 'changelog', 'interface', 'lane', 'reason', 'repro', 'mission', 'paths', 'core', 'notes', 'epic', 'size', 'planned', 'critique', 'assumed', 'holds'] as const
+export const FIELDS = ['kind', 'amend', 'type', 'scope', 'breaking', 'package', 'scenarios', 'changelog', 'interface', 'lane', 'reason', 'repro', 'mission', 'paths', 'core', 'notes', 'epic', 'size', 'planned', 'critique', 'assumed', 'holds', 'risk'] as const
 export const CATEGORIES = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security']
 const SCENARIO = /^S\d+: Given .+ When .+ Then .+$/
 const STATUS = ['new', 'changed', 'unchanged']
@@ -29,6 +32,7 @@ export function validateFields(m: Record<string, unknown>, reg: TypeRegistry): s
   if (f('mission') !== undefined && (m.kind !== 'plan' || typeof m.mission !== 'string' || !m.mission.trim() || m.mission.length > 1000)) return bad('metadata.mission', 'on the plan call, one string "Goal: …\\nConstraints: …\\nNon-goals: …"', m.mission)   // ADR 0014: approved with the plan
   if (f('paths') !== undefined && (m.kind !== undefined || !Array.isArray(m.paths) || !m.paths.length || m.paths.length > 20 || m.paths.some((p: unknown) => !str(p) || (p as string).length > 200))) return bad('metadata.paths', 'on a task, the files or folders it will change, e.g. ["src/auth/login.ts", "test/auth/**"]', m.paths)
   if (f('holds') !== undefined && (m.kind !== undefined || !Array.isArray(m.holds) || m.holds.length > 10 || m.holds.some(x => typeof x !== 'string' || !/^S\d+$/.test(x)))) return bad('metadata.holds', 'on a task, the ids of the scenarios whose behaviour already exists, e.g. ["S2"]', m.holds)
+  if (f('risk') !== undefined && (m.kind !== undefined || !RISKS.includes(m.risk as Tier))) return bad('metadata.risk', `on a task, how closely it is reviewed: ${RISKS.join('|')}`, m.risk)   // B9: the planner's call, never scored from the diff
   if (f('core') !== undefined && (m.kind !== undefined || typeof m.core !== 'boolean')) return bad('metadata.core', 'true on the one task with the code other tasks share', m.core)
   if (f('assumed') !== undefined && (m.kind !== 'plan' || !Array.isArray(m.assumed) || !m.assumed.length || m.assumed.length > 5 || !m.assumed.every(x => str(x) && (x as string).length <= 200))) return bad('metadata.assumed', 'on the plan call, a list of 1-5 lines "<point>: what you assumed"', m.assumed)   // yolo clarify (ADR 0020): shown in the approval dialog
   if (f('notes') !== undefined && (m.kind !== 'plan' || !(str(m.notes) ? m.notes.length <= 1500 : noteList(m.notes) && noteShape(m.notes)))) return bad('metadata.notes', 'on the plan call, what an explorer found, keyed by the paths it concerns: [{"paths":["src/auth/"],"text":"…"}] (no paths = every task; at most 3000 characters in all)', m.notes)
@@ -152,39 +156,45 @@ export function runShape(run: any): string | null {
   if (run.cwd !== undefined && (typeof run.cwd !== 'string' || run.cwd.startsWith('/') || run.cwd.split('/').includes('..'))) return 'run.cwd: expected a folder relative to your test folder, e.g. "web"'
   return null
 }
-// Per-role/outcome report contracts (strict, checkInput): an unknown field, a wrong type or an over-cap value is refused before anything is stored; caps reject, never truncate
+// Per-role report contracts (strict, checkInput): an unknown field, a wrong type or an over-cap value is refused before anything is stored; caps reject, never truncate.
+// A work role's contract is its RoleSpec.report (profile data, core/roles.roleSpec); planner and specifier are core planning roles with a fixed form.
 const RS = (n: number) => ({ type: 'string', maxLength: n }), RA = (n: number, items: Sch = { type: 'object' }) => ({ type: 'array', maxItems: n, items })
 const V1 = { schemaVersion: {}, role: {} }
 export const DEVIATIONS = ['none', 'wrong_path', 'scenario_conflict', 'missing_dep']   // a specifier's one way to say the approved task is wrong (it never edits a scenario)
-export const REPORTS: Record<string, Sch> = {
-  worker: { type: 'object', required: ['outcome', 'summary'], properties: { ...V1, outcome: { type: 'string', enum: ['done', 'blocked', 'spec_change'] }, summary: RS(800), reason: RS(400), scenario: RS(300), risks: RA(5, RS(120)), questions: RA(5, RS(120)), followups: RA(5) } },
-  tester: { type: 'object', required: ['outcome', 'summary'], properties: { ...V1, outcome: { type: 'string', enum: ['done'] }, summary: RS(800), tests: RA(50, { type: 'object', required: ['path', 'name'], properties: { path: RS(200), name: RS(300), ids: RA(10, RS(20)) } }), run: { type: 'object' } } },
-  reviewer: { type: 'object', required: ['verdict', 'summary', 'findings', 'coverage', 'contractStatus'], properties: { ...V1, verdict: { type: 'string', enum: ['pass', 'changes'] }, summary: RS(1500), findings: RA(50), coverage: RA(50), contractStatus: RA(100) } },
-  explorer: { type: 'object', required: ['answer'], properties: { ...V1, answer: RS(2000), citations: RA(30) } },
+const kindSch = (k: FieldKind): Sch => k === 'text' ? { type: 'string' } : k === 'list' ? { type: 'array' } : k === 'bool' ? { type: 'boolean' } : k === 'object' || k === 'command' ? { type: 'object' }
+  : 'enum' in k ? { type: 'string', enum: k.enum } : 'text' in k ? RS(k.text) : 'list' in k ? RA(k.list, k.of && kindSch(k.of)) : { type: 'object', required: k.required, properties: fieldsSch(k.object) }
+const fieldsSch = (f: Record<string, FieldKind>) => Object.fromEntries(Object.entries(f).map(([n, k]) => [n, kindSch(k)]))
+// the carrier of the outcome: `verdict` for a role that judges, else `outcome`; a role with no outcomes (the explorer) has none
+const outKey = (s: ProfileRole) => (s.verdict ? 'verdict' : 'outcome')
+export const reportSch = (s: ProfileRole): Sch => ({ type: 'object', required: [...(s.report.outcomes.length ? [outKey(s)] : []), ...s.report.required],
+  properties: { ...V1, ...(s.report.outcomes.length ? { [outKey(s)]: { type: 'string', enum: s.verdict ? [s.verdict.pass, s.verdict.fail] : s.report.outcomes } } : {}), ...fieldsSch(s.report.fields) } })
+const PLANNING: Record<string, Sch> = {
   planner: { type: 'object', properties: { ...V1, summary: RS(1500), tasks: RA(20) } },
   specifier: { type: 'object', required: ['notes', 'deviation'], properties: { ...V1, notes: RS(1500), deviation: { type: 'string', enum: DEVIATIONS } } },
 }
-const WHY: Record<string, string> = { blocked: 'reason', spec_change: 'reason' }   // the field an outcome cannot go without
+export const REPORTS = (): Record<string, Sch> => ({ ...Object.fromEntries(Object.entries(roleSpecs()).map(([n, s]) => [n, reportSch(s)])), ...PLANNING })
 // every refusal carries a declared code (never read from its text): `shape` = the report's own form (an over-cap value, an unknown field, a wrong type, a missing envelope field);
 // `semantic` = the rest. A shape refusal is counted on the task (Budget.shapeRefusals), not on the run's tries.
 export type Code = 'shape' | 'semantic'
 export interface Coded { msg: string; code: Code }
 export class Refusal extends Error { constructor(msg: string, readonly code: Code) { super(msg) } }
 const shape = (msg: string): Coded => ({ msg, code: 'shape' }), sem = (msg: string): Coded => ({ msg, code: 'semantic' })
+// one role's report against its spec: the form (reportSch), then the fields its outcome cannot go without, then a test command's shape
+export function validateReport(role: string, r: any): Coded | null {
+  const s = roleSpec(role), e = checkInput(s ? reportSch(s) : PLANNING[role], r)
+  if (e) return shape(e.replace('call again', 'report again'))
+  if (!s) return role === 'planner' && r.tasks === undefined ? sem('tasks: required; add it and report again') : null
+  for (const k of [...s.report.required, ...(s.report.requiredWith?.[r[outKey(s)] as Outcome] ?? [])]) if (r[k] === undefined || (s.report.ask?.[k] && !str(r[k]))) return sem(`${k}: ${(s.report.ask?.[k] ?? 'required; add it and report again').replace('{outcome}', r[outKey(s)])}`)
+  for (const [k, v] of Object.entries(s.report.fields)) if (v === 'command' && r[k] !== undefined) { const x = runShape(r[k]); if (x) return shape(x) }
+  return null
+}
+// the envelope (role, schemaVersion), then the role's own contract
 export function reportRefusal(r: any): Coded | null {
   if (!r || typeof r !== 'object') return shape(bad('report', '{"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"}', r))
   if (r.schemaVersion !== 1) return shape(bad('schemaVersion', '1', r.schemaVersion))
-  if (!(r.role in REPORTS)) return shape(bad('role', 'worker|tester|reviewer|explorer|planner|specifier', r.role))
-  const e = checkInput(REPORTS[r.role], r); if (e) return shape(e.replace('call again', 'report again'))
-  const k = WHY[r.outcome]; if (k && !str(r[k])) return sem(`${k}: required with outcome ${r.outcome}; say what is in the way, then report again`)
-  if (r.outcome === 'spec_change' && !str(r.scenario)) return sem('scenario: required with outcome spec_change; give the changed scenario in full as "S<n>: Given … When … Then …", then report again')
-  if (r.role === 'tester' && r.tests === undefined) return sem('tests: required; add it and report again')
-  if (r.role === 'planner' && r.tasks === undefined) return sem('tasks: required; add it and report again')
-  if (r.role === 'explorer' && !str(r.answer)) return sem('answer: required for role explorer')
-  if (r.role === 'tester' && r.run !== undefined) { const x = runShape(r.run); if (x) return shape(x) }
-  return null
+  const names = Object.keys(REPORTS()); if (!names.includes(r.role)) return shape(bad('role', names.join('|'), r.role))
+  return validateReport(r.role, r)
 }
-export const validateReport = (r: any): string | null => reportRefusal(r)?.msg ?? null
 
 // Main's tool input (tools/index MAIN): the strict schema checked in code before anything is stored. Unknown fields, wrong types and caps are refused, naming
 // the field and how to retry; nothing is truncated. The schema subset: type object|string|integer|number|boolean|array, enum, required, maxLength, maxItems, items.

@@ -9,7 +9,7 @@ import { kindOf, pipeOf, type TypeRegistry } from '../task-management/registry'
 import { repoKeyOf } from '../commands/init'
 import { cfgOf, ctlGet, ctlSet, storeOf } from './dispatch'
 import { agentsOf, commit, leaseLive, safe, sessionOf } from './board'
-import { FOCUS, parseNumstat, riskOf, route, type Tier } from './risk'
+import { FOCUS, riskOf, route, type Tier } from './routing'
 import { held, ownerOf, savePointer, stampAlive } from './session'
 import { apply, epicNext } from './machine'
 import { blocks } from './flags'
@@ -31,14 +31,14 @@ import { plannerBrief } from './planner'
 import { modelRefusal, inSlot, tasksFull } from './queue'
 import { specMark, specNeeded } from './specifier'
 import { budgetOf, intentOf, reserve, runOf, step as lifeStep, unreserve } from './lifecycle'
-import { ROLES_DEFAULT } from './roles'
+import { ROLES_DEFAULT, roleSpec } from './roles'
 
 export interface Deps {
   store: TaskStore; cfg: Config; reg: TypeRegistry; root: string; home: string; wtRoot: string; key: string; actor: string; session: string
   top?: string   // set by specview.inRepo: root is a submodule's repository, top the parent's
   view?: (h: Host, d: Deps, t: Task, wt: string) => Promise<string>   // spec view builder (core/specview, M5); absent = tester/red are skipped (3.1)
 }
-const ROLE: Record<string, Role> = { tester: 'tester', worker: 'worker', reviewer: 'reviewer', explorer: 'explorer' }   // red/green are mod-run, merge is main's close
+const ROLE = (step: string): Role | undefined => (roleSpec(step) ? (step as Role) : undefined)   // a step that names a work role of the profile; red/green are mod-run, merge is main's close
 const deny = (why: string) => ({ deny: modelText('deny', why) })
 
 
@@ -51,16 +51,15 @@ export async function resolveDeps(h: Host): Promise<Deps> {
 }
 export const admit: Hook = async (h, e, next) => { await warm(h); return admitWith(h, await resolveDeps(h), e, next) }
 
-// model x effort for a run (core/risk.route); env overrides that beat cadre (config/forcedOf) are recorded as forced (Claude Code applies them anyway)
-const rounds = async (h: Host, id: string) => { const b = await budgetOf(h, id); return b.rework + b.rebase }   // escalation (core/risk.route) counts the task's review and rebase rounds
+// model x effort for a run (core/routing.route); env overrides that beat cadre (config/forcedOf) are recorded as forced (Claude Code applies them anyway)
+const rounds = async (h: Host, id: string) => { const b = await budgetOf(h, id); return b.rework + b.rebase }   // escalation (core/routing.route) counts the task's review and rebase rounds
 export const routeOf = (d: Deps, role: Role, risk: Tier, n = 0, unit?: { root: string; routing?: Record<string, any> }) => (role === 'explorer' || role === 'planner' || role === 'specifier' ? route(role, d.cfg.roles[role], '', 0)
   : ((r = route(role, { ...d.cfg.roles[role].byRisk[risk], ...unit?.routing?.[role] }, risk, n)) => (unit?.routing?.[role] && !r.escalated ? { ...r, setting: `units ${unit.root}: routing.${role}` } : r))())   // a unit's routing override (H7) wins over the risk cell
-const riskFor = (d: Deps, rt?: Tier, task?: Task) => rt ?? riskOf(d.cfg.review, { paths: pathsOf(task), labels: task?.labels ?? [], coreTask: task?.meta['cadre.core'] === 'true' })
 // the model a pick will run on: launch's own routing, asked before the start (core/queue counts runs by it)
 export async function modelFor(h: Host, d: Deps, id: string, role: string): Promise<string | undefined> {
   const t = (await h.board.read()).tasks.find(x => x.id === id), task = t ? await d.store.get(id).catch(() => undefined) : undefined, step = role === 'claim' && t ? stepsOf(d)(t.type, t.lane)[0] : role
   if (t && !task) return undefined
-  return forcedOf(await h.env()).model || routeOf(d, ROLE[step] ?? (step === 'specify' ? 'specifier' : step as Role), riskFor(d, undefined, task), task ? await rounds(h, id) : 0, task && pkgOf(d, task)).model
+  return forcedOf(await h.env()).model || routeOf(d, ROLE(step) ?? (step === 'specify' ? 'specifier' : step as Role), riskOf(task), task ? await rounds(h, id) : 0, task && pkgOf(d, task)).model
 }
 const stepsOf = (d: Deps) => (type: string, lane?: string) => { const p = pipeOf(d.reg)(type, lane); return d.view ? p : p.filter(s => s !== 'tester' && s !== 'red') }   // no view builder: tester/red skipped
 
@@ -119,7 +118,7 @@ async function custom(h: Host, e: any, next: (e: any) => any, name: string) {
 
 // ---- shared tail: retype, model, cwd, next(), bind. A rejected or thrown spawn runs `undo` (release) and rethrows. ----
 async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTask, role: Role, prompt: string, cwd: string, step: string, wt: string, undo: () => Promise<void>, rt?: Tier, task?: Task, bx: Partial<Binding> = {}) {
-  const risk = riskFor(d, rt, task)
+  const risk = riskOf(task)
   const r0 = routeOf(d, step === 'tester' ? 'tester' : role, risk, task ? await rounds(h, t.id) : 0, task && pkgOf(d, task)), env = await h.env()
   const fo = forcedOf(env), forced = fo.model || fo.effort ? `${fo.model ?? ''}/${fo.effort ?? ''}` : undefined
   const run = { role, model: fo.model || r0.model, effort: fo.effort || r0.effort || 'default', risk, setting: r0.setting, ...(r0.escalated ? { escalated: true } : {}), ...(forced ? { forced } : {}) }
@@ -135,6 +134,9 @@ async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTa
   await safe(h, 'pointer', () => savePointer(h))   // S22: a /clear before main's next turn.complete must still find this binding (the pointer was saved only there)
   return r
 }
+// a work role's start (plan 2.4): its brief is the role's layout over the task's data (+ what this step adds), the agent is the role's own (author:same: the worker's), then the shared tail
+const spawnRole = async (h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapshot, t: SnapTask, task: Task, role: Role, step: string, cwd: string, wt: string, undo: () => Promise<void>, extra: Partial<BriefIn> = {}) =>
+  launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, { ...(await plan(h, d, s, t, task)), ...extra })), cwd, step, wt, undo, role === 'reviewer' ? riskOf(task) : undefined, task)
 const viewed = (d: Deps, role: Role) => role === 'tester' && !!d.view && d.cfg.roles.testerView !== 'full' && d.cfg.roles.tdd.author !== 'same'   // testerView:full or author:same (3.5): the tester step works in the worktree
 const agentOf = (d: Deps, role: Role): Role => (role === 'tester' && d.cfg.roles.tdd.author === 'same' ? 'worker' : role)   // author:same: the worker agent, tester brief (3.5)
 export const protectedOf = (d: Deps): string[] => [...G.PROTECTED, ...(d.cfg.changelog.path !== 'CHANGELOG.md' ? [d.cfg.changelog.path] : [])]
@@ -190,7 +192,7 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
   if (!spike && !(await G.exists(h.run, d.root, branchOf(s, t)))) { if (d === top) return lostEpic(h, s, t); await G.git(h.run, d.root, ['branch', branchOf(s, t), (await G.exists(h.run, d.root, d.cfg.branches.dev)) ? d.cfg.branches.dev : 'HEAD']) }   // a submodule's epic branch: cut from its dev on first use
   const res = await apply(h, { kind: 'claim', id: t.id, at: await h.now(), actor: 'mod', owner: d.actor }, pipe)   // the CAS reserve: one winner (S2)
   if (!res.ok) return deny(res.error)
-  const step = res.board.tasks.find(x => x.id === t.id)!.step, role = ROLE[step], wt = wtPath(d.wtRoot, d.key, t.id)
+  const step = res.board.tasks.find(x => x.id === t.id)!.step, role = ROLE(step)!, wt = wtPath(d.wtRoot, d.key, t.id)
   let claimed = false, created = false, branch = taskBranch(spec.commit ?? 'wip', t.id, t.title)
   const undo = async () => {
     if (created) await G.op(h, () => G.worktreeRemove(h.run, d.root, wt, branch)).catch(() => {})
@@ -208,7 +210,7 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
       meta = { ...meta, 'cadre.base': task.meta['cadre.base'] ?? base, 'cadre.branch': branch, 'cadre.worktree': wt }
     }
     await d.store.setMeta(t.id, meta, d.actor); if (!spike) await lockCore(h, d, t.id)   // a core that already landed is locked for this task
-    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, await plan(h, d, s, t, task))), cwd, step, spike ? '' : cwd, undo, undefined, task)
+    return await spawnRole(h, d, e, next, s, t, task, role, step, cwd, spike ? '' : cwd, undo)
   } catch (err) {
     await undo()
     if (err instanceof StoreError) return deny(`${err.code}: ${err.message}`)
@@ -218,7 +220,7 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
 
 // ---- active|blocked: next step (new role) or rebind (stale lease). Same claim actor, same worktree, computed handoff. ----
 async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapshot, t: SnapTask) {
-  const task = await d.store.get(t.id), role = ROLE[t.step], now = await h.now(), bind = await h.bind.read(), mine = agentsOf(bind, t.id); d = inRepo(d, pkgOf(d, task))
+  const task = await d.store.get(t.id), role = ROLE(t.step)!, now = await h.now(), bind = await h.bind.read(), mine = agentsOf(bind, t.id); d = inRepo(d, pkgOf(d, task))
   if (!role || (role === 'tester' && !d.view)) return deny(`${t.id}: step ${t.step || '?'} runs without an agent; wait and call status`)
   if (mine.some(a => a.startsWith('~') && bind[a].role === role)) return deny(`${t.id} is already being spawned; wait`)   // another step's start may run beside it
   if (role === 'worker' && stepsOf(d)(t.type, t.lane).includes('red') && !task.meta['cadre.specCommit']) return deny(`${t.id}: its spec tests are not recorded yet; the tester step must finish first`)
@@ -238,7 +240,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
   }
   const was = (await Promise.all(mine.filter(a => bind[a].role === role).map(a => runOf(h, a)))).find(r => r?.model)?.model   // revival (B5): the run it takes over ran on this model; a fresh agent gets exactly the model routing gives now, or the task waits (never another one)
   if (was && !forcedOf(await h.env()).model) {
-    const r0 = routeOf(d, role, riskFor(d, undefined, task), await rounds(h, t.id), pkgOf(d, task))
+    const r0 = routeOf(d, role, riskOf(task), await rounds(h, t.id), pkgOf(d, task))
     if (!r0.escalated && r0.model !== was) return deny(`${t.id}: its ${role} ran on ${was} and ${r0.setting} now says ${r0.model}; set it back to ${was} and ask again (the task waits)`)
   }
   for (const a of mine) await lifeStep(h, a, { type: 'end', cause: 'released', reason: live ? 'rebind' : 'stale' })
@@ -256,7 +258,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
       handoff = handoffOf(task.meta, cp, await G.diffStat(h.run, wt, `${hb}..${cp}`), await G.diffPatch(h.run, wt, `${hb}..${cp}`))
     }
     const cwd = spike ? d.root : viewed(d, role) ? await d.view!(h, d, task, wt) : wt
-    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, { ...(await plan(h, d, s, t, task)), handoff, decisions: [...(role === 'tester' ? [task.meta['cadre.specDecision']] : [task.meta['cadre.decision']])].filter(Boolean) as string[] })), cwd, t.step, spike ? '' : cwd, undo, undefined, task).then(async r => { if (r?.agentId) { if (role === 'tester' && task.meta['cadre.specDecision']) await d.store.setMeta(t.id, { 'cadre.specDecision': '' }, d.actor) } return r })   // a tester hears only the spec change's decision, once (a stale answer never reaches it)
+    return await spawnRole(h, d, e, next, s, t, task, role, t.step, cwd, spike ? '' : cwd, undo, { handoff, decisions: [...(role === 'tester' ? [task.meta['cadre.specDecision']] : [task.meta['cadre.decision']])].filter(Boolean) as string[] }).then(async r => { if (r?.agentId) { if (role === 'tester' && task.meta['cadre.specDecision']) await d.store.setMeta(t.id, { 'cadre.specDecision': '' }, d.actor) } return r })   // a tester hears only the spec change's decision, once (a stale answer never reaches it)
   } catch (err) { await undo(); throw err }
 }
 
@@ -269,10 +271,7 @@ async function review(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
   const wt = task.meta['cadre.worktree'] ?? wtPath(d.wtRoot, d.key, t.id), base = task.meta['cadre.base'] ?? src, undo = () => unreserve(h, t.id, 'reviewer')
   try {
     const diffStat = await G.diffStat(h.run, wt, `${base}..${src}`), diff = await G.diffPatch(h.run, wt, `${base}..${src}`)
-    const epicMeta = s.epic ? (await d.store.get(s.epic).catch(() => null))?.meta['cadre.corePaths'] : undefined, core: string[] = (() => { try { return JSON.parse(epicMeta ?? '[]') } catch { return [] } })()
-    const rt = riskOf(d.cfg.review, { ...parseNumstat(await G.git(h.run, wt, ['diff', '--numstat', `${base}..${src}`])), labels: task.labels, coreTask: task.meta['cadre.core'] === 'true', corePaths: core })
-    await d.store.setMeta(t.id, { 'cadre.reviewTier': rt }, d.actor)
-    const r = await launch(h, d, e, next, t, 'reviewer', brief('reviewer', briefOf(s, t, task, e, d, 'reviewer', { ...(await plan(h, d, s, t, task)), uncovered: d.cfg.review.coverage.enforce && specTestsOf(task) ? untested(task.acceptance, specTestsOf(task)) : undefined, sourceCommit: src, diffStat, diff, report: task.meta['cadre.report'], flags: t.flags, focus: FOCUS[rt] })), wt, 'reviewer', wt, undo, rt, task)
+    const r = await spawnRole(h, d, e, next, s, t, task, 'reviewer', 'reviewer', wt, wt, undo, { uncovered: d.cfg.review.coverage.enforce && specTestsOf(task) ? untested(task.acceptance, specTestsOf(task)) : undefined, sourceCommit: src, diffStat, diff, report: task.meta['cadre.report'], flags: t.flags, focus: FOCUS[riskOf(task)] })
     if (r?.agentId) await commit(h, b => ({ ...b, tasks: b.tasks.map(x => (x.id === t.id ? { ...x, owner: d.actor } : x)) }))   // the reviewer runs the step now (close clears it at the worker's report); no agent bound: nobody would ever clear it
     return r
   } catch (err) { await undo(); throw err }

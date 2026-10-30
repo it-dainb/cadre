@@ -39,7 +39,7 @@ describe('the task budget', () => {
   test('a model the engine refuses at the spawn stops the run at once and names the cell', async () => {
     const w = await world(); await arm(w.h, 'auto')
     w.h.spawnAgent = (x: any) => admitWith(w.h, w.dep, { ...x, background: true }, Object.assign(async () => { throw new Error('There\'s an issue with the selected model (haiku-9). It may not exist or you may not have access to it.') }, { origin: { plugin: 'cadre' } }))
-    await w.turn(); expect((await w.h.board.read()).drive.stopped).toBe('roles.worker.byRisk.light.model: unknown model "haiku" (an alias, a claude-… id or a models.allow entry)')
+    await w.turn(); expect((await w.h.board.read()).drive.stopped).toBe('roles.worker.byRisk.standard.model: unknown model "haiku" (an alias, a claude-… id or a models.allow entry)')
   })
   test('a "not found" or "overloaded" error that is not about the model never stops the run at once', async () => {
     const w = await world(), [id] = w.ids; await arm(w.h, 'auto')

@@ -209,20 +209,23 @@ describe('review spawn', () => {
     await w.store.claim(ids[0], d.actor); await w.store.setMeta(ids[0], { 'cadre.sourceCommit': 'deadbee', 'cadre.base': 'abc1234', 'cadre.worktree': `/wt/repo-1/${ids[0]}` }, d.actor); await w.store.update(ids[0], { labels: ['security'] }, d.actor)
     return { w, h, d, id: ids[0] }
   }
-  test('a review task gets a fresh reviewer (deep tier by label), reserved by CAS; a bound reviewer is not duplicated', async () => {
-    const { h, d, id } = await inReview('reviewer'), { next, seen } = ok('rv1')
+  test('a review task gets a fresh reviewer (the declared thorough risk), reserved by CAS; a bound reviewer is not duplicated', async () => {
+    const { w, h, d, id } = await inReview('reviewer'), { next, seen } = ok('rv1'); await w.store.setMeta(id, { 'cadre.risk': 'thorough' }, d.actor)
     expect(((await admitWith(h, d, spawn(id), next)) as any).agentId).toBe('rv1')
     expect(seen[0]).toMatchObject({ subagentType: 'cadre:reviewer', model: 'opus', cwd: `/wt/repo-1/${id}` }); expect(seen[0].prompt).toContain('# REVIEW TASK'); expect(seen[0].prompt).toContain('deadbee'); expect(seen[0].prompt).toContain('a.ts | 1 +')
     expect(((await admitWith(h, d, spawn(id), ok('rv2').next)) as any).deny).toContain('has a reviewer'); expect(Object.keys(await h.bind.read())).toEqual(['rv1'])
   })
-  test('risk-sized reviewer: tiny change is light (sonnet), mid is standard (sonnet), large or risky is thorough (opus); recorded on the task and the bound event', async () => {
-    for (const [stat, tier, model, labels] of [['1\t1\tsrc/a.ts\n', 'light', 'sonnet', []], ['60\t50\tsrc/a.ts\n', 'standard', 'sonnet', []], ['1\t1\tsrc/auth/x.ts\n', 'thorough', 'opus', []], ['1\t1\tsrc/a.ts\n', 'thorough', 'opus', ['security']]] as const) {
-      const { w, h, d, id } = await inReview('reviewer'); await w.store.update(id, { labels: [...labels] }, d.actor); w.numstat.out = stat
+  test('the reviewer follows the risk the planner declared (B9): light and standard sonnet, thorough opus, none declared = standard; the bound event names it, the prompt names no tier', async () => {
+    for (const [tier, model] of [['light', 'sonnet'], ['standard', 'sonnet'], ['thorough', 'opus'], ['core', 'sonnet'], ['', 'sonnet']] as const) {
+      const { w, h, d, id } = await inReview('reviewer'); await w.store.setMeta(id, { 'cadre.risk': tier }, d.actor)
       const { next, seen } = ok('rv1'); await admitWith(h, d, spawn(id), next)
-      expect(seen[0].model).toBe(model); expect((await w.store.get(id)).meta['cadre.reviewTier']).toBe(tier)
-      expect(ofEpic(await h.events.read(), (await h.board.read()).epic!).some(e => e.type === 'agent.bound' && e.data.tier === tier)).toBe(true)
+      expect(seen[0].model).toBe(model); expect(ofEpic(await h.events.read(), (await h.board.read()).epic!).some(e => e.type === 'agent.bound' && e.data.tier === (tier || 'standard'))).toBe(true)
       expect(/\b(light|thorough|tier)\b/i.test(seen[0].prompt.replace(/Small change|Large or sensitive change/g, ''))).toBe(false)
     }
+  })
+  test('size, labels and the diff no longer pick the risk (B9): a security label on a huge change stays standard', async () => {
+    const { w, h, d, id } = await inReview('reviewer'); w.numstat.out = '900\t900\tsrc/auth/x.ts\n'
+    const { next, seen } = ok('rv1'); await admitWith(h, d, spawn(id), next); expect(seen[0].model).toBe('sonnet'); expect(seen[0].prompt).not.toContain('## Check')
   })
   test('env overrides beat every cell and are recorded as forced', async () => {
     const { w, h, d, id } = await inReview('reviewer'); await w.store.update(id, { labels: [] }, d.actor); w.numstat.out = '1\t1\tsrc/a.ts\n'; (h as any).env = async () => ({ CLAUDE_CODE_EFFORT_LEVEL: 'low' })
@@ -236,10 +239,8 @@ describe('review spawn', () => {
     const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}), id = ids[0], rv = role === 'reviewer'
     await w.board(h, epic, ids, rv ? [{ state: 'review', step: 'reviewer' }] : [])
     if (role === 'tester') { d.view = async (_h, _d, t) => `/wt/repo-1.views/${t.id}`; d.cfg.units = [{ root: '.', tdd: { paths: ['test/**'] } }] as any }
-    if (rv) { await w.store.claim(id, d.actor); await w.store.setMeta(id, { 'cadre.sourceCommit': 'deadbee', 'cadre.base': 'abc1234', 'cadre.worktree': `/wt/repo-1/${id}` }, d.actor); w.numstat.out = risk === 'standard' ? '60\t50\tsrc/a.ts\n' : '1\t1\tsrc/a.ts\n' }
-    else await w.store.setMeta(id, { 'cadre.paths': JSON.stringify(risk === 'standard' ? ['a', 'b', 'c'] : ['src/a.ts']) }, d.actor)
-    if (risk === 'thorough') await w.store.update(id, { labels: ['security'] }, d.actor)
-    if (risk === 'core') await w.store.setMeta(id, { 'cadre.core': 'true' }, d.actor)
+    if (rv) { await w.store.claim(id, d.actor); await w.store.setMeta(id, { 'cadre.sourceCommit': 'deadbee', 'cadre.base': 'abc1234', 'cadre.worktree': `/wt/repo-1/${id}` }, d.actor); }
+    await w.store.setMeta(id, { 'cadre.risk': risk }, d.actor)
     Object.assign(d.cfg.roles[role].byRisk[risk], { model: 'fable', effort: 'max', escalate: { after: 1, model: 'opus', effort: 'xhigh' } })
     const bound = async () => ofEpic(await h.events.read(), epic).filter(e => e.type === 'agent.bound').at(-1)!.data
     const a = ok('ag1'); await admitWith(h, d, spawn(id), a.next)
@@ -270,11 +271,8 @@ describe('review spawn', () => {
     const c = ok('wk1'); await admitWith(h, d, spawn(id), c.next); expect(String(c.seen[0].prompt)).not.toMatch(/request the packages/i)
     expect((await w.store.get(id)).meta['cadre.depsCommits']).toBeUndefined()
   })
-  test('settings: review.deepLabels sends a labelled change to the thorough review; only CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 overrides the model (ADR 0019)', async () => {
-    const { w, h, d, id } = await inReview('reviewer'); await w.store.update(id, { labels: ['ux'] }, d.actor); w.numstat.out = '1\t1\tsrc/a.ts\n'
-    const a = ok('rv1'); await admitWith(h, d, spawn(id), a.next); expect(a.seen[0].model).toBe('sonnet')
-    await h.bind.update(() => ({})); d.cfg.review.deepLabels = ['ux']
-    const b = ok('rv2'); await admitWith(h, d, spawn(id), b.next); expect(b.seen[0].model).toBe('opus'); expect((await w.store.get(id)).meta['cadre.reviewTier']).toBe('thorough')
+  test('settings: the declared risk picks the cell; only CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 overrides the model (ADR 0019)', async () => {
+    const { w, h, d, id } = await inReview('reviewer'); await w.store.setMeta(id, { 'cadre.risk': 'thorough' }, d.actor)
     await h.bind.update(() => ({})); (h as any).env = async () => ({ CLAUDE_CODE_SUBAGENT_MODEL: 'haiku' })
     await admitWith(h, d, spawn(id), ok('rv3').next); expect(JSON.parse((await w.store.get(id)).meta['cadre.runs']).at(-1)).toMatchObject({ model: 'opus' }); expect('forced' in JSON.parse((await w.store.get(id)).meta['cadre.runs']).at(-1)).toBe(false)
     await h.bind.update(() => ({})); (h as any).env = async () => ({ CLAUDE_CODE_SUBAGENT_MODEL: 'haiku', CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '1' })

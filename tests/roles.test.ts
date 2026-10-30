@@ -50,7 +50,7 @@ describe('roles as data: zero behaviour change', () => {
     for (const [n, c] of Object.entries({ base, mod })) for (const r of ROLES) expect(spec(r, { roles: c.roles, mcpAllow: c.mcpAllow })).toEqual(GOLD.spec[`${n}/${r}`])
     for (const r of ROLES) { expect(allowlist(r)).toEqual(GOLD.allow[r]); expect(allowlist(r, ['mcp__a__b'])).toEqual(GOLD.allow[`${r}+mcp`]); expect(file(r)).toBe(GOLD.file[r]) }
     expect(TTL).toEqual(GOLD.ttl); expect(ROLES).toEqual(GOLD.roles); expect([...MAIN_TOOLS]).toEqual(GOLD.main); expect(TOOLS).toEqual(GOLD.tools)
-    expect(JSON.parse(JSON.stringify(REPORTS))).toEqual(GOLD.reports)
+    expect(JSON.parse(JSON.stringify(REPORTS()))).toEqual(GOLD.reports)
   })
   test('golden: routeOf over role x risk x round x unit routing', async () => {
     const d = { cfg: defaults() } as any
@@ -226,5 +226,29 @@ describe('B5: an agent that needs something it cannot get reports blocked; nobod
     const rep = SPECS.find(t => t.name === 'report')!   // the tool schema the model sees offers no request either
     expect((rep.inputSchema as any).properties.outcome.enum).toEqual(['done', 'blocked', 'spec_change'])
     expect((rep.inputSchema as any).properties).not.toHaveProperty('request')
+  })
+})
+
+// ---- S4: the work roles are the profile's data; one table feeds the agent files, the report form, the exit rule and the main-agent guard ----
+import { roles as PROFILE_ROLES } from '../profiles/default'
+import { roleSpecs, setRoles } from '../core/roles'
+import { mainAgent } from '../core/plantools'
+import { PROMPTS } from '../agents/prompts'
+
+describe('roles as profile data (S4)', () => {
+  const critic = { description: 'critic', prompt: 'p', tools: ['Read', 'mcp__cadre__report'], network: 'off' as const, write: [], ttl: '5m' as const, onSilent: 'block' as const, report: { outcomes: [], fields: { note: 'text' as const }, required: ['note'] } }
+  test('every built-in prompt is the one in agents/prompts.ts (the source of truth); ROLES_DEFAULT is the profile\'s roles plus the planning roles', () => {
+    for (const r of ['worker', 'tester', 'reviewer', 'explorer'] as const) expect(ROLES_DEFAULT[r].prompt).toBe(PROMPTS[r])
+    expect(Object.keys(ROLES_DEFAULT)).toEqual([...Object.keys(PROFILE_ROLES), 'planner', 'specifier']); expect(Object.keys(roleSpecs())).toEqual(['worker', 'tester', 'reviewer', 'explorer'])
+  })
+  test('the exit-tool rule holds for every spec of the table and for a custom one: no spec drops or disallows an exit tool', () => {
+    for (const s of [...Object.values(PROFILE_ROLES), critic]) { expect(exitIssue(s)).toBeNull(); for (const t of EXIT) expect(exitIssue({ ...s, disallowedTools: [t] })).toContain(t) }
+    expect(customIssue('critic', { description: 'd', prompt: 'p', tools: ['Read', 'mcp__cadre__report', 'SubagentHandback'] })).toContain('StructuredOutput')
+  })
+  test('the main-agent guard is generated from the table: a work role of the profile is main\'s to plan around, any other cadre: name is a custom role of main\'s', () => {
+    const call = (n: string) => mainAgent({ tool: 'Agent', subagent_type: `cadre:${n}`, prompt: 'look into it' }, [])
+    for (const n of ['worker', 'tester', 'reviewer', 'explorer', 'planner']) expect(call(n)).toHaveProperty('deny')
+    expect(call('critic')).toBeUndefined()
+    setRoles({ ...PROFILE_ROLES, critic }); try { expect(call('critic')).toHaveProperty('deny') } finally { setRoles(PROFILE_ROLES) }
   })
 })

@@ -1,18 +1,24 @@
-// One RoleSpec per role (ADR 0024 §3): tools (the L1 allowlist and the agent file's list), the write scope, the cache TTL. agents/index and policy/guards derive from it.
+// One RoleSpec per role (ADR 0024 §3, plan 2.4): the work roles are the default profile's `roles` (profiles/default.ts); planner and specifier are core planning roles (bespoke, fixed
+// tools and prompts). tools = the L1 allowlist and the agent file's list, write = the role's write scope, ttl = the cache TTL. agents/index and policy/guards derive from it.
 import type { Role } from '../types'
+import type { RoleSpec as ProfileRole } from '../types/profile'
+import { roles as defaultRoles } from '../profiles/default'
+import { PROMPTS } from '../agents/prompts'
 import { leaks, modelText } from './say'
 
-export interface RoleSpec { description: string; tools: readonly string[]; mcpAllow?: boolean; write: readonly string[]; ttl: '5m' | '1h'; effort?: string; disallowedTools?: readonly string[]; maxTurns?: number }
+export type RoleSpec = Pick<ProfileRole, 'description' | 'prompt' | 'tools' | 'write' | 'ttl' | 'nudge' | 'mcpAllow' | 'effort' | 'disallowedTools' | 'maxTurns'>
 const R = 'mcp__cadre__report', C = 'mcp__cadre__run_check', I = 'mcp__cadre__inspect'
 // write: globs under the role's tree; [] = read-only. The tester's tree is its view; fence() subtracts the PROTECTED paths it already refuses (git.PROTECTED) after this match.
 export const ROLES_DEFAULT: Record<Role, RoleSpec> = {
-  worker: { description: 'implements one approved task in its own folder', tools: ['Read', 'Edit', 'Write', 'NotebookEdit', 'Bash', 'PowerShell', 'Monitor', 'TodoWrite', R, C], mcpAllow: true, write: ['**'], ttl: '1h' },
-  tester: { description: 'writes black-box tests for one task from its scenarios', tools: ['Read', 'Write', 'Edit', R], write: ['**'], ttl: '1h' },
-  reviewer: { description: 'reviews one task commit against its scenarios', tools: ['Read', I, C, R], write: [], ttl: '1h' },
-  explorer: { description: 'read-only recon, discovery and spikes', tools: ['Read', I, R], write: [], ttl: '5m', effort: 'low', maxTurns: 40 },
-  planner: { description: 'drafts the task plan of one epic, read-only', tools: ['Read', I, R], write: [], ttl: '1h', effort: 'high' },
-  specifier: { description: 'writes how-to notes for one approved task, read-only', tools: ['Read', I, R], write: [], ttl: '5m', effort: 'low', maxTurns: 40 },
-}
+  ...(defaultRoles as Record<string, RoleSpec>),
+  planner: { description: 'drafts the task plan of one epic, read-only', prompt: modelText('agent-file', PROMPTS.planner), tools: ['Read', I, R], write: [], ttl: '1h', effort: 'high' },
+  specifier: { description: 'writes how-to notes for one approved task, read-only', prompt: modelText('agent-file', PROMPTS.specifier), tools: ['Read', I, R], write: [], ttl: '5m', effort: 'low', maxTurns: 40 },
+} as Record<Role, RoleSpec>
+// the work roles the engine runs by their spec (spawnRole, endedRun, validateReport): the profile's table; setRoles replaces it once at boot (S5), tests swap it
+let TABLE: Record<string, ProfileRole> = defaultRoles
+export const setRoles = (r: Record<string, ProfileRole>): void => { TABLE = r }
+export const roleSpec = (role: string): ProfileRole | undefined => TABLE[role]
+export const roleSpecs = (): Record<string, ProfileRole> => TABLE
 // Exit rule 1 and 6: the engine's exit tools are never refused; no spec may disallow them or list some of them and not all (an allowlist that drops one)
 export const EXIT = ['SubagentHandback', 'StructuredOutput']
 export const exitIssue = (s: { tools?: readonly string[]; disallowedTools?: readonly string[] }): string | null => {
@@ -20,7 +26,7 @@ export const exitIssue = (s: { tools?: readonly string[]; disallowedTools?: read
   return no ? `${no} is how an agent ends: it cannot be disallowed` : drop ? `${drop} is how an agent ends: tools may not drop it` : null
 }
 // a write glob ('**' any depth, '*' one segment) against a path relative to the role's tree
-export const writes = (spec: RoleSpec, rel: string): boolean => spec.write.some(g => new RegExp(`^${g.replace(/[.+^${}()|[\]\\?]/g, '\\$&').replace(/\*\*/g, '\0').replace(/\*/g, '[^/]*').replace(/\0/g, '.*')}$`).test(rel))
+export const writes = (spec: Pick<RoleSpec, 'write'>, rel: string): boolean => spec.write.some(g => new RegExp(`^${g.replace(/[.+^${}()|[\]\\?]/g, '\\$&').replace(/\*\*/g, '\0').replace(/\*/g, '[^/]*').replace(/\0/g, '.*')}$`).test(rel))
 // the rows of Settings that show what no setting changes (config/route FIXED)
 export const fixedRules = (): [string, string, string][] => [['fixed.exitTools', EXIT.join(', '), 'tools every agent can always call to end: no role may drop them'],
   ['fixed.writeScope', (Object.keys(ROLES_DEFAULT) as Role[]).map(r => `${r} ${ROLES_DEFAULT[r].write.join(' ') || 'none'}`).join(', '), 'where each agent role may write (inside its own working directory, never the protected paths)']]
