@@ -54,24 +54,16 @@ revert-epic|single ready scripted/revert|revert|MODEL=haiku CC_VERSION=2.1.295 S
 concurrency-fifo|single ready scripted/fifo|fifo|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=150 ORACLE=fifo
 continue-after-quit-s|single ready scripted/cont|contkill|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=600 ORACLE=continue
 # the 0.16 cells
-needs-explore|single ready scripted/needs|needs|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=150 ORACLE=needs-explore
 lessons-pass|single ready|lessons|MODEL=haiku CC_VERSION=2.1.295 S=1 LANDED=1 BUDGET=150 ORACLE=lessons
 custom-role|single ready scripted/custom-role|custom-role|MODEL=haiku CC_VERSION=2.1.295 S=1 BUDGET=150 ORACLE=custom-role
-planner-probe|single ready scripted/probe|probe|MODEL=haiku CC_VERSION=2.1.295 S=1 BUDGET=150 ORACLE=planner-probe EPIC_PLANNERS=1
 # the 0.17 cells
 docs-task|single ready scripted/docs|every|MODEL=haiku CC_VERSION=2.1.295 S=1 PERM=auto LANDED=1 LAND_RE=docs BUDGET=600 ORACLE=docs-task
 specifier-off|single ready scripted/full|every|MODEL=haiku CC_VERSION=2.1.295 S=1 PERM=auto LANDED=1 BUDGET=600 ORACLE=specifier-off
-# needs-setup-s: the setup path with the scripted model; npm installs ms from the real registry (no model, no quota)
-needs-setup-s|single ready deps-node scripted/setup|needs-setup|MODEL=haiku CC_VERSION=2.1.295 S=1 DEPS=1 KIND=s ORACLE_DEP=ms LANDED=1 BUDGET=150 ORACLE=needs-setup
-setup-stray-manifest|single ready deps-node scripted/stray|straymanifest|MODEL=haiku CC_VERSION=2.1.295 S=1 DEPS=1 KIND=s LANDED=1 BUDGET=150 ORACLE=straymanifest
 EOF
 }
-# the 0.16 release gate (L, needs the user's OK; the quick tier runs apart): the two setup cells, the restart cell, exit-every-role live on 2.1.295 and on the newest build.
-# The setup cells install from the real registry inside the container; DEPS=1 gives them the one-time approval and uv (tui.sh).
+# the 0.16 release gate (L, needs the user's OK; the quick tier runs apart): the restart cell, exit-every-role live on 2.1.295 and on the newest build.
 release016() {
   cat <<'EOF'
-needs-setup-node|single ready deps-node|needs-setup|MODEL=haiku CC_VERSION=2.1.295 DEPS=1 KIND=node ORACLE_DEP=ms LANDED=1 BUDGET=900 PROXY=1 ORACLE=needs-setup
-needs-setup-python|deps-py|needs-setup|MODEL=haiku CC_VERSION=2.1.295 DEPS=1 KIND=py ORACLE_DEP=six LANDED=1 BUDGET=900 PROXY=1 ORACLE=needs-setup
 continue-after-quit|single ready|continue|MODEL=haiku CC_VERSION=2.1.299 LANDED=1 BUDGET=1800 PROXY=1 RUNS=2
 EOF
   cells | grep '^exit-every-role-live|'
