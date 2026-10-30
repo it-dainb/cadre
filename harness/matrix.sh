@@ -108,7 +108,7 @@ est() { awk -F'|' -v j="$J" '{ s = $4 ~ /(^| )S=1( |$)/; k = s ? 1 : $4 ~ /LANDE
   END { printf "%d cells · about US$%.0f · about %d min with -j %d (%d min serial)\n", NR, usd, ns == NR ? (min + j - 1) / j : min / j + 8, j, min }' <<<"$CELLS"; }
 echo "tier $TIER · plugin ${SPIKE:-$(dirname "$H")} @ $(git -C "${SPIKE:-$(dirname "$H")}" rev-parse --short HEAD)"; est
 [ -n "$DRY" ] && { echo "models: main --model haiku · subagents CLAUDE_CODE_SUBAGENT_MODEL=haiku (FORCE=1) · cadre routes (pins, ~/.claude/cadre.json): $("$H/tui.sh" pins | node -e 'const o=JSON.parse(require("fs").readFileSync(0)),m=new Set,w=x=>x&&typeof x=="object"&&(x.model&&m.add(x.model),Object.values(x).forEach(w));w(o);console.log([...m].join(",")+" ("+JSON.stringify(o).length+" B, "+(JSON.stringify(o).match(/\"model\"/g)||[]).length+" keys)")') · reviewer: forced by env (its keys refuse haiku)"; cut -d'|' -f1,2,3,4 <<<"$CELLS" | column -t -s'|'; exit 0; }
-RUN=$H/out/matrix/$TIER-$(date +%Y%m%d-%H%M%S); mkdir -p "$RUN"; echo "evidence: $RUN"
+RUN=$H/out/matrix/$TIER-$(date +%Y%m%d-%H%M%S)-$$;   # the pid: two matrix runs of one tier started in the same second get two folders mkdir -p "$RUN"; echo "evidence: $RUN"
 export H RUN
 # each cell: its own container (tui name = cell name + run stamp), env from the 4th column
 xargs -P "$J" -d '\n' -I{} bash -c 'IFS="|" read -r name fix scen envs <<<"$1"; echo "$envs" >"$RUN/$name.env"
