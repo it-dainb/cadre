@@ -21,7 +21,7 @@ Otherwise ask the user with AskUserQuestion, in one round: the goal in one line,
 Tell the user to approve the mission in the cadre dialog (key 1 opens it). Do not wait for it: go on with phase 4.
 
 ## Phase 4: build and test commands
-Find how this project installs, builds and tests. Read, in this order (CI wins over prose): CI config (`.github/workflows`, other CI files), build tools (`Makefile`, `justfile`, `package.json` scripts, `pyproject.toml`, `Cargo.toml`, `go.mod`), then `README` and `CONTRIBUTING`. `git ls-files` shows what exists.
+Find how this project installs, builds and tests. Read, in this order (CI wins over prose): CI config (`.github/workflows`, other CI files), build tools (`Makefile`, `justfile`, `package.json` scripts, `pyproject.toml`, `Cargo.toml`, Go modules), then `README` and `CONTRIBUTING`. `git ls-files` shows what exists.
 Write the result into `.cadre/config.json` as `"units"` (keep `branches`):
 ```
 "units": [

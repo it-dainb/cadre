@@ -192,6 +192,12 @@ test('B2/B19: a tester command that writes no JUnit is a gate error (a human blo
   assert.equal(w.records.length, 0); assert.equal(existsSync(join(w.root, '.cadre/config.json')), false)
 })
 
+test('B19: exit-only is never adopted: a command that names $CADRE_JUNIT but writes no report (a test task with no declared tests) is accepted by its exit and the unit gets no test check', async () => {
+  const w = noCheck({ type: 'test' }); recorded(w)
+  const r = (await testerRun(w, { 'test/login.test.mjs': NT('assert.ok(true)') }, { command: ['node', '-e', '0', '$CADRE_JUNIT'] }, [])).res
+  assert.ok(r.ok, r.why); assert.equal(r.structural, undefined); assert.equal(w.records.length, 0); assert.equal(existsSync(join(w.root, '.cadre/config.json')), false); assert.equal(w.meta['cadre.coverVia'], 'report')
+})
+
 test('B1/B3: an import failure with JUnit is "not run" (a tester round, copy-in undone, no host path); without a report it is a gate error; passing tests are refused', async () => {
   const imp = f => NT('assert.ok(x)', `import { x } from '../src/${f}.mjs'`), w = noCheck()
   const { wt, view, res } = await testerRun(w, { 'test/login.test.mjs': imp('nope') }, JUNIT)
