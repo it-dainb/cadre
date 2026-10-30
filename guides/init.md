@@ -36,18 +36,7 @@ Write the result into `.cadre/config.json` as `"units"` (keep `branches`):
 If the user's goal comes next and a check fails because of the very problem that goal is about, keep it: cadre shows it as known red, and the goal's fix must turn it green. Never weaken or delete a test.
 
 ## Phase 5: changelog
-`CHANGELOG.md` must follow Keep a Changelog 1.1.0. If it does not exist, Write exactly:
-```
-# Changelog
-
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [Unreleased]
-```
-If it exists and a message names a line, fix only that heading.
+`CHANGELOG.md` must follow Keep a Changelog 1.1.0. If it does not exist, Write it with the header `# Changelog`, a one-line intro and an empty `## [Unreleased]` heading. If it exists and a message names a line, fix only that heading.
 
 ## Phase 6: stop
 Say in two or three lines what you set up. Tell the user what waits in the cadre dialog (key 1): the safety settings, written once everything else passes and they confirm, and the mission if you drafted it. Then stop; cadre checks again and names anything still open.

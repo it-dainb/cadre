@@ -1,7 +1,7 @@
 # Set up cadre on this machine
 
 You prepare this machine for cadre, once. Work through the phases in order. Run every command with Bash so the user sees it. Edit files with Read, Edit and Write.
-Rules: never use `sudo`. Never touch the Claude Code install. Never make up a name or an email. Never edit a Claude Code settings file (`settings.json`, `settings.local.json`): cadre applies those after the user confirms them in the dialog. Say what you changed.
+Rules: never use `sudo`. Never touch the Claude Code install. Do not delete anything you did not create. Never make up a name or an email. Never edit a Claude Code settings file (`settings.json`, `settings.local.json`): cadre applies those after the user confirms them in the dialog. Say what you changed.
 
 ## Phase 1: look
 Run `git --version`, `git var GIT_AUTHOR_IDENT`, `bwrap --version` and `socat -V`; note what is missing or old. Done when you know which of phases 2 and 5 apply. Skip the others.

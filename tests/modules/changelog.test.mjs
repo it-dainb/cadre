@@ -126,3 +126,8 @@ describe('the entry hook (event task.closed), run as core runs it', () => {
     } finally { rmSync(d, { recursive: true, force: true }) }
   })
 })
+
+test('S8: the minimal file guides/init.md describes (header, one intro line, an empty Unreleased heading) is valid and takes an entry', () => {
+  const min = '# Changelog\n\nAll notable changes to this project.\n\n## [Unreleased]\n'
+  expect(validate(min)).toBeNull(); expect(validate(insert(min, 'Added', 'x', 'm-1'))).toBeNull()
+})
