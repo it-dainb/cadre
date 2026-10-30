@@ -15,6 +15,7 @@ import { setup } from './admission'
 import { baseOf, taskBranch, wtPath } from './branches'
 import { decided } from './drive'
 import { ask } from './decide'
+import { flagDecision } from './flags'
 import { card, modOn, spawnIt } from './render'
 import { policyOf, setPolicy } from '../policy/guards'
 import { overlap, pathsOf } from './validate'
@@ -64,9 +65,8 @@ export async function rework(h: Host, d: Deps, t: SnapTask, task: Task, tip: str
 // past the cap: the human sees both sides (auto: the dialog; yolo: the task stays blocked while the rest goes on, core/drive)
 export async function capAsk(h: Host, d: Deps, t: SnapTask, task: Task, tip: string, files: string[]): Promise<void> {
   const by = await landed(h, d.root, task.meta['cadre.base'] ?? tip, tip, files)
-  await ask(h, { id: `flag:${t.id}:conflict`, kind: 'flag', title: `${t.id} still conflicts after ${d.cfg.limits.rebaseRounds} reworks`, short: `${t.id} conflict`, hash: `conflict:${sha7(tip)}`, tab: 'epic', sel: t.id,
-    lines: [t.title, `with ${by.join(', ') || 'work that landed'} on ${files.slice(0, 4).join(', ') || 'the merged tree'}`, 'Retry: one more rework round by its worker. Cancel task: end it, the rest of the plan goes on.'],
-    options: [{ key: 'r', label: 'Retry', verb: 'change', run: `resolve ${t.id} rebase` }, { key: 'x', label: 'Cancel task', verb: 'cancel', run: `resolve ${t.id} cancel` }] })
+  await ask(h, flagDecision(t.id, 'conflict', undefined, { title: `${t.id} still conflicts after ${d.cfg.limits.rebaseRounds} reworks`, short: `${t.id} conflict`, hash: `conflict:${sha7(tip)}`, keys: ['r', 'x'],
+    lines: [t.title, `with ${by.join(', ') || 'work that landed'} on ${files.slice(0, 4).join(', ') || 'the merged tree'}`, 'Retry: one more rework round by its worker. Cancel task: end it, the rest of the plan goes on.'] })!)
 }
 
 // after a squash into the plan branch: merge the new tip into every running worker's branch (a throwaway worktree, then the branch ref and the live tree move);

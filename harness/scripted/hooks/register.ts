@@ -11,6 +11,7 @@
 //   shape: lite, the worker sends four reports with an over-long summary (a shape refusal each, never the run's tries), then the valid one (shape-refusal-budget);
 //   pair: full lane, two independent tasks (concurrency-fifo, with concurrency.default 1 in the repo's config);
 //   multi: full lane, two tasks (kebabCase after titleCase), an amend on a stale revision refused then retried (plan-tools-full);
+//   flag-structured: lite, the worker asks for a spec change; the dialog (Reject first: a lite task has no tester to amend the spec) is answered by its option key, the worker conforms (flag-structured);
 //   sub: lite, the task in the `lib` submodule unit (submodule-unit); cont: lite, the reviewer waits 14 s first (continue-after-quit-s kills before or during it).
 import type { Register } from 'claude-code'
 
@@ -104,6 +105,7 @@ const ROLES: Record<string, (k: number, brief: string, cwd: string, rows: Row[])
   worker: (k, b, _c, rows) => { if (script === 'docs') return [{ tool: 'Bash', input: { command: "mkdir -p docs && printf '# Usage\\n\\nImport the helpers from src/ and call them.\\n' > docs/usage.md", description: 'Write docs/usage.md' } }, { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: 'Added docs/usage.md.', risks: [] } }][k] ?? { text: END }
     const f = fnOf(b), w = { tool: 'Bash', input: { command: FILES(f), description: `Write ${f.name} and its test` } }
     const BAD = { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: 'x'.repeat(801) } }
+    if (script === 'flag-structured' && !rows.some(r => isText(r) && /spec change was rejected/.test(r.text))) return [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'spec_change', summary: 'The spec as locked does not fit.', reason: 'the locked spec expects another shape of the result', scenario: 'S1: Given a string When titleCase runs Then each word starts upper case' } }][k] ?? { text: END }   // resumed after the rejection: the normal work below
     if (script === 'shape') return [w, BAD, BAD, BAD, BAD, { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } }, { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: `Added ${f.name}(s) in src/${f.name}.mjs with a node:test test; npm test passes.`, risks: [] } }][k] ?? { text: END }
     return script === 'silent' ? [w][k] ?? { text: END } : script === 'loop' ? { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } } : (script === 'slow' ? [WAIT] : []).concat([w, { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: `Added ${f.name}(s) in src/${f.name}.mjs with a node:test test; npm test passes.`, risks: [] } }])[k] ?? { text: END } },

@@ -55,8 +55,8 @@ describe('replays 1-11: the field failures', () => {
     const w = await world({ type: 'feature', pkg: RED_PKG }), [id] = w.ids; await w.at('ag1', id, 'tester')
     expect(await w.rep('ag1', { role: 'tester', outcome: 'done', summary: 's', tests: TESTS })).toContain('waits for the user')
     expect(await w.rep('ag1', { role: 'tester', outcome: 'done', summary: 's', tests: TESTS })).toMatch(/^error: .*nothing to report/)   // no second round
-    const s = await w.h.board.read(); expect(s.tasks[0]).toMatchObject({ state: 'blocked', flags: ['red'] })
-    expect((s.decisions ?? []).map(d => d.id)).toEqual([`flag:${id}:red`]); expect(s.decisions![0].lines.join(' ')).toContain('no test check')
+    const s = await w.h.board.read(); expect(s.tasks[0]).toMatchObject({ state: 'blocked', flags: ['gate-error'] })
+    expect((s.decisions ?? []).map(d => d.id)).toEqual([`flag:${id}:gate-error`]); expect(s.decisions![0].lines.join(' ')).toContain('no test check')
     expect(await w.state('ag1')).toEqual({ state: 'waiting', on: 'decision' })
   })
   test('#5 /cadre continue typed while the tick rehydrates reads the board the tick built', async () => {
@@ -104,7 +104,7 @@ describe('replays 1-11: the field failures', () => {
     const w = await world({ type: 'feature', pkg: RED_PKG, drive: 'yolo' }), [id] = w.ids; await arm(w.h, 'yolo'); await w.at('ag1', id, 'tester')
     await w.rep('ag1', { role: 'tester', outcome: 'done', summary: 's', tests: TESTS }); await w.turn()
     expect((await w.h.board.read()).drive.stopped).toBeDefined()
-    const d = (await w.h.board.read()).decisions!.find(x => x.id === `flag:${id}:red`)!; expect((await decide(w.h, d.id, 'r', d.hash)).text).toContain('back to the tester')
+    const d = (await w.h.board.read()).decisions!.find(x => x.id === `flag:${id}:gate-error`)!; expect((await decide(w.h, d.id, 'r', d.hash)).text).toContain('back to the tester')
     expect((await w.h.board.read()).drive.stopped).toBeUndefined(); expect((await w.h.ui.read()).goal).toBeDefined()   // lifted; main gets a turn (no dialog frame starts an agent)
     await w.turn(); expect(roles(w)).toContain('cadre:tester')   // main's turn end: the spawner
   })

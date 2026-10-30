@@ -213,7 +213,7 @@ export async function resolveEpic(h: Host, a: string, b: string): Promise<Out> {
   if (b === 'recut') {
     await cutEpic(h, p.id, (await cfgOf(h)).branches.dev)
     await h.board.update(x => (x.plan ? { ...x, plan: { ...x.plan, state: epicNext(x.plan.state, 'recut') ?? x.plan.state, flags: (x.plan.flags ?? []).filter(f => f !== 'lost-epic') } } : x))
-    await emit(h, 'flag.resolved', { taskId: p.id, flag: 'lost-epic' }, { taskId: p.id }); return { text: `Epic ${p.id}: ${p.epicBranch} re-cut from dev.` }
+    return { text: `Epic ${p.id}: ${p.epicBranch} re-cut from dev.` }
   }
   for (const t of s.tasks.filter(x => !['done', 'cancelled'].includes(x.state))) { await apply(h, { kind: 'cancel', id: t.id, at: await h.now(), actor: 'human' }, pipeOf(reg)); await store.close(t.id, { outcome: 'cancelled', note: 'epic cancelled' }).catch(() => {}) }
   await store.close(p.id, { outcome: 'cancelled', note: 'epic cancelled' }).catch(() => {})

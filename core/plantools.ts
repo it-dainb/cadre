@@ -147,16 +147,16 @@ async function edit(h: Host, store: TaskStore, reg: TypeRegistry, id: string, i:
   await clearRetries(h, id)
   return { id, context: ctx(missingLine(await retouch(h, store, reg))) }
 }
-// the lifecycle: set completed|pending|deleted, or a decision; a draft's deletion drops it
-async function life(h: Host, store: TaskStore, reg: TypeRegistry, id: string, set: string | undefined, decision?: string, reason?: string): Promise<Out> {
+// the lifecycle: set completed|pending|deleted, or a choice; a draft's deletion drops it
+async function life(h: Host, store: TaskStore, reg: TypeRegistry, id: string, set: string | undefined, a: { choice?: string; args?: string; reason?: string } = {}): Promise<Out> {
   let t: Task; try { t = await store.get(id) } catch (x) { return no(x instanceof StoreError && x.code === 'NotFound' ? `id: no task ${id}` : fail(x)) }
   const s = await h.board.read(), draft = t.category === 'draft' && !(id === s.epic && s.plan && s.plan.state !== 'draft'), k = (set ?? 'decision') as keyof typeof LIFECYCLE
   if (draft && set === 'deleted' && id !== s.epic) { await store.dropDrafts([id]); return { result: modelData('tool-result', { id, set }), context: ctx(missingLine(await retouch(h, store, reg))) } }
   if (draft) return no(`${set ?? 'decision'} does not apply to a draft: the human approves it in the dialog`)
-  const why = await LIFECYCLE[k]!(h, id, { metadata: { decision, reason } })
+  const why = await LIFECYCLE[k]!(h, id, { metadata: a })
   if (why) return no(why)
   const b = await h.board.read(), card = set === 'completed' ? b.tasks.find(x => x.id === id)?.card ?? (b.plan?.landed ? `${b.plan.id} landed on dev: nothing is left to do; tell the user` : undefined) : undefined   // the close card: main sees that the squash landed
-  return { result: modelData('tool-result', { id, ...(set ? { set } : { decision }) }), ...(card ? { context: ctx(card) } : {}) }
+  return { result: modelData('tool-result', { id, ...(set ? { set } : { choice: a.choice ?? 'answer' }) }), ...(card ? { context: ctx(card) } : {}) }
 }
 
 // ---- revision, graph ----
@@ -292,12 +292,12 @@ async function ask(h: Host, i: In): Promise<Out> {
   await store.setMeta(s.plan!.id, { 'cadre.questions': JSON.stringify(qs) }, 'main')
   return wrote(h, store, s.plan!.id, i.id ?? qs[qs.length - 1].id, ctx(missingLine(await retouch(h, store, await registryOf(h)))))
 }
-// the plan's tasks; one task (or an explorer's answer); or its lifecycle: set completed|pending|deleted, or a decision on a blocked task
+// the plan's tasks; one task (or an explorer's answer); or its lifecycle: set completed|pending|deleted, or a choice on a flagged task
 async function status(h: Host, i: In): Promise<Out> {
   const v = modelView(await h.board.read()), open = (x: string) => !['done', 'cancelled'].includes(v.tasks.find(t => t.id === x)?.state ?? 'done')
   if (i.id === undefined) return { result: modelData('tool-result', { plan: v.plan?.id ?? null, revision: v.plan ? await revOf(await storeOf(h), v.plan.id).catch(() => 0) : 0, tasks: v.tasks.map(t => ({ id: t.id, title: subject(t), status: NATIVE[t.state], ...(t.owner ? { owner: t.owner } : {}), after: t.deps.map(d => d.id).filter(open) })) }) }
   const { store, reg } = await deps(h)
-  if (i.set !== undefined || i.decision !== undefined) return life(h, store, reg, i.id, i.set, i.decision, i.reason)
+  if (i.set !== undefined || i.choice !== undefined || i.args !== undefined) return life(h, store, reg, i.id, i.set, { choice: i.choice, args: i.args, reason: i.reason })
   if (String(i.id).startsWith('ask-')) { const a = await askById(h, String(i.id)); return a ? { result: modelData('taskget', askTask(a)) } : no(`id: no task ${i.id}`) }   // an explorer's answer
   let t: Task; try { t = await store.get(String(i.id)) } catch (x) { return no(x instanceof StoreError && x.code === 'NotFound' ? `id: no task ${i.id}` : fail(x)) }
   const st = v.tasks.find(x => x.id === t.id)

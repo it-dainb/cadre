@@ -5,7 +5,9 @@ import type { Binding, Hook, Host, SnapTask } from '../types'
 import type { Task } from '../task-management/store'
 import { pipeOf } from '../task-management/registry'
 import { LIFECYCLE, holdsAmend } from './plantools'
-import { ROUTES } from './dispatch'
+import { ROUTES, resolveEpic } from './dispatch'
+import { flagDecision, kindOf, pick, specOf } from './flags'
+import type { Eff, EffDo, Option } from '../types/profile'
 import { modelText } from './say'
 import { resolveDeps, type Deps } from './admission'
 import { Refusal, specScenario, coverageGaps, overlap, pathsOf, specTestsOf } from './validate'
@@ -21,14 +23,14 @@ import { inRepo, modeOf, pkgOf, unitsOfTask } from './specview'
 import * as G from './git'
 import { decided, hardStop, limited, stop } from './drive'
 import { queueBrief } from './lanes'
-import { RESTART, ask, yoloOn } from './decide'
+import { ask, yoloOn } from './decide'
 import { capAsk, coreLanded, refresh, rework, trial } from './rebase'
 import { branchOf, epicOf, goOn } from './milestone'
 import { planStopped } from './planner'
 import { held } from './session'
 import { landed } from './reuse'
 import { specSettle } from './specifier'
-import { REPEAT, charge, prune, reset, retry, runOf, settled, step } from './lifecycle'
+import { REPEAT, charge, prune, reset, retry, runOf, settled, step, type Budget } from './lifecycle'
 // the worker's report kept for the reviewer and the merge: the report contract caps its fields (validate.REPORTS), so it is kept whole
 export const reportMeta = (r: any) => JSON.stringify({ summary: String(r.summary ?? ''), risks: r.risks ?? [], questions: r.questions ?? [] })
 export const reportOf = (m?: string): { summary?: string } => { try { return m ? JSON.parse(m) : {} } catch { return { summary: m?.slice(0, 800) } } }   // reports stored by older versions may be cut mid-string
@@ -41,10 +43,10 @@ const sha7 = (s: string) => s.slice(0, 7)
 // ---- small shared pieces ----
 const patch = (h: Host, id: string, fn: (t: SnapTask) => SnapTask) => h.board.update(s => ({ ...s, tasks: s.tasks.map(t => (t.id === id ? fn(t) : t)) }))
 export const raise = async (h: Host, id: string, flag: string) => { await patch(h, id, t => (t.flags.includes(flag) ? t : { ...t, flags: [...t.flags, flag] })); await emit(h, 'flag.raised', { taskId: id, flag }, { taskId: id }) }
-export const clear = async (h: Host, id: string, pre: string) => {
+export const clear = async (h: Host, id: string, pre: string, quiet = false) => {   // quiet: resolve() emits the flag.resolved of everything an answer removed
   const had = ((await h.board.read()).tasks.find(t => t.id === id)?.flags ?? []).filter(f => f.startsWith(pre))
   await patch(h, id, t => ({ ...t, flags: t.flags.filter(f => !f.startsWith(pre)) }))
-  for (const f of had) await emit(h, 'flag.resolved', { taskId: id, flag: f }, { taskId: id })
+  if (!quiet) for (const f of had) await emit(h, 'flag.resolved', { taskId: id, flag: f }, { taskId: id })
 }
 const end = (h: Host, agentId: string, reason: string, cause: 'done' | 'released' | 'blocked' | 'cancelled' | 'retry') => step(h, agentId, { type: 'end', cause, reason })
 async function record(h: Host, d: Deps, id: string, kind: string, actor: string, computed: Record<string, unknown>, claimed: Record<string, unknown> = {}) {   // 6.5: the record rides the task's meta
@@ -214,8 +216,9 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
     if (!g.ok) {   // bounded (limits.testerRounds, across agents: the task budget's red): past it, or a setup fault the tester cannot fix, the task blocks once with one dialog naming the check
       const n = await charge(h, t.id, 'red')   // only the dialog's Retry clears it
       if (!g.setup && n < d.cfg.limits.testerRounds) throw new Error(`red gate refused: ${g.why}\n${g.card}`)
-      await redAsk(h, d, t.id, g.setup ? g.why! : `check "${redOf(pkgOf(d, task)!)}" after ${n} tester rounds: ${g.why}`, g.setup ? [] : g.passing)
-      await blockTask(h, d, t, `red: ${g.why}`, 'red', { summary: r.summary, tests: r.tests })
+      const kind = g.setup ? 'gate-error' : 'red'
+      await redAsk(h, t.id, kind, g.setup ? g.why! : `check "${redOf(pkgOf(d, task)!)}" after ${n} tester rounds: ${g.why}`, g.setup ? [] : g.passing)
+      await blockTask(h, d, t, `red: ${g.why}`, kind, { summary: r.summary, tests: r.tests })
       return 'Your tests are kept, but they cannot be made to fail for the right reason here; the task now waits for the user. Stop.'
     }
     const nx = (await h.board.read()).tasks.find(x => x.id === t.id), rv = nx?.state === 'review'   // no worker step (a test task): the reviewer is next, and the claim's owner goes with the card (it would keep the reviewer from being spawned; live: idle after the tester's accepted tests)
@@ -233,9 +236,8 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
 }
 
 // the red block's dialog (asked before the flag is raised, so it wins over the generic one): what failed, Retry (back to the tester, fresh rounds) or Cancel
-export async function redAsk(h: Host, d: Deps, id: string, why: string, passing: string[] = []) {
-  await ask(h, { id: `flag:${id}:red`, kind: 'flag', title: `${id}: its tests cannot be made red`, tab: 'epic', sel: id, hash: fnv1a64(why), lines: [...why.slice(0, 400).split('\n').filter(Boolean), 'Retry: fix the cause (the package checks, or the test setup), then a new tester writes the tests again.', ...(passing.length ? [`Already holds: ${passing.join(', ')} passes now because the code already does it; mark it held, then a new tester writes its test to pass.`] : []), 'Cancel task: end it.'],
-    options: [{ key: 'r', label: 'Retry', verb: 'restore', run: `resolve ${id} retry` }, ...(passing.length ? [{ key: 'h', label: 'Already holds', verb: 'accept', run: `resolve ${id} holds ${passing.join(',')}` }] : []), { key: 'x', label: 'Cancel task', verb: 'cancel', run: `resolve ${id} cancel` }] })
+export async function redAsk(h: Host, id: string, flag: 'red' | 'gate-error', why: string, passing: string[] = []) {
+  await ask(h, flagDecision(id, flag, undefined, { title: `${id}: its tests cannot be made red`, hash: fnv1a64(why), ids: passing, lines: [...why.slice(0, 400).split('\n').filter(Boolean), 'Retry: fix the cause (the package checks, or the test setup), then a new tester writes the tests again.', ...(passing.length ? [`Already holds: ${passing.join(', ')} passes now because the code already does it; mark it held, then a new tester writes its test to pass.`] : []), 'Cancel task: end it.'] })!)
 }
 
 // ---- #2 turn.complete: L3 sweep every turn; an agent that stopped without reporting is nudged (limits.nudges), then ends: its work is not accepted as a result, one dialog ----
@@ -384,29 +386,32 @@ async function cancelTask(h: Host, d: Deps, id: string, why: string): Promise<st
   await cleanup(h, d, id, task, `refs/cadre/quarantine/${id}-${await h.now()}`)
   await d.store.close(id, { outcome: 'cancelled', note: `failed: ${why}`.slice(0, 300), session: d.session }); return null
 }
-async function decide(h: Host, d: Deps, id: string, text: string): Promise<string | null> {
+const legal = (id: string, os: Option[]) => modelText('tool-result', `${id}: no such choice; use one of ${os.map(o => `${o.key} (${o.label})`).join(', ')}`)
+// status {id, choice, reason?} (a flag's option key, main under yolo) or {id, args} (the answer to a worker's question: free text, never parsed)
+async function decide(h: Host, d: Deps, id: string, c: { choice?: string; args?: string; reason?: string }): Promise<string | null> {
   const t = (await h.board.read()).tasks.find(x => x.id === id)
   if (t?.state !== 'blocked') return modelText('tool-result', !t ? `no task ${id}` : t.state === 'active' ? `${id} is not blocked: the user already answered its dialog and it went on, so nothing is left to decide. Carry on with the rest.` : `${id} is ${t.state}; nothing to decide`)   // main's question and the dialog are two channels for one decision: the dialog may win
   const y = yoloOn((await h.board.read()).drive), why = y ? await hardStop(h) : null
   if (why) { await stop(h, why); return `${id}: the run stopped (${why}); the user decides this task in the cadre dialog now. Stop and wait.` }   // a hard stop mid-turn: main's decision is not applied
-  const meta = (await d.store.get(id)).meta
+  const meta = (await d.store.get(id)).meta, text = (c.args ?? '').trim()
   if (meta['cadre.blocked'] === 'spec_change') {   // yolo: main accepts or rejects it, through the same path as the dialog (recorded)
     if (!y || meta['cadre.specReset']) return `${id} awaits a spec change decision: the human accepts or rejects it in the cadre dialog`
-    const m = /^\s*(accept|reject)\s*:\s*(\S[\s\S]*)$/i.exec(text); if (!m) return `${id}: decision must be "accept: <reason>" or "reject: <reason>"`   // the exact word and a colon: "acceptable… reject: …" must never read as accept
-    const how = m[1].toLowerCase(), n = Number(meta['cadre.specAccepts'] || 0)
+    const os = specOf('spec_change')!.options.filter(x => x.effect[0].do === 'spec'), o = pick(os, c.choice ?? ''), how = o?.effect[0].how, n = Number(meta['cadre.specAccepts'] || 0)
+    if (!o) return legal(id, os)
     if (how === 'accept' && n >= 2) { const w = `${id} asked to change its locked spec ${n + 1} times`; await stop(h, w, { taskId: id, flag: 'spec_change' }); return `${id}: the run stopped (${w}); the user decides this task in the cadre dialog now. Stop and wait.` }   // accept, rewind, accept… never counts as no progress: cap it
-    const r = await resolveSpec(h, id, how, 'main', m[2].trim()); if (!/accepted|rejected/.test(r.text)) return r.text
+    const r = await resolveFlag(h, id, o.key, '', { by: 'main', flag: 'spec_change', reason: c.reason }); if (!r.ok) return r.text
     if (how === 'accept') await d.store.setMeta(id, { 'cadre.specAccepts': String(n + 1) }, d.actor)
-    await clear(h, id, 'spec_change'); await decided(h, 'spec', `${id}: spec change ${how}ed: ${m[2].trim()}`, id); return null
+    await decided(h, 'spec', `${id}: spec change ${how}ed: ${c.reason ?? ''}`, id); return null
   }
+  if (!text) return modelText('tool-result', `${id}: give the answer to its question as args`)
   const e = await unblock(h, d, id, y ? `Decision: ${text}` : `Decision from the human: ${text}`, 'blocked')
   if (!e && y) await decided(h, 'question', `${id}: ${text}`, id)
   return e
 }
-async function unblock(h: Host, d: Deps, id: string, text: string, flag: string): Promise<string | null> {
+async function unblock(h: Host, d: Deps, id: string, text: string, flag: string, quiet = false): Promise<string | null> {
   const m = await apply(h, { kind: 'unblock', id, at: await h.now(), actor: 'main' }, pipe(d)); if (!m.ok) return m.error
   await d.store.resume(id, d.actor); await d.store.setMeta(id, { 'cadre.decision': text.slice(0, 1000), 'cadre.blocked': '' }, d.actor)
-  await d.store.record('decision', `${id}: ${text.slice(0, 60)}`, text, id); await clear(h, id, flag)
+  await d.store.record('decision', `${id}: ${text.slice(0, 60)}`, text, id); await clear(h, id, flag, quiet)
   const bind = await h.bind.read(), at = (await h.board.read()).tasks.find(x => x.id === id)?.step, w0 = ownerOf(bind, id, 'worker'), w = w0 && bind[w0].step === at ? w0 : undefined   // the worker goes on only at its own step: a block that came from the tester or reviewer step is answered by a fresh agent of that role (a resumed worker has nothing to report there, and its run would stay bound for good)
   if (w) await step(h, w, { type: 'resume', text })
   for (const x of agentsOf(bind, id)) if (x !== w && !x.startsWith('~') && ['running', 'refused', 'silent'].includes((await runOf(h, x))?.state?.state ?? '')) await end(h, x, 'retry', 'retry')   // a task waits for the user only after its agent's turn ended (a tester's malformed reports): a run still `running` is dead, and would hold its role and the idle fallback (core/drive.idle) off for good
@@ -418,7 +423,7 @@ const isEpic = async (h: Host, id: string) => { const s = await h.board.read(); 
 LIFECYCLE.completed = wrapL(async (h, d, id, e) => ((await isEpic(h, id)) ? integrateEpic(h, id) : closeTask(h, d, id)))
 LIFECYCLE.pending = wrapL((h, d, id) => releaseTask(h, d, id))
 LIFECYCLE.deleted = wrapL(async (h, d, id, e) => ((await isEpic(h, id)) ? 'the epic cannot be deleted; reject the plan instead' : cancelTask(h, d, id, String(e.metadata?.reason ?? 'deleted by main'))))
-LIFECYCLE.decision = wrapL((h, d, id, e) => (typeof e.metadata?.decision === 'string' && e.metadata.decision.trim() ? decide(h, d, id, e.metadata.decision) : Promise.resolve('decision: expected the answer as a string')))
+LIFECYCLE.decision = wrapL((h, d, id, e) => decide(h, d, id, e.metadata ?? {}))
 
 // accept on a sync flag: conflict -> re-apply the remote values kept in the task's meta; drift -> adopt the remote status through the machine (refused when illegal)
 async function acceptRemote(h: Host, d: Deps, t: SnapTask): Promise<string | null> {
@@ -438,55 +443,67 @@ async function acceptRemote(h: Host, d: Deps, t: SnapTask): Promise<string | nul
   return null
 }
 
-// ---- /cadre resolve <id> keep|accept|reject|cancel · resolve git keep|restore [flag] ----
+// ---- an answer to a flag: /cadre resolve <id> <key> [ids] · resolve git <key> [flag] (the dialog's options run these) and status {id, choice} (main under yolo) ----
+// The option's effects (the flag table, profiles) run in order. Each is one existing helper; a refusal is a throw, which stops the rest.
+type Ctx = { h: Host; d: Deps; id: string; flag: string; args: string; by: 'human' | 'main'; reason?: string }
+const fail = (m: string): never => { throw new Error(m) }
+const refs = async (c: Ctx, how: 'keep' | 'restore') => { const r = await resolveGit(c.h, c.flag, how); return r.ok ? `${c.flag}: ${how} done` : fail(`refused: ${r.error}`) }
+const EFF: Record<EffDo, (c: Ctx, e: Eff) => Promise<string | void>> = {
+  wait: async c => `${c.id}: still waiting for your answer: type it in the chat`,   // a worker's question: the flag and its card stay until the answer comes
+  clear: async (c, e) => {   // the target's flags, never `git:`; how:'keep' is the ref's acknowledgement
+    if (e.how === 'keep') return refs(c, 'keep')
+    const on = (f: string) => (e.kinds ? e.kinds.includes(kindOf(f)) : !f.startsWith('git:'))
+    await c.h.board.update(b => ({ ...b, tasks: b.tasks.map(t => (t.id === c.id ? { ...t, flags: t.flags.filter(f => !on(f)) } : t)), plan: b.plan && (c.id === b.plan.id || c.id === b.epic) ? { ...b.plan, flags: (b.plan.flags ?? []).filter(f => !on(f)) } : b.plan }))
+  },
+  retry: async (c, e) => retry(c.h, c.id, e.counter as keyof Budget, e.more ? c.d.cfg.limits.rebaseRounds - 1 : 0),   // more: one more round, not a fresh count
+  reset: async (c, e) => reset(c.h, c.id, e.counter as keyof Budget),
+  unblock: async (c, e) => { const x = await unblock(c.h, c.d, c.id, e.note!, c.flag, true); if (x) fail(x); return `${c.id}: its agent goes on${spawnIt(await c.h.board.read(), 'spawn it')}` },
+  rewind: async (c, e) => {
+    const r = await apply(c.h, { kind: 'rewind', id: c.id, at: await c.h.now(), actor: 'human', on: e.to }, pipe(c.d)); if (!r.ok) fail(r.error)
+    await c.d.store.resume(c.id, c.d.actor); await c.d.store.setMeta(c.id, { 'cadre.blocked': '' }, c.d.actor)   // human.retry{red}: its stop lifts
+    const bd = await c.h.board.read(), lifted = bd.drive.cause?.taskId === c.id && bd.drive.cause.flag === c.flag   // this answer lifts the stop it caused: the run goes on, so the mode counts as it will be
+    return `${c.id}: back to the ${e.to}${spawnIt(lifted ? { drive: { ...bd.drive, stopped: undefined } } : bd, 'spawn it')}`
+  },
+  amend: async c => { const x = await holdsAmend(c.h, c.d.store, c.id, c.args.split(',').filter(Boolean), c.d.actor); if (x) fail(x) },   // the ids are checked against the task's scenarios
+  resume: async c => { await goOn(c.h, c.id); return `${c.id}: the epic goes on; set it completed again (status) if its tasks are done` },
+  cancel: async c => { if (specOf(c.flag)?.target === 'plan') return (await resolveEpic(c.h, c.id, 'cancel')).text; const x = await cancelTask(c.h, c.d, c.id, 'ended by the human'); if (x) fail(x) },
+  adopt: async c => { const x = await acceptRemote(c.h, c.d, (await c.h.board.read()).tasks.find(t => t.id === c.id)!); if (x) fail(`refused: ${x}`) },
+  spec: async (c, e) => {
+    const r = await resolveSpec(c.h, c.id, e.how!, c.by, c.reason); if (!r.ok) fail(r.text)
+    const dr = (await c.h.board.read()).drive
+    if (c.by === 'human' && dr.on && !dr.stopped) await queueBrief(c.h, `Continue: ${r.text}`)   // the human answered in the dialog; main is idle and acts on it (ADR 0013)
+    return r.text
+  },
+  restore: async c => refs(c, 'restore'),
+  recut: async c => (await resolveEpic(c.h, c.id, 'recut')).text,
+  dropNeed: async () => {},   // the installs it dropped are gone (B5); the table keeps the effect name
+  endAgent: async c => { for (const x of agentsOf(await c.h.bind.read(), c.id)) await end(c.h, x, 'retry', 'retry') },   // the tester that waited on it is done: a new one writes the tests
+  rework: async (c, e) => {   // one more round by the same worker, from the task branch's tip now
+    const s = await c.h.board.read(), t = s.tasks.find(x => x.id === c.id)!, task = await c.d.store.get(c.id), tip = await G.tip(c.h.run, c.d.root, branchOf(s, t))
+    await c.d.store.setMeta(c.id, { 'cadre.blocked': '' }, c.d.actor)
+    return (await rework(c.h, c.d, (await c.h.board.read()).tasks.find(x => x.id === c.id)!, task, tip, e.kind as 'conflict')) ?? `${c.id}: not reworked`
+  },
+}
+// the flags an answer can remove: a task's, the plan's, a stopped epic, or the git refs' (id '')
+const flagsAt = async (h: Host, id: string): Promise<string[]> => {
+  const s = await h.board.read(), t = s.tasks.find(x => x.id === id)
+  return id === '' ? Object.keys((await h.git.read()).flags ?? {}) : t ? (t.state === 'cancelled' ? [] : t.flags) : [...(s.plan && (id === s.plan.id || id === s.epic) ? s.plan.flags ?? [] : []), ...(epicOf(s, id)?.state === 'stopped' ? ['stopped'] : [])]
+}
+export async function resolveFlag(h: Host, id: string, key: string, args = '', o: { flag?: string; by?: 'human' | 'main'; reason?: string } = {}): Promise<{ text: string; ok: boolean }> {
+  const before = await flagsAt(h, id), have = o.flag ? before.filter(x => x === o.flag) : before, f = have.find(x => specOf(x) && pick(specOf(x)!.options, key))
+  if (!f) return { ok: false, text: have.length ? legal(id, have.flatMap(x => specOf(x)?.options ?? [])) : `no open flag on ${id || 'git'}` }
+  const op = pick(specOf(f)!.options, key)!
+  if (op.needs === 'ids' && !args) return { ok: false, text: `${id}: ${op.label} needs the scenario ids` }
+  const c: Ctx = { h, d: await resolveDeps(h), id, flag: f, args, by: o.by ?? 'human', reason: o.reason }; let text = ''
+  try { for (const e of op.effect) text = (await EFF[e.do](c, e)) || text } catch (x) { return { ok: false, text: (x as Error).message } }
+  const after = await flagsAt(h, id)
+  for (const g of before.filter(x => !after.includes(x))) await emit(h, 'flag.resolved', { taskId: id, flag: g }, { taskId: id || undefined })   // once per flag that left the target (B17)
+  return { ok: true, text: text || `${id}: ${op.label.toLowerCase()} done` }
+}
 ROUTES.resolve = async (h, c) => {
   const [a, b, f] = c.args
-  if (a === 'git') {
-    const open = Object.keys((await h.git.read()).flags ?? {}).filter(x => x.startsWith('git:') || x.startsWith('quarantine')), flag = f ?? (open.length === 1 ? open[0] : '')
-    if (b !== 'keep' && b !== 'restore') return { text: 'usage: /cadre resolve git keep|restore [flag]' }
-    if (!flag) return { text: `name the flag: ${open.join(', ') || 'none open'}` }
-    const r = await resolveGit(h, flag, b); return { text: r.ok ? `${flag}: ${b} done` : `refused: ${r.error}` }
-  }
-  const s0 = await h.board.read(), d = await resolveDeps(h)
-  if (epicOf(s0, a) && b === 'keep') { await goOn(h, a); await emit(h, 'flag.resolved', { taskId: a, flag: 'stopped' }, { taskId: a }); return { text: `${a}: the epic goes on; set it completed again (status) if its tasks are done` } }   // a stopped epic's Retry
-  if (s0.plan && (a === s0.plan.id || a === s0.epic) && b === 'keep') {   // plan-level flags (integration-failed): a retry is TaskUpdate completed again
-    await h.board.update(x => (x.plan ? { ...x, plan: { ...x.plan, flags: [] } } : x)); await emit(h, 'flag.resolved', { taskId: a, flag: (s0.plan.flags ?? []).join(',') || 'plan' }, { taskId: a })
-    return { text: `${a}: plan flags cleared; set the epic completed again (status)` }
-  }
-  const t = s0.tasks.find(x => x.id === a)
-  if (t && b === 'rebase' && t.state === 'blocked') {   // the cap dialog's Retry (core/rebase.capAsk): one more round by the same worker
-    const task = await d.store.get(a), tip = await G.tip(h.run, d.root, branchOf(s0, t))
-    await retry(h, a, 'rebase', d.cfg.limits.rebaseRounds - 1); await d.store.setMeta(a, { 'cadre.blocked': '' }, d.actor); await clear(h, a, 'conflict'); await clear(h, a, 'merge-red')
-    return { text: (await rework(h, d, (await h.board.read()).tasks.find(x => x.id === a)!, task, tip, 'conflict')) ?? `${a}: not reworked` }
-  }
-  if (t && (b === 'retry' || b === 'holds') && t.flags.includes('red')) {   // b holds: the dialog's Already holds first records the amendment (the ids come from the gate; the ledger checks them against the scenarios)
-    if (b === 'holds') { const e = await holdsAmend(h, d.store, a, (f ?? '').split(',').filter(Boolean), d.actor); if (e) return { text: e } }
-   // the red dialog's Retry (redAsk): back to the tester step, rounds reset
-    const r = await apply(h, { kind: 'rewind', id: a, at: await h.now(), actor: 'human', on: 'tester' }, pipe(d)); if (!r.ok) return { text: r.error }
-    await d.store.resume(a, d.actor); await d.store.setMeta(a, { 'cadre.blocked': '' }, d.actor); await retry(h, a, 'red'); await clear(h, a, 'red')   // human.retry{red}: its stop lifts
-    for (const x of agentsOf(await h.bind.read(), a)) await end(h, x, 'retry', 'retry')   // the tester that waited on it is done: a new one writes the tests
-    const bd = await h.board.read(), lifted = bd.drive.cause?.taskId === a && !!bd.drive.cause.flag?.startsWith('red')   // this answer lifts the stop it caused: the run goes on, so the mode counts as it will be
-    return { text: `${a}: back to the tester${spawnIt(lifted ? { drive: { ...bd.drive, stopped: undefined } } : bd, 'spawn it')}` }
-  }
-  if (t && b === 'retry' && t.flags.includes('shape')) {   // the shape dialog's Retry: back to its step, its count of malformed reports starts over
-    await retry(h, a, 'shapeRefusals'); const e = await unblock(h, d, a, 'Retry from the human: report again in the form the report tool describes (each value within its length cap, only its fields).', 'shape'); if (e) return { text: e }   // unblock resumes the bound worker: one that already ended is retired and the spawner starts a fresh one
-    return { text: `${a}: its agent starts again${spawnIt(await h.board.read(), 'spawn it')}` }
-  }
-  if (t && b === 'keep' && t.state === 'blocked' && t.flags.some(x => RESTART.includes(x))) {   // Keep on a stuck agent: the same restart as Retry; its checkpoint stays on the branch, the counters that blocked it start over
-    await retry(h, a, 'silentRuns'); await reset(h, a, 'nudges'); const e = await unblock(h, d, a, 'Keep from the human: continue from the last checkpoint on the task branch, and report when done.', t.flags.find(x => RESTART.includes(x))!); if (e) return { text: e }
-    return { text: `${a}: a fresh agent continues from the last checkpoint${spawnIt(await h.board.read(), 'spawn it')}` }
-  }
-  if (t && b === 'keep' && t.state === 'blocked' && t.flags.includes('blocked')) return { text: `${a}: still waiting for your answer: type it in the chat` }   // a worker's question: Keep changes nothing, the flag and its card stay until the answer comes
-  if (!t || !['keep', 'accept', 'reject', 'cancel'].includes(b)) return { text: 'usage: /cadre resolve <taskId> keep|accept|reject|cancel · /cadre resolve git keep|restore' }
-  const out = async (e: Promise<string | null>) => ({ text: (await e) ?? `${a}: ${b} done` })
-  if (b === 'cancel' || (b === 'reject' && t.flags.some(x => x.startsWith('rework:')))) return out(cancelTask(h, d, a, 'ended by the human'))
-  if (t.flags.includes('spec_change') && (b === 'accept' || b === 'reject')) {
-    const r = await resolveSpec(h, a, b); if (!/accepted|rejected/.test(r.text)) return r
-    await clear(h, a, 'spec_change'); const dr = (await h.board.read()).drive
-    if (dr.on && !dr.stopped) await queueBrief(h, `Continue: ${r.text}`)   // the human answered in the dialog; main is idle and acts on it (ADR 0013)
-    return r
-  }
-  if (b === 'accept' && t.flags.some(x => x === 'conflict' || x === 'drift')) { const e = await acceptRemote(h, d, t); if (e) return { text: `refused: ${e}` } }
-  await patch(h, a, x => ({ ...x, flags: x.flags.filter(y => y.startsWith('git:')) })); await emit(h, 'flag.resolved', { taskId: a, flag: t.flags.join(',') || b }, { taskId: a })   // keep: accept the state, clear the task's flags
-  return { text: `${a}: flags cleared (${b})` }
+  if (!a || !b) return { text: 'usage: <taskId> <key> [ids] · git <key> [flag]' }
+  if (a !== 'git') return resolveFlag(h, a, b, f)
+  const open = Object.keys((await h.git.read()).flags ?? {}), flag = f ?? (open.length === 1 ? open[0] : '')
+  return flag ? resolveFlag(h, '', b, '', { flag }) : { text: `name the flag: ${open.join(', ') || 'none open'}` }
 }

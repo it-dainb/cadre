@@ -8,7 +8,8 @@ import { decisions, read, txt, wid } from '../ui/model'
 import { NOT_NOW, acts, answerDialog, autoAsk, onEvent, syncStatus } from '../ui/index'
 import { decide, run } from '../commands/cadre'
 import { ROUTES, dispatch, initPropose } from '../core/dispatch'
-import { ask, flagDecision, settle } from '../core/decide'
+import { ask, settle } from '../core/decide'
+import { flagDecision } from '../core/flags'
 import { modelView } from '../core/board'
 import { emit, TABLE } from '../core/events'
 import { configPress, refreshSettings } from '../config/route'
@@ -204,7 +205,12 @@ describe('core: ask / settle / events', () => {
     expect((await w.h.board.read()).decisions!.map(d => d.id)).toEqual(['flag:a2:conflict'])
     await ask(w.h, dec('flag:a3:spec_change', 'flag', 't', ['why: the API changed'], [OK], { key: 'phase.spec' })); await emit(w.h, 'flag.raised', { taskId: 'a3', flag: 'spec_change' }, { taskId: 'a3' })
     expect((await w.h.board.read()).decisions!.find(d => d.id === 'flag:a3:spec_change')!.lines).toEqual(['why: the API changed'])
-    await emit(w.h, 'flag.resolved', { taskId: 'a2', flag: 'conflict,drift' }, { taskId: 'a2' }); expect((await w.h.board.read()).decisions!.map(d => d.id)).toEqual(['flag:a3:spec_change'])
+    await emit(w.h, 'flag.resolved', { taskId: 'a2', flag: 'conflict' }, { taskId: 'a2' }); expect((await w.h.board.read()).decisions!.map(d => d.id)).toEqual(['flag:a3:spec_change'])
+  })
+  test('under yolo only the flags the table holds on reach the dialog (each row\'s holds): red and git ask, shape and locked-dirty stay on the task', async () => {
+    const w = await world(); await w.h.board.update(b => ({ ...b, drive: { ...b.drive, on: true, mode: 'yolo' } as any }))
+    for (const f of ['red', 'conflict', 'rework:4/3', 'shape', 'locked-dirty', 'attempts']) await emit(w.h, 'flag.raised', { taskId: 'a2', flag: f }, { taskId: 'a2' })
+    expect((await w.h.board.read()).decisions!.map(d => d.id)).toEqual(['flag:a2:red', 'flag:a2:conflict', 'flag:a2:rework:4/3'])
   })
   test('a plan asks when approvable (hash-bound; Approve, Reject, Lane; a change is typed) and settles on approve and on reject', async () => {
     const w = await world(), { plan: p } = await plan(w), b = await w.h.board.read()

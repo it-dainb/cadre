@@ -108,7 +108,7 @@ test('changes -> the same worker agentId is resumed (queued), rework counted, ca
     assert.ok(t.owner); assert.doesNotMatch(nextAction(await h.board.read()), /reviewer/)   // the bound reviewer is resumed: never "spawn the reviewer" (refused: it already has one)
   }
   assert.ok((await h.board.read()).tasks[0].flags.includes('rework:4/3'))
-  const r = await ROUTES.resolve(h, { schemaVersion: 1, cmd: 'resolve', args: [id, 'reject'], origin: { kind: 'composer' } }); assert.match(r.text, /reject done/)
+  const r = await ROUTES.resolve(h, { schemaVersion: 1, cmd: 'resolve', args: [id, 'x'], origin: { kind: 'composer' } }); assert.match(r.text, /cancel task done/)
   assert.equal((await h.board.read()).tasks[0].state, 'cancelled'); assert.match((await store.get(id)).meta['close.note'], /^failed:/)
   assert.match(sh(w.d, 'for-each-ref', 'refs/cadre/quarantine'), /refs\/cadre\/quarantine\/m-2-/)
   assert.equal(await h.store.get(`cadre:${(await import('../../commands/init.ts')).repoKeyOf(w.d)}:metrics`), undefined)   // H12: the cancel path writes no record
@@ -163,7 +163,7 @@ test('followups become drafts in the lazily created cadre-backlog epic with a di
   const ds = all.filter(t => t.parent === bl.id); assert.deepEqual(ds.map(t => [t.title, t.category]), [['tidy x', 'draft'], ['tidy y', 'draft']])
   assert.deepEqual(ds[0].deps, [{ id, type: 'discovered-from' }])
   await w.h.board.update(b => ({ ...b, plan: { ...b.plan, flags: ['integration-failed'] } }))
-  assert.match((await ROUTES.resolve(w.h, { schemaVersion: 1, cmd: 'resolve', args: ['p1', 'keep'], origin: { kind: 'composer' } })).text, /plan flags cleared/); assert.deepEqual((await w.h.board.read()).plan.flags, [])
+  assert.match((await ROUTES.resolve(w.h, { schemaVersion: 1, cmd: 'resolve', args: ['p1', 'keep'], origin: { kind: 'composer' } })).text, /keep done/); assert.deepEqual((await w.h.board.read()).plan.flags, [])
 })
 
 // a reviewed task whose epic then moved (another task landed): returns the pieces to close it
@@ -206,7 +206,7 @@ test('cap: past 2 rounds the task is blocked and asked with both sides; Retry ru
   assert.match(String(await C.closeTask(h, w.dep, id)), /still conflicts on the plan after 2 reworks; it waits for the user\. Go on with the other tasks/)
   const t = (await h.board.read()).tasks[0]; assert.equal(t.state, 'blocked'); assert.ok(t.flags.includes('conflict'))
   const dd = (await h.board.read()).decisions.find(x => x.id === `flag:${id}:conflict`); assert.match(dd.title, /still conflicts after 2 reworks/); assert.match(dd.lines.join('\n'), /b\.txt/); assert.deepEqual(dd.options.map(o => o.label), ['Retry', 'Cancel task'])
-  assert.match((await ROUTES.resolve(h, { schemaVersion: 1, cmd: 'resolve', args: [id, 'rebase'], origin: { kind: 'dialog' } })).text, /round 2\/2/)
+  assert.match((await ROUTES.resolve(h, { schemaVersion: 1, cmd: 'resolve', args: [id, 'r'], origin: { kind: 'dialog' } })).text, /round 2\/2/)
   assert.deepEqual((({ state, step }) => [state, step])((await h.board.read()).tasks[0]), ['active', 'worker'])
 })
 test('after a squash, a running sibling gets the new tip merged in (its own edits kept); a colliding one only gets a heads-up', async () => {

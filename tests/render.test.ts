@@ -34,7 +34,7 @@ describe('main context line (DESIGN 4.5)', () => {
 describe('nextAction under yolo', () => {
   test('main decides a blocked or spec-change task; any other human-held flag waits for the user', () => {
     const y = (flags: string[]) => nextAction(modelView({ ...snap(), drive: { on: true, mode: 'yolo' }, tasks: [task('a6', { state: 'blocked', step: 'worker', flags })] } as never))
-    expect(y(['blocked'])).toBe('decide a6 yourself (status {id:\"a6\", decision})')
+    expect(y(['blocked'])).toBe('decide a6 yourself (status {id:\"a6\", choice or args})')
     expect(y(['needs_human'])).toBe('a6 waits for the user (go on with the rest)')
   })
 })

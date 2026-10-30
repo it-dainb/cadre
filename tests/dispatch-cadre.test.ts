@@ -36,10 +36,10 @@ describe('/cadre (ADR 0011): typed forms; the rest are presses', () => {
   test('M5: a blocked epic is re-cut from dev with resolve <epic> recut (or cancelled)', async () => {
     const w = await world(); const { plan: p } = await plan(w)
     await w.h.board.update(b => ({ ...b, plan: { ...b.plan!, state: 'blocked', flags: ['lost-epic'] } }))
-    expect((await press(w, `resolve ${p} recut`)).text).toContain('re-cut from dev')
+    expect((await press(w, `resolve ${p} r`)).text).toContain('re-cut from dev')
     expect((await w.h.board.read()).plan).toMatchObject({ state: 'approved', flags: [] })
-    await w.h.board.update(b => ({ ...b, plan: { ...b.plan!, state: 'blocked' } }))
-    expect((await press(w, `resolve ${p} cancel`)).text).toBe(`Epic ${p} cancelled.`)
+    await w.h.board.update(b => ({ ...b, plan: { ...b.plan!, state: 'blocked', flags: ['lost-epic'] } }))
+    expect((await press(w, `resolve ${p} x`)).text).toBe(`Epic ${p} cancelled.`)
     expect((await w.h.board.read()).plan).toBeNull()
   })
   test('M7: restore [name] re-applies the quarantined stash and keeps it; only a press', async () => {

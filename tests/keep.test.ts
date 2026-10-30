@@ -4,7 +4,8 @@ import { world } from './fixtures/replay/world'
 import { ROUTES } from '../core/dispatch'
 import { charge, budgetOf, step } from '../core/lifecycle'
 import { arm } from '../core/drive'
-import { flagDecision, RESTART } from '../core/decide'
+import { flagDecision } from '../core/flags'
+const RESTART = ['attempts', 'no-report', 'stagnant', 'stale', 'loop']
 import { LIFECYCLE } from '../core/plantools'
 import '../core/close'
 
@@ -33,7 +34,7 @@ describe('a blocked worker question', () => {
     expect(RESTART).not.toContain('blocked')
     await ROUTES.resolve!(w.h, { cmd: 'resolve', args: [id, 'keep'] } as any)   // Keep changes nothing: still blocked, still flagged, its card stays
     const kt = (await w.h.board.read()).tasks.find(x => x.id === id)!; expect(kt.state).toBe('blocked'); expect(kt.flags).toContain('blocked')
-    await LIFECYCLE.decision!(w.h, id, { metadata: { decision: '50 per page' } })
+    await LIFECYCLE.decision!(w.h, id, { metadata: { args: '50 per page' } })
     expect((await w.store.get(id)).meta['cadre.decision']).toBe('Decision from the human: 50 per page')   // the human's text, not a bare restart
   })
 })

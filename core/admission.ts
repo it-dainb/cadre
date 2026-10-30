@@ -11,7 +11,8 @@ import { cfgOf, ctlGet, ctlSet, storeOf } from './dispatch'
 import { agentsOf, commit, leaseLive, safe, sessionOf } from './board'
 import { FOCUS, parseNumstat, riskOf, route, type Tier } from './risk'
 import { held, ownerOf, savePointer, stampAlive } from './session'
-import { BLOCKING, apply, epicNext } from './machine'
+import { apply, epicNext } from './machine'
+import { blocks } from './flags'
 import { emit } from './events'
 import { flagName } from './render'
 import { brief, handoffOf, idsIn, type BriefIn } from './briefs'
@@ -180,7 +181,7 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
   const spec = d.reg[t.type], pipe = stepsOf(d), first = pipe(t.type, t.lane)[0]
   if (!s.epic || !s.plan) return deny('no approved plan yet; ask the human to approve it')
   if (first !== 'worker' && first !== 'explorer' && first !== 'tester') return deny(`${t.id}: type ${t.type} starts at "${first}", which is not available; pick another task`)
-  const flag = t.flags.find(f => BLOCKING.test(f)); if (flag) return deny(`${t.id} has flag ${flagName(flag)}; ask the human to resolve it (they answer it in the cadre dialog)`)
+  const flag = t.flags.find(blocks); if (flag) return deny(`${t.id} has flag ${flagName(flag)}; ask the human to resolve it (they answer it in the cadre dialog)`)
   if (t.condition?.state === 'not-met') return deny(`${t.id} never runs: its condition (${t.condition.on} failed) is not met`)
   const ep = epicOf(s, t.epic); if (ep && ep.state !== 'running') return deny(`${t.id}: its epic ${ep.id} is ${ep.state}${ep.why ? ` (${ep.why})` : ''}; go on with the other epics`)   // milestone (ADR 0015)
   if (!(await d.store.ready(t.epic ?? s.epic)).includes(t.id)) return deny(`${t.id} is not ready (waiting on a dependency or gate); spawn a task that status shows ready`)
@@ -224,7 +225,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
   const live = leaseLive(task, now)
   if (live && !mine.length && (await held(h, await ownerOf(h, t.id))) === 'other') return deny(`${t.id} is being worked on from another session; leave it`)   // a claim of a gone session (quit) or of this process (/clear) does not wait for the lease to lapse
   if (live && mine.some(a => bind[a].role === role && !bind[a].retired)) return deny(`${t.id} is running; wait for its result (status)`)   // retired (core/reuse: context or TTL over) = rebind fresh
-  if (t.state === 'blocked' && task.meta['cadre.decision'] === undefined) return deny(`${t.id} is blocked; ask the human for the answer (they type it in the chat), then status {id, decision}`)
+  if (t.state === 'blocked' && task.meta['cadre.decision'] === undefined) return deny(`${t.id} is blocked; ask the human for the answer (they type it in the chat), then status {id, args}`)
   const spike = kindOf(d.reg[t.type]) === 'spike', wt = task.meta['cadre.worktree'] ?? wtPath(d.wtRoot, d.key, t.id), branch = task.meta['cadre.branch'] ?? ''
   if (!spike) {
     const how = await ensureWt(h, d, wt, branch)

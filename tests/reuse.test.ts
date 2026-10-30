@@ -50,13 +50,13 @@ describe('G9 /cadre resolve accept (UI-DESIGN 5.4)', () => {
   test('conflict: accept re-applies the remote value kept in the flag record; the flag clears', async () => {
     const { h, store, a } = await mk(); await store.setMeta(a, { 'cadre.remote.title': 'Remote title', 'cadre.remote.priority': '1' }, 'sync'); await flagged(h, a, ['conflict'])
     expect((await store.get(a)).title).toBe('login'); const r = await accept(h, a)
-    expect(r.text).toContain('flags cleared'); expect(await store.get(a)).toMatchObject({ title: 'Remote title', priority: 1 }); expect((await h.board.read()).tasks.find((t: any) => t.id === a).flags).toEqual([])
+    expect(r.text).toContain('accept done'); expect(await store.get(a)).toMatchObject({ title: 'Remote title', priority: 1 }); expect((await h.board.read()).tasks.find((t: any) => t.id === a).flags).toEqual([])
   })
   test('drift: accept adopts the remote status through the machine; an illegal move is refused and keeps the flag', async () => {
     const { h, store, a } = await mk(); await h.store.set(`cadre:${repoKeyOf('/repo')}:actor`, 'me'); await flagged(h, a, ['drift'])   // the claimer is this actor
     await store.setMeta(a, { 'cadre.remote.status': 'done' }, 'sync'); expect((await accept(h, a)).text).toMatch(/refused: .*illegal/)   // active·worker cannot close
     expect((await h.board.read()).tasks.find((t: any) => t.id === a).flags).toEqual(['drift'])
-    await store.setMeta(a, { 'cadre.remote.status': 'blocked' }, 'sync'); expect((await accept(h, a)).text).toContain('flags cleared')
+    await store.setMeta(a, { 'cadre.remote.status': 'blocked' }, 'sync'); expect((await accept(h, a)).text).toContain('accept done')
     const t = (await h.board.read()).tasks.find((x: any) => x.id === a); expect([t.state, t.flags]).toEqual(['blocked', []]); expect((await store.get(a)).category).toBe('blocked')
     await flagged(h, a, ['drift']); await store.setMeta(a, { 'cadre.remote.status': 'weird' }, 'sync'); expect((await accept(h, a)).text).toMatch(/refused: .*cannot be adopted/)
   })

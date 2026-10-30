@@ -1,0 +1,368 @@
+[
+ {
+  "op": "arm",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "todo",
+    "step": "",
+    "flags": [],
+    "owned": false
+   }
+  ],
+  "decisions": [],
+  "spawned": [],
+  "sent": [],
+  "runs": {},
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.changelog",
+    "cadre.package"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "at",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "active",
+    "step": "tester",
+    "flags": [],
+    "owned": true
+   }
+  ],
+  "decisions": [],
+  "spawned": [],
+  "sent": [],
+  "runs": {
+   "t1": "running"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.package",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "red-gate-has-no-test-check",
+  "res": "refused",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "blocked",
+    "step": "tester",
+    "flags": [
+     "gate-error"
+    ],
+    "owned": true
+   }
+  ],
+  "decisions": [
+   {
+    "id": "flag:m-2:gate-error",
+    "optionKeys": [
+     "r",
+     "x"
+    ]
+   }
+  ],
+  "spawned": [],
+  "sent": [],
+  "runs": {
+   "t1": "waiting:decision"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.blocked",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.package",
+    "cadre.rec.blocked",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {
+   "m-2": {
+    "red": 1
+   }
+  },
+  "commits": []
+ },
+ {
+  "op": "main-turn-end",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "blocked",
+    "step": "tester",
+    "flags": [
+     "gate-error"
+    ],
+    "owned": true
+   }
+  ],
+  "decisions": [
+   {
+    "id": "flag:m-2:gate-error",
+    "optionKeys": [
+     "r",
+     "x"
+    ]
+   }
+  ],
+  "spawned": [],
+  "sent": [],
+  "runs": {
+   "t1": "waiting:decision"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.blocked",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.package",
+    "cadre.rec.blocked",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {
+   "m-2": {
+    "red": 1
+   }
+  },
+  "commits": []
+ },
+ {
+  "op": "Retry",
+  "res": "ok",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "active",
+    "step": "tester",
+    "flags": [],
+    "owned": true
+   }
+  ],
+  "decisions": [],
+  "spawned": [],
+  "sent": [],
+  "runs": {
+   "t1": "ended:retry"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.blocked",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.package",
+    "cadre.rec.blocked",
+    "cadre.step",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "tester-restarts",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "active",
+    "step": "tester",
+    "flags": [],
+    "owned": true
+   }
+  ],
+  "decisions": [],
+  "spawned": [
+   "cadre:tester"
+  ],
+  "sent": [],
+  "runs": {
+   "t1": "ended:retry",
+   "ag1": "running"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.blocked",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.checkpoint",
+    "cadre.package",
+    "cadre.rec.blocked",
+    "cadre.runs",
+    "cadre.step",
+    "cadre.view",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ },
+ {
+  "op": "red-again",
+  "res": "refused",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "blocked",
+    "step": "tester",
+    "flags": [
+     "gate-error"
+    ],
+    "owned": true
+   }
+  ],
+  "decisions": [
+   {
+    "id": "flag:m-2:gate-error",
+    "optionKeys": [
+     "r",
+     "x"
+    ]
+   }
+  ],
+  "spawned": [
+   "cadre:tester"
+  ],
+  "sent": [],
+  "runs": {
+   "t1": "ended:retry",
+   "ag1": "waiting:decision"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.blocked",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.checkpoint",
+    "cadre.package",
+    "cadre.rec.blocked",
+    "cadre.runs",
+    "cadre.step",
+    "cadre.view",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {
+   "m-2": {
+    "red": 1
+   }
+  },
+  "commits": []
+ },
+ {
+  "op": "Retry again",
+  "res": "ok",
+  "tasks": [
+   {
+    "id": "m-2",
+    "state": "active",
+    "step": "tester",
+    "flags": [],
+    "owned": true
+   }
+  ],
+  "decisions": [],
+  "spawned": [
+   "cadre:tester"
+  ],
+  "sent": [],
+  "runs": {
+   "t1": "ended:retry",
+   "ag1": "ended:retry"
+  },
+  "plan": {
+   "state": "approved",
+   "flags": []
+  },
+  "drive": {
+   "stopped": false
+  },
+  "metaKeys": {
+   "m-2": [
+    "cadre.base",
+    "cadre.blocked",
+    "cadre.branch",
+    "cadre.changelog",
+    "cadre.checkpoint",
+    "cadre.package",
+    "cadre.rec.blocked",
+    "cadre.runs",
+    "cadre.step",
+    "cadre.view",
+    "cadre.worktree"
+   ]
+  },
+  "budget": {},
+  "commits": []
+ }
+]

@@ -44,7 +44,7 @@ export async function viaTools(h: Host, tool: string, i: Record<string, any>, ag
   if (tool === 'TaskGet') { const r = await t('status', { id: i.taskId }), x = r.result; if (err(r)) return { result: { task: null } }; return { result: { task: { ...x, subject: x.subject ?? x.title, blockedBy: x.blockedBy ?? x.after } } } }
   const id = String(i.taskId), out = (r: any) => { const e = err(r); return { result: { success: e === null, taskId: id, updatedFields: [], ...(e !== null ? { error: e } : {}) }, ...ctx(r) } }
   if (i.status === 'completed' || i.status === 'pending' || i.status === 'deleted') return out(await t('status', { id, set: i.status, ...(m.reason ? { reason: m.reason } : {}) }))
-  if (m.decision !== undefined) return out(await t('status', { id, decision: m.decision }))
+  if (m.choice !== undefined || m.args !== undefined) return out(await t('status', JSON.parse(JSON.stringify({ id, choice: m.choice, args: m.args, reason: m.reason }))))
   if (m.planned !== undefined) return out(await t('epic', { id, planned: m.planned }))
   if (i.addBlocks?.length) for (const b of i.addBlocks) { const r = await viaTools(h, 'TaskUpdate', { taskId: b, addBlockedBy: [id] }, agentId); if (!r.result.success) return { ...r, result: { ...r.result, taskId: id } } }
   const { amend, ...f } = m, rev = plan ? Number((await (await storeOf(h)).get(plan.id)).meta['cadre.rev'] ?? 0) : 0, edits = { ...(i.subject !== undefined ? { title: i.subject } : {}), ...(i.description !== undefined ? { description: i.description } : {}), ...f, ...(i.addBlockedBy?.length ? { after: i.addBlockedBy } : {}) }

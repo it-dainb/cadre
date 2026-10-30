@@ -25,12 +25,12 @@ async function redStopped(n = 1) {
 }
 // count spawnAgent calls made outside a turn end
 const watch = (w: World) => { const calls: string[] = [], sp = w.h.spawnAgent; w.h.spawnAgent = (a: any) => (calls.push(a.prompt), sp(a)); return calls }
-const retry = async (w: World, id: string) => { const d = (await w.h.board.read()).decisions!.find(x => x.id === `flag:${id}:red`)!; return (await decide(w.h, d.id, 'r', d.hash)).text }
+const retry = async (w: World, id: string) => { const d = (await w.h.board.read()).decisions!.find(x => x.id === `flag:${id}:gate-error`)!; return (await decide(w.h, d.id, 'r', d.hash)).text }
 
 describe('a stop names its cause; its answer lifts it', () => {
   test('yolo red stop: cause {task, red}; Retry clears it, main gets a turn, and its turn end starts the new tester', async () => {
     const w = await redStopped(), [id] = w.ids
-    expect((await w.h.board.read()).drive).toMatchObject({ stopped: `blocked ${id}`, cause: { taskId: id, flag: 'red' } })
+    expect((await w.h.board.read()).drive).toMatchObject({ stopped: `blocked ${id}`, cause: { taskId: id, flag: 'gate-error' } })
     const calls = watch(w); expect(await retry(w, id)).toContain('back to the tester')
     expect(calls).toEqual([])   // the dialog's answer is no frame to start an agent from
     expect((await w.h.board.read()).drive.stopped).toBeUndefined(); expect((await w.h.ui.read()).goal).toBeDefined()   // kick -> queueBrief: main's turn
@@ -39,9 +39,9 @@ describe('a stop names its cause; its answer lifts it', () => {
   })
   test('a stop for task A survives a Retry on task B', async () => {
     const w = await redStopped(2), [a, b] = w.ids
-    expect((await w.h.board.read()).drive.cause).toEqual({ taskId: a, flag: 'red' })
+    expect((await w.h.board.read()).drive.cause).toEqual({ taskId: a, flag: 'gate-error' })
     await retry(w, b)
-    expect((await w.h.board.read()).drive).toMatchObject({ stopped: `blocked ${a}`, cause: { taskId: a, flag: 'red' } })
+    expect((await w.h.board.read()).drive).toMatchObject({ stopped: `blocked ${a}`, cause: { taskId: a, flag: 'gate-error' } })
     await retry(w, a); expect((await w.h.board.read()).drive.stopped).toBeUndefined()
   })
 })
@@ -54,7 +54,7 @@ describe('Retry on a block whose agent already ended', () => {
     await w.stop('ag1'); await w.turn()   // the agent ends; cadre still holds its binding (a blocked task's stop is no nudge); the drive pauses on the blocked task
     expect((await w.h.board.read()).drive.paused).toBe(`blocked ${id}`)
     w.h.sendTo = async () => ({ isDelivered: false, reason: 'gone' })   // the ended agent cannot be woken
-    const d = (await w.h.board.read()).decisions!.find(x => x.id === `flag:${id}:shape`)!; expect((await decide(w.h, d.id, 'r', d.hash)).text).toContain('starts again')
+    const d = (await w.h.board.read()).decisions!.find(x => x.id === `flag:${id}:shape`)!; expect((await decide(w.h, d.id, 'r', d.hash)).text).toContain('goes on')
     expect((await w.h.board.read()).drive.paused).toBeUndefined(); expect((await w.h.ui.read()).goal).toBeDefined(); expect((await w.h.board.read()).resumesQueued).toBe(1)
     await w.turn(); expect(w.spawned.map(x => x[2])).toEqual(['cadre:worker'])
   })
@@ -98,10 +98,10 @@ describe('review fixes: one cause, one stop', () => {
     const w = await redStopped(), [id] = w.ids, w2 = await world({ store: w.store, kv: w.kv, session: 's2' })
     await w2.h.board.update(b => ({ ...b, epic: w.epic, plan: (b as any).plan ?? { id: w.epic, slug: 'service', state: 'approved', epicBranch: 'epic/p1-service', mode: 'yolo' }, drive: { ...b.drive, on: true, epicId: w.epic, mode: 'yolo' } }))
     await stop(w2.h, 'usage limit until 00:15 UTC', { flag: 'limit', resetAt: 1 })   // the record already holds the red stop
-    expect((await w2.h.board.read()).drive).toMatchObject({ stopped: `blocked ${id}`, cause: { taskId: id, flag: 'red' } })
+    expect((await w2.h.board.read()).drive).toMatchObject({ stopped: `blocked ${id}`, cause: { taskId: id, flag: 'gate-error' } })
   })
   test('another session lifted the record already: this session\'s board follows and is no longer stopped', async () => {
-    const w = await redStopped(), [id] = w.ids, w2 = await world({ store: w.store, kv: w.kv, session: 's2' }), cause = { taskId: id, flag: 'red' }
+    const w = await redStopped(), [id] = w.ids, w2 = await world({ store: w.store, kv: w.kv, session: 's2' }), cause = { taskId: id, flag: 'gate-error' }
     await w2.h.board.update(b => ({ ...b, epic: w.epic, plan: (b as any).plan ?? { id: w.epic, slug: 'service', state: 'approved', epicBranch: 'epic/p1-service', mode: 'yolo' }, drive: { ...b.drive, on: true, epicId: w.epic, mode: 'yolo', stopped: `blocked ${id}`, cause } }))
     await retry(w, id); expect((await w.h.board.read()).drive.stopped).toBeUndefined()   // session 1 lifts the record
     await kick(w2.h); expect((await w2.h.board.read()).drive).toMatchObject({ stopped: undefined, cause: undefined })
