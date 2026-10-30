@@ -6,6 +6,8 @@ import { CFG_LOCK_MS, writeRepoConfig } from '../config/route'
 import { repoKeyOf } from '../commands/init'
 import { fakeHost } from './support'
 import type { Host } from '../types'
+import { active, setProfile } from '../core/pipeline'
+import { profile as DEFAULT } from '../profiles/default'
 
 const X = (...rs: [string, GateResult['results'] extends (infer R)[] | undefined ? R['status'] : never][]) => rs.map(([name, status]) => ({ name, status }))
 const R = (exit: number, results?: ReturnType<typeof X>, more: Partial<GateResult> = {}): GateResult => ({ exit, results, timedOut: false, ...more })
@@ -87,6 +89,16 @@ describe('jail selection and the path of $CADRE_JUNIT', () => {
     expect(setup).not.toContain('--unshare-net'); expect(setup).toContain('--bind'); expect(test).toContain('--unshare-net'); expect(test).toContain('--overlay-src')
     expect(setup.slice(setup.indexOf('--') + 1)).toEqual(['make', 'deps'])
   })
+  test('F3: a slot a layer declares (network, failExit, timeoutS) is read from the active profile, not the built-in default', async () => {
+    const before = active()
+    try {
+      setProfile({ ...DEFAULT, checks: { ...DEFAULT.checks, fetch: { network: true, timeoutS: 7 }, test: { ...DEFAULT.checks.test, network: true } } } as any)
+      const w = world(); const base = { task: { id: 't' }, wt: '/wt/t', pkg: { ...pkg, checks: { ...pkg.checks, fetch: ['get'] } }, ...fail }
+      await runGate(w.h, w.d, { ...base, slot: 'fetch', argv: ['get'] }); await runGate(w.h, w.d, { ...base, slot: 'test', argv: pkg.checks.test })
+      const jailed = w.calls.filter(c => c[0] === 'bwrap' && c.includes('--'))
+      expect(jailed).toHaveLength(2); for (const j of jailed) { expect(j).not.toContain('--unshare-net'); expect(j).not.toContain('--overlay-src') }   // the writable, network-on jail
+    } finally { setProfile(before) }
+  })
   test('the network key is read from the profile, never from the unit: a unit that says network:true still gets the offline jail', async () => {
     const w = world(); await runGate(w.h, w.d, { task: { id: 't' }, wt: '/wt/t', pkg: { ...pkg, network: true, checks: { ...pkg.checks, test: ['run'], network: true } }, slot: 'test', argv: ['run'], ...fail })
     expect(w.calls.find(c => c[0] === 'bwrap' && c.includes('--'))).toContain('--unshare-net')
@@ -143,6 +155,13 @@ describe('adoption (D16, B19) and the one repo-config writer', () => {
     const waits = w.h.run; let n = 0; w.h.run = async (a: string[]) => { if (a[0] === 'sleep') { w.h.clock.advance(CFG_LOCK_MS); n++; return { exitCode: 0, stdout: '', stderr: '' } } return waits(a) }
     const r = await writeRepoConfig(w.h, c => ({ ...c, stolen: true })); expect(r.ok).toBe(true); expect(n).toBeGreaterThan(0); expect(JSON.parse(w.files[CFG]).stolen).toBe(true)
     expect((await store.control()).doc.cfgLock ?? null).toBeNull()   // released
+  })
+  test('F7: the lock stolen between its read and the write: the write is refused, the file is untouched and the thief keeps its lock (a one-read window remains)', async () => {
+    const w = mkw(), store = await (w.h as any).taskStore(), before = w.files[CFG], real = store.control.bind(store); let calls = 0
+    store.control = async () => { if (++calls === 2) await store.setControl({ cfgLock: { session: 'thief', until: (await w.h.now()) + CFG_LOCK_MS } }); return real() }   // call 1 = the acquire read, call 2 = the re-check before the write
+    const r = await writeRepoConfig(w.h, c => ({ ...c, lost: true }))
+    expect(r).toEqual({ ok: false, why: '.cadre/config.json is being written by another session; try again' }); expect(w.files[CFG]).toBe(before)
+    expect(((await real()).doc.cfgLock as { session: string }).session).toBe('thief')
   })
   test('a refusal string from the mutation writes nothing and releases the lock; a file that is not JSON is refused', async () => {
     const w = mkw(), before = w.files[CFG]; expect(await writeRepoConfig(w.h, () => 'no')).toEqual({ ok: false, why: 'no' }); expect(w.files[CFG]).toBe(before)

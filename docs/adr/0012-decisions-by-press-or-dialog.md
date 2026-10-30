@@ -30,6 +30,8 @@ Gate commands (`approve reject resolve release restore`, `init|setup <sub>`, `co
 ## Adapters cannot approve
 `deliver` sends events and the **model view** snapshot (never the human view with decisions); commands in its reply are refused with one line.
 
+2.0 note (2026-10-31): adapters still send no commands. The sync module (`modules/sync.mjs`) writes one result file; core validates it against a closed schema and applies it in-process (`applySync`, actor `cadre/<adapter>+sync`). No dispatcher command carries it, and a `commands` array from an adapter is still refused with one line.
+
 ## Accepted risk: auto-answering `$.ui.ask`, everywhere
 BT-17/UI-30: another mod or hook can answer a `$.ui.ask` dialog, so an answer is weaker evidence than a Button press was. Accepted on every surface, because:
 - the user chose one familiar place to answer over two (card + dialog), and the card's Buttons were the part people missed or found noisy;

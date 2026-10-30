@@ -93,13 +93,17 @@ export async function writeRepoConfig(h: any, mut: (cur: any) => any): Promise<{
   const store = await storeOf(h).catch(() => undefined), me = await sessionOf(h), path = `${await h.cwd()}/.cadre/config.json`
   if (!store) return writeJson(h, path, mut)   // a host with no task store (a bare test host) has one session: nothing to serialize against
   let mine: { session: string; until: number } | undefined
-  for (let i = 0; i < 50 && !mine; i++) {
+  for (let i = 0; i < 100 && !mine; i++) {   // 100 x 0.2 s: longer than the 10 s lease, so a crashed holder's lock lapses inside one wait
     const cur = (await store.control()).doc.cfgLock as { session: string; until: number } | undefined, now = await h.now()
     if (cur && cur.until > now) { await h.run(['sleep', '0.2']); continue }   // held (by any writer, this session's other callers too): wait; a lapsed lock is ours to take
     try { await store.setControl({ cfgLock: { session: me, until: now + CFG_LOCK_MS } }, { cfgLock: cur }); mine = { session: me, until: now + CFG_LOCK_MS } } catch (e) { if (!(e instanceof StoreError && e.code === 'GuardMismatch')) throw e }
   }
   if (!mine) return { ok: false, why: '.cadre/config.json is being written by another session; try again' }
-  try { return await writeJson(h, path, mut) } finally { await store.setControl({ cfgLock: null }, { cfgLock: mine }).catch(() => undefined) }
+  try {
+    const held = (await store.control()).doc.cfgLock as { session: string; until: number } | undefined   // the lease may have lapsed and been stolen while we waited or worked: write only while it is still ours
+    if (held?.session !== mine.session || held.until !== mine.until) return { ok: false, why: '.cadre/config.json is being written by another session; try again' }
+    return await writeJson(h, path, mut)
+  } finally { await store.setControl({ cfgLock: null }, { cfgLock: mine }).catch(() => undefined) }
 }
 
 // a unit's scalar field (ui/settings): the unit is re-parsed, the model gate re-run, then .cadre/config.json is written once with its .bak

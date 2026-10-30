@@ -13,7 +13,7 @@ import { active } from './pipeline'
 import { retouch } from './lanes'
 import { epicOf, planEpic, stopEpic } from './milestone'
 import { itemSig } from './render'
-import { holdsGap, itemsOf, notesOf, pathsOf, sliceNotes, validateFields } from './validate'
+import { holdsGap, itemsOf, notesOf, pathsOf, sliceNotes, taskFields, validateFields } from './validate'
 import { fieldsOf } from './plantools'
 import { limited } from './drive'
 
@@ -29,7 +29,7 @@ export async function plannerBrief(h: Host, d: Deps, s: Snapshot, ep: MEpic): Pr
   return [planBlock({ mission: s.mission ?? undefined, protectedPaths: protectedOf(), core: ms?.meta['cadre.coreContract'] || undefined, shared: n.shared }), `# Roadmap of milestone ${s.plan?.id}`, ...road,
     `# PLAN-${ep.id} ${ep.title}`, `Goal: ${me.description.trim()}`, `Size: about ${ep.size ?? 'a few'} tasks${mine.length ? ` · files ${mine.join(', ')}` : ''}${ep.core ? ' · the core epic: the epics after it share its code, so keep it thin' : ''}`,
     landed.length ? `## Already landed (build on it)\n${landed.join('\n')}` : '', locked.length ? `## Locked files (shared code that landed; never plan a change to them)\n${locked.map(p => `- ${p}`).join('\n')}` : '',
-    n.slice ? `## Notes for these files\n${n.slice}` : '', `## Task types\n${Object.entries(active().types).map(([t, x]) => `${t} ${x.pipeline.join('>')}`).join('; ')}`,
+    n.slice ? `## Notes for these files\n${n.slice}` : '', `## Task types\n${Object.entries(active().types).map(([t, x]) => `${t} ${x.pipeline.join('>')}`).join('; ')}`, `## Task fields\n${taskFields()}`,
   ].filter(Boolean).join('\n').slice(0, 8000)
 }
 

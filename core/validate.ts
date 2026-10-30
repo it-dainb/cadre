@@ -13,6 +13,9 @@ export const ARGS = ['kind', 'amend', 'type', 'acceptance', 'contract', 'lane', 
 // the task fields the profile declares, and the three the engine reads whatever the profile says (the unit a task builds in, the commit message)
 const CORE: Field[] = [{ name: 'package', store: 'meta', required: false }, { name: 'scope', store: 'meta', required: false }, { name: 'breaking', store: 'meta', required: false, kind: 'bool' }]
 const declared = (): Field[] => [...CORE.filter(c => !active().fields.some(f => f.name === c.name)), ...active().fields]
+// how a profile's task fields are written in a plan call (each field's own `want` text): the plan rules, the planner's brief and the lite lane's line read these, so a profile is never told to send a field it refuses
+export const taskFields = (): string => ['type', 'package', 'acceptance [{"id","text"}]', ...declared().filter(f => !['package', 'lane', 'risk'].includes(f.name)).map(f => `${f.name}${f.required === true ? '' : '?'}${f.want ? ` ${f.want}` : typeof f.kind === 'object' ? ` ${f.kind.enum.join('|')}` : ''}`), 'contract {"items":[{"name","status":"new|changed|unchanged"}]} or {"none":true,"reason":"…"}'].join(', ')
+export const liteFields = (): string => { const r = declared().filter(f => f.required === true).map(f => (f.want ? `${f.name} (${f.want})` : f.name)); return r.length ? ` and ${r.join(', ')}` : '' }
 export const FIELDS = (): string[] => [...new Set([...ARGS, ...declared().map(f => f.name)])]
 export const CATEGORIES = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security']
 const str = (v: unknown): v is string => typeof v === 'string' && v.trim() !== ''
@@ -50,7 +53,7 @@ export function validateFields(m: Record<string, unknown>): string | null {
   if (sc !== undefined) {
     const eg = '[{"id":"A1","text":"…"}]'
     if (!Array.isArray(sc) || !sc.length) return bad('metadata.acceptance', `a non-empty array ${eg}`, sc)
-    for (const [i, a] of sc.entries()) if (!str(a?.id) || a.id.length > 16 || /* ids carry no ':' or line break */ [':', '\n', ' '].some(c => a.id.includes(c)) || !str(a.text) || a.text.includes('\n') || sc.findIndex((x: any) => x?.id === a.id) !== i) return bad(`metadata.acceptance[${i}]`, `{"id":"A1","text":"one line"}, ids unique, with no space or ":"`, a)
+    for (const [i, a] of sc.entries()) if (!str(a?.id) || a.id.length > 16 || /* ids carry no ':' or line break */ [':', '\n', '\r', ' '].some(c => a.id.includes(c)) || !str(a.text) || a.text.includes('\n') || a.text.includes('\r') || sc.findIndex((x: any) => x?.id === a.id) !== i) return bad(`metadata.acceptance[${i}]`, `{"id":"A1","text":"one line"}, ids unique, with no space or ":"`, a)
   }
   const c = f('changelog') as any
   if (c !== undefined) {
@@ -110,8 +113,8 @@ export function sliceNotes(notes: Note[], paths: string[], slice: boolean): { sh
   return { shared: txt(notes.filter(n => !pathed(n))), slice: txt(notes.filter(n => pathed(n) && (!paths.length || n.paths!.some(p => paths.some(q => overlap(p, q)))))) }
 }
 // the one-line scenario a worker's spec_change proposes: checked when it reports, and again before cadre writes it into the spec
-// [id, text] of one line "<id>: <text>" (an acceptance item), else null: the id is non-empty and has no space, the text is not empty
-export const specScenario = (s: string): [string, string] | null => { const i = s.indexOf(':'), id = s.slice(0, i).trim(), t = s.slice(i + 1).trim(); return i > 0 && !s.includes('\n') && id && !id.includes(' ') && t ? [id, t] : null }
+// [id, text] of one line "<id>: <text>" (an acceptance item), else null: the same id rules as the planner's items (1-16 characters, no space, ':' or line break), the text is not empty. One line cannot repeat an id: applying it replaces the line with that id or appends a new one, so ids stay unique
+export const specScenario = (s: string): [string, string] | null => { const i = s.indexOf(':'), id = s.slice(0, i).trim(), t = s.slice(i + 1).trim(); return i > 0 && !s.includes('\n') && !s.includes('\r') && id && id.length <= 16 && !id.includes(' ') && t ? [id, t] : null }
 // the id of one stored acceptance line "<id>: <text>" (ids carry no ':')
 export const idOf = (l: string): string => l.slice(0, l.includes(':') ? l.indexOf(':') : undefined).trim()
 // the contract's items (`{items:[{name, ...}]}`; `{none}` and a missing one have none)
@@ -156,10 +159,9 @@ export async function capped(h: Host, key: string): Promise<boolean> { return ((
 // Report envelope (DESIGN 6.2): entry point for wave 3 (`tools/index`); semantic checks (6.3: files exist at sourceCommit...) are theirs to add.
 // Returns an example-bearing error or null.
 // the tester's test command (ADR 0023): an argv run without a shell, inside the offline sandbox like any check (task data run through the test slot, never host code)
-export function runShape(run: any): string | null {
-  const eg = 'e.g. {"command":["node","--test","--test-reporter=junit","--test-reporter-destination=$CADRE_JUNIT","test/login.test.js"]}'
-  if (!run || typeof run !== 'object' || !Array.isArray(run.command) || !run.command.length || run.command.length > 64 || !run.command.every((a: unknown) => typeof a === 'string' && a && a.length < 1000)) return `run.command: expected the argument list that runs only your tests, no shell, ${eg}`
-  if (Object.keys(run).some(k => k !== 'command' && k !== 'cwd')) return `run: only command and cwd (${eg}); the check that runs it is not yours to pick`   // argv only, never a check slot
+export function runShape(run: any, eg = ''): string | null {
+  if (!run || typeof run !== 'object' || !Array.isArray(run.command) || !run.command.length || run.command.length > 64 || !run.command.every((a: unknown) => typeof a === 'string' && a && a.length < 1000)) return `run.command: expected the argument list that runs only your tests, no shell${eg ? `, ${eg}` : ''}`
+  if (Object.keys(run).some(k => k !== 'command' && k !== 'cwd')) return `run: only command and cwd${eg ? ` (${eg})` : ''}; the check that runs it is not yours to pick`   // argv only, never a check slot
   if (run.cwd !== undefined && (typeof run.cwd !== 'string' || run.cwd.startsWith('/') || run.cwd.split('/').includes('..'))) return 'run.cwd: expected a folder relative to your test folder, e.g. "web"'
   return null
 }
@@ -192,7 +194,7 @@ export function validateReport(role: string, r: any): Coded | null {
   if (e) return shape(e.replace('call again', 'report again'))
   if (!s) return role === 'planner' && r.tasks === undefined ? sem('tasks: required; add it and report again') : null
   for (const k of [...s.report.required, ...(s.report.requiredWith?.[r[outKey(s)] as Outcome] ?? [])]) if (r[k] === undefined || (s.report.ask?.[k] && !str(r[k]))) return sem(`${k}: ${(s.report.ask?.[k] ?? 'required; add it and report again').replace('{outcome}', r[outKey(s)])}`)
-  for (const [k, v] of Object.entries(s.report.fields)) if (v === 'command' && r[k] !== undefined) { const x = runShape(r[k]); if (x) return shape(x) }
+  for (const [k, v] of Object.entries(s.report.fields)) if (v === 'command' && r[k] !== undefined) { const x = runShape(r[k], s.report.eg?.[k]); if (x) return shape(x) }
   return null
 }
 // the envelope (role, schemaVersion), then the role's own contract

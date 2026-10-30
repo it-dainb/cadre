@@ -19,7 +19,7 @@ import { scoped } from '../commands/init'
 import { retouch, roadmapRules } from './lanes'
 import { MS, epicOf, isMs, planEpic } from './milestone'
 import { epicBranch, slug } from './branches'
-import { capped, clearRetries, holdsGap, holdsOf, idOf, missingLine, questionsOf, refuse, validateFields } from './validate'
+import { capped, clearRetries, holdsGap, holdsOf, idOf, missingLine, questionsOf, refuse, taskFields, validateFields } from './validate'
 import { nextAction, subject, taskText } from './render'
 import { clarifyTool } from './clarify'
 import { idsIn } from './briefs'
@@ -30,14 +30,13 @@ export const planRules = (): string => {
   return [
     'Plan rules (v1)',
     '- A plan starts with plan {title, description, lane:"full", reason}; then one task call per task. Order tasks with after: ["<id>"].',
-    '- Task fields: type, scope?, breaking?, package, acceptance [{"id","text"}], changelog {"category":"Added","entry":"…"} or {"none":true,"reason":"…"}, contract {"items":[{"name","status":"new|changed|unchanged"}]} or {"none":true,"reason":"…"}.',
+    `- Task fields: ${taskFields()}.`,
     `- Types and pipelines: ${T.map(([t, s]) => `${t} ${s.pipeline.join('>')}`).join('; ')}.`,
     `- Acceptance: ${fmt.map(f => `${T.filter(([, s]) => s.acceptance.format === f).map(([t]) => t).join(', ')}: ${f}`).join('; ')}.`,
     '- Each task is a vertical slice: shown working on its own, fits one fresh context, with its wiring and one smoke assertion.',
     '- With 2+ tasks: paths per task. Code 2+ tasks need: ONE thin core task first (core:true; contract, minimal code, tests) the others wait for (after). Two tasks on one path need an after dependency.',
     '- Exploration 2+ tasks need: one explore before the plan; its findings go in the plan\'s notes as [{"paths":[…],"text":"…"}] (no paths: all tasks).',
     '- A package is not a task of its own: the task that uses it installs it.',
-    '- holds ["A2"]: acceptance ids already true; their tests pass at red.',
     '- A draft may be incomplete: "missing:" says what approval needs.',
     '- Only the human approves. An approved task changes only through amend, with reason and evidence.',
   ].join('\n')

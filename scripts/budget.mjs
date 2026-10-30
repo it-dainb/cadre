@@ -21,7 +21,7 @@ if (trImports.length) { console.error(`ui/tr imported outside ui/**:\n${trImport
 if (process.argv.includes('--tr-imports')) process.exit()
 const out = join(root, 'tests/fixtures/budget.generated.ts')
 // docs: the kit has no fs, so the user docs are frozen here for tests/docs.test.ts and tests/doctor-coverage.test.ts; a relative link that does not resolve is listed
-const DOCS = { readme: 'README.md', troubleshooting: 'docs/troubleshooting.md', guide: 'docs/guide.md', compat: 'docs/compat.md', commands: 'docs/commands.md' }
+const DOCS = { readme: 'README.md', troubleshooting: 'docs/troubleshooting.md', guide: 'docs/guide.md', compat: 'docs/compat.md', commands: 'docs/commands.md', profile: 'docs/profile.md', limitations: 'docs/limitations.md' }
 const docs = Object.fromEntries(Object.entries(DOCS).map(([k, f]) => [k, existsSync(join(root, f)) ? readFileSync(join(root, f), 'utf8') : '']))
 const docLinksBroken = ['README.md', 'docs/guide.md'].flatMap(f => existsSync(join(root, f)) ? [...readFileSync(join(root, f), 'utf8').matchAll(/\]\(([^)\s]+)\)/g)].map(m => m[1]).filter(l => !/^(https?:|mailto:|#)/.test(l)).filter(l => !existsSync(join(root, f, '..', l.split('#')[0]))).map(l => `${f}: ${l}`) : [f + ': missing'])
 const CORE = ['hooks', 'core', 'policy', 'commands', 'task-management', 'agents', 'config', 'tools']
@@ -43,7 +43,7 @@ const uiLiterals = walk(join(root, 'ui')).filter(f => !f.endsWith('/tokens.ts') 
   .filter(([, l]) => /[^\x00-\x7f]|'(text|inactive|subtle|suggestion|success|error|warning|claude|permission|merged)'|#[0-9a-f]{6}\b|0x[0-9a-f]{6,8}\b/i.test(l)).map(([w, l]) => `${w}: ${l.trim().slice(0, 80)}`))
 const memoryStore = sum(Object.fromEntries(walk(join(root, 'task-management/adapters/memory')).map(f => [f, loc(f)])))
 const agents = Object.fromEntries(readdirSync(join(root, 'agents')).filter(n => n.endsWith('.md')).sort().map(n => [n.slice(0, -3), readFileSync(join(root, 'agents', n), 'utf8')]))   // plugin agent files, pinned to agents/index.file()
-const promptBytes = Object.fromEntries(Object.entries(agents).map(([r, t]) => [r, Buffer.byteLength(t.split('\n---\n').slice(1).join('\n---\n'))]))   // A2/A4: the built-in role prompts' size (tests/budget.test.ts caps each at 1664 B)
+const promptBytes = Object.fromEntries(Object.entries(agents).map(([r, t]) => [r, Buffer.byteLength(t.split('\n---\n').slice(1).join('\n---\n'))]))   // A2/A4: the built-in role prompts' size (tests/budget.test.ts caps each at 1536 B)
 const bytes = o => Object.values(o).reduce((a, s) => a + Buffer.byteLength(s), 0)
 const guides = Object.fromEntries(readdirSync(join(root, 'guides')).filter(n => n.endsWith('.md')).sort().map(n => [n.slice(0, -3), readFileSync(join(root, 'guides', n), 'utf8')]))   // agent-run setup/init guides (ADR 0010): the wording lint reads them here
 // Model-visible exits (AGENTS.md): every line that hands text to a model must route it through core/say modelText()/modelData(). New sites are caught here.
@@ -95,4 +95,4 @@ for (const [n, l] of [['regex in a NO_REGEX file', regexHits], ['stdout/stderr r
 if (coreImportsModules.length) { console.error(`core imports modules/:\n${coreImportsModules.join('\n')}`); process.exitCode = 1 }
 if (vendor.sha !== vendor.pinned) { console.error('vendored xmldom sha differs from VENDOR.json'); process.exitCode = 1 }
 if (modelExits.length) console.error(`model-visible exits outside modelText():\n${modelExits.join('\n')}`); if (modelExits.length) process.exitCode = 1
-console.log(`core ${sum(modules)} / 7400 (core cap 7400) · ui ${sum(ui)} / 1300 · profiles ${sum(profiles)} / 350 · modules ${sum(extModules)} / 640 · memory store ${memoryStore} / 150 · skills ${skills} · gating hooks without .catch ${gatingMissing} · model exits outside modelText ${modelExits.length} · role prompt bytes ${Object.entries(promptBytes).map(([r, n]) => `${r} ${n}`).join(', ')} (cap 1664) · shipped agents+guides ${bytes(agents) + bytes(guides)} B (cap 17693)`)
+console.log(`core ${sum(modules)} / 7250 (core cap 7250) · ui ${sum(ui)} / 1300 · profiles ${sum(profiles)} / 350 · modules ${sum(extModules)} / 640 · memory store ${memoryStore} / 150 · skills ${skills} · gating hooks without .catch ${gatingMissing} · model exits outside modelText ${modelExits.length} · role prompt bytes ${Object.entries(promptBytes).map(([r, n]) => `${r} ${n}`).join(', ')} (cap 1536) · shipped agents+guides ${bytes(agents) + bytes(guides)} B (cap 16076)`)

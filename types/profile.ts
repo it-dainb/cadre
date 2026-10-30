@@ -75,6 +75,7 @@ export type RoleSpec = {
     fields: Record<string, FieldKind>
     required: string[]                            // always required, besides the outcome (the field `outcome`, or `verdict` when the role has one; none when `outcomes` is empty)
     requiredWith?: Partial<Record<Outcome, string[]>>   // S0 gap G2: required only with that outcome (today WHY: reason with blocked/spec_change, scenario with spec_change); a text field must not be blank
+    eg?: Record<string, string>                   // a worked value of a field, shown where core asks for it (the tester's `run` section and its refusal); core names no runner itself
     ask?: Record<string, string>                  // the refusal line after `<field>: ` for a missing or blank field (`{outcome}` = the report's outcome); default `required; add it and report again`
   }
   verdict?: { pass: string; fail: string; findings?: 'files' | 'text' | 'none' }

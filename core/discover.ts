@@ -21,13 +21,13 @@ const UNIT_KEYS = ['root', 'checks', 'verify', 'knownRed', 'tdd', 'fetches', 'ki
 const isArgv = (v: unknown): v is string[] => Array.isArray(v) && v.length > 0 && v.every(x => typeof x === 'string' && x !== '')
 // the `units` list of .cadre/config.json (written by Claude during init): shape check, with an example in every refusal
 export function parse(ps: any, key = 'units'): Pkg[] | string {
-  if (!Array.isArray(ps) || !ps.length) return `${key}: expected [{root, checks, tdd}], e.g. {"root":".","checks":{"setup":["npm","ci"],"test":["npm","test"]},"tdd":{"paths":["test/**"]}}`
+  if (!Array.isArray(ps) || !ps.length) return `${key}: expected [{root, checks, tdd}], e.g. {"root":".","checks":{"setup":["<install command>","<args>"],"test":["<test command>","<args>"]},"tdd":{"paths":["test/**"]}}`
   for (const [i, p] of ps.entries()) {
     const at = `${key}[${i}]`
     if (typeof p?.root !== 'string' || p.root.startsWith('/') || p.root.split('/').includes('..')) return `${at}.root: expected a repo-relative path like "." or "packages/api"`
-    if (p.setup !== undefined) return `${at}.setup: moved into checks: "checks":{"setup":["npm","ci"],"test":["npm","test"]}`
+    if (p.setup !== undefined) return `${at}.setup: moved into checks: "checks":{"setup":["<install command>","<args>"],"test":["<test command>","<args>"]}`
     if (p.ownGit || p.kind === 'submodule') return `${at}: a unit that is its own repository (a git submodule) is not supported; leave it out of units`
-    const cs = Object.entries(p.checks ?? {}); if (!cs.length || cs.some(([, a]) => !isArgv(a))) return `${at}.checks: expected {"test":["npm","test"]}`
+    const cs = Object.entries(p.checks ?? {}); if (!cs.length || cs.some(([, a]) => !isArgv(a))) return `${at}.checks: expected {"test":["<test command>","<args>"]}`
     const k1 = Object.keys(p).find(k => !UNIT_KEYS.includes(k)), k2 = Object.keys(p.tdd ?? {}).find(k => !TDD_KEYS.includes(k)), bad = k1 ?? (k2 && `tdd.${k2}`)
     if (bad) return `${at}.${bad}: unknown key (allowed: ${UNIT_KEYS.join(', ')}; tdd: ${TDD_KEYS.join(', ')})`   // closed: core allocates $CADRE_JUNIT per run, so a unit names no report path
     if (p.fetches && p.fetches.some((f: string) => !(f in p.checks))) return `${at}.fetches: must name checks`
@@ -52,7 +52,7 @@ export async function exec(h: Host, root: string, home: string, pkg: Pkg, o: { a
   const scratch = `${home}/.cache/cadre/init-${h.rand(4)}`   // never under /tmp: the jail binds scratch AT /tmp and would mask wt
   const wt = `${scratch}/wt`, pkgRoot = pkg.root === '.' ? wt : `${wt}/${pkg.root}`, sh0 = `${scratch}/home`
   const out: Run = { setupOk: false, caches: [], results: {} }
-  const mode = await G.jailMode(h.run), writable = (o.caches ?? []).map(c => `${home}/${c}`), J = (argv: string[]) => ({ wt, scratch, pkgRoot, argv, writable })
+  const mode = await G.jailMode(h.run), hostEnv = await G.jailEnv(h.run), writable = (o.caches ?? []).map(c => `${home}/${c}`), J = (argv: string[]) => ({ wt, scratch, pkgRoot, argv, writable, env: hostEnv })
   const prep = active().landing.prepare ?? '', su = pkg.checks[prep] ?? []
   const setup = (): Promise<{ exitCode: number }> => {
     if (!su.length) return Promise.resolve({ exitCode: 0 })   // no setup step

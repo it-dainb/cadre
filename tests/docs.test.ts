@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { MIN_CC } from '../commands/doctor'
+import { profile as DEFAULT } from '../profiles/default'
 import { BUDGET } from './fixtures/budget.generated'   // the kit has no fs: scripts/budget.mjs freezes the LICENSE text there
 
 test('LICENSE exists, contains it-dainb and the MIT grant', () => {
@@ -10,7 +11,7 @@ test('docs/commands.md lists /cadre timeline', () => { expect(BUDGET.timelineDoc
 
 const README = BUDGET.docs.readme, say = (re: RegExp) => expect(re.test(README)).toBe(true)
 test('README states the limits a user must know', () => {
-  expect(README).toContain('Repo text reaches agents unfiltered, and `setup` installs what the manifest names.'); expect(README).toContain('Hardening this is deferred;')   // repo text and setup installs
+  expect(README).toContain("Opening a repo with cadre runs that repo's profile hooks and modules"); expect(README).toContain('only open repos you trust'); expect(README).toContain('accepted risk with no mitigation')   // 2.0 (D18, B23): the repo layer
   say(/Linux only/); say(/macOS or Windows/)
   say(/Keep the terminal open/); say(/`\/cadre continue`[^.]*respawns/)
   say(/No compatibility freeze/); say(/may break it/)
@@ -35,4 +36,19 @@ test('S2 (D15, D16): guides/init.md has no `runner` field, tells the agent to wr
   const g = BUDGET.guides.init as string
   expect(g).not.toContain('runner'); expect(g).toContain('$CADRE_JUNIT'); expect(g).toContain('without `checks.test`'); expect(g).toContain('docs or analysis profile')
   expect(new TextEncoder().encode(g).length).toBeLessThanOrEqual(4106)
+})
+
+// S8: docs/profile.md prints the default profile as JSON, one section per line; the page is the copyable form, so a change to profiles/default.ts must change it
+const asJson = (p: object) => `{\n${Object.entries(p).map(([k, v]) => `  ${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(',\n')}\n}`
+test('docs/profile.md contains the profiles/default.ts JSON and states what onFail.retry means under each `then`', () => {
+  const doc = BUDGET.docs.profile as string
+  expect(doc).toContain(asJson(DEFAULT))
+  expect(JSON.parse(asJson(DEFAULT))).toEqual(JSON.parse(JSON.stringify(DEFAULT)))
+  expect(doc).toContain('`then: {"back": "<step>"}`'); expect(doc).toContain('sent back `retry` times'); expect(doc).toContain('`then: "human"`'); expect(doc).toContain('the `retry`-th failing round raises the flag')
+  expect(doc).toContain('never put them inside `sh -c`')
+  for (let n = 1; n <= 23; n++) expect(doc).toContain(`| B${n} |`)
+})
+test('docs/limitations.md states the repo-layer risk, the engine-text exception and the unjailed-argv entry', () => {
+  const l = BUDGET.docs.limitations as string
+  for (const s of ['accepted owner risk', '/proc/<pid>/environ', 'adapters.<name>.url', 'run[0]', '.cadre/profile.json', '.cadre/config.json', 'Without bwrap', 'engine-text-exception', 'drive.limited', 'queue.modelRefusal', 'exit-only', 'B23', '`landing.provider` is an unconfined path', 'empty `$HOME`', 'remaining exposure']) expect(l).toContain(s)
 })

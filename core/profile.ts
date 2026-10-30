@@ -46,7 +46,7 @@ const HOOK: Sh = (v, at) => (obj(v) && 'role' in v ? walk(v, { role: 's' }, at) 
 const HOOKS: Sh = (v, at) => (!obj(v) ? `${at}: expected an object` : Object.keys(v).find(k => !EVENTS.includes(k)) ? `${at}.${Object.keys(v).find(k => !EVENTS.includes(k))}: unknown event (${EVENTS.join(', ')})` : walk(v, Object.fromEntries(EVENTS.map(e => [`${e}?`, [HOOK]])), at))
 const CELL: Sh = { model: 's', 'effort?': 's' }
 const ROLE: Sh = { description: 's', 'prompt': 's', tools: ['s'], 'disallowedTools?': ['s'], network: '=on|off', write: ['s'], 'mcpAllow?': 'b', 'model?': 's', 'effort?': 's', 'maxTurns?': 'i', ttl: '=5m|1h', onSilent: '=nudge|block|retry', 'nudge?': 's',
-  report: { outcomes: ['=done|blocked|spec_change|pass|fail'], fields: { '*': 'a' }, required: ['s'], 'requiredWith?': { '*': ['s'] }, 'ask?': { '*': 's' } }, 'verdict?': { pass: 's', fail: 's', 'findings?': '=files|text|none' }, 'rubric?': 's', 'routing?': { '*': CELL } }
+  report: { outcomes: ['=done|blocked|spec_change|pass|fail'], fields: { '*': 'a' }, required: ['s'], 'requiredWith?': { '*': ['s'] }, 'ask?': { '*': 's' }, 'eg?': { '*': 's' } }, 'verdict?': { pass: 's', fail: 's', 'findings?': '=files|text|none' }, 'rubric?': 's', 'routing?': { '*': CELL } }
 const OPTION: Sh = { key: 's', label: 's', effect: [{ do: '=' + DO.join('|'), 'to?': 's', 'counter?': 's', 'more?': 'a', 'kinds?': ['s'], 'kind?': 's', 'note?': 's', 'how?': '=accept|reject|keep|restore' }], 'needs?': '=ids|keys' }
 const FIELD: Sh = { name: 's', store: '=meta|brief', required: (v, at) => (typeof v === 'boolean' || (Array.isArray(v) && v.every(x => typeof x === 'string')) ? null : `${at}: expected true, false or a list of type names`), 'want?': 's', 'kind?': 'a' }
 const CONTRACT: Sh = (v, at) => (v === 'required' || v === 'none' ? null : walk(v, { schema: '=text|json' }, at))
@@ -70,7 +70,8 @@ const EX: Record<string, string> = {
 }
 const alnum = (c: string) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 const envName = (s: string) => !!s && !(s[0] >= '0' && s[0] <= '9') && [...s].every(c => alnum(c) || c === '_')
-const plainPath = (s: string) => !!s && !s.startsWith('/') && !s.split('/').includes('..') && ![...s].some(c => ' *?[]#!\\\t'.includes(c))
+// an allowlist like nameOk: segments of letters, digits, . _ - joined by /, none empty, none . or .., not absolute (a landing.union path becomes a line of .git/info/attributes)
+const plainPath = (s: string) => !!s && s.split('/').every(g => g !== '' && g !== '.' && g !== '..' && [...g].every(c => alnum(c) || '._-'.includes(c)))
 const unknownNames = (s: string): string | null => { for (const [i, x] of s.split('${').entries()) { if (!i) continue; const e = x.indexOf('}'); if (e < 0 || !NAMES.includes(x.slice(0, e))) return x.slice(0, e < 0 ? 12 : e) } return null }
 const strings = (v: unknown): string[] => (typeof v === 'string' ? [v] : Array.isArray(v) ? v.flatMap(strings) : obj(v) ? Object.values(v).flatMap(strings) : [])
 
@@ -87,6 +88,7 @@ export function cross(p: Profile, own?: ProfileLayer): string | null {
     const at = `types.${t}`, bad = list.find(s => !Object.hasOwn(S, s)); if (!list.length) return `${at}: the pipeline is empty`; if (bad) return `${at}: no step "${bad}"`
     const dup = list.find((s, i) => list.indexOf(s) !== i); if (dup) return `${at}: step "${dup}" appears twice`
     for (const [i, s] of list.entries()) { const st = S[s]; if ('gate' in st && !(list.indexOf(st.on) >= 0 && list.indexOf(st.on) < i)) return `${at}: gate "${s}" must come after its step "${st.on}"` }
+    for (const [i, s] of list.entries()) { const st = S[s], nx = S[list[i + 1]]; if ('role' in st && st.workspace === 'none' && !p.roles[st.role]?.verdict && nx && 'gate' in nx && nx.gate !== 'report') return `${at}: gate "${list[i + 1]}" follows the read-only step "${s}", which leaves no tree to check; only a role step or the report gate may follow it` }   // explorerDone closes at the report gate; no engine path runs a check there
     const land = list.findIndex(s => { const st = S[s]; return 'gate' in st && st.gate === 'integrate' }), last = list.findLastIndex(s => { const st = S[s]; return 'role' in st && !!p.roles[st.role]?.verdict })
     if (land >= 0 && (land !== list.length - 1 || land < last)) return `${at}: the integrate gate must be last and after every review step`
   }
@@ -101,7 +103,7 @@ export function cross(p: Profile, own?: ProfileLayer): string | null {
   for (const k of [p.landing.prepare, ...(p.landing.suites ?? [])]) if (k !== undefined && !(k in p.checks)) return `landing: no check "${k}" in checks`
   const names = [...(p.landing.envPass ?? []), ...Object.values(p.hooks).flat().flatMap(x => ('envPass' in x ? x.envPass ?? [] : []))]
   for (const n of names) if (!envName(n)) return `envPass: "${n}" is not an environment variable name (letters, digits and _, not starting with a digit)`
-  for (const u of p.landing.union ?? []) if (!plainPath(u)) return `landing.union: "${u}" is not a plain repo-relative path (no spaces, no * ? [ ] # !, no .. , not absolute)`
+  for (const u of p.landing.union ?? []) if (!plainPath(u)) return `landing.union: "${u}" is not a plain repo-relative path (letters, digits, . _ - and / only; no empty, . or .. segment; not absolute)`
   for (const f of p.fields) if (Array.isArray(f.required) && f.required.find(t => !(t in T))) return `fields.${f.name}.required: no type "${f.required.find(t => !(t in T))}"`
   for (const [n, r] of Object.entries(p.roles)) { const why = n in DEFAULT.roles ? (own?.roles && n in own.roles ? 'a built-in role cannot be redefined; give yours another name' : null) : customIssue(n, r); if (why) return `roles.${n}: ${why}` }
   for (const k of ['sandbox', 'hooks', 'landing'] as const) { const u = strings(p[k]).map(unknownNames).find(x => x !== null); if (u !== undefined) return `${k}: no \${${u}} (${NAMES.join(', ')})` }
@@ -134,7 +136,8 @@ async function modules(h: Host, l: ProfileLayer, dir: string): Promise<string | 
   }
   return null
 }
-const expand = (l: ProfileLayer, dir: string): ProfileLayer => JSON.parse(JSON.stringify(l).split('${MODULES}').join(dir))   // ${MODULES} per origin layer, once the module paths are checked
+const sub = (v: unknown, dir: string): unknown => (typeof v === 'string' ? v.split('${MODULES}').join(dir) : Array.isArray(v) ? v.map(x => sub(x, dir)) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, sub(x, dir)])) : v)
+const expand = (l: ProfileLayer, dir: string): ProfileLayer => sub(l, dir) as ProfileLayer   // ${MODULES} per origin layer, per string (a path with a quote or backslash stays one string), once the module paths are checked
 
 export type Loaded = { profile: Profile; name: string; user?: string; repo?: string; bad?: string; owner: Record<string, string> }   // user/repo: the layer's file ('inline', '.cadre/profile.json') or absent; bad: why the repo layer is refused
 let LOADED: Loaded | undefined

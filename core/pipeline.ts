@@ -31,8 +31,6 @@ export const kindOf = (type: string): Kind => (pipeOf(type).some(s => ['worktree
 export const merges = (type: string): boolean => pipeOf(type).some(s => gateAt(s) === 'integrate')
 // a type whose acceptance is covered (by the gate's results or the reviewer's list) needs a test or a coverage entry per item; `none` covers nothing
 export const covers = (type: string): boolean => (P.types[type]?.acceptance.cover ?? 'none') !== 'none'
-// a task field the profile declares (the changelog decision is the default profile's; a profile without it asks for none)
-export const hasField = (name: string): boolean => P.fields.some(f => f.name === name)
 export const onFail = (step: string): OnFail | undefined => P.steps[step]?.onFail
 // the step's retries are spent at its n-th failed round (1-based): a step that goes `back` is sent back `retry` times and raised on the next failure (the review rounds);
 // a step that waits for the human (`then: human`) counts the failing round itself (the tester's rounds)

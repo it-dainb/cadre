@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { reportMeta, reportOf } from '../core/close'
-import { lacks, reportRefusal, reportSch } from '../core/validate'
+import { coverKey, lacks, reportRefusal, reportSch, specScenario } from '../core/validate'
 import { setProfile } from '../core/pipeline'
 import { profile as DEFAULT } from '../profiles/default'
 import { budgetOf, step } from '../core/lifecycle'
@@ -115,5 +115,19 @@ describe('fields per profile (required: boolean | string[])', () => {
       setProfile(only(['bug'])); expect(lacks(t('bug'))).toEqual(['impact']); expect(lacks(t('docs'))).toEqual([]); expect(lacks(t('bug', { 'cadre.impact': 'high' }))).toEqual([])
       setProfile(only(false)); expect(lacks(t('bug'))).toEqual([]); setProfile(only(true)); expect(lacks(t('docs'))).toEqual(['impact'])
     } finally { setProfile(DEFAULT) }
+  })
+})
+
+// S8: a coverage entry names its item as the id, "<id>: ..." or "<id> ..."; the longest-prefix trap (S1 vs S10) must not match the wrong id
+describe('coverKey and specScenario', () => {
+  const key = coverKey('S1: a\nS10: b\nA3: c')
+  test('an id is matched whole: S10 is not S1, a prefix needs ":" or a space after it', () => {
+    expect(key('S10')).toBe('S10'); expect(key('S10: covers b')).toBe('S10'); expect(key('S1 covers a')).toBe('S1'); expect(key('S1')).toBe('S1')
+    expect(key('S100')).toBe('S100'); expect(key('S1x')).toBe('S1x'); expect(key('  A3: c ')).toBe('A3')
+  })
+  test('a spec_change scenario line obeys the planner\'s id rules and has no carriage return', () => {
+    expect(specScenario('A1: when x then y')).toEqual(['A1', 'when x then y'])
+    expect(specScenario(`${'a'.repeat(16)}: t`)?.[0]).toHaveLength(16); expect(specScenario(`${'a'.repeat(17)}: t`)).toBeNull()
+    for (const bad of ['A 1: t', 'A1: t\r', 'A1: t\nB: u', ': t', 'A1:', 'no colon']) expect(specScenario(bad)).toBeNull()
   })
 })

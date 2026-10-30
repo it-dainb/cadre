@@ -306,11 +306,11 @@ test('crash-resume: the per-task meta write fails after the push; the replay cre
 
 test('grants are enforced before any process starts: no sync method without the sync grant, deliver without the events grant', () => {
   const d = mkdtempSync(join(tmpdir(), 'cadre-grant-')), mark = join(d, 'spawned'), spy = ['node', '-e', `require('fs').writeFileSync(${JSON.stringify(mark)}, 'x')`]
-  const go = input => { writeFileSync(join(d, 'in.json'), JSON.stringify(input)); return new Promise((res, rej) => execFile('node', [`${PLUGIN}/modules/sync.mjs`], { cwd: d, env: { CADRE_INPUT: join(d, 'in.json'), CADRE_RESULT: join(d, 'out.json'), PATH: process.env.PATH } }, e => e ? rej(e) : res(JSON.parse(readFileSync(join(d, 'out.json'), 'utf8'))))) }
+  const go = input => { const r = mkdtempSync(join(d, 'run-')); writeFileSync(join(r, 'in.json'), JSON.stringify(input)); return new Promise((res, rej) => execFile('node', [`${PLUGIN}/modules/sync.mjs`], { cwd: r, env: { CADRE_INPUT: join(r, 'in.json'), CADRE_RESULT: join(r, 'out.json'), PATH: process.env.PATH } }, e => e ? rej(e) : res(JSON.parse(readFileSync(join(r, 'out.json'), 'utf8'))))) }
   const ad = grants => ({ name: 'x', argv: spy, grants }), add = (step, d2) => ({ unit: 'a', kind: 'target', mode: 'add', now: 1, adapter: ad(['events']), add: { name: 'x', step, d: d2, args: ['direction=empty'] }, types: [], tasks: [], journal: {} })
   const cycle = direction => ({ unit: 't', kind: 'target', now: 1, adapter: ad(['events']), target: { name: 't', direction }, state: {}, journal: {}, tasks: [{ id: 'a', title: 't', description: '', type: 'feature', category: 'todo', priority: 2, meta: {}, base: 'b' }] })
   return Promise.all([go(add(2, { url: 'u' })), go(add(3, { url: 'u', project: 'p' })), go(add(4, { url: 'u', project: 'p', mapping: {} })), go(cycle('pull')), go(cycle('push')), go({ unit: 'e', kind: 'events', now: 1, modState: { acked: 0, sub: null }, adapter: ad(['sync']), events: { epic: '', seq: 0, events: [{ seq: 1, type: 'x' }], snapshot: {}, hash: 'h' } })]).then(rs => {
-    for (const r of rs) { assert.equal(r.state, 'offline'); assert.match(r.message ?? r.proposal?.lines?.[0] ?? '', /lacks the (sync|events) grant/) }
+    for (const [i, r] of rs.entries()) { if (i > 2) assert.equal(r.state, 'offline', `input ${i}: ${JSON.stringify(r).slice(0, 300)}`); /* 0-2: wizard steps answer with a message (state ok); cycles and deliver go offline */ assert.match(r.message ?? r.proposal?.lines?.[0] ?? '', /lacks the (sync|events) grant/) }
     assert.equal(existsSync(mark), false, 'no process was spawned')
   })
 })

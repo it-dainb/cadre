@@ -1,6 +1,6 @@
 # cadre
 
-**A Claude Code plugin that makes Claude plan, test, review and merge like a disciplined team, enforced in code, not prompts.**
+**A Claude Code plugin that makes Claude follow a workflow you define, enforced in code, not prompts. It ships one that plans, tests, reviews and merges like a disciplined team.**
 
 ```text
 goal ─▶ plan ─▶ you approve ─▶ tester (red) ─▶ worker (green) ─▶ reviewer ─▶ merge ─▶ dev ─▶ you release
@@ -11,6 +11,7 @@ goal ─▶ plan ─▶ you approve ─▶ tester (red) ─▶ worker (green) �
 - **You approve in a dialog.** Claude drafts; Claude Code's own question dialog approves.
 - **Tests first.** A separate tester writes a failing test, then a worker makes it pass.
 - **Isolated and reviewed.** Each task gets its own git worktree and an independent review.
+- **The workflow is data.** Steps, roles, checks, dialogs and delivery hooks live in a profile ([docs/profile.md](docs/profile.md)); `docs` and `analysis` profiles ship beside the default one above.
 - **A live board** in your terminal: tasks, steps, agents, cost.
 - **Local.** Tasks live in `.cadre/state` (not committed). No database. cadre pushes only if you choose pull-request landing.
 
@@ -33,7 +34,7 @@ The workflow, board and dialogs: [user guide](docs/guide.md). Every command: [co
 
 - **Linux only.** On macOS or Windows cadre says so at start, registers nothing and stays off. It needs `git`, `bwrap` and `socat`, and a disk with hard links.
 - **Keep the terminal open.** Agents live in your Claude Code session. If you quit or it crashes, nothing restarts by itself; `/cadre continue` in the next session respawns each task that was in flight from a checkpoint commit.
-- **Repo text reaches agents unfiltered, and `setup` installs what the manifest names.** Files, comments and the dependency manifest of a repo are read by the agents as they are, and setup installs the packages the manifest lists. Only open repos you trust. Hardening this is deferred; installs run isolated (clean environment, home hidden, no scripts, registry packages only) but with network access.
+- **A repo can run code on your machine.** Opening a repo with cadre runs that repo's profile hooks and modules (`.cadre/profile.json`, `.cadre/modules/`) with your user's permissions; only open repos you trust. Repo text also reaches agents unfiltered. Agents install what their task needs in their own shell; checks run in a jail when `bwrap` is present. The repo layer is an accepted risk with no mitigation: [known limits](docs/limitations.md).
 - **No compatibility freeze.** cadre is tested on Claude Code 2.1.295 (the minimum; older builds are refused) and on newer ones as listed in [compat](docs/compat.md). A Claude Code update may break it. Newer builds warn in `/cadre doctor` and usually work.
 - **The UI is English.** Another language means adding a table in `ui/tr.ts` (option and field labels only; nothing a model reads).
 
@@ -54,7 +55,7 @@ Every decision is a dialog; press `1` on the band to open it. Settings: press `9
 
 - **Enforced by code.** Hooks deny what the rules forbid; a prompt can be ignored, a denial cannot.
 - **Main plans, never edits.** The agent you talk to cannot touch your source.
-- **Computed beats claimed.** Tests pass because cadre ran them.
+- **Computed beats claimed.** A check passes because cadre ran it and read its exit code and JUnit report, never its output text.
 - **Calm UI, zero token cost.** The board is drawn by the plugin.
 
 More: [DESIGN](docs/design/DESIGN.md) · [decisions (ADRs)](docs/adr) · [known limits](docs/limitations.md) · [module contracts](docs/CONTRACTS.md)

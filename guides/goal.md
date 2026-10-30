@@ -14,19 +14,17 @@ When in doubt between lite and full, pick full.
 Not for ask. Call explore ONCE asking what in the project the goal touches (files, names, existing choices); end your turn and wait for its answer. Then score the goal from 0 (unknown) to 1 (clear) on outcome, scope, acceptance (how anyone can tell it is done) and constraints: ask `{"clarity": {"outcome": 0.9, "scope": 0.4, "acceptance": 0.6, "constraints": 0.8}}`. Its answer says what to do: draft, or first ask at most {maxQuestions} questions.
 
 ## Step 2: do the lane's step
-**ask**: call explore with the user's question, in plain words. Do not answer it yourself and do not ask a second time. Its answer arrives on its own.
+**ask**: call explore with the user's question in plain words. Do not answer it yourself or ask twice. Its answer arrives on its own.
 
-**lite**: one plan call: title, description (what to change and why, with the files you found), `"lane": "lite"`, `"reason"`, `"type": "<{types}>"` and a changelog (`{"none": true, "reason": "<why>"}` when users would not notice the change). A bug that needs a test that fails first goes in the full lane.
+**lite**: one plan call: title, description (what to change and why, with the files you found), `"lane": "lite"`, `"reason"`, `"type": "<{types}>"`{lite}. A bug that needs a test that fails first goes in the full lane.
 
-**If the goal says "There is no mission yet"** (lite and full): also put `"mission": "Goal: …\nConstraints: …\nNon-goals: …"` in the plan call. Draft it from the goal, what you read in the project and the user's answers. They approve the mission together with the plan.
+**If the goal says "There is no mission yet"** (lite and full): also put `"mission": "Goal: …\nConstraints: …\nNon-goals: …"` in the plan call, drafted from the goal, what you read and the user's answers. They approve it with the plan.
 
-**full**: plan with `"lane": "full"` and a reason, then one task call per task, as the plan rules in its answer say.
-
-Each task may carry `"risk"`: `light`, `standard`, `thorough` or `core` (shared code others build on). It sets how closely the task is reviewed and which models run it; leave it out for standard.
+**full**: plan with `"lane": "full"` and a reason, then one task call per task, as the plan rules in its answer say. A task may carry `"risk"`: `light`, `standard`, `thorough` or `core` (shared code others build on); it sets how closely the task is reviewed and which models run it. Leave it out for standard.
 
 **milestone**: plan with `"lane": "milestone"` and a reason, then one epic call per epic, as the roadmap rules in its answer say. Complete each epic when its tasks are done; the milestone lands on dev with its last epic. Shared code found mid-run: task with `"core": true`, no epic.
 
 For lite, full and milestone, tell the user to approve the plan in the dialog (key 1 opens it). Then stop.
 
 ## After the user approves
-If the user types a change in the dialog, you get "Change <id>: <text>": update the draft plan to match (amend; expectedRevision is the revision your last answer gave, or status {} shows it), and it is asked again.
+If the user types a change in the dialog you get "Change <id>: <text>": amend the draft plan to match (expectedRevision is the revision your last answer gave, or status {} shows it); it is asked again.

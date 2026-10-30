@@ -69,6 +69,12 @@ test('a hook that changes a path under .cadre/ or .git/, or moves the branch its
     assert.equal(sh(w.d, 'rev-list', '--count', `${old}..epic/p1-x`), '1', code); assert.deepEqual(await w.flags(), ['hook-failed']); assert.equal(w.left(), 1)
   }
 })
+test('F2: a hook that renames a protected file out (git mv) is refused: the audit sees both sides of a rename', async () => {
+  const w = await world(), t = `${w.d}-t`; sh(w.d, 'worktree', 'add', '-q', t, 'epic/p1-x'); writeFileSync(join(t, '.mcp.json'), '{}\n'); sh(t, 'add', '-A'); sh(t, 'commit', '-qm', 'protected file'); sh(w.d, 'worktree', 'remove', '--force', t)
+  hooks({ 'task.closed': [node("require('child_process').execFileSync('git', ['mv', '.mcp.json', 'moved.json'])", 'docs: ${id}')] }); const old = w.epicTip()
+  assert.equal(await C.closeTask(w.h, w.dep, w.id), null)
+  assert.equal(sh(w.d, 'rev-list', '--count', `${old}..epic/p1-x`), '1'); assert.deepEqual(await w.flags(), ['hook-failed']); assert.equal(sh(w.d, 'show', 'epic/p1-x:.mcp.json'), '{}')   // the file is still there, nothing was committed for the hook
+})
 test('a hook that changes files but has no commit message, exits non-zero, or writes a result of the wrong shape raises hook-failed', async () => {
   for (const x of [node("require('fs').writeFileSync('n.txt', 'x')"), node('process.exit(3)', 'x'), node("require('fs').writeFileSync(process.env.CADRE_RESULT, JSON.stringify({ colour: 1 }))", 'x'), node("require('fs').writeFileSync(process.env.CADRE_RESULT, JSON.stringify({ version: 'v1' }))", 'x')]) {
     const w = await world(); hooks({ 'task.closed': [x] }); const old = w.epicTip(); assert.equal(await C.closeTask(w.h, w.dep, w.id), null)

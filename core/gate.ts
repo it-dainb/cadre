@@ -7,15 +7,15 @@ import { type Deps } from './admission'
 import { emit } from './events'
 import { readJunit, type Result } from './junit'
 import { modelData } from './say'
-import { checks } from '../profiles/default'
 import { scoped } from '../commands/init'
+import { active } from './pipeline'
 
 export type Declared = { name: string; ids: string[] }[]   // the tester's tests: name as its runner prints it, ids = the scenarios it checks
 export interface GateResult { exit: number; results?: Result[]; bad?: string; timedOut: boolean; tail?: () => string }   // tail: the last of the runner's output, built (and lint-checked) only where a message uses it
 export interface Opts { expect: 'pass' | 'fail'; failExit?: number[]; declared?: Declared; held?: string[]; only?: string /* the scenario a spec change amended: the other declared tests must run, and may pass */ }
 // error = the CHECK is broken, not the work; bad = the work fails the expectation (passing: scenario ids whose test passed where red was needed)
 export type Verdict = { v: 'ok'; skipped: string[] } | { v: 'bad' | 'error'; why: string; passing?: string[] }
-const slotOf = (name: string): { network?: boolean; failExit?: number[]; timeoutS?: number } => (checks as Record<string, any>)[name] ?? {}
+const slotOf = (name: string): { network?: boolean; failExit?: number[]; timeoutS?: number } => (active().checks as Record<string, any>)[name] ?? {}
 export const find = (rs: Result[], name: string) => rs.find(r => r.name === name || r.name.endsWith(`.${name}`))   // the runner prints classname.name; the tester may leave the class out
 const list = (xs: string[]) => xs.slice(0, 5).join(', ')
 
@@ -55,7 +55,7 @@ export async function runSlot(h: Host, o: { mode: 'overlay' | 'copy' | 'none'; w
   await h.run(['mkdir', '-p', '-m', '700', `${o.scratch}/cadre`])
   const argv = o.argv.map(a => a.split('${CADRE_JUNIT}').join(jx).split('$CADRE_JUNIT').join(jx)), j = { wt: o.wt, scratch: o.scratch, pkgRoot: o.pkgRoot, argv, writable: o.writable, env: { CADRE_JUNIT: jx } }, t0 = await h.now()
   let r: { exitCode: number; stdout: string; stderr: string }, timedOut = false
-  try { r = s.network ? await h.run(o.mode === 'none' ? argv : G.writableJail(j), { cwd: o.pkgRoot, env: j.env, timeoutMs }) : await G.checkRun(h.run, o.mode, j, timeoutMs) } catch { r = { exitCode: -1, stdout: '', stderr: '' }; timedOut = true }
+  try { r = s.network ? await h.run(o.mode === 'none' ? argv : G.writableJail({ ...j, env: { ...(await G.jailEnv(h.run)), ...j.env } }), { cwd: o.pkgRoot, env: j.env, timeoutMs }) : await G.checkRun(h.run, o.mode, j, timeoutMs) } catch { r = { exitCode: -1, stdout: '', stderr: '' }; timedOut = true }
   const ms = (await h.now()) - t0, { results, bad } = await readJunit(h, file, o.scratch)
   return { exit: r.exitCode, results, bad, timedOut: timedOut || ms >= timeoutMs, ms, tail: () => modelData('tool-result', `${r.stdout}${r.stderr}`.split(o.wt).join('.').split(o.scratch).join('tmp').slice(-600)) }
 }

@@ -17,10 +17,12 @@
 ```
 
 1. **Goal.** `/cadre <goal>`. Claude sends one explorer through the code and scores how clear the goal is. A vague goal gets at most 3 questions in one round; `/cadre deep <goal>` talks it through one question per round instead.
-2. **Plan.** A lite plan is one task. A full plan has epics and tasks with Given/When/Then scenarios, a changelog entry per task and an interface contract. Nothing runs until you choose **Approve** in the dialog.
-3. **Tdd, red then green.** A tester writes a failing test in a folder that holds only docs and scenarios; cadre runs it and confirms it fails for the right reason. A worker then makes it pass without changing the locked tests.
+2. **Plan.** A lite plan is one task. A full plan has epics and tasks, each with acceptance items (an id and one line each), a contract of the names it changes and, in the default profile, a changelog decision. The planner declares each task's `risk` (how closely it is reviewed and which models run it). Nothing runs until you choose **Approve** in the dialog.
+3. **Tests first, red then green.** A tester writes a failing test in a folder that holds only docs and scenarios; cadre runs it and confirms it fails for the right reason. A worker then makes it pass without changing the locked tests.
 4. **Review.** A reviewer who did not write the code judges the commit against the scenarios.
 5. **Land.** The task merges into the epic branch; when the epic is done it lands on `dev`. The release is yours: cadre never releases on its own, not even under yolo.
+
+That is the **default profile**. The steps, roles, checks, dialogs and hooks of a workflow are data in a profile ([profile](profile.md)), so a repo can run a different one: `docs` (write, review, land) and `analysis` (explore, work, verify, review, land) ship as examples. Choose one with `profile` in your user or repo config; `/cadre profile` shows the active one and the layer of each section.
 
 Two modes after approval: **auto** (`/cadre <goal>`) asks only at critical points (a spec change, a question only you can answer, an integration that fails twice, a protected branch moved outside cadre, the release); **yolo** (`/cadre yolo <goal>`) asks nothing and records each decision it took, in Activity and Doctor. Both stop at a bound (100 turns, $20, 240 minutes, or 3 turns without progress; Settings, Drive).
 
@@ -75,4 +77,6 @@ After a plan lands, a short side-model pass (`lessons.model`, at most `lessons.p
 
 ## Your project config
 
-`.cadre/config.json` (setup writes it): `units` (the parts that build and test on their own, each with `root` and `checks`; the `setup` check runs before the others) and the profile's `landing.provider`: `direct` (default) lands a finished plan on `dev` locally; a module such as `landing-gh.mjs` pushes and opens one pull request into `dev` (needs `gh`, signed in).
+`.cadre/config.json` (setup writes it): `profile` (a built-in name), `units` (the parts that build and test on their own, each with `root` and `checks`; the `setup` check runs before the others) and the profile's `landing.provider`: `direct` (default) lands a finished plan on `dev` locally; a module such as `landing-gh.mjs` pushes and opens one pull request into `dev` (needs `gh`, signed in).
+
+A repo may also ship `.cadre/profile.json` and `.cadre/modules/*.mjs`. They load as they are and run with your user's permissions, so open only repos you trust ([limitations](limitations.md)).
