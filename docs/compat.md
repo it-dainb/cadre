@@ -12,6 +12,10 @@ Results come from the 1.0 release gate: one `harness/matrix.sh` batch per versio
 
 On 2.1.310 the `single-295` and `milestone-planners` cells are not 295 cells: `CCV=` replaces every cell's own version pin.
 
+## 2.0
+
+2.0 changes the engine, not the Claude Code surface it uses. The offline scripted cells (`harness/matrix.sh scripted`) pass on 2.1.295. The live gate for 2.0 is run by the owner on its own account and is not part of the source tree: until it is recorded here, 2.0 has no live result in this table.
+
 ## Linux requirements
 
 | Need | Why |

@@ -21,7 +21,7 @@ if (trImports.length) { console.error(`ui/tr imported outside ui/**:\n${trImport
 if (process.argv.includes('--tr-imports')) process.exit()
 const out = join(root, 'tests/fixtures/budget.generated.ts')
 // docs: the kit has no fs, so the user docs are frozen here for tests/docs.test.ts and tests/doctor-coverage.test.ts; a relative link that does not resolve is listed
-const DOCS = { readme: 'README.md', troubleshooting: 'docs/troubleshooting.md', guide: 'docs/guide.md', compat: 'docs/compat.md', commands: 'docs/commands.md' }
+const DOCS = { readme: 'README.md', troubleshooting: 'docs/troubleshooting.md', guide: 'docs/guide.md', compat: 'docs/compat.md', commands: 'docs/commands.md', profile: 'docs/profile.md', limitations: 'docs/limitations.md' }
 const docs = Object.fromEntries(Object.entries(DOCS).map(([k, f]) => [k, existsSync(join(root, f)) ? readFileSync(join(root, f), 'utf8') : '']))
 const docLinksBroken = ['README.md', 'docs/guide.md'].flatMap(f => existsSync(join(root, f)) ? [...readFileSync(join(root, f), 'utf8').matchAll(/\]\(([^)\s]+)\)/g)].map(m => m[1]).filter(l => !/^(https?:|mailto:|#)/.test(l)).filter(l => !existsSync(join(root, f, '..', l.split('#')[0]))).map(l => `${f}: ${l}`) : [f + ': missing'])
 const CORE = ['hooks', 'core', 'policy', 'commands', 'task-management', 'agents', 'config', 'tools']
