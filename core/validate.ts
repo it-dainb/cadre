@@ -149,7 +149,7 @@ export async function capped(h: Host, key: string): Promise<boolean> { return ((
 // Returns an example-bearing error or null.
 // the tester's test command (ADR 0023): an argv run without a shell, inside the offline sandbox like any check (task data run through the test slot, never host code)
 export function runShape(run: any): string | null {
-  const eg = 'e.g. {"command":["node","--test","test/login.test.js"]}'
+  const eg = 'e.g. {"command":["node","--test","--test-reporter=junit","--test-reporter-destination=$CADRE_JUNIT","test/login.test.js"]}'
   if (!run || typeof run !== 'object' || !Array.isArray(run.command) || !run.command.length || run.command.length > 64 || !run.command.every((a: unknown) => typeof a === 'string' && a && a.length < 1000)) return `run.command: expected the argument list that runs only your tests, no shell, ${eg}`
   if (Object.keys(run).some(k => k !== 'command' && k !== 'cwd')) return `run: only command and cwd (${eg}); the check that runs it is not yours to pick`   // argv only, never a check slot
   if (run.cwd !== undefined && (typeof run.cwd !== 'string' || run.cwd.startsWith('/') || run.cwd.split('/').includes('..'))) return 'run.cwd: expected a folder relative to your test folder, e.g. "web"'
