@@ -12,7 +12,7 @@ const flagged = (t, kind) => t.findIndex(e => e.tasks.some(x => x.flags.includes
 const after = (t, from, op) => t.slice(from).find(e => e.op === op)
 const HIT = {
   4: t => after(t, flagged(t, 'conflict'), 'Retry: one more round')?.tasks[0],
-  5: t => after(t, flagged(t, 'red'), 'Retry')?.tasks[0],
+  5: t => after(t, flagged(t, 'gate-error'), 'Retry')?.tasks[0],
   6: t => after(t, flagged(t, 'shape'), 'Retry')?.tasks[0],
   7: t => after(t, flagged(t, 'no-report'), 'Keep going')?.tasks[0],
   10: t => after(t, flagged(t, 'spec_change'), 'Accept')?.tasks[0],

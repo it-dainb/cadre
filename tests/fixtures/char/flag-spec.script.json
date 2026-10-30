@@ -3,6 +3,6 @@
  {"op":"meta","task":"$1","kv":{"cadre.specCommit":"5bec001"},"label":"spec-commit-recorded"},
  {"op":"at","agent":"wk","task":"$1","role":"worker"},
  {"op":"rep","agent":"wk","body":{"role":"worker","outcome":"spec_change","summary":"s","reason":"the contract needs a second param","scenario":"S1: Given a request When it runs with a flag Then it answers"},"label":"worker-asks-spec-change"},
- {"op":"resolve","args":["$1","reject"],"label":"Reject"},
+ {"op":"resolve","args":["$1","x"],"label":"Reject"},
  {"op":"rep","agent":"wk","body":{"role":"worker","outcome":"spec_change","summary":"s","reason":"still wrong","scenario":"S1: Given a request When it runs with a flag Then it answers"},"label":"worker-asks-again"},
- {"op":"resolve","args":["$1","accept"],"label":"Accept"}]}
+ {"op":"resolve","args":["$1","a"],"label":"Accept"}]}

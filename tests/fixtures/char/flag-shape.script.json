@@ -2,6 +2,6 @@
  {"op":"arm","mode":"auto"},
  {"op":"turn","label":"worker-starts"},
  {"op":"repeat","agent":"ag1","n":2,"body":{"role":"worker","outcome":"done","summary":"@x900"},"label":"two-overlong-reports"},
- {"op":"resolve","args":["$1","retry"],"label":"Retry"},
+ {"op":"resolve","args":["$1","r"],"label":"Retry"},
  {"op":"turn","label":"worker-restarts"},
  {"op":"rep","agent":"ag1","body":{"role":"worker","outcome":"done","summary":"did it"},"label":"valid-report"}]}

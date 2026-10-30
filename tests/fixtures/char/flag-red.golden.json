@@ -76,14 +76,14 @@
     "state": "blocked",
     "step": "tester",
     "flags": [
-     "red"
+     "gate-error"
     ],
     "owned": true
    }
   ],
   "decisions": [
    {
-    "id": "flag:m-2:red",
+    "id": "flag:m-2:gate-error",
     "optionKeys": [
      "r",
      "x"
@@ -129,14 +129,14 @@
     "state": "blocked",
     "step": "tester",
     "flags": [
-     "red"
+     "gate-error"
     ],
     "owned": true
    }
   ],
   "decisions": [
    {
-    "id": "flag:m-2:red",
+    "id": "flag:m-2:gate-error",
     "optionKeys": [
      "r",
      "x"
@@ -268,14 +268,14 @@
     "state": "blocked",
     "step": "tester",
     "flags": [
-     "red"
+     "gate-error"
     ],
     "owned": true
    }
   ],
   "decisions": [
    {
-    "id": "flag:m-2:red",
+    "id": "flag:m-2:gate-error",
     "optionKeys": [
      "r",
      "x"
@@ -320,7 +320,7 @@
   "commits": []
  },
  {
-  "op": "Already holds (amend S1, then Retry)",
+  "op": "Retry again",
   "res": "ok",
   "tasks": [
    {
@@ -349,13 +349,11 @@
   },
   "metaKeys": {
    "m-2": [
-    "cadre.amendments",
     "cadre.base",
     "cadre.blocked",
     "cadre.branch",
     "cadre.changelog",
     "cadre.checkpoint",
-    "cadre.holds",
     "cadre.package",
     "cadre.rec.blocked",
     "cadre.runs",
