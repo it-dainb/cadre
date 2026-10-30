@@ -111,7 +111,7 @@ const up = (p: string) => p.slice(0, p.lastIndexOf('/')) || '/'
 const toolchains = (j: J): string[] => {
   const home = j.env?.HOME ? norm(j.env.HOME) : ''; if (!home || home === '/') return []
   const dirs = (j.env?.PATH ?? '').split(':').filter(Boolean).map(norm).filter(d => d.startsWith(`${home}/`) && d.endsWith('/bin'))   // a toolchain's bin folder only: a PATH entry naming any other home folder is not put back
-  return [...new Set(dirs.flatMap(d => (d.endsWith('/bin') && up(up(d)) !== home && up(d) !== home ? [d, up(d)] : [d])))].flatMap(d => ['--ro-bind-try', d, d])
+  return [...new Set(dirs.flatMap(d => (up(up(d)) !== home && up(d) !== home ? [d, up(d)] : [d])))].flatMap(d => ['--ro-bind-try', d, d])
 }
 const bareHome = (j: J, bare: boolean): string[] => (bare && j.env?.HOME ? ['--tmpfs', j.env.HOME, ...toolchains(j)] : [])
 const RO = (j: J, bare = false) => ['--clearenv', '--unshare-pid', '--as-pid-1', '--ro-bind', '/', '/', ...bareHome(j, bare), '--dev', '/dev', '--proc', '/proc', '--bind', j.scratch, '/tmp']
