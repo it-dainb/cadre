@@ -9,7 +9,7 @@ import { protectedOf, type Deps } from './admission'
 import { planBlock } from './briefs'
 import { runOf, step } from './lifecycle'
 import { draftsOf } from './dispatch'
-import { active } from './pipeline'
+import { active, firstType } from './pipeline'
 import { retouch } from './lanes'
 import { epicOf, planEpic, stopEpic } from './milestone'
 import { itemSig } from './render'
@@ -70,7 +70,7 @@ async function draft(h: Host, store: TaskStore, id: string, tasks: unknown): Pro
     const { epic, ...meta } = m; if (epic !== undefined && epic !== id) return no(`${at}: metadata.epic: omit it (every task is of ${id})`)
     const err = validateFields(meta) ?? protectedIn(meta.paths) ?? (meta.holds ? holdsGap(meta.holds, fieldsOf(meta).patch.acceptance) : null) ?? (meta.kind !== undefined ? 'metadata.kind: omit it' : null); if (err) return no(`${at}: ${err}`)
     const f = fieldsOf(meta)
-    made.push((await store.createDraft({ title: t.subject, description: t.description, acceptance: f.patch.acceptance, design: f.patch.design, type: meta.type ?? 'feature', parent: id, meta: f.meta })).id)
+    made.push((await store.createDraft({ title: t.subject, description: t.description, acceptance: f.patch.acceptance, design: f.patch.design, type: meta.type ?? firstType(), parent: id, meta: f.meta })).id)
   }
   for (const [i, t] of tasks.entries()) {
     const a = t.after ?? []

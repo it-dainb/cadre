@@ -11,6 +11,8 @@ let P: Profile = DEFAULT
 export const setProfile = (p: Profile): void => { P = p; setFlags(p.flags); setRoles(p.roles) }
 export const active = (): Profile => P
 export const typeOf = (type: string): TypeSpec | undefined => P.types[type]
+export const firstType = (): string => Object.keys(P.types)[0]   // a task planned without a type gets the profile's first one (the default's feature, the docs profile's doc)
+export const typeOr = (t: string): string => (P.types[t] ? t : firstType())   // a task cadre makes itself (a merge resolution, an integration fix): that type where the profile has it
 export const stepOf = (id: string): Step | undefined => P.steps[id]
 // the steps of a task: its type's pipeline, or the alternate one when the task's lane is `lite` (a type without `lite` has one pipeline)
 export const pipeOf = (type: string, lane?: string): readonly string[] => { const s = P.types[type]; return !s ? [] : lane === 'lite' && s.lite ? s.lite : s.pipeline }

@@ -3,7 +3,7 @@
 // exited cleanly, re-checks the lease, and applies the validated result in-process (`applySync`: validate everything, then apply; no dispatcher command). Core keeps no adapter client:
 // the module spawns every adapter. Lease + cursor stay on the store's control doc, backoff in `sync.rt:<unit>`, the module's memory in `mod:sync:<unit>`. No regex here.
 import type { Host } from '../types'
-import { active } from './pipeline'
+import { active, firstType } from './pipeline'
 import { agentsOf, canon, fnv1a64, modelView, sessionOf } from './board'
 import { emit, ofEpic, subscribe } from './events'
 import { ROUTES, cfgOf, initConfirm, initPropose, storeOf } from './dispatch'
@@ -118,7 +118,7 @@ export async function applySync(h: Host, u: Unit, r: any, check = false): Promis
     } else if (o.op === 'meta') await store.setMeta(o.id, { [o.key]: o.value }, actor)
     else if (o.op === 'flag') await raise(h, o.id, o.flag)
     else if (o.op === 'ref') await store.setExternalRef(o.id, o.ref, actor)
-    else { const b = await h.board.read(), t = await store.createDraft({ title: o.title, description: o.description, type: Object.keys(active().types)[0], parent: (parent ??= b.mission ?? b.epic ?? await store.createEpic('backlog', `imported from ${u.adapter}`)) }); if (o.meta) await store.setMeta(t.id, { [`cadre.sync.${target}`]: o.meta }, actor) }
+    else { const b = await h.board.read(), t = await store.createDraft({ title: o.title, description: o.description, type: firstType(), parent: (parent ??= b.mission ?? b.epic ?? await store.createEpic('backlog', `imported from ${u.adapter}`)) }); if (o.meta) await store.setMeta(t.id, { [`cadre.sync.${target}`]: o.meta }, actor) }
   }
   if (r.modState !== undefined) await h.store.set(`mod:sync:${u.id}`, r.modState)
   if (u.target && r.state === 'ok' && !r.partial && !stale && r.lastHeal !== undefined) { const k = `sync.${u.target}`, s = ((await store.control()).doc[k] ?? {}) as Lease; await store.setControl({ [k]: { ...s, cursor: r.cursor ?? undefined, since: r.since, lastHeal: r.lastHeal } }) }   // the cursor moves last, and not on a partial result

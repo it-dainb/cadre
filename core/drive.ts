@@ -16,6 +16,7 @@ import { modelText } from './say'
 import { specAsk } from './tdd'
 import { isMs, stopEpic } from './milestone'
 import { modelIssues, running, tasksFull } from './queue'
+import { typeOr } from './pipeline'
 
 export const LEASE = 600_000
 export type Mode = 'auto' | 'yolo'
@@ -269,7 +270,7 @@ export async function redFix(h: Host, epicId: string, why: string): Promise<bool
   const s = await h.board.read(); if (!s.drive.on || s.drive.stopped) return false
   const store = await storeOf(h), epic = await store.get(epicId)
   if (epic.meta['cadre.redFix']) { if (s.drive.mode === 'yolo') await stop(h, 'integration failed twice'); return false }
-  const t = await store.createDraft({ title: 'Fix the failing integration checks', description: `Merging the plan into dev failed its checks. Make them pass without changing what the plan delivers.\n${why.slice(0, 1200)}`, type: 'bug', parent: epicId,
+  const t = await store.createDraft({ title: 'Fix the failing integration checks', description: `Merging the plan into dev failed its checks. Make them pass without changing what the plan delivers.\n${why.slice(0, 1200)}`, type: typeOr('bug'), parent: epicId,
     meta: { 'cadre.lane': 'lite', 'cadre.changelog': JSON.stringify({ none: true, reason: 'fixes the integration of this plan' }) } })
   await store.approve([t.id]); await store.setMeta(epicId, { 'cadre.redFix': t.id }, 'cadre')
   await mirror(h, store); await apply(h, { kind: 'approve', id: t.id, at: await h.now(), actor: 'mod' })

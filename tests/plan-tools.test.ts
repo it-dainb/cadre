@@ -136,6 +136,14 @@ describe('plan tools take acceptance [{id,text}] and the type list of the profil
     } finally { setProfile(DEFAULT) }
     expect(validateFields({ type: 'doc' })).toContain(`one of ${Object.keys(DEFAULT.types).join('|')}`); expect(planRules()).toContain('bug tester>red>worker')
   })
+  test('a task planned without a type gets the profile\'s first type, never the default\'s feature (a docs plan was refused at spawn: unknown type "feature")', async () => {
+    try {
+      setProfile(DOCS); const w = await world()
+      await w.call('TaskCreate', { subject: 'Usage guide', description: 'write the usage guide', metadata: { kind: 'plan', lane: 'full', reason: 'one doc' } })
+      const r = await w.call('TaskCreate', { subject: 'Write docs/usage.md', description: 'a short usage guide', metadata: { package: '.', acceptance: [{ id: 'A1', text: 'a reader can call each export' }], paths: ['docs/usage.md'] } })
+      expect(r.result?.task?.id, JSON.stringify(r)).toBeTruthy(); expect((await w.store.get(r.result.task.id)).type).toBe('doc')
+    } finally { setProfile(DEFAULT) }
+  })
   test('S8: the task-fields line, the planner brief and the lite lane line come from profile.fields: the docs profile is told no changelog and no holds', () => {
     const line = () => planRules().split('\n').find(l => l.startsWith('- Task fields:'))!
     expect(line()).toContain('changelog {"category"'); expect(line()).toContain('holds? acceptance ids already true, e.g. ["A2"]'); expect(line()).toContain('breaking?'); expect(liteFields()).toContain(' and changelog ({"category"')

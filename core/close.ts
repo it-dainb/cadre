@@ -4,7 +4,7 @@ import { askOf, askStopped } from './asks'
 import { roleSpec } from './roles'
 import type { Binding, Hook, Host, SnapTask } from '../types'
 import type { Task } from '../task-management/store'
-import { active, catOf, covers, gateAt, next, onFail, pipeOf, producer, roleAt, spent, typeOf, verdictAt, workspaceAt } from './pipeline'
+import { active, catOf, firstType, covers, gateAt, next, onFail, pipeOf, producer, roleAt, spent, typeOf, verdictAt, workspaceAt } from './pipeline'
 import { LIFECYCLE, holdsAmend } from './plantools'
 import { ROUTES, resolveEpic } from './dispatch'
 import { flagDecision, kindOf, pick, specOf } from './flags'
@@ -137,7 +137,7 @@ export async function followups(d: Deps, from: string, fs: unknown) {
   const list = (Array.isArray(fs) ? fs : []).slice(0, 5).filter((f: any) => typeof f?.title === 'string' && f.title.trim())
   if (!list.length) return
   const backlog = (await d.store.list({})).find(x => x.type === 'epic' && x.title === 'cadre-backlog')?.id ?? await d.store.createEpic('cadre-backlog', 'discovered work, not yet planned')
-  for (const f of list as any[]) await d.store.createDraft({ title: f.title.slice(0, 120), description: String(f.description ?? '').slice(0, 1000), type: 'feature', parent: backlog, discoveredFrom: from })
+  for (const f of list as any[]) await d.store.createDraft({ title: f.title.slice(0, 120), description: String(f.description ?? '').slice(0, 1000), type: firstType(), parent: backlog, discoveredFrom: from })
 }
 // the task's cap of malformed reports (limits.shapeRetries): the agent was refused every time and is not told to stop trying, so the task waits for the user (flag `shape`)
 export async function shapeBlock(h: Host, d: Deps, taskId: string, n: number): Promise<void> {
