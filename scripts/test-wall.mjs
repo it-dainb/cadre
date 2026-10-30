@@ -1,5 +1,5 @@
 // Dev-only (node): the 60 s wall per test file (TEST_WALL_S overrides). Usage: node scripts/test-wall.mjs [file.mjs ...]
-// No args: every tests/git/*.mjs and tests/protocol/*.mjs, each as its own `node --test` under a kill timer, then the .ts suites.
+// No args: every tests/git, tests/modules and tests/protocol *.mjs, each as its own `node --test` under a kill timer, then the .ts suites.
 // .ts suites: `claude plugin test` has no reporter option and takes a folder, not a file, so only per-test ms inside each file's block
 // are available (no per-file total). A file's wall is the sum of its tests' ms (load time excluded); the whole run is also held to the limit.
 // The binary is $CC, else harness/claude-2.1.299; with neither, the .ts stage is skipped.
@@ -21,7 +21,7 @@ const exec = (cmd, args, cwd, collect) => new Promise(res => {
 })
 
 const given = process.argv.slice(2)
-const files = given.length ? given : ['tests/git', 'tests/protocol'].flatMap(d => readdirSync(join(root, d)).filter(f => f.endsWith('.mjs')).sort().map(f => join(d, f)))
+const files = given.length ? given : ['tests/git', 'tests/modules', 'tests/protocol'].flatMap(d => readdirSync(join(root, d)).filter(f => f.endsWith('.mjs')).sort().map(f => join(d, f)))
 for (const f of files) {
   const t = Date.now(), r = await exec('node', ['--experimental-transform-types', '--test', f], root)
   row(f, (Date.now() - t) / 1000, r.timedOut ? 'TIMEOUT' : r.status ? 'FAILED' : '')
