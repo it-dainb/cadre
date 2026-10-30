@@ -6,7 +6,7 @@ import { ROUTES, cfgOf, mirror, registryOf, storeOf } from './dispatch'
 import { emit } from './events'
 import { ask, settleIf, yoloOn } from './decide'
 import { epicNext } from './machine'
-import { holds } from './flags'
+import { blocks } from './flags'
 import { cut, insert } from './changelog'
 import { modeOf } from './specview'
 import { ownerOf, unitsOf } from './discover'
@@ -232,7 +232,7 @@ async function landed(h: Host, store: Awaited<ReturnType<typeof storeOf>>, epicI
 export async function releaseDev(h: Host, want?: string): Promise<string> {
   const s = await h.board.read(), no = (w: string) => `refused: ${w}`
   if (s.plan?.state === 'integrating') return no('an integration is running')
-  const gf = await gitFlags(h), bf = [...(s.plan?.flags ?? []), ...s.tasks.flatMap(t => t.flags)].find(holds)
+  const gf = await gitFlags(h), bf = [...(s.plan?.flags ?? []), ...s.tasks.flatMap(t => t.flags)].find(blocks)
   if (gf.length || bf) return no(`flag ${gf[0] ?? bf} is open; ask the human to resolve it in the cadre dialog first`)
   if (want && !/^\d+\.\d+\.\d+$/.test(want)) return no(`version "${want}": expected x.y.z`)
   const [root, cfg] = [await h.cwd(), await cfgOf(h)], dev = cfg.branches.dev

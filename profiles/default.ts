@@ -16,21 +16,21 @@ const CANCEL = { key: 'x', label: 'Cancel task', effect: [{ do: 'cancel' }] } as
 const ACCEPT = { key: 'a', label: 'Accept', effect: [{ do: 'adopt' }, { do: 'clear' }] } as const
 const GO = { key: 'k', label: 'Keep going', effect: [{ do: 'retry', counter: 'silentRuns' }, { do: 'reset', counter: 'nudges' }, { do: 'unblock', note: modelText('context', 'Keep from the human: continue from the last checkpoint on the task branch, and report when done.') }] } as const
 const RED = [{ do: 'rewind', to: 'tester' }, { do: 'retry', counter: 'red' }, { do: 'clear', kinds: ['red', 'gate-error'] }, { do: 'dropNeed' }, { do: 'endAgent' }] as const
-const REF = { why: 'a branch moved outside a cadre merge. Restore: the tip is saved under refs/cadre/quarantine and the branch goes back. Keep: accept the move.', holds: true, yolo: 'human', target: 'ref', options: [{ key: 'r', label: 'Restore', effect: [{ do: 'restore' }] }, { key: 'k', label: 'Keep', effect: [{ do: 'clear', how: 'keep' }] }] } as const
+const REF = { blocks: true, why: 'a branch moved outside a cadre merge. Restore: the tip is saved under refs/cadre/quarantine and the branch goes back. Keep: accept the move.', holds: true, yolo: 'human', target: 'ref', options: [{ key: 'r', label: 'Restore', effect: [{ do: 'restore' }] }, { key: 'k', label: 'Keep', effect: [{ do: 'clear', how: 'keep' }] }] } as const
 const SAME = { why: GEN, holds: false, yolo: 'human', options: [KEEP, CANCEL] } as const
 const STUCK = { why: GO_WHY, holds: false, yolo: 'human', options: [GO, CANCEL] } as const
 const SPEC = (how: 'accept' | 'reject') => [{ do: 'spec', how }, { do: 'clear', kinds: ['spec_change'] }] as const
 const RED_WHY = 'Retry: fix the cause (the package checks, or the test setup), then a new tester writes the tests again.'
 export const flags: Record<string, FlagSpec> = {
-  git: REF, quarantine: REF,
-  external: { ...SAME, holds: true },
-  drift: { ...SAME, holds: true, options: [ACCEPT, KEEP, CANCEL] },
-  conflict: { ...SAME, holds: true, options: [ACCEPT, { key: 'r', label: 'Retry', needs: 'keys', effect: [{ do: 'retry', counter: 'rebase', more: 1 }, { do: 'clear', kinds: ['conflict', 'merge-red'] }, { do: 'rework', kind: 'conflict' }] }, KEEP, CANCEL] },
+  git: REF, quarantine: { ...REF, blocks: false },
+  external: { ...SAME, holds: true, blocks: true },
+  drift: { ...SAME, holds: true, blocks: true, options: [ACCEPT, KEEP, CANCEL] },
+  conflict: { ...SAME, holds: true, blocks: true, options: [ACCEPT, { key: 'r', label: 'Retry', needs: 'keys', effect: [{ do: 'retry', counter: 'rebase', more: 1 }, { do: 'clear', kinds: ['conflict', 'merge-red'] }, { do: 'rework', kind: 'conflict' }] }, KEEP, CANCEL] },
   'merge-red': SAME, holds: SAME, 'locked-dirty': SAME, edited: SAME, 'report-unvalidated': SAME,
-  'lost-wip': { why: '', holds: true, yolo: 'human', options: [] },
+  'lost-wip': { why: '', holds: true, blocks: true, yolo: 'human', options: [] },
   reverted: { why: '', holds: false, yolo: 'human', options: [] },   // a mark on a reverted task, never a decision
-  'lost-epic': { why: 'the epic branch is gone. Re-cut it from dev, or end the epic.', holds: true, yolo: 'human', target: 'plan', options: [{ key: 'r', label: 'Re-cut', effect: [{ do: 'recut' }] }, { key: 'x', label: 'End epic', effect: [{ do: 'cancel' }] }] },
-  'integration-failed': { why: '{flag}: Keep accepts the state.', holds: true, yolo: 'human', target: 'plan', options: [KEEP] },
+  'lost-epic': { why: 'the epic branch is gone. Re-cut it from dev, or end the epic.', holds: true, blocks: true, yolo: 'human', target: 'plan', options: [{ key: 'r', label: 'Re-cut', effect: [{ do: 'recut' }] }, { key: 'x', label: 'End epic', effect: [{ do: 'cancel' }] }] },
+  'integration-failed': { why: '{flag}: Keep accepts the state.', holds: true, blocks: true, yolo: 'human', target: 'plan', options: [KEEP] },
   stopped: { why: 'Retry: the epic goes on. The epics that wait on it start after it lands.', holds: false, yolo: 'human', target: 'epic', options: [{ key: 'r', label: 'Retry', effect: [{ do: 'resume' }] }] },
   rework: { ...SAME, holds: true },
   red: { why: RED_WHY, holds: true, yolo: 'human', options: [{ key: 'r', label: 'Retry', effect: RED }, { key: 'h', label: 'Already holds', needs: 'ids', effect: [{ do: 'amend' }, ...RED] }, CANCEL] },

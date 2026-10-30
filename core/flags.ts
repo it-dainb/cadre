@@ -9,6 +9,7 @@ export const setFlags = (f: Record<string, FlagSpec>): void => { TABLE = f }
 export const kindOf = (flag: string): string => flag.split(':')[0]   // rework:2/3 -> rework, git:dev -> git
 export const specOf = (flag: string): FlagSpec | undefined => TABLE[kindOf(flag)]
 export const holds = (flag: string): boolean => !!specOf(flag)?.holds   // the flags drive holds on: under yolo only these become a decision for the human
+export const blocks = (flag: string): boolean => !!specOf(flag)?.blocks   // stops a claim and a release (core/admission, core/integrate)
 export const yoloMain = (flag: string): boolean => specOf(flag)?.yolo === 'main'   // main decides these under yolo
 // the option a typed key or main's choice names: its key, or its label's first word ("accept")
 export const pick = (o: Option[], c: string): Option | undefined => o.find(x => x.key === c || x.label.toLowerCase().split(' ')[0] === c)
