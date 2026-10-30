@@ -156,6 +156,13 @@ describe('adoption (D16, B19) and the one repo-config writer', () => {
     const r = await writeRepoConfig(w.h, c => ({ ...c, stolen: true })); expect(r.ok).toBe(true); expect(n).toBeGreaterThan(0); expect(JSON.parse(w.files[CFG]).stolen).toBe(true)
     expect((await store.control()).doc.cfgLock ?? null).toBeNull()   // released
   })
+  test('F7: the lock stolen between its read and the write: the write is refused, the file is untouched and the thief keeps its lock (a one-read window remains)', async () => {
+    const w = mkw(), store = await (w.h as any).taskStore(), before = w.files[CFG], real = store.control.bind(store); let calls = 0
+    store.control = async () => { if (++calls === 2) await store.setControl({ cfgLock: { session: 'thief', until: (await w.h.now()) + CFG_LOCK_MS } }); return real() }   // call 1 = the acquire read, call 2 = the re-check before the write
+    const r = await writeRepoConfig(w.h, c => ({ ...c, lost: true }))
+    expect(r).toEqual({ ok: false, why: '.cadre/config.json is being written by another session; try again' }); expect(w.files[CFG]).toBe(before)
+    expect(((await real()).doc.cfgLock as { session: string }).session).toBe('thief')
+  })
   test('a refusal string from the mutation writes nothing and releases the lock; a file that is not JSON is refused', async () => {
     const w = mkw(), before = w.files[CFG]; expect(await writeRepoConfig(w.h, () => 'no')).toEqual({ ok: false, why: 'no' }); expect(w.files[CFG]).toBe(before)
     w.files[CFG] = '{nope'; expect(await writeRepoConfig(w.h, c => c)).toMatchObject({ ok: false, why: '.cadre/config.json is not valid JSON' })

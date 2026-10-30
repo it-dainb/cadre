@@ -103,20 +103,25 @@ export async function diffPatch(run: Run, wt: string, range: string, cap = 3072)
 // Jail argv (3.10). `scratch` is bound at /tmp FIRST, so a worktree that itself lives under /tmp (a sandboxed HOME, an eval) is bound on top and stays visible; `writable` = jailWritable cache dirs. argv is appended after `--`.
 type J = { wt: string; scratch: string; pkgRoot: string; argv: readonly string[]; writable?: readonly string[]; env?: Record<string, string> }
 // --clearenv: the session's environment (credentials included) never reaches a check or a setup command; --unshare-pid --as-pid-1: /proc is the jail's own and the command is its pid 1 (bwrap's own init would keep the original environment readable in /proc/1/environ)
-const RO = (j: J) => ['--clearenv', '--unshare-pid', '--as-pid-1', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', j.scratch, '/tmp']
+// `bare` (the offline jails, where task data argv such as a tester's `run` executes): an empty tmpfs over $HOME right after the root bind, so ~/.claude, ~/.ssh and the rest of the home are not there to read. Put back, read-only,
+// only what the command needs to start: each PATH entry under $HOME with its parent folder (a toolchain such as ~/.nvm/versions/node/v22/bin), which `--ro-bind-try` skips when absent. The worktree, the scratch and the cache binds come after and land inside the empty home.
+const toolchains = (j: J): string[] => { const home = j.env?.HOME ?? ''; return !home ? [] : [...new Set((j.env?.PATH ?? '').split(':').filter(d => d.startsWith(`${home}/`)).flatMap(d => [d, d.slice(0, d.lastIndexOf('/'))]).filter(d => d.length > home.length))].flatMap(d => ['--ro-bind-try', d, d]) }
+const bareHome = (j: J, bare: boolean): string[] => (bare && j.env?.HOME ? ['--tmpfs', j.env.HOME, ...toolchains(j)] : [])
+const RO = (j: J, bare = false) => ['--clearenv', '--unshare-pid', '--as-pid-1', '--ro-bind', '/', '/', ...bareHome(j, bare), '--dev', '/dev', '--proc', '/proc', '--bind', j.scratch, '/tmp']
 // what a jail keeps of the host environment: PATH, HOME and LANG (callers merge it into `env`; the jail adds TMPDIR, and the caller's own names such as CADRE_JUNIT and sandbox.env)
 export const jailEnv = async (run: Run): Promise<Record<string, string>> => { const [p, h, l] = (await run(['sh', '-c', 'printf "%s\\n%s\\n%s" "$PATH" "$HOME" "$LANG"'])).stdout.split('\n'); return { PATH: p || '/usr/local/bin:/usr/bin:/bin', HOME: h || '/tmp', ...(l ? { LANG: l } : {}) } }
 const tail = (j: J) => [...Object.entries({ PATH: '/usr/local/bin:/usr/bin:/bin', TMPDIR: '/tmp', ...j.env }).flatMap(([k, v]) => ['--setenv', k, v]),   // TMPDIR: the caller's (often outside the jail) would not exist in it; /tmp is the scratch
   ...(j.writable ?? []).flatMap(w => ['--bind', w, w]), '--chdir', j.pkgRoot, '--', ...j.argv]
 // checks: tree writable, writes discarded, no network
-export const overlayJail = (j: J): string[] => ['bwrap', '--unshare-net', ...RO(j), '--overlay-src', j.wt, '--tmp-overlay', j.wt, ...tail(j)]
+export const overlayJail = (j: J): string[] => ['bwrap', '--unshare-net', ...RO(j, true), '--overlay-src', j.wt, '--tmp-overlay', j.wt, ...tail(j)]
 // setup / skeleton: the worktree is really written, network on
-export const writableJail = (j: J): string[] => ['bwrap', ...RO(j), '--bind', j.wt, j.wt, ...tail(j)]
+const writable = (j: J, bare: boolean): string[] => ['bwrap', ...RO(j, bare), '--bind', j.wt, j.wt, ...tail(j)]
+export const writableJail = (j: J): string[] => writable(j, false)   // keeps the real $HOME: a package manager's caches live there
 // init discovery: writable jail + an overlay over $HOME; what setup wrote lands in <scratch>/home-up
 export const homeJail = (j: J & { home: string }): string[] => ['bwrap', ...RO(j), '--bind', j.wt, j.wt, '--overlay-src', j.home, '--overlay', `${j.scratch}/home-up`, `${j.scratch}/home-work`, j.home, ...tail(j)]
 
 // A19 fallback (bwrap < 0.11 has no overlay, S42/S46). copyJail: j.wt is a throwaway COPY of the tree, bound writable and discarded; network stays off.
-export const copyJail = (j: J): string[] => ['bwrap', '--unshare-net', ...writableJail(j).slice(1)]
+export const copyJail = (j: J): string[] => ['bwrap', '--unshare-net', ...writable(j, true).slice(1)]
 // init cache audit without a $HOME overlay: HOME (+XDG) = an empty scratch dir the jail may write; what lands there is what setup wrote.
 export const homeScratchJail = (j: J & { scratchHome: string }): string[] => {
   const h = j.scratchHome

@@ -50,5 +50,5 @@ test('docs/profile.md contains the profiles/default.ts JSON and states what onFa
 })
 test('docs/limitations.md states the repo-layer risk, the engine-text exception and the unjailed-argv entry', () => {
   const l = BUDGET.docs.limitations as string
-  for (const s of ['accepted owner risk', '/proc/<pid>/environ', 'adapters.<name>.url', 'run[0]', '.cadre/profile.json', '.cadre/config.json', 'Without bwrap', 'engine-text-exception', 'drive.limited', 'queue.modelRefusal', 'exit-only', 'B23', '`landing.provider` is an unconfined path', 'cleared environment']) expect(l).toContain(s)
+  for (const s of ['accepted owner risk', '/proc/<pid>/environ', 'adapters.<name>.url', 'run[0]', '.cadre/profile.json', '.cadre/config.json', 'Without bwrap', 'engine-text-exception', 'drive.limited', 'queue.modelRefusal', 'exit-only', 'B23', '`landing.provider` is an unconfined path', 'empty `$HOME`', 'remaining exposure']) expect(l).toContain(s)
 })
