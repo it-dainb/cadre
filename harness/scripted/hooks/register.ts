@@ -83,10 +83,10 @@ const FNS: Fn[] = [
   { name: 'kebabCase', title: 'S1: kebabCase joins the words with dashes', input: 'Hello Big World', out: 'hello-big-world', impl: String.raw`s => s.trim().toLowerCase().split(/\s+/).join('-')`, what: 'lowercase the words and join them with dashes' },
 ]
 const fnOf = (brief: string) => (/kebabCase/.test(brief) ? FNS[1] : FNS[0])
+// the symbol is loaded inside the test: a top-level import of a module that does not exist yet fails the whole file, and the declared test is then "not run" (B1, B3)
 const TEST = (f: Fn) => `import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ${f.name} } from '../src/${f.name}.mjs'
-test('${f.title}', () => assert.equal(${f.name}('${f.input}'), ${f.lit ?? `'${f.out}'`}))
+test('${f.title}', async () => { const { ${f.name} } = await import('../src/${f.name}.mjs'); assert.equal(${f.name}('${f.input}'), ${f.lit ?? `'${f.out}'`}) })
 `
 // the test file only when there is none (full lane: the tester's is locked)
 const FILES = (f: Fn) => `mkdir -p src test && cat > src/${f.name}.mjs <<'EOF'
