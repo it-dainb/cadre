@@ -16,7 +16,7 @@ import { checkpoint } from './effect'
 import { type Entry, cardOf, inFlight, qk, savePointer, warm } from './session'
 import { drive, goalSeen } from './drive'
 import { kick, spentOf } from './lessons'
-import { makerOf, roleAt } from './pipeline'
+import { makerOf, roleAt, workspaceAt } from './pipeline'
 
 const counted = (h: Host, q: Entry[], me: string) => h.board.update(s => ({ ...s, resumesQueued: q.filter(x => x.sessionId === me).length }))
 
@@ -164,7 +164,7 @@ export const drain: Hook = async (h, e, next) => {
       if (!b || !store) return
       const d = await resolveDeps(h)
       const tk = (await h.board.read()).tasks.find(x => x.id === b.taskId)   // L3: only while the task works; writes after report{done} must not move the tip past sourceCommit
-      if (tk && b.worktree && tk.state === 'active' && tk.step === makerOf(tk.type, tk.lane) && b.role === roleAt(tk.step)) await safe(h, 'checkpoint', () => checkpoint(h, store, d.actor, b.taskId, b.worktree))
+      if (tk && b.worktree && tk.state === 'active' && tk.step === makerOf(tk.type, tk.lane) && workspaceAt(tk.step) === 'worktree' && b.role === roleAt(tk.step)) await safe(h, 'checkpoint', () => checkpoint(h, store, d.actor, b.taskId, b.worktree))
       return void (await safe(h, 'cost ledger', () => ledger(h, store, d.actor, cfg, e.agentId, b.taskId)))
     }
     const u = await h.usage?.(), all = ((await h.store.get(await scoped(h, 'cost:all'))) as U) ?? zero(), pct = u?.context?.percent
