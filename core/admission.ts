@@ -148,7 +148,7 @@ const noteOf = (said: unknown, id: string): string | undefined => {
 }
 const briefOf = (s: Snapshot, t: SnapTask, task: Task, e: any, d: Deps, role: Role, extra: Partial<BriefIn> = {}): BriefIn => ({
   paths: pathsOf(task), testPaths: role === 'tester' ? pkgOf(d, task)?.tdd?.paths : undefined, runAsk: role === 'tester', locked: task.meta['cadre.locked'] ? JSON.parse(task.meta['cadre.locked']) : undefined, redCard: task.meta['cadre.red'],
-  holds: holdsOf(task), id: t.id, title: t.title, type: t.type, description: task.description, scenarios: task.acceptance, contract: task.design, notes: noteOf(e.prompt, t.id), protectedPaths: protectedOf(),
+  holds: holdsOf(task), id: t.id, title: t.title, type: t.type, description: task.description, scenarios: task.acceptance, contract: task.design, rubric: typeOf(t.type)?.rubric, notes: noteOf(e.prompt, t.id), protectedPaths: protectedOf(),
   how: role === 'worker' ? task.meta['cadre.how'] : undefined, deps: t.deps.filter(x => x.type !== 'conditional-blocks').map(x => ({ id: x.id, title: s.tasks.find(y => y.id === x.id)?.title ?? '' })), ...extra })
 
 // what the plan shares with every task brief (ADR 0014 G, 0022): the plan block (mission, the landed core's interface, the notes without paths) is the same

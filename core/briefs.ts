@@ -30,7 +30,7 @@ const HEAD: Record<Role, string> = {
   specifier: 'Specifier brief. Read-only. Write how-to notes for the task below; the scenarios and the contract stay as they are. Finish with report{role:"specifier"}.',
 }
 export interface BriefIn {
-  id: string; title: string; type: string; description?: string; scenarios?: string; contract?: string; notes?: string
+  id: string; title: string; type: string; description?: string; scenarios?: string; contract?: string; rubric?: string; notes?: string
   paths?: string[]; testPaths?: string[]; locked?: string[]; redCard?: string; greenCard?: string; deps?: { id: string; title: string; out?: string }[]
   findings?: string[]; decisions?: string[]; holds?: string[]; handoff?: string; others?: string[]; protectedPaths?: string[]; shared?: string; lessons?: string; mission?: string; core?: string; slice?: string; uncovered?: string[]   // uncovered: set when the type's acceptance is covered (cover is not none); the scenario ids no locked test name carries
   how?: string; runAsk?: boolean; sourceCommit?: string; diffStat?: string; diff?: string; audit?: string; report?: string; changelog?: string; flags?: string[]; question?: string; focus?: string
@@ -51,7 +51,7 @@ const task = (b: BriefIn, tag: string, why = '') => `# ${tag ? `${tag} ` : ''}TA
 const SECTIONS: Record<string, (b: BriefIn, role: Role) => string> = {
   plan: planBlock, head: (_, role) => HEAD[role] ?? `${up(role)} brief. ${up(roleSpec(role)?.description ?? role)}. Finish with report{role:"${role}"}.`, notes: b => sec('Notes', cap(b.notes ?? '', 500)), scope: () => sec('Scope', 'read-only; no edits, no shell'),
   mine: b => join([sec('Notes on your files', cap(b.slice ?? '', 1000)), sec('Lessons from earlier work', b.lessons)]),
-  description: b => sec('Description', b.description), scenarios: sc, contract: b => sec('Contract', renderContract(b.contract)),
+  rubric: b => sec('Rubric', b.rubric), description: b => sec('Description', b.description), scenarios: sc, contract: b => sec('Contract', renderContract(b.contract)),
   question: b => `# ${b.question !== undefined ? 'QUESTION' : `TASK-${b.id}`}\n${b.question ?? b.title}`, title: b => task(b, ''), titleSpec: b => task(b, 'SPEC', ' (the code this task changes)'), titleWorker: b => task(b, '', ' (make your changes there)'),
   titleReview: b => task(b, 'REVIEW', ' (a change outside these files is a finding, not a fail on its own)'),
   decided: b => sec('Decided (apply it to the tests)', b.decisions), holding: b => sec('Already holding', b.holds?.length ? `${b.holds.join(', ')}: this behaviour exists already: write its test so it PASSES now (named after the id). The other scenarios' tests must fail now.` : ''),
@@ -74,7 +74,7 @@ const LAYOUT: Record<Role, (string | string[])[]> = {   // the tester reads no `
 }
 // a role of the profile's own has no fixed layout: the sections its step names, in the step's order, under its description
 const SECTION_KEY: Record<string, string> = { acceptance: 'scenarios' }
-const generic = (role: string): (string | string[])[] => ['plan', 'head', 'title', ...(Object.values(active().steps).find(s => 'role' in s && s.role === role && s.brief) as { brief: string[] } | undefined)?.brief.map(k => SECTION_KEY[k] ?? k) ?? [], 'mine', 'notes']
+const generic = (role: string): (string | string[])[] => ['plan', 'head', 'title', ...(Object.values(active().steps).find(s => 'role' in s && s.role === role && s.brief) as { brief: string[] } | undefined)?.brief.map(k => SECTION_KEY[k] ?? k) ?? [], 'rubric', 'mine', 'notes']   // a profile's role: its type's rubric (what to judge by) after the sections it names
 export const brief = (role: Role, b: BriefIn): string => join((LAYOUT[role] ?? generic(role)).map(k => (typeof k === 'string' ? SECTIONS[k](b, role) : cap(join(k.slice(1).map(x => SECTIONS[x](b, role))), k[0] === 'spec' ? 4096 : 3072))))
 // the tester proposes its test command, cadre runs it (ADR 0023): task language only
 export const RUN_ASK = 'In your report, give run: the command that runs only your test files and writes JUnit XML to $CADRE_JUNIT, as an argument list with no shell, e.g. {"command":["node","--test","--test-reporter=junit","--test-reporter-destination=$CADRE_JUNIT","test/login.test.js"]} (pytest: --junitxml=$CADRE_JUNIT; jest: jest-junit); add cwd (a folder relative to this one) only if the runner must start there. Without that file your tests cannot be checked. List every test in tests[{path,name,ids}] with the scenario ids it checks, each name exactly as the runner reports it. You do not run it: it is run for you, and every test you list must fail with an assertion now, not with an import or setup error.'
