@@ -67,7 +67,7 @@ import type { RoleSpec } from '../types/profile'
 
 const critic: RoleSpec = { description: 'critic', prompt: 'p', tools: ['Read', 'mcp__cadre__report'], network: 'off', write: [], ttl: '5m', onSilent: 'block',
   report: { outcomes: [], fields: { note: { text: 5 }, tags: { list: 2, of: { text: 3 } }, ok: 'bool', mode: { enum: ['a', 'b'] }, kind: 'text', items: 'list', cmd: 'command', obj: { object: { id: { text: 4 } }, required: ['id'] } }, required: ['note'] }, verdict: { pass: 'agree', fail: 'object' } }
-const swap = async (extra: Record<string, RoleSpec>, f: () => void) => { setRoles({ ...roles, ...extra }); try { f() } finally { setRoles(roles) } }
+const swap = (extra: Record<string, RoleSpec>, f: () => void) => { setRoles({ ...roles, ...extra }); try { f() } finally { setRoles(roles) } }
 const refusal = (role: string, o: object) => reportRefusal({ schemaVersion: 1, role, ...o })
 describe('validateReport: one function for built-in and custom roles', () => {
   test('a built-in role: same text and code as 1.0.1 (the contracts and native-validate tests pin every line); no role name is read', () => {
