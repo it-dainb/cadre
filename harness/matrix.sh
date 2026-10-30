@@ -64,6 +64,8 @@ specifier-off|single ready scripted/full|every|MODEL=haiku CC_VERSION=2.1.295 S=
 # the 2.0 profile cells (S5): the built-in docs profile end to end; a refused repo profile leaves cadre dormant
 profile-docs|single ready scripted/profile-docs|profile-docs|MODEL=haiku CC_VERSION=2.1.295 S=1 PERM=auto LANDED=1 LAND_RE=docs BUDGET=600 ORACLE=profile-docs
 profile-invalid|single ready scripted/profile-invalid|profile-invalid|MODEL=haiku CC_VERSION=2.1.295 S=1 BUDGET=150 ORACLE=profile-invalid
+# its L twin (plan §8, haiku, BUDGET <= 900): a real model plans and writes one doc under the docs profile
+profile-docs-live|single ready docs|profile-docs|MODEL=haiku CC_VERSION=2.1.295 PERM=auto LANDED=1 LAND_RE=docs BUDGET=900 PROXY=1 ORACLE=profile-docs
 EOF
 }
 # the 0.16 release gate (L, needs the user's OK; the quick tier runs apart): the restart cell, exit-every-role live on 2.1.295 and on the newest build.
