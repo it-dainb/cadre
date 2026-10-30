@@ -11,7 +11,7 @@ import { assess } from '../policy/containment'
 import { EXIT, extraRoles } from '../core/roles'
 import { loaded } from '../core/profile'
 import { policyOf } from '../policy/guards'
-import { call } from '../task-management/protocol'
+import { envSet } from '../core/modrun'
 import { openPane } from '../ui/index'
 import { GATE, GATE_REV, gated, progress, scoped, type Item } from './init'
 import { prefsItem, prefsRow } from './prefs'
@@ -215,9 +215,11 @@ async function project(h: Host, cfg: Config): Promise<Row[]> {
   rows.push(q ? ['warn', `${q} quarantined ref(s)`, 'press 1: keep or restore in the dialog'] : ['ok', 'no quarantined refs'])
   const rq = ((await h.store.get(await qk(h))) as unknown[] | undefined)?.length ?? 0
   rows.push(rq ? ['warn', `${rq} resume(s) queued`, 'they are sent at the next turn'] : ['ok', 'no queued resumes'])
-  for (const [t, v] of Object.entries(cfg.sync)) {
-    const a = (cfg.adapters as Record<string, any>)[(v as any)?.adapter ?? t]
-    rows.push(await call(h, t, a ?? {}, 'ping', {}, 5000).then((): Row => ['ok', `sync ${t} answers`], (e): Row => ['warn', `sync ${t}: ${e.message}`, '/cadre sync now']))
+  for (const [t, v] of Object.entries(cfg.sync)) {   // from the sync module's last result (core/syncrun): Doctor starts no adapter, and reads a credential only as set or missing
+    const a = (cfg.adapters as Record<string, any>)[(v as any)?.adapter ?? t] ?? {}, rt = (await h.store.get(`sync.rt:${t}`)) as { state?: string; at?: number; message?: string; stale?: number } | undefined, min = rt?.at === undefined ? 0 : Math.round((now - rt.at) / 60_000)
+    rows.push(!rt?.at ? ['warn', `sync ${t}: no result yet`, '/cadre sync now'] : rt.state !== 'ok' ? ['warn', `sync ${t}: ${rt.message ?? rt.state}`, '/cadre sync now'] : min >= 10 ? ['warn', `sync ${t}: no result for ${min} min`, '/cadre sync now']
+      : rt.stale ? ['warn', `sync ${t}: ${rt.stale} ops stale, retried next cycle`, '/cadre sync now'] : ['ok', `sync ${t}: ok, ${Math.round((now - rt.at) / 1000)} s ago`])
+    if (a.credentialEnv) rows.push((await envSet(h, a.credentialEnv)) ? ['ok', `sync ${t} credential ${a.credentialEnv}: set`] : ['warn', `sync ${t} credential ${a.credentialEnv}: missing`, 'start Claude Code with that variable set'])
   }
   rows.push(b.drive.stopped ? ['warn', `drive stopped: ${b.drive.stopped}`, 'press 0 on the band to resume'] : b.drive.paused ? ['warn', `drive paused: ${b.drive.paused}`, 'it continues by itself after you answer'] : ['ok', `drive ${b.drive.on ? `on, ${b.drive.turns} turns` : 'off until a plan is approved'}`])
   return rows

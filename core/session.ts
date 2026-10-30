@@ -3,7 +3,6 @@ import { active, verdictAt } from './pipeline'
 import type { Binding, Host, Snapshot } from '../types'
 import type { TaskStore } from '../task-management/store'
 import { StoreError } from '../task-management/store'
-import { resetDelivery } from '../task-management/sync-engine/loop'
 import { repoKeyOf, scoped } from '../commands/init'
 import { cfgOf, ctlGet, ctlSet, gateDraw, mirror, missionOf, redraw, storeOf } from './dispatch'
 import { ask } from './decide'
@@ -132,7 +131,7 @@ async function hydrate(h: Host): Promise<boolean> {
   await h.board.update(s => ({ ...s, mission: p.mission, epic: p.epic, plan: p.plan, drive: { ...p.drive, on: false, paused: undefined, ...(same ? {} : { stopped: undefined }) } }))
   await mirror(h, store)
   await safe(h, 'decisions', () => reask(h, store, p.plan))
-  await safe(h, 'ring rebuild', async () => { if (await ring(h, store, p.epic)) await resetDelivery(h) })
+  await safe(h, 'ring rebuild', async () => { if (await ring(h, store, p.epic)) for (const [n, a] of Object.entries((await cfgOf(h)).adapters as Record<string, { grants?: string[] }>)) if (a?.grants?.includes('events')) await h.store.del(`mod:sync:events:${n}`) })   // every events adapter gets reset:true + a snapshot on its next run (2.5)
   const rec = same ? await casDrive(h, store, r => (r?.on && r.epicId === p.epic && r.lease.session === p.session ? { ...r, lease: { session: me, until: now + LEASE } } : undefined)) : undefined   // our own lease moves to the new session id
   if (rec?.on && rec.epicId === p.epic) await h.board.update(s => ({ ...s, drive: { ...s.drive, on: true, turns: rec.turns, mode: rec.mode, stopped: rec.stopped } }))   // drive survives /clear: it continues at the next turn.complete (9)
   let gone = 0   // this process's agents survive a /clear: kept while their task is in flight

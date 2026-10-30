@@ -19,7 +19,7 @@ test('registry = the leaves of defaults(), 1:1', () => { assert.deepEqual([...ke
 test('every config key read in the code is registered', () => {
   const bad = []
   for (const [f, lines] of SRC) {
-    if (f === 'task-management/protocol.ts' || f.startsWith('ui/')) continue   // an adapter's `cfg`; the ui reads the ui.cfg mirror core/session.start writes
+    if (f.startsWith('ui/')) continue   // an adapter's `cfg`; the ui reads the ui.cfg mirror core/session.start writes
     lines.forEach((l, i) => {
       for (const m of l.matchAll(/(?:\bd\.cfg|(?<![.\w])cfg|cfgOf\(h\)\))\.([A-Za-z][\w.]*)/g)) {
         let p = ''
@@ -54,7 +54,6 @@ const ALLOW = {
   'commands/init.ts': /cadre\.json|config\.json/,   // init writes .cadre/config.json and the user file's repo section after confirm cards
   'commands/cadre.ts': /defaults\(\)/,   // `/cadre config show` lists what differs from the defaults
   'core/lanes.ts': /cfgDefaults\(\)\.lanes/,   // the pure laneOf's fallback; every caller with a Host passes cfgOf(h).lanes
-  'task-management/sync-engine/loop.ts': /config\.json|cadre\.json/,   // `sync add` writes .cadre/config.json after its confirm card
   'core/session.ts': /readText\(`\$\{await h\.cwd\(\)\}\/\.cadre\/config\.json`\)/,   // existence only: the repo opted in
   'commands/doctor.ts': /readText\(`\$\{root\}\/\.cadre\/config\.json`\)|cadre\.json/,   // existence only; a fix line names the file
   'core/drive.ts': /cadre\.json/,   // hashes the file's bytes: a settings change nobody approved stops a drive

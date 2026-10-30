@@ -9,6 +9,7 @@ import type { Cat, Cls, Config, Meta } from './defaults'
 export { defaults, REG, CATS } from './defaults'
 export type { Config, Cat, Meta } from './defaults'
 export type Trust = 'user' | 'repo'
+export const SYNC_KEYS = ['adapter', 'url', 'project', 'mapping', 'direction']   // what a sync target may hold in the repo's config (the add wizard writes exactly these)
 export interface Layer { name: string; trust: Trust; value: unknown }
 
 const plain = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -62,6 +63,11 @@ export function resolve(layers: Layer[]): { config: Config; diagnostics: string[
     if (!plain(l.value)) { if (l.value !== undefined) diagnostics.push(`${l.name}: not an object, skipped`); continue }
     const d: string[] = []; const m = merge(config, l.value, l.trust, d)
     diagnostics.push(...d.map(x => `${l.name}: ${x}`)); config = m   // ponytail: bad keys are dropped per key, the rest of the layer still applies
+  }
+  // D23: a repo sync target holds only the closed keys (never a credential or a command) and cannot move the tracker URL the user pinned in adapters.<name>.url; a refused target is dropped
+  for (const l of layers) if (l.trust === 'repo' && plain(l.value) && plain(l.value.sync)) for (const [t, v] of Object.entries(l.value.sync)) {
+    const pin = (config.adapters as any)?.[(v as any)?.adapter]?.url, bad = !plain(v) ? 'not an object' : Object.keys(v).find(k => !SYNC_KEYS.includes(k)) ? `only ${SYNC_KEYS.join(', ')} are allowed in the repo file` : pin && v.url !== undefined && v.url !== pin ? `the url differs from the user's adapters.${(v as any).adapter}.url` : ''
+    if (bad) { diagnostics.push(`${l.name}: sync.${t}: ${bad}; refused`); delete (config.sync as any)[t] }
   }
   diagnostics.push(...modelIssues(config as Config))   // refused at load: the drive does not start (core/drive.gate), Doctor names the cell
   return { config: config as Config, diagnostics }

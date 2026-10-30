@@ -106,7 +106,7 @@ export const REG: Record<string, Meta> = {
   'cost.clearHintPct': m(CA, 'context fill that suggests /clear after an epic lands', N(1, 100)), 'cost.compactPct': m(CA, 'context fill that suggests /compact', N(1, 100)),
   'cost.prices': m(CA, '$ per Mtok per model alias, for cost in the pane', { cls: 'U', open: true }),
   'store.kind': m(ST, 'task store (env CADRE_STORE)', { cls: 'U', opts: ['file', 'memory'] }),
-  adapters: m(ST, 'sync adapters: {command, credentialEnv, grants}', { cls: 'U', open: true }), sync: m(ST, 'sync targets of this repo', { open: true }),
+  adapters: m(ST, 'sync adapters: {command | repo: {module}, credentialEnv, envPass, url, grants}', { cls: 'U', open: true }), sync: m(ST, 'sync targets of this repo', { open: true }),
   'ui.glyphs': m('UI', 'unicode or ascii marks', { opts: ['unicode', 'ascii'] }), 'ui.flash': m('UI', 'flash a row when it changes'), 'ui.density': m('UI', 'row spacing', { opts: ['compact', 'normal', 'relaxed'] }),
   'ui.notify': m('UI', 'desktop notifications for what needs you', { opts: ['on', 'off'] }), 'ui.escalateAfterMs': m('UI', 'an unanswered item becomes a desktop notification after this (ms)', N(5_000, 3_600_000)),
   'roles.specifier.enabled': m(M, 'a specifier writes how-to notes for each task before its work starts (it cannot change the scenarios); off: the worker starts from the task as planned'), 'roles.specifier.model': m(M, 'specifier: model', { ok: mdl }), 'roles.specifier.effort': m(M, 'specifier: effort', { opts: EFFORT }),
