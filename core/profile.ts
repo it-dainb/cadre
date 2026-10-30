@@ -87,6 +87,7 @@ export function cross(p: Profile, own?: ProfileLayer): string | null {
     const at = `types.${t}`, bad = list.find(s => !Object.hasOwn(S, s)); if (!list.length) return `${at}: the pipeline is empty`; if (bad) return `${at}: no step "${bad}"`
     const dup = list.find((s, i) => list.indexOf(s) !== i); if (dup) return `${at}: step "${dup}" appears twice`
     for (const [i, s] of list.entries()) { const st = S[s]; if ('gate' in st && !(list.indexOf(st.on) >= 0 && list.indexOf(st.on) < i)) return `${at}: gate "${s}" must come after its step "${st.on}"` }
+    for (const [i, s] of list.entries()) { const st = S[s], nx = S[list[i + 1]]; if ('role' in st && st.workspace === 'none' && !p.roles[st.role]?.verdict && nx && 'gate' in nx && nx.gate !== 'report') return `${at}: gate "${list[i + 1]}" follows the read-only step "${s}", which leaves no tree to check; only a role step or the report gate may follow it` }   // explorerDone closes at the report gate; no engine path runs a check there
     const land = list.findIndex(s => { const st = S[s]; return 'gate' in st && st.gate === 'integrate' }), last = list.findLastIndex(s => { const st = S[s]; return 'role' in st && !!p.roles[st.role]?.verdict })
     if (land >= 0 && (land !== list.length - 1 || land < last)) return `${at}: the integrate gate must be last and after every review step`
   }

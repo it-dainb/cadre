@@ -50,7 +50,7 @@ export function validateFields(m: Record<string, unknown>): string | null {
   if (sc !== undefined) {
     const eg = '[{"id":"A1","text":"…"}]'
     if (!Array.isArray(sc) || !sc.length) return bad('metadata.acceptance', `a non-empty array ${eg}`, sc)
-    for (const [i, a] of sc.entries()) if (!str(a?.id) || a.id.length > 16 || /* ids carry no ':' or line break */ [':', '\n', ' '].some(c => a.id.includes(c)) || !str(a.text) || a.text.includes('\n') || sc.findIndex((x: any) => x?.id === a.id) !== i) return bad(`metadata.acceptance[${i}]`, `{"id":"A1","text":"one line"}, ids unique, with no space or ":"`, a)
+    for (const [i, a] of sc.entries()) if (!str(a?.id) || a.id.length > 16 || /* ids carry no ':' or line break */ [':', '\n', '\r', ' '].some(c => a.id.includes(c)) || !str(a.text) || a.text.includes('\n') || a.text.includes('\r') || sc.findIndex((x: any) => x?.id === a.id) !== i) return bad(`metadata.acceptance[${i}]`, `{"id":"A1","text":"one line"}, ids unique, with no space or ":"`, a)
   }
   const c = f('changelog') as any
   if (c !== undefined) {
@@ -110,8 +110,8 @@ export function sliceNotes(notes: Note[], paths: string[], slice: boolean): { sh
   return { shared: txt(notes.filter(n => !pathed(n))), slice: txt(notes.filter(n => pathed(n) && (!paths.length || n.paths!.some(p => paths.some(q => overlap(p, q)))))) }
 }
 // the one-line scenario a worker's spec_change proposes: checked when it reports, and again before cadre writes it into the spec
-// [id, text] of one line "<id>: <text>" (an acceptance item), else null: the id is non-empty and has no space, the text is not empty
-export const specScenario = (s: string): [string, string] | null => { const i = s.indexOf(':'), id = s.slice(0, i).trim(), t = s.slice(i + 1).trim(); return i > 0 && !s.includes('\n') && id && !id.includes(' ') && t ? [id, t] : null }
+// [id, text] of one line "<id>: <text>" (an acceptance item), else null: the same id rules as the planner's items (1-16 characters, no space, ':' or line break), the text is not empty. One line cannot repeat an id: applying it replaces the line with that id or appends a new one, so ids stay unique
+export const specScenario = (s: string): [string, string] | null => { const i = s.indexOf(':'), id = s.slice(0, i).trim(), t = s.slice(i + 1).trim(); return i > 0 && !s.includes('\n') && !s.includes('\r') && id && id.length <= 16 && !id.includes(' ') && t ? [id, t] : null }
 // the id of one stored acceptance line "<id>: <text>" (ids carry no ':')
 export const idOf = (l: string): string => l.slice(0, l.includes(':') ? l.indexOf(':') : undefined).trim()
 // the contract's items (`{items:[{name, ...}]}`; `{none}` and a missing one have none)

@@ -89,7 +89,7 @@ async function semantic(h: Host, task: Task, wt: string, r: any, enforce: boolea
   if (r.verdict === 'changes' && !fs.some(f => f.severity === 'blocker' || f.severity === 'major')) return 'verdict changes needs at least one blocker or major finding; minor/nit alone is a pass'
   if (r.verdict === 'pass' && fs.some(f => f.severity === 'blocker')) return 'verdict pass is refused while a blocker finding is listed'
   const want = scenarioIds(task.acceptance), got = cov.map((c: any) => coverKey(task.acceptance)(c?.scenario))
-  if ('coverage' in fields && want.some(s => !got.includes(s))) return `coverage must name every scenario; missing ${want.filter(s => !got.includes(s)).join(', ')} (e.g. {"scenario":"S1","test":"path","ok":true})`
+  if ('coverage' in fields && want.some(s => !got.includes(s))) return `coverage must name every scenario; missing ${want.filter(s => !got.includes(s)).join(', ')} (e.g. {"scenario":"${want[0]}","test":"path","ok":true})`
   const gaps = r.verdict === 'pass' ? coverageGaps(enforce, task.acceptance, specTestsOf(task), r.coverage) : []   // ADR 0022: coverage is a hard check
   if (gaps.length) return `coverage: verdict pass is refused: ${gaps.join('; ')}. Report verdict changes with a major finding for each (or give the test that really checks it, ok:true)`
   const syms: string[] = itemsOf(task.design).map(s => s.name), have = cs.map((c: any) => c?.name)
@@ -202,7 +202,7 @@ async function verdict(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
 async function explorerDone(h: Host, d: Deps, t: SnapTask, agentId: string, r: any): Promise<string> {
   const at = await h.now()
   await apply(h, { kind: 'advance', id: t.id, at, actor: 'mod' })
-  const more = roleAt((await h.board.read()).tasks.find(x => x.id === t.id)?.step ?? '')   // a profile may follow a read-only step with a role step: the task goes on to it, it is not done
+  const more = roleAt((await h.board.read()).tasks.find(x => x.id === t.id)?.step ?? '')   // a profile may follow a read-only step with a role step: the task goes on to it, it is not done. Only the report gate may follow it (core/profile.cross), so no check is skipped here
   if (!more) { const m = await apply(h, { kind: 'close', id: t.id, at, actor: 'mod', cites: (r.citations ?? []).length }); if (!m.ok) throw new Error(m.error) }
   await record(h, d, t.id, 'answer', 'explorer', { citations: (r.citations ?? []).length }, { answer: r.answer ?? r.summary })
   if (more) { await end(h, agentId, 'answer', 'done'); return 'recorded; the next step starts by itself. Stop.' }

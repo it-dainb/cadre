@@ -10,6 +10,7 @@ import { start } from '../core/session'
 import { PASS, world, type World } from './fixtures/replay/world'
 import { arm } from '../core/drive'
 import { active, setProfile } from '../core/pipeline'
+import { profile as DEFAULT } from '../profiles/default'
 
 const run = (state: RunState | null): Run => ({ taskId: 't1', role: 'worker', step: 'worker', state, epoch: 1, log: [] })
 const S = {
@@ -88,6 +89,14 @@ describe('step(): the run record', () => {
   })
   test('an agent with neither a binding nor a record has no run', async () => {
     const w = await world(); expect(await step(w.h, 'stranger', { type: 'turn.end', text: 'go on' })).toBeUndefined(); expect(await runOf(w.h, 'stranger')).toBeUndefined()
+  })
+  test('a role step after a read-only step takes the task on (it is not done); the report gate closes it', async () => {
+    const before = active()
+    try {
+      setProfile({ ...DEFAULT, types: { ...DEFAULT.types, spike: { ...DEFAULT.types.spike, pipeline: ['explorer', 'worker'] } } } as any)
+      const y = await world({ type: 'spike' }); await y.at('ag1', y.ids[0], 'explorer')
+      expect(await y.rep('ag1', { role: 'explorer', answer: 'src/a.ts:3', citations: [] })).toContain('the next step starts by itself'); expect((await y.h.board.read()).tasks[0].state).not.toBe('done')
+    } finally { setProfile(before) }
   })
   test('an explorer\'s answer ends its run done; a landed task prunes its agents\' records', async () => {
     const x = await world({ type: 'spike' }); await x.at('ag1', x.ids[0], 'explorer')
