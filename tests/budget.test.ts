@@ -3,7 +3,7 @@ import { BUDGET } from './fixtures/budget.generated'
 import { TOOLS } from '../tools/index'
 
 // Numbers come from `node scripts/budget.mjs` (the kit has no fs); regenerate before committing. P9: raising a cap needs an ADR.
-test('core LOC <= 7,250 (cap commit 2 of 2.0: S8 end 7102 + 148; non-test, excluding ui/, profiles/, modules/ and the test-only memory store)', async () => { expect(BUDGET.coreLoc).toBeLessThanOrEqual(7250) })
+test('core LOC <= 7,250 (cap commit 2 of 2.0: S8 end 7109 + 141; non-test, excluding ui/, profiles/, modules/ and the test-only memory store)', async () => { expect(BUDGET.coreLoc).toBeLessThanOrEqual(7250) })
 test('cap commit 1: modules/*.mjs <= 640 LOC and profiles/*.ts <= 350 LOC, each counted apart from core', async () => { expect(BUDGET.modulesLoc).toBeLessThanOrEqual(640); expect(BUDGET.profilesLoc).toBeLessThanOrEqual(350) })
 test('ui/ LOC <= 1,300 (O3), counted separately', async () => { expect(BUDGET.uiLoc).toBeLessThanOrEqual(1300) })
 test('memory store <= 150 LOC (test-only)', async () => { expect(BUDGET.memoryStoreLoc).toBeLessThanOrEqual(150) })
@@ -11,7 +11,7 @@ test('MCP tools = 3, skills = 0', async () => { expect([...TOOLS]).toEqual(['rep
 test('every gating registration has a .catch (validate --json gatingHooks)', async () => { expect(BUDGET.gatingMissing).toBe(0) })
 test('UI v2 files (first line `// UI v2`) hold no literal glyph, theme key or colour: they come from ui/tokens', async () => { expect(BUDGET.uiLiterals).toEqual([]) })
 test('A4: every built-in role prompt <= 1536 B (cap commit 2 of 2.0: the planner is the largest at 1356 B; the cap only goes down)', async () => { for (const [r, n] of Object.entries(BUDGET.promptBytes)) expect([r, n <= 1536]).toEqual([r, true]) })
-test('A4: agents/*.md + guides/* <= 16228 B (cap commit 2 of 2.0: the measured size at S8, the smallest that keeps every contract; the 15000 B target was not reached, ADR 0031; the cap only goes down)', async () => { expect(BUDGET.shippedBytes).toBeLessThanOrEqual(16228) })
+test('A4: agents/*.md + guides/* <= 16076 B (cap commit 2 of 2.0, lowered in the fix round: the measured size, the smallest that keeps every contract; the 15000 B target was not reached, ADR 0031; the cap only goes down)', async () => { expect(BUDGET.shippedBytes).toBeLessThanOrEqual(16076) })
 test('the specifier prompt <= 1536 B (0.17 plan, slice 7)', async () => { expect(BUDGET.promptBytes.specifier).toBeLessThanOrEqual(1536) })
 test('B5: the helper and need modules are gone from the module list', async () => {
   expect(Object.keys(BUDGET.modules).filter(m => /^core\/(helpers|needs)\.ts$/.test(m))).toEqual([])
