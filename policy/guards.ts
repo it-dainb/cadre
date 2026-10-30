@@ -1,5 +1,5 @@
 // L1 capability allowlist, file fence (DESIGN 13.1-13.2), tool.check allow, session.send isolation (4.6), config.set guard. Slots #4, #5, #7, config.set.
-import { locksAt } from '../core/pipeline'
+import { locksAt, roleAt, workspaceAt } from '../core/pipeline'
 import { modelText } from '../core/say'
 import type { Binding, Host, Hook } from '../types'
 import { MAIN_TOOLS, allowlist } from '../agents/index'
@@ -155,7 +155,7 @@ export const guard: Hook = async (h, e, next) => {
     const list = w.main ? (run ? [...MAIN_TOOLS, 'Bash'] : MAIN_TOOLS) : w.spec ? w.spec.tools.filter(t => w.spec!.network === 'on' || !/^Web(Fetch|Search)$/.test(t)) : allowlist(w.role, pol.mcpAllow)
     const loop = w.main ? undefined : await watchCall(h, e, w.role); if (loop) return loop
     if (!list.includes(e.tool)) return `${e.tool} is not available to ${w.main ? 'main' : `the ${w.role}`}; use another tool`
-    if (SHELL.includes(e.tool) && !run && !w.spec && !(w.role === 'worker' && w.owner && w.task?.step === 'worker')) return 'shell is available only while you implement your task; use mcp__cadre__run_check or mcp__cadre__inspect'
+    if (SHELL.includes(e.tool) && !run && !w.spec && !(w.owner && w.task?.step && workspaceAt(w.task.step) === 'worktree' && roleAt(w.task.step) === w.role)   // the role that works in the task's worktree) return 'shell is available only while you implement your task; use mcp__cadre__run_check or mcp__cadre__inspect'
     const f = await fence(h, w, e.tool, e, pol, run?.guide, run?.kind)
     return f === 'allow' || f === 'tmp' ? undefined : f
   }
