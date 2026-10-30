@@ -38,7 +38,7 @@ describe('the built-in profiles', () => {
     const c = (landing: object, hooks: object = {}) => cross({ ...DEFAULT, landing: { ...DEFAULT.landing, ...landing }, hooks } as Profile)
     expect(c({ envPass: ['GH_TOKEN', '_x1'] })).toBeNull(); expect(c({ union: ['CHANGELOG.md', 'docs/NOTES.md'] })).toBeNull()
     for (const n of ['1X', 'A-B', 'A B', '', 'A=1']) expect(c({ envPass: [n] })).toContain('is not an environment variable name'), expect(c({}, { release: [{ run: ['x'], envPass: [n] }] })).toContain('is not an environment variable name')
-    for (const u of ['/etc/x', '../x', 'a b', 'a*', '!x', '#x', '']) expect(c({ union: [u] })).toContain('landing.union')
+    for (const u of ['/etc/x', '../x', 'a b', 'a*', '!x', '#x', '', 'a\nb', 'a\rb', 'a\vb', 'a\fb', 'a\tb', 'a b', 'a//b', './a', 'a/.', 'a=b', 'a\\b', 'ä']) expect(c({ union: [u] })).toContain('landing.union')
     expect(check({ schema: 2, landing: { ...DEFAULT.landing, union: 'CHANGELOG.md' } })).toContain('landing'); expect(DEFAULT.landing.union).toEqual(['CHANGELOG.md']); expect(BUILTIN.docs.landing!.union).toBeUndefined(); expect(BUILTIN.analysis.landing!.union).toBeUndefined()
   })
   test('pipelines for the six default types equal 1.0.1\'s defaults() (golden), and so do the commit prefixes (G5)', () => {
@@ -102,6 +102,11 @@ describe('the repo layer (D18, B23): as is, the repo wins; an invalid one is dor
   test('${MODULES} resolves per origin layer: the plugin\'s folder for the user layer, the repo\'s for the repo', async () => {
     const both = await loadProfile(host({ present: ['/plug/modules/u.mjs', '/repo/.cadre/modules/r.mjs'], user: LAYER({ hooks: { release: [{ run: ['node', '${MODULES}/u.mjs'] }] } }), repo: LAYER({ hooks: { 'task.closed': [{ run: ['node', '${MODULES}/r.mjs'] }] } }) }))
     expect([both.bad, both.profile.hooks.release![0], both.profile.hooks['task.closed']![0]]).toEqual([undefined, { run: ['node', '/plug/modules/u.mjs'] }, { run: ['node', '/repo/.cadre/modules/r.mjs'] }])
+  })
+  test('F6: ${MODULES} is substituted per string after the parse: a plugin path with a quote and a backslash stays one string', async () => {
+    const root = '/pl"ug\\x', h = host({ user: LAYER({ hooks: { release: [{ run: ['node', '${MODULES}/u.mjs'] }] } }) }), stat = h.stat
+    h.root = async () => root; h.stat = async (p: string, r?: { resolve?: boolean }) => (p === `${root}/modules/u.mjs` ? { kind: 'file', realPath: r?.resolve ? p : undefined } : p === `${root}/modules` ? { kind: 'dir', realPath: p } : stat(p, r))
+    const l = await loadProfile(h); expect(l.bad).toBeUndefined(); expect(l.profile.hooks.release![0]).toEqual({ run: ['node', `${root}/modules/u.mjs`] })
   })
   test('a repo key replaces the same user key and a key it does not name survives (the repo wins)', async () => {
     const user = LAYER({ limits: { rebaseRounds: 5, startFails: 4 }, roles: { scribe: WRITER }, fields: [{ name: 'team', store: 'meta', required: false }] })

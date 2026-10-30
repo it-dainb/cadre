@@ -70,7 +70,8 @@ const EX: Record<string, string> = {
 }
 const alnum = (c: string) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 const envName = (s: string) => !!s && !(s[0] >= '0' && s[0] <= '9') && [...s].every(c => alnum(c) || c === '_')
-const plainPath = (s: string) => !!s && !s.startsWith('/') && !s.split('/').includes('..') && ![...s].some(c => ' *?[]#!\\\t'.includes(c))
+// an allowlist like nameOk: segments of letters, digits, . _ - joined by /, none empty, none . or .., not absolute (a landing.union path becomes a line of .git/info/attributes)
+const plainPath = (s: string) => !!s && s.split('/').every(g => g !== '' && g !== '.' && g !== '..' && [...g].every(c => alnum(c) || '._-'.includes(c)))
 const unknownNames = (s: string): string | null => { for (const [i, x] of s.split('${').entries()) { if (!i) continue; const e = x.indexOf('}'); if (e < 0 || !NAMES.includes(x.slice(0, e))) return x.slice(0, e < 0 ? 12 : e) } return null }
 const strings = (v: unknown): string[] => (typeof v === 'string' ? [v] : Array.isArray(v) ? v.flatMap(strings) : obj(v) ? Object.values(v).flatMap(strings) : [])
 
@@ -102,7 +103,7 @@ export function cross(p: Profile, own?: ProfileLayer): string | null {
   for (const k of [p.landing.prepare, ...(p.landing.suites ?? [])]) if (k !== undefined && !(k in p.checks)) return `landing: no check "${k}" in checks`
   const names = [...(p.landing.envPass ?? []), ...Object.values(p.hooks).flat().flatMap(x => ('envPass' in x ? x.envPass ?? [] : []))]
   for (const n of names) if (!envName(n)) return `envPass: "${n}" is not an environment variable name (letters, digits and _, not starting with a digit)`
-  for (const u of p.landing.union ?? []) if (!plainPath(u)) return `landing.union: "${u}" is not a plain repo-relative path (no spaces, no * ? [ ] # !, no .. , not absolute)`
+  for (const u of p.landing.union ?? []) if (!plainPath(u)) return `landing.union: "${u}" is not a plain repo-relative path (letters, digits, . _ - and / only; no empty, . or .. segment; not absolute)`
   for (const f of p.fields) if (Array.isArray(f.required) && f.required.find(t => !(t in T))) return `fields.${f.name}.required: no type "${f.required.find(t => !(t in T))}"`
   for (const [n, r] of Object.entries(p.roles)) { const why = n in DEFAULT.roles ? (own?.roles && n in own.roles ? 'a built-in role cannot be redefined; give yours another name' : null) : customIssue(n, r); if (why) return `roles.${n}: ${why}` }
   for (const k of ['sandbox', 'hooks', 'landing'] as const) { const u = strings(p[k]).map(unknownNames).find(x => x !== null); if (u !== undefined) return `${k}: no \${${u}} (${NAMES.join(', ')})` }
@@ -135,7 +136,8 @@ async function modules(h: Host, l: ProfileLayer, dir: string): Promise<string | 
   }
   return null
 }
-const expand = (l: ProfileLayer, dir: string): ProfileLayer => JSON.parse(JSON.stringify(l).split('${MODULES}').join(dir))   // ${MODULES} per origin layer, once the module paths are checked
+const sub = (v: unknown, dir: string): unknown => (typeof v === 'string' ? v.split('${MODULES}').join(dir) : Array.isArray(v) ? v.map(x => sub(x, dir)) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, sub(x, dir)])) : v)
+const expand = (l: ProfileLayer, dir: string): ProfileLayer => sub(l, dir) as ProfileLayer   // ${MODULES} per origin layer, per string (a path with a quote or backslash stays one string), once the module paths are checked
 
 export type Loaded = { profile: Profile; name: string; user?: string; repo?: string; bad?: string; owner: Record<string, string> }   // user/repo: the layer's file ('inline', '.cadre/profile.json') or absent; bad: why the repo layer is refused
 let LOADED: Loaded | undefined

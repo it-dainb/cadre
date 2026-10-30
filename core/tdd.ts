@@ -64,7 +64,7 @@ async function baseline(h: Host, d: Deps, pkg: Pkg, name: string): Promise<Base 
   await h.run(['git', '-C', d.root, 'worktree', 'add', '-f', '--detach', tmp, start]); await h.run(['mkdir', '-p', `${tmp}-s`])
   const sub = await G.subInit(h.run, d.root, tmp); if (sub) { h.log(`baseline: ${sub}`); await h.run(['git', '-C', d.root, 'worktree', 'remove', '--force', tmp]); return null }   // no baseline: every red is the task's
   try {
-    const su = pkg.checks[active().landing.prepare ?? '']; if (su?.length) await h.run(d.cfg.jail === 'off' ? su : G.writableJail({ wt: tmp, scratch: `${tmp}-s`, pkgRoot: root, argv: su, writable: d.cfg.jailWritable }), { cwd: root })
+    const su = pkg.checks[active().landing.prepare ?? '']; if (su?.length) await h.run(d.cfg.jail === 'off' ? su : G.writableJail({ wt: tmp, scratch: `${tmp}-s`, pkgRoot: root, argv: su, writable: d.cfg.jailWritable, env: await G.jailEnv(h.run) }), { cwd: root })
     const { r } = await runGate(h, d, { task: { id: 'baseline' }, wt: tmp, pkg, slot: name, argv: pkg.checks[name], expect: 'pass' }); all[key] = { exit: r.exit, ...(r.results ? { fails: failing(r.results) } : {}) }
   } finally { await h.run(['git', '-C', d.root, 'worktree', 'remove', '--force', tmp]); await h.run(['rm', '-rf', `${tmp}-s`]) }
   await d.store.setMeta(s.epic, { 'cadre.baseline': JSON.stringify(all) }, d.actor)
@@ -113,7 +113,7 @@ export async function copyIn(h: Host, d: Deps, task: Task, wt: string, view: str
   if (pkg.tdd?.skeleton && itemsOf(task.design).some(x => x.status === 'new')) {   // signature-only stubs, writable jail, network off is not required (3.10)
     const sc = `${d.wtRoot}/${d.key}.scratch/${task.id}`, env = { CADRE_CONTRACT: `${view}/INTERFACE.md` }, pkgRoot = root ? `${wt}/${pkg.root}` : wt
     await h.run(['mkdir', '-p', sc])
-    await (d.cfg.jail === 'off' ? G.must(h.run, pkg.tdd.skeleton, { cwd: pkgRoot, env }, 'skeleton failed') : G.must(h.run, G.writableJail({ wt, scratch: sc, pkgRoot, argv: pkg.tdd.skeleton, writable: d.cfg.jailWritable, env }), {}, 'skeleton failed'))
+    await (d.cfg.jail === 'off' ? G.must(h.run, pkg.tdd.skeleton, { cwd: pkgRoot, env }, 'skeleton failed') : G.must(h.run, G.writableJail({ wt, scratch: sc, pkgRoot, argv: pkg.tdd.skeleton, writable: d.cfg.jailWritable, env: { ...(await G.jailEnv(h.run)), ...env } }), {}, 'skeleton failed'))
   }
   const sha = await G.op(h, () => G.commitAll(h.run, wt, `wip(${task.id}): spec tests`))
   if (!sha) throw new Error('the spec tests are identical to the base; nothing to lock')

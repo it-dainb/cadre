@@ -14,7 +14,7 @@ type Dirs = { root: string; wtRoot: string; key: string }
 type Pending = { ev: HookEvent; base: string; input: Record<string, unknown>; vars: Record<string, string> }
 const MINUTE = 60_000
 export const semver = (v: unknown) => typeof v === 'string' && v.split('.').length === 3 && v.split('.').every(p => p !== '' && String(Number(p)) === p)
-const changed = async (h: Host, wt: string) => [...new Set([...(await git(h.run, wt, ['ls-files', '-z', '-m', '-o', '-d', '--exclude-standard'])).split('\0'), ...(await git(h.run, wt, ['diff', '--cached', '--name-only', '-z'])).split('\0')])].filter(Boolean)
+const changed = async (h: Host, wt: string) => [...new Set([...(await git(h.run, wt, ['ls-files', '-z', '-m', '-o', '-d', '--exclude-standard'])).split('\0'), ...(await git(h.run, wt, ['diff', '--cached', '--name-only', '--no-renames', '-z'])).split('\0')])].filter(Boolean)
 
 // The event's hooks over a working folder cut at `at`: each runs, its changes are audited and committed. Returns the last commit (`at` itself when nothing changed) and the version a hook named.
 // `dry`: the hooks only answer (a `version`), in `root`, and commit nothing.

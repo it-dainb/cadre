@@ -52,7 +52,7 @@ export async function exec(h: Host, root: string, home: string, pkg: Pkg, o: { a
   const scratch = `${home}/.cache/cadre/init-${h.rand(4)}`   // never under /tmp: the jail binds scratch AT /tmp and would mask wt
   const wt = `${scratch}/wt`, pkgRoot = pkg.root === '.' ? wt : `${wt}/${pkg.root}`, sh0 = `${scratch}/home`
   const out: Run = { setupOk: false, caches: [], results: {} }
-  const mode = await G.jailMode(h.run), writable = (o.caches ?? []).map(c => `${home}/${c}`), J = (argv: string[]) => ({ wt, scratch, pkgRoot, argv, writable })
+  const mode = await G.jailMode(h.run), hostEnv = await G.jailEnv(h.run), writable = (o.caches ?? []).map(c => `${home}/${c}`), J = (argv: string[]) => ({ wt, scratch, pkgRoot, argv, writable, env: hostEnv })
   const prep = active().landing.prepare ?? '', su = pkg.checks[prep] ?? []
   const setup = (): Promise<{ exitCode: number }> => {
     if (!su.length) return Promise.resolve({ exitCode: 0 })   // no setup step

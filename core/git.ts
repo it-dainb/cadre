@@ -102,8 +102,11 @@ export async function diffPatch(run: Run, wt: string, range: string, cap = 3072)
 
 // Jail argv (3.10). `scratch` is bound at /tmp FIRST, so a worktree that itself lives under /tmp (a sandboxed HOME, an eval) is bound on top and stays visible; `writable` = jailWritable cache dirs. argv is appended after `--`.
 type J = { wt: string; scratch: string; pkgRoot: string; argv: readonly string[]; writable?: readonly string[]; env?: Record<string, string> }
-const RO = (j: J) => ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', j.scratch, '/tmp']
-const tail = (j: J) => [...Object.entries({ TMPDIR: '/tmp', ...j.env }).flatMap(([k, v]) => ['--setenv', k, v]),   // TMPDIR: the caller's (often outside the jail) would not exist in it; /tmp is the scratch
+// --clearenv: the session's environment (credentials included) never reaches a check or a setup command; --unshare-pid --as-pid-1: /proc is the jail's own and the command is its pid 1 (bwrap's own init would keep the original environment readable in /proc/1/environ)
+const RO = (j: J) => ['--clearenv', '--unshare-pid', '--as-pid-1', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', j.scratch, '/tmp']
+// what a jail keeps of the host environment: PATH, HOME and LANG (callers merge it into `env`; the jail adds TMPDIR, and the caller's own names such as CADRE_JUNIT and sandbox.env)
+export const jailEnv = async (run: Run): Promise<Record<string, string>> => { const [p, h, l] = (await run(['sh', '-c', 'printf "%s\\n%s\\n%s" "$PATH" "$HOME" "$LANG"'])).stdout.split('\n'); return { PATH: p || '/usr/local/bin:/usr/bin:/bin', HOME: h || '/tmp', ...(l ? { LANG: l } : {}) } }
+const tail = (j: J) => [...Object.entries({ PATH: '/usr/local/bin:/usr/bin:/bin', TMPDIR: '/tmp', ...j.env }).flatMap(([k, v]) => ['--setenv', k, v]),   // TMPDIR: the caller's (often outside the jail) would not exist in it; /tmp is the scratch
   ...(j.writable ?? []).flatMap(w => ['--bind', w, w]), '--chdir', j.pkgRoot, '--', ...j.argv]
 // checks: tree writable, writes discarded, no network
 export const overlayJail = (j: J): string[] => ['bwrap', '--unshare-net', ...RO(j), '--overlay-src', j.wt, '--tmp-overlay', j.wt, ...tail(j)]
@@ -131,7 +134,8 @@ export const SANDBOX: { env?: (v: Record<string, string>) => Record<string, stri
 // One offline check in the best jail: overlay, else a copy of j.wt under j.scratch (writes die with the copy). pkgRoot must lie under j.wt.
 export async function checkRun(run: Run, mode: 'overlay' | 'copy' | 'none', j: J, timeoutMs = 600000): Promise<Res> {
   // the profile's sandbox env (the default profile: the folder's own virtualenv comes first on PATH, like node_modules/.bin for npm scripts; nothing is sourced)
-  j = { ...j, env: { ...SANDBOX.env?.({ WT: j.wt, TMPDIR: '/tmp', PATH: (await run(['sh', '-c', 'printf %s "$PATH"'])).stdout || '/usr/local/bin:/usr/bin:/bin' }), ...j.env } }
+  const host = await jailEnv(run)
+  j = { ...j, env: { ...host, ...SANDBOX.env?.({ WT: j.wt, TMPDIR: '/tmp', PATH: host.PATH }), ...j.env } }
   if (mode === 'overlay') return run(overlayJail(j), { timeoutMs })
   const cp = `${j.scratch}/cp`, k = { ...j, wt: cp, pkgRoot: cp + j.pkgRoot.slice(j.wt.length) }
   await run(['rm', '-rf', cp]); await run(['mkdir', '-p', cp])

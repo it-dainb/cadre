@@ -31,7 +31,7 @@ describe('S8: core names no runner; the worked example is the tester role\'s own
   test('the default profile\'s example reaches the brief and the refusal; a role without one gets neither', () => {
     const eg = roleSpec('tester')!.report.eg!.run
     expect(eg).toContain('$CADRE_JUNIT'); expect(runShape({ command: [] }, eg)).toContain(eg); expect(runShape({ command: ['x'], slot: 'setup' }, eg)).toContain(eg)
-    expect(RUN_ASK(eg)).toContain(eg); expect(RUN_ASK()).not.toContain('e.g.'); expect(RUN_ASK()).toContain('$CADRE_JUNIT'); expect(runShape({ command: [] })).toBe('run.command: expected the argument list that runs only your tests, no shell')
+    expect(RUN_ASK(eg)).toContain(eg); expect(runShape({ command: [] }, eg)).not.toContain('pytest'); expect(runShape({ command: ['x'], slot: 'a' }, eg)).toBe(`run: only command and cwd (${eg}); the check that runs it is not yours to pick`); expect(RUN_ASK()).not.toContain('e.g.'); expect(RUN_ASK()).toContain('$CADRE_JUNIT'); expect(runShape({ command: [] })).toBe('run.command: expected the argument list that runs only your tests, no shell')
   })
 })
 
@@ -39,7 +39,7 @@ describe('the tester brief asks for the command', () => {
   const b = { id: 'bd-a1', title: 'Add login', type: 'feature', scenarios: 'S1: x', testPaths: ['test/**'] }
   test('runAsk adds the section in task language; without it the brief is unchanged', () => {
     const on = brief('tester', { ...b, runAsk: true }), off = brief('tester', b)
-    expect(on).toContain('## How your tests run'); expect(on).toContain(RUN_ASK(roleSpec('tester')?.report.eg?.run)); expect(on).toContain('$CADRE_JUNIT')
+    expect(on).toContain('## How your tests run'); expect(on).toContain(RUN_ASK(roleSpec('tester')?.report.eg?.run, roleSpec('tester')?.report.eg?.runHint)); expect(on).toContain('$CADRE_JUNIT')
     expect(off).not.toContain('How your tests run')
   })
 })

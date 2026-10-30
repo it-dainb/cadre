@@ -6,6 +6,8 @@ import { CFG_LOCK_MS, writeRepoConfig } from '../config/route'
 import { repoKeyOf } from '../commands/init'
 import { fakeHost } from './support'
 import type { Host } from '../types'
+import { active, setProfile } from '../core/pipeline'
+import { profile as DEFAULT } from '../profiles/default'
 
 const X = (...rs: [string, GateResult['results'] extends (infer R)[] | undefined ? R['status'] : never][]) => rs.map(([name, status]) => ({ name, status }))
 const R = (exit: number, results?: ReturnType<typeof X>, more: Partial<GateResult> = {}): GateResult => ({ exit, results, timedOut: false, ...more })
@@ -86,6 +88,16 @@ describe('jail selection and the path of $CADRE_JUNIT', () => {
     const jailed = w.calls.filter(c => c[0] === 'bwrap' && c.includes('--')), [setup, test] = jailed
     expect(setup).not.toContain('--unshare-net'); expect(setup).toContain('--bind'); expect(test).toContain('--unshare-net'); expect(test).toContain('--overlay-src')
     expect(setup.slice(setup.indexOf('--') + 1)).toEqual(['make', 'deps'])
+  })
+  test('F3: a slot a layer declares (network, failExit, timeoutS) is read from the active profile, not the built-in default', async () => {
+    const before = active()
+    try {
+      setProfile({ ...DEFAULT, checks: { ...DEFAULT.checks, fetch: { network: true, timeoutS: 7 }, test: { ...DEFAULT.checks.test, network: true } } } as any)
+      const w = world(); const base = { task: { id: 't' }, wt: '/wt/t', pkg: { ...pkg, checks: { ...pkg.checks, fetch: ['get'] } }, ...fail }
+      await runGate(w.h, w.d, { ...base, slot: 'fetch', argv: ['get'] }); await runGate(w.h, w.d, { ...base, slot: 'test', argv: pkg.checks.test })
+      const jailed = w.calls.filter(c => c[0] === 'bwrap' && c.includes('--'))
+      expect(jailed).toHaveLength(2); for (const j of jailed) { expect(j).not.toContain('--unshare-net'); expect(j).not.toContain('--overlay-src') }   // the writable, network-on jail
+    } finally { setProfile(before) }
   })
   test('the network key is read from the profile, never from the unit: a unit that says network:true still gets the offline jail', async () => {
     const w = world(); await runGate(w.h, w.d, { task: { id: 't' }, wt: '/wt/t', pkg: { ...pkg, network: true, checks: { ...pkg.checks, test: ['run'], network: true } }, slot: 'test', argv: ['run'], ...fail })

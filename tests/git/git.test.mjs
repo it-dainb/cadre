@@ -52,10 +52,10 @@ test('squash conflict: throws and leaves the worktree clean at the epic tip', as
 })
 test('jail argv, exactly per 3.10', () => {
   const j = { wt: '/w/t', scratch: '/s', pkgRoot: '/w/t/pkg', argv: ['npm', 'test'], writable: ['/c'] }
-  assert.deepEqual(G.overlayJail(j), ['bwrap', '--unshare-net', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', '/s', '/tmp', '--overlay-src', '/w/t', '--tmp-overlay', '/w/t', '--setenv', 'TMPDIR', '/tmp', '--bind', '/c', '/c', '--chdir', '/w/t/pkg', '--', 'npm', 'test'])
-  assert.deepEqual(G.writableJail(j), ['bwrap', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', '/s', '/tmp', '--bind', '/w/t', '/w/t', '--setenv', 'TMPDIR', '/tmp', '--bind', '/c', '/c', '--chdir', '/w/t/pkg', '--', 'npm', 'test'])
+  assert.deepEqual(G.overlayJail(j), ['bwrap', '--unshare-net', '--clearenv', '--unshare-pid', '--as-pid-1', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', '/s', '/tmp', '--overlay-src', '/w/t', '--tmp-overlay', '/w/t', '--setenv', 'PATH', '/usr/local/bin:/usr/bin:/bin', '--setenv', 'TMPDIR', '/tmp', '--bind', '/c', '/c', '--chdir', '/w/t/pkg', '--', 'npm', 'test'])
+  assert.deepEqual(G.writableJail(j), ['bwrap', '--clearenv', '--unshare-pid', '--as-pid-1', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', '/s', '/tmp', '--bind', '/w/t', '/w/t', '--setenv', 'PATH', '/usr/local/bin:/usr/bin:/bin', '--setenv', 'TMPDIR', '/tmp', '--bind', '/c', '/c', '--chdir', '/w/t/pkg', '--', 'npm', 'test'])
   assert.ok(!G.writableJail(j).includes('--unshare-net'))
   const hj = G.homeJail({ ...j, home: '/hm/u' })
-  assert.deepEqual(hj.slice(0, 17), ['bwrap', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', '/s', '/tmp', '--bind', '/w/t', '/w/t', '--overlay-src', '/hm/u', '--overlay'])
-  assert.deepEqual(hj.slice(17, 21), ['/s/home-up', '/s/home-work', '/hm/u', '--setenv'])
+  assert.deepEqual(hj.slice(0, 20), ['bwrap', '--clearenv', '--unshare-pid', '--as-pid-1', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--bind', '/s', '/tmp', '--bind', '/w/t', '/w/t', '--overlay-src', '/hm/u', '--overlay'])
+  assert.deepEqual(hj.slice(20, 24), ['/s/home-up', '/s/home-work', '/hm/u', '--setenv'])
 })
