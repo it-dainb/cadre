@@ -4,6 +4,7 @@ export const BUDGET = {
   "uiLoc": 935,
   "memoryStoreLoc": 106,
   "profilesLoc": 63,
+  "modulesLoc": 0,
   "vendor": {
     "version": "0.9.12",
     "file": "xmldom/xmldom.mjs",
