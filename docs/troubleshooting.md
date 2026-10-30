@@ -36,7 +36,8 @@ cadre never runs root commands for you. `/cadre setup` writes each sudo fix to `
 | the planning tools load at Claude's next turn | `send Claude any message; if they stay missing, restart Claude Code` |
 | the built-in task tools are on in this session | `/cadre init, then restart Claude Code` |
 | tools Claude Code gave the agents that cadre does not know | Information: each call is judged like any other. |
-| custom role X is not available: | Information: the role was refused or rejected twice. Custom roles are the `roles.custom` setting of your user config (`~/.claude/cadre.json`; Settings, Models and effort): name to `{description, tools, write, ...}`. A spec that drops an exit tool, names a built-in role or has a prompt over 2 KB is refused. |
+| custom role X is not available: | Information: the role was refused or rejected twice. A role of your own is a role in your profile (`profile` in `~/.claude/cadre.json`, or the repo's `.cadre/profile.json`; `/cadre profile` lists it). A spec that drops an exit tool, names a built-in role or has a prompt over 2 KB is refused. |
+| repo profile invalid: X | `fix .cadre/profile.json, then start a new session` (the line names the key and shows an example; `/cadre profile` repeats it; cadre stays off for this repo until then). |
 
 ## This project
 

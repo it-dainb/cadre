@@ -2,14 +2,13 @@
 // completeness (scenarios, changelog decision, contract, package) is checked at approve. Pure: no Host, no store.
 import type { Host } from '../types'
 import type { Task } from '../task-management/store'
-import { kindOf } from '../task-management/registry'
-import type { TypeRegistry } from '../task-management/registry'
+import { active, hasField, kindOf, typeOf } from './pipeline'
 import { matches } from './specview'
 import { roleSpec, roleSpecs } from './roles'
 import { RISKS, type Tier } from './routing'
 import type { FieldKind, Outcome, RoleSpec as ProfileRole } from '../types/profile'
 
-export const FIELDS = ['kind', 'amend', 'type', 'scope', 'breaking', 'package', 'scenarios', 'changelog', 'interface', 'lane', 'reason', 'repro', 'mission', 'paths', 'core', 'notes', 'epic', 'size', 'planned', 'critique', 'assumed', 'holds', 'risk'] as const
+export const FIELDS = ['kind', 'amend', 'type', 'scope', 'breaking', 'package', 'scenarios', 'changelog', 'interface', 'lane', 'reason', 'mission', 'paths', 'core', 'notes', 'epic', 'size', 'planned', 'critique', 'assumed', 'holds', 'risk'] as const
 export const CATEGORIES = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security']
 const SCENARIO = /^S\d+: Given .+ When .+ Then .+$/
 const STATUS = ['new', 'changed', 'unchanged']
@@ -21,7 +20,7 @@ const show = (v: unknown) => { const s = noPath(JSON.stringify(v) ?? String(v));
 const bad = (path: string, want: string, got: unknown) => `${path}: expected ${want}, got ${show(got)}`
 
 // first malformed present task field (the plan tools, a planner's task metadata), else null. null values clear a field and are fine.
-export function validateFields(m: Record<string, unknown>, reg: TypeRegistry): string | null {
+export function validateFields(m: Record<string, unknown>): string | null {
   for (const k of Object.keys(m)) if (!(FIELDS as readonly string[]).includes(k)) return `metadata.${k}: unknown field (allowed: ${FIELDS.join(', ')})`
   const f = (k: string) => (m[k] === null ? undefined : m[k])
   if (f('kind') !== undefined && f('kind') !== 'plan' && f('kind') !== 'mission') return bad('metadata.kind', '"plan" or "mission"', m.kind)
@@ -39,8 +38,7 @@ export function validateFields(m: Record<string, unknown>, reg: TypeRegistry): s
   if (f('epic') !== undefined && (m.kind !== undefined || !str(m.epic))) return bad('metadata.epic', 'on a task, the id of the epic it belongs to, e.g. "m-2"', m.epic)   // milestone lane (ADR 0015)
   if (f('size') !== undefined && (m.kind !== undefined || !Number.isInteger(m.size) || (m.size as number) < 1 || (m.size as number) > 7)) return bad('metadata.size', 'on an epic, how many tasks it needs, 1 to 7', m.size)
   if (f('critique') !== undefined && (m.kind !== undefined || !str(m.critique) || (m.critique as string).length > 1500)) return bad('metadata.critique', 'on the milestone, what the critic found and what you changed (at most 1500 characters)', m.critique)
-  if (f('repro') !== undefined && typeof m.repro !== 'boolean') return bad('metadata.repro', 'true or false', m.repro)
-  if (f('type') !== undefined && !(str(m.type) && m.type in reg)) return bad('metadata.type', `one of ${Object.keys(reg).join('|')}`, m.type)
+  if (f('type') !== undefined && !(str(m.type) && typeOf(m.type))) return bad('metadata.type', `one of ${Object.keys(active().types).join('|')}`, m.type)
   if (f('scope') !== undefined && !str(m.scope)) return bad('metadata.scope', '"auth"', m.scope)
   if (f('breaking') !== undefined && typeof m.breaking !== 'boolean') return bad('metadata.breaking', 'true or false', m.breaking)
   if (f('package') !== undefined && !str(m.package)) return bad('metadata.package', 'a package root, e.g. "." or "packages/api"', m.package)
@@ -72,23 +70,23 @@ export function validateFields(m: Record<string, unknown>, reg: TypeRegistry): s
 }
 
 // What a draft still lacks, from its stored form (acceptance = scenarios, design = contract, meta changelog/package). Spikes need nothing.
-export function missingOf(t: Task, reg: TypeRegistry): string[] {
+export function missingOf(t: Task): string[] {
   if (t.type === 'epic') return [...(t.description.trim() ? [] : ['goal']), ...(t.meta['cadre.size'] ? [] : ['size']), ...(t.meta['cadre.core'] === 'true' && Number(t.meta['cadre.size']) > 2 ? ['a core epic has at most 2 tasks'] : [])]   // a roadmap epic (ADR 0015)
-  const spec = reg[t.type]; if (!spec || kindOf(spec) === 'spike') return []
+  const spec = typeOf(t.type); if (!spec || kindOf(t.type) === 'spike') return []
   const out: string[] = []
-  if (t.meta['cadre.lane']?.startsWith('lite')) return [...(t.description.trim() ? [] : ['description']), ...(t.meta['cadre.changelog'] ? [] : ['changelog'])]   // lite (ADR 0011): title, description, changelog decision
+  if (t.meta['cadre.lane'] === 'lite') return [...(t.description.trim() ? [] : ['description']), ...(t.meta['cadre.changelog'] || !hasField('changelog') ? [] : ['changelog'])]   // lite (ADR 0011): title, description, changelog decision
   if (!t.acceptance?.trim()) out.push('scenarios')
-  if (!t.meta['cadre.changelog']) out.push('changelog')
+  if (!t.meta['cadre.changelog'] && hasField('changelog')) out.push('changelog')
   if (spec.contract === 'required' && !t.design) out.push('interface')
   if (!t.meta['cadre.package'] && !pathsOf(t).length) out.push('package')   // its declared paths name its unit (H7)
   return out
 }
 // every draft's gaps as "id: a, b"; a plan with no tasks lacks "tasks". Empty = approvable. With two or more code tasks each declares its paths, and two tasks
 // that would change the same path must be ordered by a blocks dependency (or the shared code moves into one core task): parallel edits of one file conflict (ADR 0014 G)
-export function missingList(drafts: Task[], reg: TypeRegistry): string[] {
+export function missingList(drafts: Task[]): string[] {
   if (!drafts.length) return ['tasks']
-  const ep = drafts[0].type === 'epic', code = drafts.filter(t => t.type === 'epic' || (reg[t.type] && kindOf(reg[t.type]) !== 'spike')), many = code.length >= 2
-  const out = drafts.flatMap(t => { const m = [...missingOf(t, reg), ...(many && code.includes(t) && !pathsOf(t).length ? ['paths'] : [])]; return m.length ? [`${t.id}: ${m.join(', ')}`] : [] })
+  const ep = drafts[0].type === 'epic', code = drafts.filter(t => t.type === 'epic' || (typeOf(t.type) && kindOf(t.type) !== 'spike')), many = code.length >= 2
+  const out = drafts.flatMap(t => { const m = [...missingOf(t), ...(many && code.includes(t) && !pathsOf(t).length ? ['paths'] : [])]; return m.length ? [`${t.id}: ${m.join(', ')}`] : [] })
   const after = (a: Task, b: Task, seen = new Set<string>()): boolean => a.deps.some(d => ['blocks', 'waits-for'].includes(d.type) && !seen.has(d.id) && (seen.add(d.id), d.id === b.id || (drafts.some(x => x.id === d.id) && after(drafts.find(x => x.id === d.id)!, b, seen))))
   for (let i = 0; i < code.length; i++) for (const b of code.slice(i + 1)) {
     const a = code[i], p = pathsOf(a).find(x => pathsOf(b).some(y => overlap(x, y)))
@@ -153,6 +151,7 @@ export async function capped(h: Host, key: string): Promise<boolean> { return ((
 export function runShape(run: any): string | null {
   const eg = 'e.g. {"command":["node","--test","test/login.test.js"]}'
   if (!run || typeof run !== 'object' || !Array.isArray(run.command) || !run.command.length || run.command.length > 64 || !run.command.every((a: unknown) => typeof a === 'string' && a && a.length < 1000)) return `run.command: expected the argument list that runs only your tests, no shell, ${eg}`
+  if (Object.keys(run).some(k => k !== 'command' && k !== 'cwd')) return `run: only command and cwd (${eg}); the check that runs it is not yours to pick`   // argv only, never a check slot
   if (run.cwd !== undefined && (typeof run.cwd !== 'string' || run.cwd.startsWith('/') || run.cwd.split('/').includes('..'))) return 'run.cwd: expected a folder relative to your test folder, e.g. "web"'
   return null
 }

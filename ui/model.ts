@@ -2,6 +2,7 @@
 import type { CadreEvent, Decision, Host, Secret, Snapshot, SnapTask } from '../types'
 import { humanView } from '../core/board'
 import { ofEpic } from '../core/events'
+import { pipeOf } from '../core/pipeline'
 import { plain } from './layout'
 
 export type Cfg = { glyphs: 'unicode' | 'ascii'; flash: boolean; notify: 'on' | 'off'; escalateAfterMs: number; maxTurns: number }
@@ -36,7 +37,6 @@ export const draw = (E: any, ls: Line[]) =>
   }) })) })
 
 // --- task classification, strip, depth layout ---
-const PIPE: Record<string, string[]> = { code: ['tester', 'red', 'worker', 'green', 'reviewer', 'merge'], docs: ['worker', 'reviewer', 'merge'], spike: ['explorer', 'report'] }
 const isCond = (t: SnapTask) => t.deps.some(d => d.type === 'conditional-blocks')
 const st = (all: SnapTask[], id: string) => all.find(x => x.id === id)?.state
 export function kindOf(t: SnapTask, all: SnapTask[]): TagK {
@@ -46,7 +46,7 @@ export function kindOf(t: SnapTask, all: SnapTask[]): TagK {
   if (t.state === 'cancelled' || t.state === 'todo' && t.deps.some(d => d.type === 'conditional-blocks' && st(all, d.id) === 'done')) return 'idle'
   return t.state === 'blocked' || t.deps.some(d => st(all, d.id) !== 'done') ? 'wait' : 'ready'
 }
-export const stepsOf = (t: SnapTask) => PIPE[t.kind] ?? PIPE.code
+export const stepsOf = (t: SnapTask) => pipeOf(t.type, t.lane)   // the active profile's steps for the task (its lane picks the alternate pipeline)
 export function cols(ts: SnapTask[]): SnapTask[][] {   // column = longest dependency path; row = plan order, conditional branches last
   const d = new Map<string, number>()
   const dep = (t: SnapTask, vis: string[] = []): number => {

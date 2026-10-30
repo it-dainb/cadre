@@ -1,11 +1,12 @@
 // L1 capability allowlist, file fence (DESIGN 13.1-13.2), tool.check allow, session.send isolation (4.6), config.set guard. Slots #4, #5, #7, config.set.
+import { locksAt } from '../core/pipeline'
 import { modelText } from '../core/say'
 import type { Binding, Host, Hook } from '../types'
 import { MAIN_TOOLS, allowlist } from '../agents/index'
 import { repoKeyOf, scoped } from '../commands/init'
 import { logCall } from '../core/specview'
 import { PROTECTED } from '../core/git'
-import { EXIT, ROLES_DEFAULT, writes } from '../core/roles'
+import { EXIT, ROLES_DEFAULT, roleSpec, writes } from '../core/roles'
 import { idsIn } from '../core/briefs'
 import { cfgOf, strictOf } from '../config/index'
 import { askOf } from '../core/asks'
@@ -62,7 +63,7 @@ async function placed(h: Host, p: string): Promise<string | undefined> {
 async function who(h: Host, agentId?: string) {
   const b: Binding | undefined = agentId ? (await h.bind.read())[agentId] : undefined
   const task = b && (await h.board.read()).tasks.find(t => t.id === b.taskId)
-  const a = !b && agentId ? await askOf(h, agentId) : undefined, spec = a?.role ? (await cfgOf(h)).roles.custom[a.role] as { tools: string[]; write?: string[]; network?: string } | undefined : undefined   // a custom role's agent runs under its own spec (roles.custom)
+  const a = !b && agentId ? await askOf(h, agentId) : undefined, spec = a?.role ? roleSpec(a.role) : undefined   // a role of the profile that main asked (core/admission.custom) runs under its own spec
   return { b, task, main: !agentId, role: b?.role ?? 'explorer' as const, owner: !!b && task?.state === 'active', spec }
 }
 
@@ -80,7 +81,7 @@ const SETTINGS = /(^|\/)\.claude\/settings[^/]*\.json$/, SETTINGS_DENY = 'these 
 
 // Fence verdict for one file-tool call: undefined = allow-by-fence (continue), 'allow' = tester rule 2, else a deny reason.
 export async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: string, input: unknown, pol: Policy, guide?: string, kind?: string): Promise<string | 'allow' | 'tmp' | undefined> {
-  const tester = w.role === 'tester' && !w.main, can = (real: string) => writes(ROLES_DEFAULT[w.role], rel(real, w.b!.worktree))   // the role's write scope, relative to its own tree
+  const tester = w.role === 'tester' && !w.main, can = (real: string) => writes(roleSpec(w.role) ?? ROLES_DEFAULT[w.role], rel(real, w.b!.worktree))   // the role's write scope, relative to its own tree
   const fenced = FENCED.includes(tool) || (tool === 'Read' && !!pol.home && typeof (input as any)?.file_path === 'string' && (input as any).file_path.includes('/.claude/plugins/store/'))
   if (!tester && !fenced) return
   if (!FILE.includes(tool)) return tester && !tool.startsWith('mcp__cadre__') ? `${tool} is not available to you; use Read, Write or Edit inside your working directory` : undefined   // the role's own report tool passed the allowlist
@@ -99,7 +100,7 @@ export async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: s
   if (!own && (under(real, pol.repo) || under(real, pol.wtRoot))) return 'project files are edited by a task agent only; plan the change with plan and task, or spawn the agent of a planned task'
   if (modOwned(real, pol.home, pol.changelog)) return 'that path is managed for you and cannot be edited; leave it alone'
   if (w.owner && (pol.core?.[w.b!.taskId] ?? []).some(l => real === l)) return 'this file belongs to the shared core that already landed: do not edit it; report outcome "blocked" with the change you need in it'   // ADR 0014 G
-  if (w.owner && w.task?.step === 'worker' && (pol.locks?.[w.b!.taskId] ?? []).some(l => real === l || under(real, l))) return 'locked spec test: do not edit it; if it is wrong, report outcome "spec_change"'
+  if (w.owner && locksAt(w.task?.step ?? '')?.enforce === 'in' && (pol.locks?.[w.b!.taskId] ?? []).some(l => real === l || under(real, l))) return 'locked spec test: do not edit it; if it is wrong, report outcome "spec_change"'
 }
 
 // Pure L1 facts that need no state: the sandbox flag.

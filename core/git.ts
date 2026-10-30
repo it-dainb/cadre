@@ -113,11 +113,12 @@ export async function jailMode(run: Run): Promise<'overlay' | 'copy' | 'none'> {
   const hp = await run(['bwrap', '--help']).catch(() => undefined)
   return /--overlay-src/.test(`${hp?.stdout}${hp?.stderr}`) ? 'overlay' : 'copy'
 }
+// the profile's `sandbox.env`, filled in (core/pipeline sets it at load; a leaf module takes it by this hook)
+export const SANDBOX: { env?: (v: Record<string, string>) => Record<string, string> } = {}
 // One offline check in the best jail: overlay, else a copy of j.wt under j.scratch (writes die with the copy). pkgRoot must lie under j.wt.
 export async function checkRun(run: Run, mode: 'overlay' | 'copy' | 'none', j: J, timeoutMs = 600000): Promise<Res> {
-  // the folder's own virtualenv comes first on PATH, like node_modules/.bin for npm scripts: what an install put there is what the checks run (a venv made by uv has no scripts of its own to trust: nothing is sourced)
-  const bin = `${j.wt}/.venv/bin`
-  if (!(await run(['test', '-d', bin])).exitCode) j = { ...j, env: { PATH: `${bin}:${(await run(['sh', '-c', 'printf %s "$PATH"'])).stdout || '/usr/local/bin:/usr/bin:/bin'}`, ...j.env } }
+  // the profile's sandbox env (the default profile: the folder's own virtualenv comes first on PATH, like node_modules/.bin for npm scripts; nothing is sourced)
+  j = { ...j, env: { ...SANDBOX.env?.({ WT: j.wt, TMPDIR: '/tmp', PATH: (await run(['sh', '-c', 'printf %s "$PATH"'])).stdout || '/usr/local/bin:/usr/bin:/bin' }), ...j.env } }
   if (mode === 'overlay') return run(overlayJail(j), { timeoutMs })
   const cp = `${j.scratch}/cp`, k = { ...j, wt: cp, pkgRoot: cp + j.pkgRoot.slice(j.wt.length) }
   await run(['rm', '-rf', cp]); await run(['mkdir', '-p', cp])

@@ -3,7 +3,7 @@ import { HINT, parse, run } from '../commands/cadre'
 import { changeLane, goal, laneLine, laneOf, laneOption, nextLane, sendBrief } from '../core/lanes'
 import { transition } from '../core/machine'
 import { missingOf } from '../core/validate'
-import { defaults, pipeOf } from '../task-management/registry'
+import { pipeOf } from '../core/pipeline'
 import type { Task } from '../task-management/store'
 import type { Plan } from '../types'
 import { guideOf } from '../core/clarify'
@@ -13,7 +13,6 @@ import { banned } from './fixtures/wording'
 import { fakeHost, task } from './support'
 import { world } from './fixtures/native/world'
 
-const reg = defaults()
 const T = (o: Partial<Task> = {}): Task => ({ id: 'a', title: 'Fix it', description: 'what and why', type: 'bug', category: 'draft', nativeStatus: 'draft', priority: 2, deps: [], labels: [], meta: {}, updatedAt: '', ...o })
 const P = (o: Partial<Plan> = {}): Plan => ({ id: 'p1', slug: 's', state: 'draft', epicBranch: 'epic/p1-s', ...o })
 const LITE = { kind: 'plan', lane: 'lite', reason: 'one small fix in src/a.ts', type: 'bug', changelog: { category: 'Fixed', entry: 'off-by-one in paging' } }
@@ -43,11 +42,11 @@ describe('the typed surface (ADR 0011): five forms only', () => {
   test('the guide and every brief speak task language and name the three lanes', async () => {
     const g = (BUDGET.guides as Record<string, string>).goal
     expect(banned(g.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, ''))).toEqual([])
-    for (const k of ['**ask**', '**lite**', '**full**', '"lane": "lite"', '"repro": true']) expect(g).toContain(k)
+    for (const k of ['**ask**', '**lite**', '**full**', '"lane": "lite"']) expect(g).toContain(k)
     const w = await world(); await w.call('TaskCreate', { subject: 'Fix paging', description: 'd', metadata: LITE })
     await w.call('TaskCreate', { subject: 'More', description: 'd', metadata: { type: 'feature' } })
     const p = (await w.h.board.read()).plan!
-    await changeLane(w.h, w.store, reg, p.id)   // full → ask: drops the plan, briefs main
+    await changeLane(w.h, w.store, p.id)   // full → ask: drops the plan, briefs main
     expect(banned((await w.h.ui.read()).goal)).toEqual([])
   })
 })
@@ -69,29 +68,28 @@ describe('override (pure)', () => {
     ['ask with a spike', 'ask', [T({ type: 'spike' })], 'ask'],
     ['full stays full, no override note', 'full', [T({ meta: { 'cadre.breaking': 'true' } })], 'full'],
   ]
-  for (const [name, asked, drafts, lane, why] of table) test(name, () => { expect(laneOf(asked, drafts, reg)).toEqual(why ? { lane, why } : { lane }) })
+  for (const [name, asked, drafts, lane, why] of table) test(name, () => { expect(laneOf(asked, drafts)).toEqual(why ? { lane, why } : { lane }) })
 })
 
 describe('lite pipeline and completeness (registry, machine)', () => {
-  test('lite drops tester/red where a worker writes the change; lite+tdd and full keep the type pipeline', () => {
-    const p = pipeOf(reg)
+  test('lite takes the type\'s alternate pipeline (no tester/red where a worker writes the change); a type without one, and full, keep the type pipeline', () => {
+    const p = pipeOf
     expect(p('bug', 'lite')).toEqual(['worker', 'green', 'reviewer', 'merge']); expect(p('feature', 'lite')).toEqual(['worker', 'green', 'reviewer', 'merge'])
     expect(p('docs', 'lite')).toEqual(['worker', 'reviewer', 'merge']); expect(p('test', 'lite')).toEqual(['tester', 'reviewer', 'merge'])
-    expect(p('bug', 'lite+tdd')).toEqual(['tester', 'red', 'worker', 'green', 'reviewer', 'merge']); expect(p('bug')).toEqual(reg.bug.pipeline)
+    expect(p('bug')).toEqual(['tester', 'red', 'worker', 'green', 'reviewer', 'merge']); expect(p('bug', 'lite+tdd')).toEqual(p('bug'))   // B12: lite+tdd is gone, a bug that wants a test is declared lane full
   })
-  test('machine: a lite task claims at worker and walks green → reviewer → merge; a lite+tdd bug claims at tester', () => {
+  test('machine: a lite task claims at worker and walks green → reviewer → merge', () => {
     const s0 = (lane: string) => ({ ...fakeBoard(), tasks: [task('a', { type: 'bug', lane })] })
-    let r = transition(s0('lite'), { kind: 'claim', id: 'a', at: 1, owner: 'w' }, pipeOf(reg)); expect(r.ok && r.board.tasks[0].step).toBe('worker')
+    let r = transition(s0('lite'), { kind: 'claim', id: 'a', at: 1, owner: 'w' }); expect(r.ok && r.board.tasks[0].step).toBe('worker')
     const steps: string[] = []; let b = (r as any).board
-    for (const ev of [{ kind: 'advance' }, { kind: 'advance' }, { kind: 'verdict', verdict: 'pass' }] as const) { r = transition(b, { ...ev, id: 'a', at: 2, actor: 'reviewer' }, pipeOf(reg)); if (!r.ok) break; b = r.board; steps.push(b.tasks[0].step) }
+    for (const ev of [{ kind: 'advance' }, { kind: 'advance' }, { kind: 'verdict', verdict: 'pass' }] as const) { r = transition(b, { ...ev, id: 'a', at: 2, actor: 'reviewer' }); if (!r.ok) break; b = r.board; steps.push(b.tasks[0].step) }
     expect(steps).toEqual(['green', 'reviewer', 'merge'])
-    r = transition(s0('lite+tdd'), { kind: 'claim', id: 'a', at: 1, owner: 't' }, pipeOf(reg)); expect(r.ok && r.board.tasks[0].step).toBe('tester')
   })
   test('lite completeness = description + changelog decision (no scenarios, contract, package)', () => {
-    expect(missingOf(T({ meta: { 'cadre.lane': 'lite' } }), reg)).toEqual(['changelog'])
-    expect(missingOf(T({ description: ' ', meta: { 'cadre.lane': 'lite+tdd', 'cadre.changelog': '{"none":true}' } }), reg)).toEqual(['description'])
-    expect(missingOf(T({ meta: { 'cadre.lane': 'lite', 'cadre.changelog': '{"none":true}' } }), reg)).toEqual([])
-    expect(missingOf(T(), reg)).toEqual(['scenarios', 'changelog', 'interface', 'package'])
+    expect(missingOf(T({ meta: { 'cadre.lane': 'lite' } }))).toEqual(['changelog'])
+    expect(missingOf(T({ description: ' ', meta: { 'cadre.lane': 'lite', 'cadre.changelog': '{"none":true}' } }))).toEqual(['description'])
+    expect(missingOf(T({ meta: { 'cadre.lane': 'lite', 'cadre.changelog': '{"none":true}' } }))).toEqual([])
+    expect(missingOf(T())).toEqual(['scenarios', 'changelog', 'interface', 'package'])
   })
 })
 
@@ -102,44 +100,43 @@ describe('a lite plan end to end in the store (native/tasks)', () => {
     const s = await w.h.board.read(), [t] = await w.store.list({ parent: s.plan!.id })
     expect(s.plan).toMatchObject({ lane: 'lite', laneReason: 'one small fix in src/a.ts' }); expect(s.plan!.laneOverride).toBeUndefined()
     expect(t).toMatchObject({ title: 'Fix paging', type: 'bug' }); expect(t.meta['cadre.lane']).toBe('lite'); expect(s.approval.missing).toEqual([])
-    expect(laneLine(s.plan, [t], reg)).toBe('auto · lite · 1 task · fix · one small fix in src/a.ts')
+    expect(laneLine(s.plan, [t])).toBe('auto · lite · 1 task · fix · one small fix in src/a.ts')
   })
-  test('repro: a bug a test reproduces runs tester → red first', async () => {
-    const w = await world(); await w.call('TaskCreate', { subject: 'Fix paging', description: 'd', metadata: { ...LITE, repro: true } })
-    const [t] = await w.store.list({ parent: (await w.h.board.read()).plan!.id }); expect(t.meta['cadre.lane']).toBe('lite+tdd')
+  test('B12: repro is no field any more (lite means lite; a bug that wants a test is declared lane full)', async () => {
+    const w = await world()
+    expect((await w.call('TaskCreate', { subject: 'Fix paging', description: 'd', metadata: { ...LITE, repro: true } })).deny).toContain('repro: unknown field')
   })
   test('a second task overrides to full: the task loses its lite lane, the full fields are missing, the card names the override', async () => {
     const w = await world(); await w.call('TaskCreate', { subject: 'Fix paging', description: 'd', metadata: LITE })
     await w.call('TaskCreate', { subject: 'More', description: 'd', metadata: { type: 'feature' } })
     const s = await w.h.board.read(), ds = await w.store.list({ parent: s.plan!.id })
     expect(s.plan).toMatchObject({ lane: 'full', laneOverride: 'lite is one task' }); expect(ds.every(t => !t.meta['cadre.lane'])).toBe(true)
-    expect(s.approval.missing.length).toBe(2); expect(laneLine(s.plan, ds, reg)).toBe('auto · full · 2 tasks · lite is one task → full · one small fix in src/a.ts')
+    expect(s.approval.missing.length).toBe(2); expect(laneLine(s.plan, ds)).toBe('auto · full · 2 tasks · lite is one task → full · one small fix in src/a.ts')
   })
-  test('validation: lane and reason only with kind plan; lane values; repro is a boolean', async () => {
+  test('validation: lane and reason only with kind plan; lane values', async () => {
     const w = await world()
     expect((await w.call('TaskCreate', { subject: 'x', description: 'd', metadata: { kind: 'plan', lane: 'quick' } })).deny).toContain('lane: expected one of')
     await w.call('TaskCreate', { subject: 'P', description: 'd', metadata: { kind: 'plan', lane: 'full', reason: 'big' } })
     expect((await w.call('TaskCreate', { subject: 'x', description: 'd', metadata: { lane: 'lite' } })).deny).toContain('lane: unknown field')
-    expect((await w.call('TaskCreate', { subject: 'x', description: 'd', metadata: { repro: 'yes' } })).deny).toContain('repro: expected a boolean')
   })
 })
 
 describe('the card: lane line + [l] Lane (core/lanes)', () => {
   test('option label names the next lane; nothing to change on an approved plan or with no lane', () => {
-    expect(laneOption(P({ lane: 'lite' }), [T()], reg)).toEqual({ key: 'l', label: 'Lane → full', verb: 'change', run: 'lane p1' })
-    expect(nextLane(P({ lane: 'full' }), [T()], reg)).toBe('ask'); expect(nextLane(P({ lane: 'ask' }), [T()], reg)).toBe('lite')
-    expect(nextLane(P({ lane: 'ask' }), [T({ meta: { 'cadre.breaking': 'true' } })], reg)).toBe('full')   // lite would be overridden: skipped
-    expect(laneOption(P({ lane: 'lite', state: 'approved' }), [T()], reg)).toBeNull(); expect(laneOption(P(), [T()], reg)).toBeNull(); expect(laneLine(P(), [], reg)).toBeNull()
+    expect(laneOption(P({ lane: 'lite' }), [T()])).toEqual({ key: 'l', label: 'Lane → full', verb: 'change', run: 'lane p1' })
+    expect(nextLane(P({ lane: 'full' }), [T()])).toBe('ask'); expect(nextLane(P({ lane: 'ask' }), [T()])).toBe('lite')
+    expect(nextLane(P({ lane: 'ask' }), [T({ meta: { 'cadre.breaking': 'true' } })])).toBe('full')   // lite would be overridden: skipped
+    expect(laneOption(P({ lane: 'lite', state: 'approved' }), [T()])).toBeNull(); expect(laneOption(P(), [T()])).toBeNull(); expect(laneLine(P(), [])).toBeNull()
   })
   test('lite → full re-classifies in place and asks main for the full fields; full → ask drops the plan and asks main for an explorer', async () => {
     const w = await world(); await w.call('TaskCreate', { subject: 'Fix paging', description: 'off-by-one', metadata: LITE }); const id = (await w.h.board.read()).plan!.id
-    expect(await changeLane(w.h, w.store, reg, id)).toBe(`${id}: lane full`)
+    expect(await changeLane(w.h, w.store, id)).toBe(`${id}: lane full`)
     const s = await w.h.board.read(), [t] = await w.store.list({ parent: id })
     expect(s.plan).toMatchObject({ lane: 'full', laneReason: 'changed by you', state: 'draft' }); expect(t.meta['cadre.lane']).toBe(''); expect(s.approval.missing[0]).toContain('scenarios')
     expect((await w.h.ui.read()).goal).toContain('full lane')
-    expect(await changeLane(w.h, w.store, reg, id)).toContain('ask lane')
+    expect(await changeLane(w.h, w.store, id)).toContain('ask lane')
     expect((await w.h.board.read()).plan).toBeNull(); expect(await w.store.list({ parent: id })).toEqual([]); expect((await w.h.ui.read()).goal).toContain('Call explore with this question')
-    expect(await changeLane(w.h, w.store, reg, id)).toContain('refused')
+    expect(await changeLane(w.h, w.store, id)).toContain('refused')
   })
   test('lane is a press-only command: typed it is a hint', async () => {
     const w = await world(); expect(await run(w.h, { args: 'lane p1', origin: { kind: 'composer' } }, () => ({}))).toEqual({ text: HINT })

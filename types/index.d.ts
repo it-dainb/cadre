@@ -70,6 +70,7 @@ export interface EventRing { seq: number; epics: Record<string, CadreEvent[]> } 
 export interface Secret {
   adoptTried?: boolean; active?: boolean; root?: string   // root: the main session's cwd, set at session.start
   old?: string                                          // the Claude Code version when it is older than cadre needs (commands/doctor.MIN_CC): cadre stays off
+  profileBad?: string                                   // the repo's profile.json is refused (core/profile): cadre is dormant for this repo, Doctor and /cadre profile say why
   storeOff?: string                                     // the task store's probe failed (no hard links in .cadre/state): cadre stays off this session, Doctor says why
   platform?: string                                     // `uname -s` when it is not Linux (hooks/register session.start): cadre stays off
   tools?: { on: string[]; refused: string[]; task?: string[]; due?: string[] }           // the tools registered at session start, and those Claude Code refused (hooks/register; Doctor) · due: registered this turn, listed from the next (hooks/register.arm)

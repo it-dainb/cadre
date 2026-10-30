@@ -1,8 +1,7 @@
 // Config defaults + the settings registry (DESIGN 12, ADR 0019). defaults() holds every default value (and the Config type); REG holds every key's metadata.
 // tests/config.test.ts pins REG to the leaves of defaults() 1:1, so neither can drift. Layer class: S = safety (repo may only tighten), U = user-level only, O = ordinary (committed).
-import { defaults as typeDefaults } from '../task-management/registry'
-import { customIssue } from '../core/roles'
 import { roles as profile } from '../profiles/default'
+import { active } from '../core/pipeline'
 
 export type Cls = 'S' | 'U' | 'O'
 // one routing cell: the model alias and effort for a role at a risk, and the escalation after `after` failed rounds (0 = never)
@@ -20,7 +19,6 @@ export const defaults = () => ({
     explorer: { model: 'haiku', effort: 'low' },
     specifier: { enabled: false, model: 'haiku', effort: 'low' },   // A1: a new role ships off until the fold-vs-keep check says otherwise
     planner: { model: 'sonnet', effort: 'high' },   // drafts each epic's task plan in a milestone (ADR 0021)
-    custom: {} as Record<string, unknown>,   // role specs of the user layer (core/roles RoleSpec); rule 6 is checked at load
   },
   adapters: {} as Record<string, unknown>,
   store: { kind: 'file' },                                    // .cadre/state (task-management/adapters/file)
@@ -28,14 +26,11 @@ export const defaults = () => ({
   drive: { mode: 'auto', spawn: 'mod' as 'main' | 'mod', maxTurns: 100, maxCostUsd: 20, maxWallMinutes: 240, noProgressTurns: 3 },
   cost: { prices: null as unknown, clearHintPct: 40, compactPct: 60 },
   sync: {} as Record<string, unknown>,
-  types: typeDefaults() as unknown, units: [] as { root: string; knownRed?: string[]; [k: string]: unknown }[],
+  profile: 'default' as unknown,   // a built-in profile name (a user layer may also give an inline profile, core/profile); the repo's own is .cadre/profile.json
+  units: [] as { root: string; knownRed?: string[]; [k: string]: unknown }[],
   suites: { integration: 'all' as string | string[] },
-  // ADR 0023: the tester proposes the command that runs its tests, cadre runs it for red (and green); with no test check it becomes the package's
-  tdd: { testerCommand: { use: true, adopt: true } },
-  review: { coverage: { enforce: true }, maxRework: 3 },
-  limits: { reportRetries: 3, shapeRetries: 6, nudges: 1, stagnantNudges: 3, silentRuns: 3, startFails: 3, limitWaitMinutes: 15, rebaseRounds: 2, testerRounds: 3 },
+  limits: { ...active().limits },   // the engine counters: the active profile's values are the defaults (the step retries are the steps' onFail.retry)
   lifecycle: { firstOutputSec: 240, staleMin: 45, goneSec: 60 },   // stall timers (core/close stalls)
-  lanes: { fullAt: 3, milestoneAt: 8 },
   planning: { clarify: { enabled: true, maxQuestions: 3, threshold: 0.7 }, deep: { maxRounds: 8 } },   // ADR 0020: explorer + clarity before a goal's plan; /cadre deep
   branches: { main: '', dev: 'dev', epicPrefix: 'epic/' }, release: { onEpicDone: 'propose' }, landing: { mode: 'direct' as 'direct' | 'pr', review: false, remote: 'origin' },
   ui: { glyphs: 'unicode', flash: true, density: 'normal', notify: 'on', escalateAfterMs: 120_000 },
@@ -69,9 +64,9 @@ const roleRows = (r: string): Record<string, Meta> => Object.fromEntries(RISK.fl
     [`${at}.escalate.effort`, m(M, `${w}: effort after escalation`, { opts: EFFORT })]]
 }))
 const list = (v: unknown) => v === undefined || (Array.isArray(v) && v.every(x => typeof x === 'string'))
-const specs = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.entries(v).map(([n, s]) => ((e) => e && `${n}: ${e}`)(customIssue(n, s))).find(Boolean) || null : 'expected an object of role specs')
+const profileName = (v: unknown) => (typeof v === 'string' || (!!v && typeof v === 'object' && !Array.isArray(v)) ? null : 'a built-in profile name (default, docs, analysis), or an inline profile in your own config file')
 export const REG: Record<string, Meta> = {
-  'roles.custom': m(M, 'your own agent roles: name -> {description, tools, write, ...}; a spec that drops an exit tool, names a built-in role or has a prompt over 2 KB is refused; the repo file may add read-only roles', { open: true, ok: specs }),
+  profile: m(PL, 'the workflow profile: a built-in name (default, docs, analysis); .cadre/profile.json adds the repo\'s own (read at session start)', { ok: profileName }),
   'drive.mode': m(D, 'yolo: no questions after approval; auto asks at the gates', { cls: 'S', opts: ['yolo', 'auto'], tighten: 'enum' }),
   'drive.maxTurns': m(D, 'a drive stops after this many main turns', { cls: 'U', ...N(1, 10_000) }), 'drive.maxCostUsd': m(D, 'a drive stops at this spend ($)', { cls: 'U', ...N(1, 10_000) }),
   'drive.spawn': m(D, "mod: cadre starts, closes and lands the plan's tasks itself while drive runs; main: Claude spawns each step. Env CADRE_SPAWN beats it; a non-interactive session runs main", { cls: 'U', opts: ['mod', 'main'] }),
@@ -89,16 +84,13 @@ export const REG: Record<string, Meta> = {
   'milestone.maxEpics': m(P, 'epics of a milestone running at once (0 = no cap)', N(0, 100)),
   ...roleRows('worker'), ...roleRows('tester'), ...roleRows('reviewer'),
   'roles.explorer.model': m(M, 'explorer (a question without a task): model', { ok: mdl }), 'roles.explorer.effort': m(M, 'explorer: effort', { opts: EFFORT }),
-  'review.maxRework': m(R, 'review rounds before a task blocks', N(1, 20)),
-  'review.coverage.enforce': m(R, "every scenario needs a spec test named after it, and the reviewer's coverage must be ok for each; off: the reviewer's word decides"),
   'lessons.model': m(M, 'the side model that turns records into lessons (no agent, one short request per pass)', { cls: 'U', ok: mdl }), 'lessons.passesPerDay': m(M, 'lesson passes per day, counted in the store (0 = lessons off)', { cls: 'U', ...N(0, 100) }),
   'lessons.repeats': m(PL, 'a lesson reinforced this many times in a repo moves to your user scope', N(1, 20)), 'lessons.repos': m(PL, 'a lesson seen in this many repos moves to your user scope', N(2, 20)),
   'lessons.decayDays': m(PL, 'a lesson unused this long is dropped', N(1, 365)), 'lessons.maxAgeDays': m(PL, 'a lesson older than this is dropped, used or not', N(1, 3650)), 'lessons.perBrief': m(PL, 'lessons one task brief carries (its text stays within 1.5 KB)', N(0, 20)),
   'notes.slice': m(PL, "each task's brief carries only the plan notes on its paths (notes without paths go to every task); off: every note goes to every task"),
   'limits.reportRetries': m(R, 'refused reports before one is accepted unvalidated and flagged', N(1, 3)),
   'limits.shapeRetries': m(R, 'malformed reports (an over-long value, an unknown field, a wrong type) of one task before it blocks for you; they never count against the 3 tries', N(1, 10)),
-  'lanes.fullAt': m(PL, 'a plan of this many tasks takes the full lane', N(2, 50)), 'lanes.milestoneAt': m(PL, 'a plan of this many tasks should be a milestone', N(2, 100)),
-  types: m(PL, 'task types and their pipelines', { open: true }),
+  'limits.specAccepts': m(R, 'times a task\'s request to change its locked spec is accepted before the run stops and asks you', N(1, 20)),
   'planning.clarify.enabled': m(PL, 'before a goal is planned: one explorer, then a clarity check; a vague goal gets a few questions (yolo: assumptions instead)'),
   'planning.clarify.maxQuestions': m(PL, 'questions in the one clarify round', N(1, 4)),
   'planning.clarify.threshold': m(PL, 'clarity (0-1) each of outcome, scope, acceptance, constraints needs before Claude plans without asking', { min: 0, max: 1 }),
@@ -109,9 +101,6 @@ export const REG: Record<string, Meta> = {
   'changelog.path': m(G, 'the changelog cadre writes at close', { ok: relPath }), 'worktrees.root': m(G, "task worktrees ('' = ~/.cache/cadre/wt)", { cls: 'U' }),
   'roles.testerView': m(C, 'view: the tester sees only the interface; full: the whole tree', { cls: 'S', opts: ['full', 'view'], tighten: 'enum' }),
   'roles.tdd.author': m(C, 'separate: a tester agent writes the tests; same: the worker does', { opts: ['separate', 'same'] }),
-  'limits.testerRounds': m(C, 'tester reports refused at the red gate (tests not failing for the right reason) before the task blocks and asks you', N(1, 10)),
-  'tdd.testerCommand.use': m(C, "the tester names the command that runs its tests; cadre runs it to prove red (and green); off: only the package's test check"),
-  'tdd.testerCommand.adopt': m(C, "a package with no test check takes the tester's command (verified red) as its test check, written to the repo settings file"),
   units: m(C, 'workspace units {root, kind, ownGit, concurrency, setup, checks, routing} (set by init)', { open: true }), 'suites.integration': m(C, "checks run at integration ('all' or a list)", { ok: v => (v === 'all' ? null : strs(v)) }),
   strictness: m(SF, 'strict: guards refuse; advisory: guards warn', { cls: 'S', opts: ['advisory', 'strict'], tighten: 'enum' }),
   mcpAllow: m(SF, 'MCP tools task agents may call', { cls: 'S', tighten: 'list', ok: strs }), jail: m(SF, 'checks run in a sandbox: off, auto (when available), on', { cls: 'S', opts: ['off', 'auto', 'on'], tighten: 'enum' }),

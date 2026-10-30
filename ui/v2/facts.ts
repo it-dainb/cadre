@@ -12,7 +12,7 @@ export const lw = (l: Line) => l.reduce((n, s) => n + sw(s), 0)
 // BRAND §5 step names
 const STEP: Record<string, string> = { tester: 'spec', red: 'red', worker: 'implement', green: 'green', reviewer: 'review', merge: `merged`, explorer: 'explore', report: 'report' }
 export const stepName = (s: string) => STEP[s] ?? s
-export const steps = (t: SnapTask): string[] => stepsOf(t).filter(s => !(t.lane === 'lite' && (s === 'tester' || s === 'red')))
+export const steps = (t: SnapTask): string[] => [...stepsOf(t)]
 export const glyphOf = (t: SnapTask, all: SnapTask[]): GlyphK => ({ crit: 'fail', ok: 'done', run: 'run', idle: 'skip', wait: 'wait', ready: 'ready', attn: 'attn', warn: 'attn' } as const)[kindOf(t, all)]
 
 export const running = (ts: SnapTask[]) => ts.filter(t => kindOf(t, ts) === 'run').sort((a, b) => b.phaseSince - a.phaseSince)

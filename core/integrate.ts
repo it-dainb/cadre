@@ -2,7 +2,7 @@
 // Everything that moves a ref is inside git.op (branches.ts); suites run in a throwaway worktree, outside it.
 import type { Host } from '../types'
 import { fnv1a64 } from './board'
-import { ROUTES, cfgOf, mirror, registryOf, storeOf } from './dispatch'
+import { ROUTES, cfgOf, mirror, storeOf } from './dispatch'
 import { emit } from './events'
 import { ask, settleIf, yoloOn } from './decide'
 import { epicNext } from './machine'
@@ -66,7 +66,7 @@ async function failed(h: Host, epicId: string, why: string, flag: boolean, fix =
   const p = (await h.board.read()).plan!, ep = epicOf({ plan: p }, epicId), store = await storeOf(h)
   if (tmp) await worktreeRemove(h.run, await h.cwd(), tmp).catch(() => {})
   if (fix && !(isMs(p) && !ep) && (await redFix(h, epicId, why).catch(e => (h.log(`fix task: ${e}`), false)))) flag = false   // driving: the first red gets one fix task, no flag (ADR 0013)
-  if (ep) { await setPlan(h, 'fail'); if (flag) await stopEpic(h, epicId, why.slice(0, 200)); else await mirror(h, store, await registryOf(h)); return why }   // an epic: the milestone goes on; a 2nd red or a conflict stops this epic only
+  if (ep) { await setPlan(h, 'fail'); if (flag) await stopEpic(h, epicId, why.slice(0, 200)); else await mirror(h, store); return why }   // an epic: the milestone goes on; a 2nd red or a conflict stops this epic only
   await setPlan(h, 'fail', { pr: undefined, ...(flag ? { flags: [...(p.flags ?? []).filter(f => f !== 'integration-failed'), 'integration-failed'] } : {}) })
   if (flag) await emit(h, 'flag.raised', { taskId: epicId, flag: 'integration-failed' })
   return why
@@ -187,7 +187,7 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
     const m = c?.length ? new Error(`conflicts in ${c.join(', ')}`) : await mergeEpic(h, { dev, epic: from, tmp, msg: `merge ${from} (${epicId})${ep ? `\n\nMilestone: ${p.id} ${p.slug}` : ''}` }).catch(e => e as Error)
     if (m instanceof Error) {   // a conflict: a resolve task in that epic (both modes, at most 2); past that the epic stops (auto asks; yolo: the independent epics go on) or the plan is flagged
       const r = ep || !isMs(p) ? await resolveTask(h, await resolveDeps(h), epicId, from, dev, c ?? []).catch(x => (h.log(`resolve task: ${x}`), null)) : null
-      if (r) { await worktreeRemove(h.run, root, tmp).catch(() => {}); await setPlan(h, 'fail'); await mirror(h, store, await registryOf(h)); return r }
+      if (r) { await worktreeRemove(h.run, root, tmp).catch(() => {}); await setPlan(h, 'fail'); await mirror(h, store); return r }
       return await fail(`merge of ${from} into ${dev} failed: ${m.message}${ep ? ` (with ${(p.epics ?? []).filter(x => x.state === 'landed').map(x => x.id).join(', ') || dev})` : ''}`, true, false)
     }
     let sha = m.sha
@@ -220,7 +220,7 @@ export async function integrateEpic(h: Host, epicId: string): Promise<string | n
 // an epic landed on the milestone branch: closed, recorded; a core epic's files are locked for the others; the milestone takes dev's news; the last one lands the milestone on dev.
 async function landed(h: Host, store: Awaited<ReturnType<typeof storeOf>>, epicId: string, sha: string, files: string[], dev: string, tmp: string): Promise<string | null> {
   const p = (await h.board.read()).plan!, e = epicOf({ plan: p }, epicId)!
-  await store.close(epicId, { outcome: 'done', note: `landed ${sha.slice(0, 7)} on ${p.epicBranch}` }); await setPlan(h, 'fail'); await mirror(h, store, await registryOf(h))
+  await store.close(epicId, { outcome: 'done', note: `landed ${sha.slice(0, 7)} on ${p.epicBranch}` }); await setPlan(h, 'fail'); await mirror(h, store)
   await emit(h, 'plan.landed', { planId: epicId, sha, on: p.epicBranch })
   if (e.core) await coreLanded(h, { store, actor: 'cadre' } as Deps, files).catch(x => h.log(`core lock: ${x}`))   // a core epic's files: locked for every later task of the milestone
   await freshen(h, await h.cwd(), p.epicBranch, await baseOf(h, dev), tmp).catch(x => h.log(`milestone freshen: ${x}`))

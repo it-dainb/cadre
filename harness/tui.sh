@@ -56,9 +56,9 @@ start)
   # pre-seed first-run state: theme + onboarding done + folder trusted (no dialogs); anything else still appears -> handled below
   W=/work/run${CWD:+/$CWD}
   docker exec "$C" sh -c "echo '{\"hasCompletedOnboarding\":true,\"theme\":\"dark\",\"projects\":{\"/work/run\":{\"hasTrustDialogAccepted\":true,\"hasCompletedProjectOnboarding\":true},\"$W\":{\"hasTrustDialogAccepted\":true,\"hasCompletedProjectOnboarding\":true}}}' > /cchome/.claude.json"
-  # a fixture may leave .harness-roles.json (roles.custom of the user layer) in the work dir: merged into the pins
-  "$0" pins | R="$D/work/.harness-roles.json" node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8")),f=process.env.R;if(require("fs").existsSync(f))(o.roles??={}).custom=JSON.parse(require("fs").readFileSync(f,"utf8"));console.log(JSON.stringify(o))' | docker exec -i "$C" sh -c 'cat > /cchome/.claude/cadre.json' || exit 1   # every cadre route on haiku
-  rm -f "$D/work/.harness-roles.json"
+  # a fixture may leave .harness-profile.json (the user layer's `profile`: a built-in name or an inline profile) in the work dir: merged into the pins
+  "$0" pins | R="$D/work/.harness-profile.json" node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8")),f=process.env.R;if(require("fs").existsSync(f))o.profile=JSON.parse(require("fs").readFileSync(f,"utf8"));console.log(JSON.stringify(o))' | docker exec -i "$C" sh -c 'cat > /cchome/.claude/cadre.json' || exit 1   # every cadre route on haiku
+  rm -f "$D/work/.harness-profile.json"
   # plugin $.store (one JSON file per plugin; id = name_source-<sha256(name@source)[:12]>): the fixture's seed, e.g. the machine-setup stamp
   [ -f "$D/work/.harness-store.json" ] && { docker exec -i "$C" sh -c 'mkdir -p -m 700 /cchome/.claude/plugins/store && cat > /cchome/.claude/plugins/store/cadre_inline-8e6dc893c684.json' <"$D/work/.harness-store.json"; rm "$D/work/.harness-store.json"; }
   ENV=; [ -n "$PROXY" ] && { docker exec -d "$C" node "/work/spike/${PROXY_JS:-harness/effort-proxy.mjs}" /out/effort.jsonl; ENV="ANTHROPIC_BASE_URL=http://127.0.0.1:8899"; }   # PROXY=1: log each request's model + effort (never content or headers)

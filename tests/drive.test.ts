@@ -151,6 +151,13 @@ describe('T6.3 gate policy', () => {
     expect((await w.call('TaskUpdate', { taskId: w.t, metadata: { choice: 'accept', reason: 'pages start at 1' } })).result.error).toContain(`the run stopped (${w.t} asked to change its locked spec 3 times)`)
     expect((await w.board()).tasks[0].state).toBe('blocked'); expect((await w.board()).decisions!.map(d => d.id)).toEqual([`flag:${w.t}:spec_change`])
   })
+  test('settings: limits.specAccepts 1 (G4: the cap is a profile counter): the second accept stops the run and goes to the human', async () => {
+    const w = await go('yolo'); await w.h.ui.update(({ goal: _g, ...u }) => u); await bindWorker(w)
+    ;(w.h as any).config = async () => ({ ...defaults(), limits: { ...defaults().limits, specAccepts: 1 } })
+    await w.store.setMeta(w.t, { 'cadre.specAccepts': '1' }, 'x')
+    await report(w.h, await resolveDeps(w.h), 'ag1', { role: 'worker', outcome: 'spec_change', reason: 'pages start at 1' })
+    expect((await w.call('TaskUpdate', { taskId: w.t, metadata: { choice: 'accept', reason: 'pages start at 1' } })).result.error).toContain(`the run stopped (${w.t} asked to change its locked spec 2 times)`)
+  })
   test('yolo: a flag drive does not hold on (a worker that stopped without reporting) is never a dialog; it is recorded; a stop hands it to the human', async () => {
     const w = await go('yolo'); await w.h.ui.update(({ goal: _g, ...u }) => u)
     await w.setTask({ flags: ['locked-dirty'] }); await emit(w.h, 'flag.raised', { taskId: w.t, flag: 'locked-dirty' }, { taskId: w.t })

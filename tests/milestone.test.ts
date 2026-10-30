@@ -11,7 +11,6 @@ import { kick, tally } from '../core/drive'
 import { emit } from '../core/events'
 import { sendBrief } from '../core/lanes'
 import '../core/close'   // registers ROUTES.resolve (the stopped epic's Retry)
-import { defaults as typeDefaults } from '../task-management/registry'
 import { defaults } from '../config/index'
 import { admitWith, type Deps } from '../core/admission'
 import { continueRun, proc, savePointer } from '../core/session'
@@ -22,7 +21,6 @@ import { BUDGET } from './fixtures/budget.generated'
 import { banned } from './fixtures/wording'
 import { FULL, world } from './fixtures/native/world'
 
-const reg = typeDefaults()
 const T = (o: Partial<Task> = {}): Task => ({ id: 'a', title: 'x', description: 'd', type: 'feature', category: 'draft', nativeStatus: 'draft', priority: 2, deps: [], labels: [], meta: {}, updatedAt: '', ...o })
 const MSP = { kind: 'plan', lane: 'milestone', reason: 'three features: signup, login, reset' }
 const answered = (w: Awaited<ReturnType<typeof world>>) => w.h.ui.update(u => ({ ...u, asks: { ag9: { id: 'ask-ag9', q: 'critique', k: 0, answer: 'add a core epic for the user model' } } }))
@@ -58,22 +56,22 @@ const ev = async (w: { h: any }) => Object.values((await w.h.events.read()).epic
 
 describe('lane and override', () => {
   test('main picks milestone: never overridden; more than 7 tasks offers it; the dialog goes back to one plan', () => {
-    expect(laneOf('milestone', [T()], reg)).toEqual({ lane: 'milestone' })
+    expect(laneOf('milestone', [T()])).toEqual({ lane: 'milestone' })
     const eight = Array.from({ length: 8 }, (_, i) => T({ id: `t${i}` }))
-    expect(laneOf('full', eight, reg)).toEqual({ lane: 'full', why: '8 tasks: a milestone fits' })
-    expect(laneOf('full', eight.slice(0, 7), reg)).toEqual({ lane: 'full' })
+    expect(laneOf('full', eight)).toEqual({ lane: 'full', why: '8 tasks: a milestone fits' })
+    expect(laneOf('full', eight.slice(0, 7))).toEqual({ lane: 'full' })
     const P = (lane: Plan['lane']): Plan => ({ id: 'p', slug: 's', state: 'draft', epicBranch: 'epic/p-s', lane })
-    expect(nextLane(P('full'), eight, reg)).toBe('milestone'); expect(nextLane(P('milestone'), [], reg)).toBe('full')
+    expect(nextLane(P('full'), eight)).toBe('milestone'); expect(nextLane(P('milestone'), [])).toBe('full')
   })
   test('Change lane: full with 8 tasks → milestone drops the tasks, names the milestone branch and briefs the roadmap; back → one plan', async () => {
     const w = await world(); await w.call('TaskCreate', { subject: 'Accounts', description: 'g', metadata: { kind: 'plan', lane: 'full', reason: 'big' } })
     for (let i = 0; i < 8; i++) await w.call('TaskCreate', { subject: `T${i}`, description: 'd', metadata: { ...FULL, paths: [`src/t${i}.ts`] } })
     const id = (await w.h.board.read()).plan!.id
     expect((await w.h.board.read()).decisions?.find(d => d.kind === 'plan')?.options.find(o => o.key.startsWith('l-'))?.label ?? (await w.h.board.read()).approval.missing.join()).toBeTruthy()
-    expect(await changeLane(w.h, w.store, reg, id)).toBe(`${id}: lane milestone`)
+    expect(await changeLane(w.h, w.store, id)).toBe(`${id}: lane milestone`)
     const s = await w.h.board.read(); expect(s.plan).toMatchObject({ lane: 'milestone', epicBranch: `milestone/${id}-accounts` }); expect(await w.store.list({ parent: id })).toEqual([])
     const g = String((await w.h.ui.read()).goal); expect(g).toContain('Roadmap rules'); expect(banned(g)).toEqual([])
-    expect(await changeLane(w.h, w.store, reg, id)).toBe(`${id}: lane full`)
+    expect(await changeLane(w.h, w.store, id)).toBe(`${id}: lane full`)
     expect((await w.h.board.read()).plan!.epicBranch).toBe(`epic/${id}-accounts`); expect(String((await w.h.ui.read()).goal)).toContain('Draft its tasks now')
   })
   test('the guide names the milestone lane and stays short', () => {
@@ -217,7 +215,7 @@ describe('stops and bounds', () => {
 describe('a task of an epic', () => {
   test('claims from its epic\'s ready list and branch; a stopped epic\'s task is refused', async () => {
     const w = await approved(2, false), cfg = defaults(), { ids } = await planIt(w, w.es[0]), { ids: other } = await planIt(w, w.es[1])
-    const d: Deps = { store: w.store, cfg, reg: cfg.types as any, root: '/repo', home: '/hm/u', wtRoot: '/wt', key: 'repo-1', actor: 'cadre/u/a', session: 's-1' }
+    const d: Deps = { store: w.store, cfg, root: '/repo', home: '/hm/u', wtRoot: '/wt', key: 'repo-1', actor: 'cadre/u/a', session: 's-1' }
     const next = async () => ({ agentId: 'ag1' }), br = (await w.board()).plan!.epics![0].branch
     expect(br).toBe(`epic/${w.es[0]}-feature-0`)
     expect(((await admitWith(w.h, d, { prompt: `TASK-${ids[0]}` }, next)) as any).deny).toBeUndefined()

@@ -12,7 +12,7 @@ import { join } from 'node:path'
 const { fakeHost } = await import('../support.ts')
 const { defaults } = await import('../../config/index.ts')
 const { MemoryStore } = await import('../../task-management/adapters/memory/store.ts')
-const { defaults: types } = await import('../../task-management/registry.ts')
+const { types: dt } = await import('../../profiles/default.ts'), types = () => dt
 const { admitWith } = await import('../../core/admission.ts')
 const { handleWith } = await import('../../tools/index.ts')
 const { mirror } = await import('../../core/dispatch.ts')
@@ -39,10 +39,10 @@ test('a 2-epic milestone: both epic plans come from planners started by cadre; e
   const submitted = [], spawned = []
   Object.assign(h, { cwd: async () => d, home: async () => d, run, now: async () => (tick += 1000), stat: async p => (existsSync(p) ? { kind: 'dir' } : undefined), write: async (p, t) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) }, readText: async p => (existsSync(p) ? readFileSync(p, 'utf8') : null),
     submit: async t => { submitted.push(t) }, sendTo: async () => ({ isDelivered: true }), usage: async () => ({ cost: { usd: 0 } }), taskStore: async () => store, config: async () => cfg })
-  const dep = { store, cfg, reg: cfg.types, root: d, home: d, wtRoot: `${d}-wt`, key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' }
+  const dep = { store, cfg, root: d, home: d, wtRoot: `${d}-wt`, key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' }
   await h.secret.update(x => ({ ...x, session: 's1' }))
   await h.board.update(b => ({ ...b, seq: 1, epic: m, plan: { id: m, slug: 'accounts', state: 'approved', epicBranch: ms, lane: 'milestone', mode: 'auto' } }))
-  await mirror(h, store, types())
+  await mirror(h, store)
   let k = 0
   const cadre = Object.assign(async e => { const id = `ag${++k}`; spawned.push([id, e.subagentType, e.prompt]); return { agentId: id, model: 'm' } }, { origin: { plugin: 'cadre', tier: 'user' } })
   h.spawnAgent = a => admitWith(h, dep, { ...a, background: true }, cadre)

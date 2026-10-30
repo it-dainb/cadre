@@ -1,5 +1,4 @@
 // TaskStore (DESIGN 11.1). Core imports only this, registry.ts and protocol.ts; nothing else knows the backend (adapters/file, adapters/memory).
-import type { TypeRegistry } from './registry'
 
 export type Category = 'draft' | 'todo' | 'active' | 'review' | 'blocked' | 'done' | 'cancelled'
 export type TaskId = string
@@ -23,7 +22,7 @@ export class StoreError extends Error {
 }
 export interface TaskStore {
   probe(): Promise<{ ok: boolean; journal: boolean; version: string; detail: string }>
-  init(o: { types: TypeRegistry; journal: boolean }): Promise<void>                      // idempotent, consented
+  init(o: { types: Record<string, unknown>; journal: boolean }): Promise<void>                      // idempotent, consented
   createEpic(title: string, goal: string): Promise<TaskId>
   createDraft(t: NewTask): Promise<Task>; dropDrafts(ids: TaskId[]): Promise<void>; link(id: TaskId, dep: { id: TaskId; type: DepType }): Promise<void>
   approve(ids: TaskId[]): Promise<void>; amend(id: TaskId): Promise<void>

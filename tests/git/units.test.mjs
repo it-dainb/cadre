@@ -32,7 +32,7 @@ async function world(roots, paths) {
   await store.approve([epic, id])
   const h = fakeHost(); let tick = 0
   Object.assign(h, { cwd: async () => d, home: async () => d, run, now: async () => (tick += 1000), stat: async p => (existsSync(p) ? { kind: 'dir' } : undefined), write: async (p, t) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) }, readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } } })
-  const dep = { store, cfg, reg: cfg.types, root: d, home: d, wtRoot: `${d}-wt`, key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' }
+  const dep = { store, cfg, root: d, home: d, wtRoot: `${d}-wt`, key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' }
   await h.secret.update(x => ({ ...x, session: 's1' })); h.taskStore = async () => store; h.config = async () => cfg
   await h.board.update(s => ({ ...s, seq: 1, epic, plan: { id: 'p1', slug: 'x', state: 'approved', epicBranch: 'epic/p1-x' }, tasks: [task(id, { title: 'task 0', type: 'refactor' })] }))
   let n = 0; const next = async e => ({ agentId: `ag${++n}`, model: 'm', echo: e })
@@ -79,7 +79,7 @@ test('submodule: the task works and squashes in the submodule repo; integration 
   await store.approve([epic, id])
   const h = fakeHost(); let tick = 0
   Object.assign(h, { cwd: async () => d, home: async () => d, run, now: async () => (tick += 1000), stat: async p => (existsSync(p) ? { kind: 'dir' } : undefined), write: async (p, t) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) }, readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } } })
-  const dep = { store, cfg, reg: cfg.types, root: d, home: d, wtRoot: `${d}-wt`, key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' }
+  const dep = { store, cfg, root: d, home: d, wtRoot: `${d}-wt`, key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' }
   await h.secret.update(x => ({ ...x, session: 's1' })); h.taskStore = async () => store; h.config = async () => cfg
   await h.board.update(s => ({ ...s, seq: 1, epic, plan: { id: epic, slug: 'x', state: 'approved', epicBranch: 'epic/p1-x' }, tasks: [task(id, { title: 'task 0', type: 'refactor' })] }))
   let n = 0; const next = async e => ({ agentId: `ag${++n}`, model: 'm', echo: e })
@@ -111,7 +111,7 @@ test('submodule checkout: a parent check that reads the submodule passes in the 
   await store.approve([epic, id])
   const h = fakeHost(); let tick = 0
   Object.assign(h, { cwd: async () => d, home: async () => d, run, now: async () => (tick += 1000), stat: async p => (existsSync(p) ? { kind: 'dir' } : undefined), write: async (p, t) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) }, readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } } })
-  const dep = { store, cfg, reg: cfg.types, root: d, home: d, wtRoot: `${d}-wt`, key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' }
+  const dep = { store, cfg, root: d, home: d, wtRoot: `${d}-wt`, key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' }
   await h.secret.update(x => ({ ...x, session: 's1' })); h.taskStore = async () => store; h.config = async () => cfg
   await h.board.update(s => ({ ...s, seq: 1, epic, plan: { id: epic, slug: 'x', state: 'approved', epicBranch: 'epic/p1-x' }, tasks: [task(id, { title: 'task 0', type: 'refactor' })] }))
   let n = 0; const next = async e => ({ agentId: `ag${++n}`, model: 'm', echo: e }), rep = (agentId, body) => handleWith(h, dep, { tool: 'mcp__cadre__report', agentId, input: { schemaVersion: 1, ...body } }).then(r => r.result)

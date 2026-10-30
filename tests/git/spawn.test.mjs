@@ -38,7 +38,7 @@ async function world(n = 1, o = {}) {
   const submitted = [], spawned = [], sent = []
   Object.assign(h, { cwd: async () => d, home: async () => d, run, now: async () => (tick += 1000), stat: async p => (existsSync(p) ? { kind: 'dir' } : undefined), write: async (p, t) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) }, readText: async p => (existsSync(p) ? readFileSync(p, 'utf8') : null),
     submit: async t => { submitted.push(t) }, sendTo: async (a, t) => { sent.push([a, t]); return { isDelivered: true } }, usage: async () => ({ cost: { usd: 0 } }) })
-  const dep = { store, cfg, reg: cfg.types, root: d, home: d, wtRoot: `${d}-wt`, key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' }
+  const dep = { store, cfg, root: d, home: d, wtRoot: `${d}-wt`, key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' }
   await h.secret.update(x => ({ ...x, session: 's1' })); h.taskStore = async () => store; h.config = async () => cfg
   const ts = await Promise.all(ids.map(async id => { const t = await store.get(id); return task(id, { title: t.title, type: t.type }) }))
   await h.board.update(s => ({ ...s, seq: 1, epic, plan: { id: epic, slug: 'x', state: 'approved', epicBranch: 'epic/p1-x' }, tasks: ts }))

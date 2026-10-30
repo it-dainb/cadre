@@ -57,7 +57,7 @@ describe('the fake host\'s clock (tests/support)', () => {
   })
 })
 describe('machine checks', () => {
-  test('a healthy machine is all ok', async () => { expect((await rowsOf(mk())).map(r => r[0])).toEqual(Array(7).fill('ok')) })
+  test('a healthy machine is all ok', async () => { expect((await rowsOf(mk())).map(r => r[0])).toEqual(Array(8).fill('ok')) })
   test('missing tools fail with the exact command for the human', async () => {
     const rs = await rowsOf(mk({ tools: {} }))
     expect(lvl(rs, /git/)).toEqual(['crit', 'git not found', '! sudo sh ~/.cache/cadre/fix/git.sh'])

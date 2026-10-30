@@ -11,6 +11,7 @@ import { randomBytes } from 'node:crypto'
 const G = await import('../../core/git.ts')
 const V = await import('../../core/specview.ts')
 const T = await import('../../core/tdd.ts')
+const PL = await import('../../core/pipeline.ts'), DP = await import('../../profiles/default.ts')
 const { fakeHost, task: snap } = await import('../support.ts')
 const { defaults } = await import('../../config/defaults.ts')
 const { repoKeyOf } = await import('../../commands/init.ts')
@@ -37,10 +38,11 @@ function world(over = {}) {
   sh(root, 'add', '-A'); sh(root, 'commit', '-qm', 'init'); sh(root, 'branch', 'epic/e1-x')
   const pkg = { root: '.', setup: [], checks: { test: ['node', 'run.mjs'], knownbad: ['false'] }, verify: ['test'], viewInclude: ['docs/**'], tdd: { paths: ['test/**'] }, ...over.pkg }
   const cfg = { ...defaults(), units: [pkg], worktrees: { root: join(b, 'wt') }, jail: 'auto', ...over.cfg }
-  if (!over.cover) cfg.review = { ...cfg.review, coverage: { enforce: false } }   // the fixtures name tests 'a', 'login ok'; the coverage rule has its own test
+  // the fixtures name tests 'a', 'login ok': the coverage rule (a type's acceptance.cover) is off unless the case asks (over.cover); it has its own test
+  PL.setProfile(over.cover ? DP.profile : { ...DP.profile, types: Object.fromEntries(Object.entries(DP.profile.types).map(([k, t]) => [k, { ...t, acceptance: { ...t.acceptance, cover: 'none' } }])) })
   const meta = {}, comments = [], ctl = { revision: '0', doc: {} }, store = { async setMeta(id, kv) { Object.assign(meta, kv) }, async update(id, p) { if (p.acceptance !== undefined) over.acceptance = p.acceptance },  async control() { return ctl }, async setControl(p) { Object.assign(ctl.doc, p); return ctl }, async move() {}, async resume() {}, async get(id) { return { id, title: 't', type: over.type ?? 'feature', meta: { ...meta }, acceptance: over.acceptance ?? 'S1: Given a When b Then c', description: 'page 1 skips the first page', design: over.design ?? JSON.stringify({ symbols: [{ name: 'login', kind: 'function', params: 'u', returns: 'bool', status: 'new' }] }) } } }
   const h = fakeHost(); Object.assign(h, { run, rand: n => randomBytes(n ?? 16).toString('hex'), stat: async (p, o) => { try { return { kind: lstatSync(p).isDirectory() ? 'dir' : 'file', realPath: o?.resolve ? realpathSync(p) : undefined } } catch { return undefined } }, readText: async p => (existsSync(p) ? readFileSync(p, 'utf8') : null), write: async (p, t) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) }, cwd: async () => root, home: async () => b, config: async () => cfg, taskStore: async () => store })
-  const d = { store, cfg, reg: cfg.types, root, home: b, wtRoot: cfg.worktrees.root, key: repoKeyOf(root), actor: 'a', session: 's' }
+  const d = { store, cfg, root, home: b, wtRoot: cfg.worktrees.root, key: repoKeyOf(root), actor: 'a', session: 's' }
   return { b, root, h, d, meta, comments, store, pkg, acceptance: () => over.acceptance }
 }
 const mkTask = async w => w.store.get('m-1')

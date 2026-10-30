@@ -6,17 +6,15 @@ import { defaults } from '../config/index'
 import { MemoryStore } from '../task-management/adapters/memory/store'
 import { brief, planBlock } from '../core/briefs'
 import { coverageGaps, notesOf, sliceNotes, untested, validateFields } from '../core/validate'
-import { defaults as typeDefaults } from '../task-management/registry'
 import { fakeHost, task } from './support'
 import type { Host } from '../types'
 
 const NOTES = [{ text: 'tests run with node --test' }, { paths: ['src/auth/'], text: 'auth: tokens are signed in src/auth/sign.ts' }, { paths: ['src/billing/**'], text: 'billing: cents, never floats' }]
 
 describe('notes keyed by path', () => {
-  const reg = typeDefaults()
   test('metadata.notes takes the old string or a list of {paths?, text}; a bad list is refused with the shape', () => {
-    expect(validateFields({ kind: 'plan', notes: 'auth lives in src/auth' }, reg)).toBeNull(); expect(validateFields({ kind: 'plan', notes: NOTES }, reg)).toBeNull()
-    for (const bad of [[], [{ paths: ['a'] }], [{ text: 'x', paths: 'src' }], [{ text: 'x', paths: [] }], [{ text: 'x'.repeat(3001) }]]) expect(validateFields({ kind: 'plan', notes: bad }, reg)).toContain('[{"paths":["src/auth/"],"text":"…"}]')
+    expect(validateFields({ kind: 'plan', notes: 'auth lives in src/auth' })).toBeNull(); expect(validateFields({ kind: 'plan', notes: NOTES })).toBeNull()
+    for (const bad of [[], [{ paths: ['a'] }], [{ text: 'x', paths: 'src' }], [{ text: 'x', paths: [] }], [{ text: 'x'.repeat(3001) }]]) expect(validateFields({ kind: 'plan', notes: bad })).toContain('[{"paths":["src/auth/"],"text":"…"}]')
   })
   test('the old string is one note for every task; a stored list parses back', () => {
     expect(notesOf('auth lives in src/auth')).toEqual([{ text: 'auth lives in src/auth' }]); expect(notesOf(JSON.stringify(NOTES))).toEqual(NOTES); expect(notesOf(undefined)).toEqual([])
@@ -62,7 +60,7 @@ async function world() {
   const mk = (n: string, slice = true) => {
     const h: Host = { ...fakeHost({ t0: T0 }), run, stat: async (p: string) => (dirs.has(p) ? { kind: 'dir' } : undefined) } as any
     const cfg = defaults(); cfg.notes.slice = slice
-    return { h, d: { store, cfg, reg: defaults().types as any, root: '/repo', home: '/hm/u', wtRoot: '/wt', key: 'repo-1', actor: 'cadre/u/aaaaaa', session: `s-${n}` } as Deps }
+    return { h, d: { store, cfg, root: '/repo', home: '/hm/u', wtRoot: '/wt', key: 'repo-1', actor: 'cadre/u/aaaaaa', session: `s-${n}` } as Deps }
   }
   const prompt = async (n: string, id: string, slice = true) => {
     const { h, d } = mk(n, slice), seen: any[] = []
@@ -86,7 +84,7 @@ describe('admission builds the briefs from the plan (notes.slice)', () => {
   })
 })
 
-describe('scenario coverage is a hard check (review.coverage.enforce)', () => {
+describe('scenario coverage is a hard check (a type whose acceptance.cover is not none)', () => {
   const acc = 'S1: Given a When b Then c\nS3: Given a When b Then c\nS30: Given a When b Then c'
   const T = (...ids: string[][]) => ids.map((i, n) => ({ name: `t${n}`, ids: i }))
   test('a scenario counts as tested only when a declared test lists its exact id (the name says nothing)', () => {

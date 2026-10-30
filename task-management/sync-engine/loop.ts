@@ -1,6 +1,7 @@
 // Sync tick (DESIGN 11.4), level-triggered and state-based. Called from the one $.clock.every(5000): only the store + adapter processes + $.state, never a submit.
 // Per target: lease + cursor (a journal seq) in the store's control doc, CAS per field; pull -> merge -> push by hash, heal every 15 min, backoff 30 s -> 5 min.
 // Event-only adapters (`deliver`) ride the same tick; commands they return are refused (ADR 0012).
+import { active } from '../../core/pipeline'
 import type { Host } from '../../types'
 import { canon, fnv1a64, modelView } from '../../core/board'
 import { emit, ofEpic, subscribe } from '../../core/events'
@@ -133,7 +134,7 @@ async function stepOf(h: Host, n: number, name: string, a: AdapterCfg, d: Record
     return { lines: [`+ .cadre/config.json: sync.${name}.project = "${id}"`], apply: async () => { d.project = id; await set(x => { x.project = id }) } }
   }
   if (n === 3) {
-    const sc = await call(h, name, a, 'describeSchema', { url: d.url, project: d.project }), types = Object.keys(cfg.types as object), over = kv(args.filter(x => x.startsWith('map.')).map(x => x.slice(4)))
+    const sc = await call(h, name, a, 'describeSchema', { url: d.url, project: d.project }), types = Object.keys(active().types), over = kv(args.filter(x => x.startsWith('map.')).map(x => x.slice(4)))
     const low = (sc.statuses as string[]).map(s => [s.toLowerCase(), s]), m: any = { type: {}, status: {}, priority: {} }, miss: string[] = []
     for (const t of types) m.type[t] = over[`type.${t}`] ?? (sc.trackers as string[]).find(x => x.toLowerCase() === t) ?? sc.trackers[0]
     for (const [c, names] of Object.entries(CATS)) { const hit = over[`status.${c}`] ?? low.find(([l]) => names.includes(l))?.[1]; if (hit) m.status[c] = hit; else miss.push(c) }
@@ -155,7 +156,7 @@ async function stepOf(h: Host, n: number, name: string, a: AdapterCfg, d: Record
     if (mode === 'empty') { for (const t of await store.list({})) if (t.category !== 'draft') await store.setMeta(t.id, { [`cadre.sync.${name}`]: JSON.stringify({ l: {}, r: {}, skip: 1 }) }, actor); cursor = (await store.events(undefined, 0))?.head }
     if (mode === 'import') {
       const b = await h.board.read(), parent = b.mission ?? b.epic ?? await store.createEpic('backlog', 'imported from ' + name), res = await call(h, name, a, 'pull', { project: d.project })
-      for (const r of res.tasks ?? []) { const t = await store.createDraft({ title: String(r.fields?.title ?? r.rid), description: String(r.fields?.description ?? ''), type: Object.keys(cfg.types as object)[0], parent }); await store.setMeta(t.id, { [`cadre.sync.${name}`]: JSON.stringify({ rid: r.rid, etag: r.etag, l: {}, r: {} }) }, actor) }
+      for (const r of res.tasks ?? []) { const t = await store.createDraft({ title: String(r.fields?.title ?? r.rid), description: String(r.fields?.description ?? ''), type: Object.keys(active().types)[0], parent }); await store.setMeta(t.id, { [`cadre.sync.${name}`]: JSON.stringify({ rid: r.rid, etag: r.etag, l: {}, r: {} }) }, actor) }
     }
     await store.setControl({ [`sync.${name}`]: { cursor, lastHeal: 0 } }); await set(x => { x.direction = 'both' })
   } }

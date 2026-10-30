@@ -1,6 +1,6 @@
 // Roster (DESIGN 4.1): 4 agent types, shipped as plugin agent files agents/<role>.md (A28: per-agent experimental.cacheTtl; their body = PROMPTS, tools = TOOLS, test-pinned).
 // The `tools` list is also the role's L1 allowlist (default-deny by name). Grep/Glob are absent in 2.1.295 (S45): no search tools; briefs name paths.
-import { ROLES_DEFAULT } from '../core/roles'
+import { ROLES_DEFAULT, roleSpec } from '../core/roles'
 import { modelText } from '../core/say'
 import type { Role } from '../types'
 
@@ -11,7 +11,7 @@ export const MAIN_TOOLS: readonly string[] = ['Read', 'LSP', 'WebFetch', 'WebSea
   'Agent', 'AskUserQuestion', 'SendMessage', 'Skill', 'Edit', 'Write', 'NotebookEdit', I, ...['plan', 'task', 'epic', 'amend', 'explore', 'ask', 'status', 'preferences'].map(t => `mcp__cadre__${t}`)]   // main's own tools (tools/index MAIN); Agent only to start a planned task (core/plantools.mainAgent)
 const DESC = Object.fromEntries(Object.entries(ROLES_DEFAULT).map(([r, x]) => [r, x.description])) as Record<Role, string>
 // allowlist for a role: its tools, plus the user's mcpAllow for the worker (SA: user-level S key)
-export const allowlist = (role: Role, mcpAllow: readonly string[] = []): string[] => [...TOOLS[role], ...(ROLES_DEFAULT[role].mcpAllow ? mcpAllow : [])]
+export const allowlist = (role: Role, mcpAllow: readonly string[] = []): string[] => { const s = roleSpec(role) ?? ROLES_DEFAULT[role]; return [...s.tools, ...(s.mcpAllow ? mcpAllow : [])] }   // a role of the profile (a step's own role) or a planning role
 
 export interface Roles { [k: string]: { model?: string; effort?: string; byRisk?: Record<string, { model?: string; effort?: string }> } }
 // A role's spec as config resolves it (init stage 6 renders one per role): model/effort of its standard-risk cell (explorer: its own), 'default' effort left out.

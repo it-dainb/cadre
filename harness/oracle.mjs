@@ -117,7 +117,7 @@ const mine = (() => {
 //    maxQuestions in ONE call) earns its dialog on top of set up, safety settings and the plan: on haiku a clear goal may still score unclear
 //    (main's judgement; the clarify tier's CLARIFY=none judges that, not this budget). custom-role has no goal: main's one Agent call is the whole cell
 { const g = drv.find(e => e.kind === 'goal-failed'); if (g) fail('goal-not-taken', g.text) }
-if (process.env.ORACLE !== 'custom-role') {
+if (!['custom-role', 'profile-invalid'].includes(process.env.ORACLE ?? '')) {
   const plan = drv.find(e => e.kind === 'plan'), until = plan?.t ?? tEnd
   // a fault the cell injected (FAULT=interrupt|kill) earns the setup's one recovery dialog ("… stopped …")
   const faulted = drv.some(e => e.kind === 'fault'); let budget = DIALOGS + (faulted && drv.some(e => e.kind === 'dialog' && /stopped/.test(e.text)) ? 1 : 0)
@@ -390,6 +390,23 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
       else if (ws.length && task(rv[0].brief) !== task(ws[0].brief)) fail(o, `the reviewer after the restart works on ${task(rv[0].brief)}, the worker did ${task(ws[0].brief)}`)
       if (!drv.some(e => e.kind === 'send' && e.t > k && /\/cadre continue/.test(e.text))) fail(o, 'no /cadre continue after the restart')
     }
+  }
+  if (o === 'profile-docs') {   // the built-in docs profile: writer > critic > landing; no tester, no worker, no reviewer, no check, no changelog entry; it lands as a docs commit
+    const log = read(join(dir, 'dev-log')).split('\n').filter(Boolean), roles = x => subs.filter(s => new RegExp(`${x} brief`).test(s.brief)).length
+    Object.assign(stats, { devLog: log, writers: roles('Writer'), critics: roles('Critic'), defaults: roles('Tester') + roles('Worker') + roles('Reviewer') })
+    if (!roles('Writer') || !roles('Critic')) fail(o, `writer ${roles('Writer')}x, critic ${roles('Critic')}x (want both)`)
+    if (roles('Tester') + roles('Worker') + roles('Reviewer')) fail(o, 'an agent of the default profile ran under the docs profile')
+    if (!log.some(l => /^docs(\(|:)/.test(l))) fail(o, `no docs commit on dev: ${log.join(' | ') || 'dev has none'}`)
+    if (/usage/i.test(read(join(dir, 'dev-changelog')))) fail(o, 'the changelog has an entry for a doc task (this profile has no changelog)')
+    if (runs(snaps.at(-1)?.s ?? {}) && Object.values(Object.assign({}, ...snaps.map(x => runs(x.s)), ...hist.map(runs))).some(r => ['tester', 'worker', 'reviewer'].includes(r.role))) fail(o, 'a run record of a default-profile role exists')
+  }
+  if (o === 'profile-invalid') {   // a refused repo profile: cadre is dormant for the repo: the refusal line is shown, /cadre profile says it stays off, Doctor reports a failing row, no agent ran
+    const screens = panes.map(p => left(p.text).replace(/\s+/g, ' ')), shown = screens.filter(x => /repo profile: colour: unknown key/.test(x)).length
+    Object.assign(stats, { agents: subs.length, refusalShown: shown, profile: screens.some(x => /repo profile invalid: colour: unknown key.*cadre stays off for this repo/.test(x)), doctor: screens.some(x => /doctor: [1-9]\d* fail/.test(x)) })
+    if (!shown) fail(o, 'the refusal line `repo profile: colour: unknown key` was never shown')
+    if (!stats.profile) fail(o, '/cadre profile does not say `repo profile invalid: colour: unknown key` and that cadre stays off for this repo')
+    if (!stats.doctor) fail(o, 'Doctor reports no failing row')
+    if (subs.length || dlines.some(l => /agent\.spawn cadre:/.test(l))) fail(o, 'an agent ran in a repo whose profile is refused')
   }
   if (o === 'custom-role') {   // the user's read-only auditor: ONE register before the spawn, spawned as cadre:auditor from a later turn, it answers by report, one terminal state
     const at = re => dlines.findIndex(l => re.test(l)), reg = dlines.filter(l => /\$\.agent\.register \(cadre\): cadre:auditor/.test(l)), sp = dlines.filter(l => /agent\.spawn cadre:auditor/.test(l))

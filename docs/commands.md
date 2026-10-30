@@ -21,6 +21,7 @@ An old subcommand word (`approve`, `status`, `open`, …) answers `that's answer
 | `revert <id>` | typed or press opens the card; the two confirms: dialog | revert a landed task, epic or milestone to this point: a card with the changelog entry, summary, result, tests and a preview of what is lost (files, commits, later tasks that depend on it), then two confirms; the revert commits land through the same checks as an epic. An epic that never landed is abandoned instead: only the branches the store recorded are removed. Refused with a code: `revert-of-revert`, `already-reverted`, `not-landed`, `busy`, `pr-mode` (pull-request landing is not supported yet), `unknown` |
 | `setup [cancel]` | human | one-time machine setup, done by Claude, checked by cadre |
 | `doctor` | anyone | read-only diagnosis, report in the cadre pane |
+| `profile` | anyone | read-only: the active workflow profile (a built-in, your own layer in `~/.claude/cadre.json`, the repo's `.cadre/profile.json`), where each type, step, role, check and flag row came from, and what cannot run; also shows a repo profile that is refused (cadre stays off for that repo until it is fixed and a new session starts) |
 | `timeline` | human | per-repo metrics as one line (landed tasks, cost per task, first-try rate, rework, time per task) and the records exported to `.cadre/tmp/timeline.json` in the project; history starts at 1.0 |
 | `init [cancel \| confirm]` | human | project setup, done by Claude, checked by cadre; `confirm` = the safety settings decision |
 | `sync add <adapter>` · `sync [now]` | human · anyone | external tracker setup · wake sync |
@@ -42,7 +43,7 @@ Main's tools: `plan`, `task`, `epic`, `amend`, `explore`, `ask`, `status` (and `
 4. **Close.** Main sets the task `completed`; the mod squashes into the epic branch. When all tasks are done, completing the epic merges `--no-ff` into `dev`.
 5. **Release.** `/cadre release [x.y.z]` cuts the changelog and merges `dev` into `main`. cadre never pushes.
 
-Types (`feature`, `bug`, `refactor`, `docs`, `test`, `spike`) and their pipelines come from the registry (config `types`).
+Types (`feature`, `bug`, `refactor`, `docs`, `test`, `spike`) and their pipelines are the default profile's (`profiles/default.ts`); a repo or a user layer adds or replaces them in a profile (`/cadre profile` shows what is active). The profile is read once, when the session starts.
 
 ## Per project: the first `/cadre <goal>` (or `/cadre init`)
 The first goal in a repo cadre hasn't seen asks once to set it up; then Claude follows the init guide, you confirm the safety settings, and the plan comes up with its mission for one approval. `/cadre init` re-runs the setup on purpose. The checklist has these items:

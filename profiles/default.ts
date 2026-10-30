@@ -1,5 +1,5 @@
-// The default profile (plan 2.11), grown slice by slice: S2 the check slots, S3 the flag table, S4 the work roles. Data, JSON-serializable, no code.
-import type { FlagSpec, Profile, RoleSpec } from '../types/profile'
+// The default profile (plan 2.11), grown slice by slice: S2 the check slots, S3 the flag table, S4 the work roles, S5 the pipelines and the rest. Data, JSON-serializable, no code.
+import type { FlagSpec, Profile, RoleSpec, Step, TypeSpec } from '../types/profile'
 import { PROMPTS } from '../agents/prompts'
 import { modelText } from '../core/say'
 
@@ -69,4 +69,38 @@ export const roles: Record<string, RoleSpec> = {
   explorer: { description: 'read-only recon, discovery and spikes', prompt: modelText('agent-file', PROMPTS.explorer), tools: ['Read', I, R], network: 'off', write: [], ttl: '5m', effort: 'low', maxTurns: 40,
     onSilent: 'nudge', nudge: modelText('nudge', `${STOP}, once: {"schemaVersion":1,"role":"explorer","answer":"<your answer>","citations":[{"path":"src/a.ts","line":1}]}`),
     report: { outcomes: [], fields: { answer: { text: 2000 }, citations: { list: 30 } }, required: ['answer'], ask: { answer: 'required for role explorer' } } },
+}
+
+// The pipelines (plan 2.11): a type picks its steps; a step is a role run or a gate. Retries: red = the tester's rounds (limits.testerRounds in 1.0.1), reviewer = the review rounds (review.maxRework).
+// green has no onFail: a failing green only refuses the worker's report, unbounded as in 1.0.1.
+const GWT = { format: 'Given/When/Then' }
+const FULL = ['tester', 'red', 'worker', 'green', 'reviewer', 'merge'], LITE = ['worker', 'green', 'reviewer', 'merge']
+export const types: Record<string, TypeSpec> = {
+  feature: { pipeline: FULL, lite: LITE, acceptance: { ...GWT, cover: 'results' }, contract: 'required', branch: 'feat/', commit: 'feat' },
+  bug: { pipeline: FULL, lite: LITE, acceptance: { ...GWT, cover: 'results' }, contract: 'required', branch: 'fix/', commit: 'fix' },
+  refactor: { pipeline: LITE, acceptance: { ...GWT, cover: 'report' }, contract: 'required', branch: 'refactor/', commit: 'refactor' },
+  docs: { pipeline: ['worker', 'reviewer', 'merge'], acceptance: { format: 'what must be true', cover: 'report' },   // 1.0.1 enforced the reviewer's coverage for every type; `none` would relax it
+    contract: 'none', rubric: 'accuracy, tone, completeness', branch: 'docs/', commit: 'docs' },
+  test: { pipeline: ['tester', 'reviewer', 'merge'], acceptance: { ...GWT, cover: 'report' }, contract: 'none', branch: 'test/', commit: 'test' },
+  spike: { pipeline: ['explorer', 'report'], acceptance: { format: 'question answered', cover: 'none' }, contract: 'none' },
+}
+export const steps: Record<string, Step> = {
+  tester: { role: 'tester', workspace: 'view', brief: ['acceptance', 'contract'], locks: { acquire: 'out' } },
+  red: { gate: 'test', expect: 'fail', on: 'tester', onFail: { retry: 3, then: 'human' } },
+  worker: { role: 'worker', workspace: 'worktree', brief: ['description', 'acceptance', 'contract', 'locked', 'deps', 'handoff', 'findings', 'decisions', 'notes'], locks: { enforce: 'in' } },
+  green: { gate: 'test', expect: 'pass', on: 'worker' },
+  reviewer: { role: 'reviewer', workspace: 'none', brief: ['diff', 'acceptance', 'contract', 'locked', 'findings'], onFail: { retry: 3, then: { back: 'worker' } } },
+  merge: { gate: 'integrate', expect: 'pass', on: 'reviewer' },
+  explorer: { role: 'explorer', workspace: 'none', brief: ['question'] },
+  report: { gate: 'report', expect: 'pass', on: 'explorer' },
+}
+// S6 adds the hook entries with the modules; CHANGELOG.md joins `protected` then. Only PATH moves here (the folder's own virtualenv comes first, as node_modules/.bin does for npm scripts).
+export const profile: Profile = {
+  schema: 2, types, steps, roles, checks, flags, hooks: {},
+  landing: { provider: 'direct', onEpicDone: 'propose', prepare: 'setup', baseline: 'tolerate' },
+  protected: [],
+  sandbox: { env: { PATH: '${WT}/.venv/bin:${PATH}' } },
+  fields: [{ name: 'scope', store: 'meta', required: false }, { name: 'breaking', store: 'meta', required: false, kind: 'bool' }, { name: 'package', store: 'meta', required: false }, { name: 'changelog', store: 'meta', required: ['feature', 'bug', 'refactor'] }, { name: 'holds', store: 'meta', required: false, kind: 'ids' }, { name: 'lane', store: 'meta', required: false, kind: { enum: ['ask', 'lite', 'full', 'milestone'] } },
+    { name: 'risk', store: 'meta', required: false, kind: { enum: ['light', 'standard', 'thorough', 'core'] } }],
+  limits: { reportRetries: 3, shapeRetries: 6, nudges: 1, stagnantNudges: 3, silentRuns: 3, startFails: 3, limitWaitMinutes: 15, rebaseRounds: 2, specAccepts: 2 },
 }

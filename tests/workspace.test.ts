@@ -4,7 +4,6 @@ import { describe, expect, test } from 'claude-code/testing'
 import { ownerOf, parse, unitsOf } from '../core/discover'
 import { pkgOf, repoSplit, unitsOfTask } from '../core/specview'
 import { missingList, missingOf } from '../core/validate'
-import { defaults } from '../task-management/registry'
 import { resolve } from '../config/index'
 import * as D from '../core/discover'
 
@@ -45,13 +44,13 @@ describe('units', () => {
   })
   test('the overlap rule holds within a unit and across units: repo-relative paths, so two tasks on one file need an order wherever they sit', () => {
     const t = (id: string, paths: string[], deps: any[] = []) => ({ id, title: id, description: 'd', acceptance: 'S1: Given a When b Then c', type: 'docs', category: 'draft', deps, labels: [], meta: { 'cadre.changelog': '{}', 'cadre.package': '.', 'cadre.paths': JSON.stringify(paths) } }) as any
-    expect(missingList([t('a', ['svc/api/h.go']), t('b', ['svc/api'])], defaults())).toEqual(['a+b both change svc/api/h.go: move it into one core task or add a blocks dependency'])
-    expect(missingList([t('a', ['svc/api/h.go', 'svc/web/v.ts']), t('b', ['svc/web/v.ts'])], defaults())).toHaveLength(1)   // a cross-unit task against a one-unit task
-    expect(missingList([t('a', ['svc/api/h.go']), t('b', ['svc/web/v.ts'])], defaults())).toEqual([])
-    expect(missingList([t('a', ['svc/api/h.go']), t('b', ['svc/api/h.go'], [{ id: 'a', type: 'blocks' }])], defaults())).toEqual([])
+    expect(missingList([t('a', ['svc/api/h.go']), t('b', ['svc/api'])])).toEqual(['a+b both change svc/api/h.go: move it into one core task or add a blocks dependency'])
+    expect(missingList([t('a', ['svc/api/h.go', 'svc/web/v.ts']), t('b', ['svc/web/v.ts'])])).toHaveLength(1)   // a cross-unit task against a one-unit task
+    expect(missingList([t('a', ['svc/api/h.go']), t('b', ['svc/web/v.ts'])])).toEqual([])
+    expect(missingList([t('a', ['svc/api/h.go']), t('b', ['svc/api/h.go'], [{ id: 'a', type: 'blocks' }])])).toEqual([])
   })
   test('a full-lane draft with declared paths needs no package: its paths name its unit', () => {
     const t = { id: 'a', title: 't', description: 'd', type: 'feature', category: 'draft', acceptance: 'S1: Given a When b Then c', design: '{}', deps: [], labels: [], meta: { 'cadre.changelog': '{}', 'cadre.paths': '["svc/api/x.go"]' } } as any
-    expect(missingOf(t, defaults())).toEqual([]); expect(missingOf({ ...t, meta: { 'cadre.changelog': '{}' } }, defaults())).toEqual(['package'])
+    expect(missingOf(t)).toEqual([]); expect(missingOf({ ...t, meta: { 'cadre.changelog': '{}' } })).toEqual(['package'])
   })
 })

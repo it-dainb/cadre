@@ -18,7 +18,7 @@ const { closeTask } = await import('../../core/close.ts')
 const { resolveDeps } = await import('../../core/admission.ts')
 const { mirror } = await import('../../core/dispatch.ts')
 const { skeleton } = await import('../../core/changelog.ts')
-const { defaults: types } = await import('../../task-management/registry.ts')
+const { types: dt } = await import('../../profiles/default.ts'), types = () => dt
 
 const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: o.cwd }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()

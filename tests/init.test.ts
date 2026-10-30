@@ -675,8 +675,8 @@ describe('the project settings file during init', () => {
   })
   test('a bad write is a red check naming each key and why: the checklist, the tool-result line and the stop refusal; fixing it clears it', async () => {
     const { h, files } = mk({ files: { ...READY } }); await start(h, 'init')
-    files[CFG] = JSON.stringify({ ...JSON.parse(READY[CFG]), bogus: 1, review: { maxRework: 'many' }, drive: { maxTurns: 5 }, strictness: 'advisory', jail: 'off' })
-    const why = '.cadre/config.json: bogus: unknown key; review.maxRework: expected number; drive.maxTurns: user-level only, ignored in the repo file; strictness: the repo file may only tighten this key; a safety key: the repo file may only tighten this key; fix or remove these keys (the user sets the rest in the cadre pane)'
+    files[CFG] = JSON.stringify({ ...JSON.parse(READY[CFG]), bogus: 1, limits: { rebaseRounds: 'many' }, drive: { maxTurns: 5 }, strictness: 'advisory', jail: 'off' })
+    const why = '.cadre/config.json: bogus: unknown key; limits.rebaseRounds: expected number; drive.maxTurns: user-level only, ignored in the repo file; strictness: the repo file may only tighten this key; a safety key: the repo file may only tighten this key; fix or remove these keys (the user sets the rest in the cadre pane)'
     expect((await items(h))['settings file']).toBe(`fail: ${why}`)
     expect(await redNote(h)).toContain(`settings file (${why})`)
     expect(await stopCheck(h, {})).toContain(`settings file: ${why}`)

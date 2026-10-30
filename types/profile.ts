@@ -16,6 +16,8 @@ export type Profile = {
   limits: Limits
 }
 
+export type ProfileLayer = Partial<Profile> & { schema: 2 }   // a built-in profile other than the default, or a user/repo layer: the sections it names (flags are merged under the default's rows by kind)
+
 export type Landing = {
   provider: string                                // 'direct' | a module path
   onEpicDone: 'propose' | 'auto' | 'off'

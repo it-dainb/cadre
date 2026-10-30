@@ -1,3 +1,3 @@
-# overlay on `single ready`: the user's config defines a read-only `auditor` role (tui.sh copies .harness-roles.json into ~/.claude/cadre.json); the scripted model plays `custom-role`
+# overlay on `single ready`: the user's profile defines a read-only `auditor` role (tui.sh copies .harness-profile.json into ~/.claude/cadre.json as `profile`); the scripted model plays `custom-role`
 echo '{"script":"custom-role"}' > .git/scripted.json
-echo '{"auditor":{"description":"checks a change for risks, read-only","prompt":"Read the files named in the request and list the risks you see, one line each.","tools":["Read","mcp__cadre__inspect","mcp__cadre__report"],"maxTurns":8}}' > .harness-roles.json
+echo '{"schema":2,"roles":{"auditor":{"description":"checks a change for risks, read-only","prompt":"Read the files named in the request and list the risks you see, one line each.","tools":["Read","mcp__cadre__inspect","mcp__cadre__report"],"maxTurns":8,"network":"off","write":[],"ttl":"5m","onSilent":"block","report":{"outcomes":[],"fields":{"answer":{"text":2000},"citations":{"list":30}},"required":["answer"]}}}}' > .harness-profile.json

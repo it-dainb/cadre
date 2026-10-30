@@ -4,16 +4,15 @@ import { describe, expect, test } from 'claude-code/testing'
 import { REG, defaults, strictOf } from '../config/index'
 import type { Config } from '../config/index'
 import { RISKS, route } from '../core/routing'
-import { laneOf } from '../core/lanes'
+import { loadProfile } from '../core/profile'
 import { boundOf } from '../core/drive'
 import { stale, usdOf } from '../core/reuse'
 import { start, wake } from '../core/session'
 import { modeOf } from '../core/specview'
-import { registryOf } from '../core/dispatch'
 import { protectedRef, wtRootOf } from '../core/branches'
 import { isProt, writableJail } from '../core/git'
 import { allowlist } from '../agents/index'
-import { coverageGaps, sliceNotes } from '../core/validate'
+import { sliceNotes } from '../core/validate'
 import { asciiOf } from '../config/index'
 import { policyOf } from '../policy/guards'
 import { ELSEWHERE } from './fixtures/settings-proof'
@@ -24,7 +23,6 @@ import { fakeHost } from './support'
 const put = (c: any, k: string, v: unknown) => { const ks = k.split('.'); ks.slice(0, -1).reduce((o, x) => o[x], c)[ks[ks.length - 1]] = v; return c }
 const host = (c: Config, files: Record<string, string> = {}) => Object.assign(fakeHost({ files }), { config: async () => c })
 const R = (c: Config, r: 'worker' | 'tester' | 'reviewer', k: (typeof RISKS)[number], n: number) => route(r, c.roles[r].byRisk[k], k, n)
-const T = (n: number) => Array.from({ length: n }, () => ({ type: 'spike', meta: {}, labels: [], design: '' })) as any
 const rec = { on: true, turns: 50, startedAt: 0 } as any, bound = (c: Config, cost = 5, idle = 2) => boundOf(rec, c.drive, cost, idle, 60 * 60_000)
 const B = { taskId: 't', role: 'worker', step: 'worker', worktree: '/w', sessionId: 's', ctxTokens: 120_000, startedAt: 0, lastAt: 0 } as any
 const started = async (c: Config) => { const h = host(c); await start(h); return { pol: await policyOf(h), ui: (await h.ui.read()).cfg } }
@@ -47,9 +45,8 @@ const PROBES: Record<string, [unknown, (c: Config) => unknown]> = {
   'planning.clarify.enabled': [false, c => guideOf((BUDGET.guides as Record<string, string>).goal, c.planning)],
   'planning.clarify.maxQuestions': [1, c => nextStep(VAGUE, c.planning, { mode: 'auto' }).text], 'planning.clarify.threshold': [0.3, c => nextStep(VAGUE, c.planning, { mode: 'auto' }).text],
   'planning.deep.maxRounds': [1, c => nextStep(VAGUE, c.planning, { mode: 'auto', deep: true, asked: 1 }).text],
-  'review.coverage.enforce': [false, c => coverageGaps(c.review.coverage.enforce, 'S1: Given a When b Then c', [], [])], 'notes.slice': [false, c => sliceNotes([{ paths: ['src/a'], text: 'x' }], ['src/a'], c.notes.slice)],
-  'lanes.fullAt': [4, c => laneOf('ask', T(3), c.types as any, c.lanes)], 'lanes.milestoneAt': [9, c => laneOf('full', T(8), c.types as any, c.lanes)],
-  types: [{ chore: { commit: 'chore', pipeline: ['worker', 'merge'] } }, async c => Object.keys(await registryOf(host(c)))],
+  'notes.slice': [false, c => sliceNotes([{ paths: ['src/a'], text: 'x' }], ['src/a'], c.notes.slice)],
+  profile: ['docs', async c => Object.keys((await loadProfile(host(c))).profile.types)],
   'branches.main': ['trunk', c => protectedRef('trunk', c.branches)], 'branches.dev': ['develop', c => protectedRef('dev', c.branches)], 'branches.epicPrefix': ['feat/', c => protectedRef('feat/x', c.branches)],
   'changelog.path': ['docs/CHANGES.md', c => isProt('docs/CHANGES.md', c.changelog.path)], 'worktrees.root': ['/fast/wt', c => wtRootOf(host(c), c)],
   strictness: ['advisory', c => strictOf(host(c))], mcpAllow: [['mcp__x__y'], async c => (await started(c)).pol.mcpAllow],
@@ -91,9 +88,9 @@ describe('validation and provenance (ADR 0019)', () => {
     expect([r.config.drive.mode, r.config.drive.maxTurns, r.diagnostics]).toEqual(['auto', 7, ['u: drive.mode: expected one of: yolo, auto', 'u: nope: unknown key']])
   })
   test('source per key: default, user, repo, env; forced only by FORCE=1 or the effort variable, with the warning', () => {
-    const L = [{ name: '~/.claude/cadre.json', trust: 'user' as const, value: { concurrency: { default: 5 } } }, { name: '.cadre/config.json', trust: 'repo' as const, value: { lanes: { fullAt: 4 } } }, { name: 'env', trust: 'user' as const, value: { store: { kind: 'memory' } } }]
+    const L = [{ name: '~/.claude/cadre.json', trust: 'user' as const, value: { concurrency: { default: 5 } } }, { name: '.cadre/config.json', trust: 'repo' as const, value: { limits: { rebaseRounds: 4 } } }, { name: 'env', trust: 'user' as const, value: { store: { kind: 'memory' } } }]
     const by = (env = {}) => Object.fromEntries(rows(L, env).map(r => [r.key, r]))
-    expect([by()['concurrency.default'].src, by()['lanes.fullAt'].src, by()['store.kind'].src, by()['drive.maxTurns'].src]).toEqual(['user', 'repo', 'env', 'default'])
+    expect([by()['concurrency.default'].src, by()['limits.rebaseRounds'].src, by()['store.kind'].src, by()['drive.maxTurns'].src]).toEqual(['user', 'repo', 'env', 'default'])
     expect(by({ CLAUDE_CODE_SUBAGENT_MODEL: 'haiku' })['roles.worker.byRisk.light.model'].src).toBe('default')
     const f = by({ CLAUDE_CODE_SUBAGENT_MODEL: 'haiku', CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '1', CLAUDE_CODE_EFFORT_LEVEL: 'low' })
     expect([f['roles.worker.byRisk.core.escalate.model'].src, f['roles.worker.byRisk.core.escalate.model'].warn, f['roles.tester.byRisk.light.effort'].warn, f['concurrency.default'].src]).toEqual(['forced', 'CLAUDE_CODE_SUBAGENT_MODEL_FORCE puts every agent on haiku', 'CLAUDE_CODE_EFFORT_LEVEL puts every agent on effort low', 'user'])

@@ -72,6 +72,7 @@ doctorHost('task store journal off', { repo: true }, h => { Object.assign(h, { t
 doctorHost('older run state', { repo: true }, async h => { await h.ui.update(u => ({ ...u, handed: {} })) })
 doctorHost('branches missing, open flags, shape flag', { repo: true }, async h => { await h.board.update(b => ({ ...b, tasks: [task('c-8-1', { state: 'blocked', flags: ['shape'] })] })) })
 doctorHost('quarantined refs', { repo: true, quarantine: true })
+doctorHost('repo profile refused', {}, async h => { await h.secret.update((x: any) => ({ ...x, profileBad: 'repo profile: colour: unknown key; sections: schema, types' })) })
 doctorHost('custom role rejected twice', {}, async h => { await h.secret.update((x: any) => ({ ...x, roles: { failed: { qa: { n: 2, why: 'no tools' } } } })) })
 doctorHost('unknown injected tools', { repo: true }, async h => { await h.store.set(await scoped(h, 'injected'), ['Foo']) })
 doctorHost('run and sync state of an older version', { repo: true }, async h => { await h.store.set(await scoped(h, 'runs'), {}) })

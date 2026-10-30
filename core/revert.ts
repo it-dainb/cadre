@@ -1,6 +1,7 @@
 // H9 revert to this point (1.0). A landed task, epic or milestone is undone by revert commits made on a cadre branch and landed through the integrate primitives
 // (mergeEpic, the suites, landDev -> move, all inside op): dev is never moved by anything else. A target that never landed is abandoned: its recorded branches go.
 // Two confirms (revert: -> revert-sure:); a revert is a store record, and a record is never reverted. Branches are found by the ids the store recorded, never by name.
+import { active } from './pipeline'
 import type { Host } from '../types'
 import type { Task, TaskStore } from '../task-management/store'
 import { fnv1a64 } from './board'
@@ -38,7 +39,7 @@ export async function planOf(h: Host, id: string): Promise<Plan> {
   const sha = own ? ls : up && sq ? sq : '', merge = !!own
   if (sha && (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(sha) || ![dev, cfg.branches.main].includes(lb) || !(await ok(h.run, root, ['check-ref-format', `refs/heads/${lb}`])))) no('unknown', `${id}: its recorded landing is not valid`)   // the store's sha and branch reach git: a shape allowlist and the configured landing branches
   const rec = await recorded(h, store, t), live: Record<string, string> = {}, skipped: string[] = []
-  const mine = [cfg.branches.epicPrefix, 'milestone/', 'revert/', 'wip/', ...Object.values(cfg.types as Record<string, { commit?: string | null }>).map(x => x.commit && `${x.commit}/`)].filter(Boolean) as string[]   // the branches cadre itself makes: epic, milestone, revert and task (commit type) names
+  const mine = [cfg.branches.epicPrefix, 'milestone/', 'revert/', 'wip/', ...Object.values(active().types).map(x => x.commit && `${x.commit}/`)].filter(Boolean) as string[]   // the branches cadre itself makes: epic, milestone, revert and task (commit type) names
   for (const b of rec.names) {   // a recorded name is a full branch ref under cadre's own prefixes or it is not touched: `@{-1}`, `-x`, `a..b`, a tag, a sha or the user's own branch
     if (!(await ok(h.run, root, ['check-ref-format', `refs/heads/${b}`])) || !(mine.some(x => b.startsWith(x)) || [dev, cfg.branches.main, 'main', 'master'].includes(b))) {   // dev and main pass only to be named protected by drop()
        skipped.push(b); continue }

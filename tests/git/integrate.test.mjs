@@ -84,7 +84,7 @@ test('integration on bwrap < 0.11 (no --overlay-src): suites run in the copy jai
 
 // ---- drive (ADR 0013): release is never automatic under yolo; integration red gets one fix task, then auto asks and yolo stops ----
 const { MemoryStore } = await import('../../task-management/adapters/memory/store.ts')
-const { defaults: types } = await import('../../task-management/registry.ts')
+const { types: dt } = await import('../../profiles/default.ts'), types = () => dt
 async function driven(mode, check, extra = {}) {
   const w = await world(check), store = new MemoryStore(() => 1000); await store.init({ types: types(), journal: false })
   const epic = await store.createEpic('auth', 'g'); 

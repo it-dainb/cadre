@@ -22,6 +22,8 @@ async function life(s) {
   const files = {}   // s.junit: the test check the tester names fails and writes this report where core reads it (the fake runner answers every argv)
   const w = await world({ ...s.world, git: a => (s.junit && a[0] === 'find' ? { stdout: './test/a.test.js\0' } : s.junit && a[0] === 'stat' && files[a[3]] !== undefined ? { stdout: `regular file ${files[a[3]].length}\n` } : s.junit && a.some(x => x.endsWith('/junit-test.xml')) ? (files[a.find(x => x.endsWith('/junit-test.xml'))] = s.junit, { exitCode: 1 }) : gm !== 'moved' ? undefined : a.includes('merge-tree') ? { exitCode: 1, stdout: 'tree\nsrc/a.ts\n' } : a.join(' ').includes('epic/p1-service^{commit}') ? { stdout: `${tip}\n` } : undefined) })
   for (const [p, v] of Object.entries(s.cfg ?? {})) setPath(w.cfg, p, v)
+  const PL = await import('../../core/pipeline.ts'), { profile: DP } = await import('../../profiles/default.ts')
+  PL.setProfile({ ...DP, steps: Object.fromEntries(Object.entries(DP.steps).map(([k, st]) => [k, s.retry?.[k] === undefined ? st : { ...st, onFail: { ...st.onFail, retry: s.retry[k] } }])) })   // s.retry: a step's onFail.retry for this script ({red: 1}); the default profile otherwise
   w.h.readText = async p => files[p] ?? null
   if (s.acceptance) await w.store.update(w.ids[0], { acceptance: s.acceptance }, w.dep.actor)
   const out = [], seen = new Set()

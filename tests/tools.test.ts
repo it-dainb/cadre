@@ -45,7 +45,7 @@ describe('refusals name the field and say how to retry; nothing is stored', () =
   test('schema: unknown field, wrong type, a cap (rejected, never truncated), a missing required field', async () => {
     const w = await world(); await planned(w)
     const before = (await w.store.list({})).length
-    expect(err(await tool(w, 'task', { title: 'x', description: 'y', colour: 'red' }))).toBe('error: colour: unknown field (allowed: title, description, type, package, scope, breaking, scenarios, changelog, interface, paths, core, repro, holds, risk, epic, after); remove it and call again')
+    expect(err(await tool(w, 'task', { title: 'x', description: 'y', colour: 'red' }))).toBe('error: colour: unknown field (allowed: title, description, type, package, scope, breaking, scenarios, changelog, interface, paths, core, holds, risk, epic, after); remove it and call again')
     expect(err(await tool(w, 'task', { title: 5, description: 'y' }))).toBe('error: title: expected a string, got 5; fix it and call again')
     expect(err(await tool(w, 'task', { title: 'x'.repeat(201), description: 'y' }))).toBe('error: title: at most 200 characters, got 201; shorten it and call again')
     expect(err(await tool(w, 'task', { title: 'x', description: 'y', after: Array(21).fill('m-2') }))).toContain('error: after: at most 20 items, got 21')

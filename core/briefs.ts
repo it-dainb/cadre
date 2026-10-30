@@ -5,7 +5,10 @@ import type { Hook, Host, Role } from '../types'
 import { scoped } from '../commands/init'
 import { idleOf, modelView, viewHash } from './board'
 import { contextLine } from './render'
+import { active } from './pipeline'
+import { roleSpec } from './roles'
 
+const up = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 const cap = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 
 // Known-id matcher (4.6): maximal runs of [A-Za-z0-9_.-] (store ids: c-12-1, older ones my_project-403.1), trailing '.'/'-' stripped, optional TASK- removed, exact lookup. `c-a1.10` never matches `c-a1.1`.
@@ -29,7 +32,7 @@ const HEAD: Record<Role, string> = {
 export interface BriefIn {
   id: string; title: string; type: string; description?: string; scenarios?: string; contract?: string; notes?: string
   paths?: string[]; testPaths?: string[]; locked?: string[]; redCard?: string; greenCard?: string; deps?: { id: string; title: string; out?: string }[]
-  findings?: string[]; decisions?: string[]; holds?: string[]; handoff?: string; others?: string[]; protectedPaths?: string[]; shared?: string; lessons?: string; mission?: string; core?: string; slice?: string; uncovered?: string[]   // uncovered: set when the coverage rule is on (review.coverage.enforce); the scenario ids no locked test name carries
+  findings?: string[]; decisions?: string[]; holds?: string[]; handoff?: string; others?: string[]; protectedPaths?: string[]; shared?: string; lessons?: string; mission?: string; core?: string; slice?: string; uncovered?: string[]   // uncovered: set when the type's acceptance is covered (cover is not none); the scenario ids no locked test name carries
   how?: string; runAsk?: boolean; sourceCommit?: string; diffStat?: string; diff?: string; audit?: string; report?: string; changelog?: string; flags?: string[]; question?: string; focus?: string
 }
 // contract JSON ({symbols:[{name,kind,params,returns,errors?,doc?,status}]} | {none,reason}) -> compact lines
@@ -55,7 +58,7 @@ export const planBlock = (b: Pick<BriefIn, 'mission' | 'protectedPaths' | 'core'
 const sc = (b: BriefIn) => sec('Scenarios', b.scenarios), files = (b: BriefIn, why: string) => (b.paths?.length ? `\nFiles: ${b.paths.join(', ')}${why}` : '')   // the task's declared paths, in the task block
 const task = (b: BriefIn, tag: string, why = '') => `# ${tag ? `${tag} ` : ''}TASK-${b.id}${tag ? '' : ` ${b.title} (${b.type})`}${files(b, why)}`
 const SECTIONS: Record<string, (b: BriefIn, role: Role) => string> = {
-  plan: planBlock, head: (_, role) => HEAD[role], notes: b => sec('Notes', cap(b.notes ?? '', 500)), scope: () => sec('Scope', 'read-only; no edits, no shell'),
+  plan: planBlock, head: (_, role) => HEAD[role] ?? `${up(role)} brief. ${up(roleSpec(role)?.description ?? role)}. Finish with report{role:"${role}"}.`, notes: b => sec('Notes', cap(b.notes ?? '', 500)), scope: () => sec('Scope', 'read-only; no edits, no shell'),
   mine: b => join([sec('Notes on your files', cap(b.slice ?? '', 1000)), sec('Lessons from earlier work', b.lessons)]),
   description: b => sec('Description', b.description), scenarios: sc, contract: b => sec('Contract', renderContract(b.contract)),
   question: b => `# ${b.question !== undefined ? 'QUESTION' : `TASK-${b.id}`}\n${b.question ?? b.title}`, title: b => task(b, ''), titleSpec: b => task(b, 'SPEC', ' (the code this task changes)'), titleWorker: b => task(b, '', ' (make your changes there)'),
@@ -78,7 +81,10 @@ const LAYOUT: Record<Role, (string | string[])[]> = {   // the tester reads no `
   reviewer: ['plan', 'head', 'titleReview', 'source', 'diff', ['spec', 'scenarios', 'contract', 'specTests'], 'coverage', ['ctx', 'cards', 'audit', 'report', 'check', 'changelog', 'flags'], 'mine', 'notes'],
   worker: ['plan', 'head', 'titleWorker', ['spec', ...SPEC], ['ctx', 'locked', 'deps', 'how', 'findings', 'decisions', 'handoff', 'others'], 'mine', 'notes'],
 }
-export const brief = (role: Role, b: BriefIn): string => join(LAYOUT[role].map(k => (typeof k === 'string' ? SECTIONS[k](b, role) : cap(join(k.slice(1).map(x => SECTIONS[x](b, role))), k[0] === 'spec' ? 4096 : 3072))))
+// a role of the profile's own has no fixed layout: the sections its step names, in the step's order, under its description
+const SECTION_KEY: Record<string, string> = { acceptance: 'scenarios' }
+const generic = (role: string): (string | string[])[] => ['plan', 'head', 'title', ...(Object.values(active().steps).find(s => 'role' in s && s.role === role && s.brief) as { brief: string[] } | undefined)?.brief.map(k => SECTION_KEY[k] ?? k) ?? [], 'mine', 'notes']
+export const brief = (role: Role, b: BriefIn): string => join((LAYOUT[role] ?? generic(role)).map(k => (typeof k === 'string' ? SECTIONS[k](b, role) : cap(join(k.slice(1).map(x => SECTIONS[x](b, role))), k[0] === 'spec' ? 4096 : 3072))))
 // the tester proposes its test command, cadre runs it (ADR 0023): task language only
 export const RUN_ASK = 'In your report, give run: the command that runs only your test files, as an argument list with no shell, e.g. {"command":["node","--test","test/login.test.js"]}; add cwd (a folder relative to this one) only if the runner must start there. If your runner can write JUnit XML, have it write to $CADRE_JUNIT (pytest --junitxml=$CADRE_JUNIT; node --test --test-reporter=junit --test-reporter-destination=$CADRE_JUNIT; jest with jest-junit). List every test in tests[{path,name,ids}] with the scenario ids it checks. You do not run it: it is run for you, and every test you list must fail with an assertion now, not with an import or setup error.'
 // the reviewer's coverage rule (ADR 0022), task language: enforced by close (a pass with a missing or weak scenario is refused)

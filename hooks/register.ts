@@ -1,6 +1,7 @@
 // The only file that calls on() or touches $. Registration ORDER is the chain order (DESIGN 2.2, outermost first).
 // Each slot calls a function in its owner module with a per-hook Host (never a module-level Host, L3). Gating registrations carry a fail-closed .catch (13.3).
 import { modelText } from '../core/say'
+import { active } from '../core/pipeline'
 import * as G from '../core/git'
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
@@ -21,7 +22,8 @@ import { check, guard, send, judge, judgeSpawn, configSet, settingsOnly, EXIT, e
 import { backstop, exitStep } from '../core/lifecycle'
 import { autoLand } from '../core/integrate'
 import { TASK_TOOLS, mainAgent } from '../core/plantools'
-import { agentSpec, exitIssue } from '../core/roles'
+import { agentSpec, exitIssue, extraRoles } from '../core/roles'
+import { bootProfile } from '../core/profile'
 import { mainTurn } from '../core/dispatch'
 import { wrap } from '../core/effect'
 import { handle, MAIN_SPECS, PREFS_SPEC, SPECS } from '../tools/index'
@@ -50,12 +52,12 @@ const bind = atom({ plugin: 'cadre', key: 'bind' } as const, {})
 let mem: MemoryStore | undefined
 const ready = new Set<string>()   // roots whose store answered the probe this load
 wire.store = async (h, cfg, root) => {
-  if (cfg.store.kind === 'memory') { if (!mem) { mem = new MemoryStore(); await mem.init({ types: cfg.types as any, journal: false }) } return mem }
+  if (cfg.store.kind === 'memory') { if (!mem) { mem = new MemoryStore(); await mem.init({ types: active().types, journal: false }) } return mem }
   if (!(await h.store.get(`cadre:${repoKeyOf(root)}:actor`))) await h.store.set(`cadre:${repoKeyOf(root)}:actor`, `cadre/${h.rand(3)}`)
   const s = FileStore.of(h, `${root}/.cadre/state`, await sessionOf(h)); if (ready.has(root) && s.initialized) return s   // a wiped store re-probes and re-inits
   const p = await s.probe()
   if (!p.ok) { await h.secret.update(x => ({ ...x, active: false, storeOff: p.detail })); throw new StoreError('Unavailable', p.detail) }   // no activation (core/session.wake)
-  if (p.detail !== 'initialized' || !p.journal) await s.init({ types: cfg.types as any, journal: true })
+  if (p.detail !== 'initialized' || !p.journal) await s.init({ types: active().types, journal: true })
   ready.add(root); return s
 }
 
@@ -160,13 +162,13 @@ async function seed($) {
   await update($, secret, x => ({ ...s.sec, root: (x as any).root })); await update($, ui, () => ({ ...s.ui, cfg: { ...(s.ui as any)?.cfg, ...s.c } }))
 }
 
-// custom roles (roles.custom): one $.agent.register each at session.start in an active repo; the engine rejects until the session binds, so a rejection is retried once on the
+// the profile's own roles (core/roles.extraRoles): one $.agent.register each at session.start in an active repo; the engine rejects until the session binds, so a rejection is retried once on the
 // first main turn.start or /cadre, then it is a Doctor line. Rule 6 (exit tools) holds at every register. A fulfilled register is recorded with main's turn: the role is spawned from a later turn
 async function roles($, retry = false): Promise<void> {
   const s = (await read($, secret)).roles ?? { done: [], failed: {} }, todo = (n: string) => !s.done.some(x => x.name === n) && (retry ? s.failed[n]?.n === 1 : !s.failed[n])
   if (retry && !Object.keys(s.failed).some(n => s.failed[n].n === 1)) return
-  const h = host($), cfg = await h.config!(), turn = (await read($, secret)).turn ?? 0
-  for (const [name, sp] of Object.entries(cfg.roles.custom).filter(([n]) => todo(n)) as [string, any][]) {
+  const turn = (await read($, secret)).turn ?? 0
+  for (const [name, sp] of extraRoles().filter(([n]) => todo(n))) {
     const spec = agentSpec(name, sp), bad = exitIssue(spec)
     const why = bad ?? await $.agent.register(spec).then(() => null, (x: any) => String(x?.message ?? x))
     await update($, secret, x => ({ ...x, roles: { done: why ? x.roles?.done ?? [] : [...(x.roles?.done ?? []), { name, turn }], failed: why ? { ...x.roles?.failed, [name]: { why, n: bad ? 2 : (x.roles?.failed[name]?.n ?? 0) + 1 } } : x.roles?.failed ?? {} } }))
@@ -201,6 +203,8 @@ export const register: Register = (on, opts) => {
     await update($, secret, x => ({ ...x, old }))
     if (old) { void $.ui.log(oldLine(old)); void $.ui.toast(oldLine(old)); return next(e) }   // too old: one loud line, /cadre repeats it, no tools, no tick; wake() keeps every other hook a pass-through
     const root = await top($); await update($, secret, x => ({ ...x, root })); await $.store.set('cadre:roots', { ...(((await $.store.get('cadre:roots')) ?? {}) as object), [repoKeyOf(root)]: root })   // the repo root for every hook. Never $.session.cwd(): it follows a Bash `cd` (main in a package folder read its checks and store there after a /clear, live 0.9.1) and in a subagent hook it is the agent's view/worktree
+    const pl = await bootProfile(host($)).then(l => l.bad, x => `profile: ${String(x?.message ?? x).slice(0, 200)}`)   // the profile is read once and fixed for the session; a repo profile that is refused leaves cadre dormant here
+    await update($, secret, x => ({ ...x, profileBad: pl })); if (pl) void $.ui.log(pl)
     await seed($).catch(x => $.ui.log(`dev scenario not seeded: ${x}`))   // dev only: CADRE_DEV=1 + CADRE_DEV_SCENARIO (harness/tui.sh --scenario)
     await $.env.set('ENABLE_TOOL_SEARCH', 'false')   // S13: isDeferred:false alone does not stop deferral
     await update($, ui, x => ({ ...x, headless: !e.isInteractive || undefined }))   // core/spawner.spawnMode: a one-shot -p run ends before an agent's turn end

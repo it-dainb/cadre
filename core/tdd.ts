@@ -3,7 +3,7 @@
 import { modOn, spawnIt } from './render'
 import type { Host } from '../types'
 import type { Task } from '../task-management/store'
-import { pipeOf } from '../task-management/registry'
+import { covers, pipeOf } from './pipeline'
 import { resolveDeps, type Deps } from './admission'
 import { apply } from './machine'
 import { emit } from './events'
@@ -80,7 +80,7 @@ async function tolerated(h: Host, d: Deps, pkg: Pkg, name: string, rs?: Result[]
   return now ? null : `${name} was already red before the plan`
 }
 
-const testRunOf = (d: Deps, task: Task): TestRun | null => { try { return d.cfg.tdd?.testerCommand.use !== false && task.meta['cadre.testRun'] ? JSON.parse(task.meta['cadre.testRun']) : null } catch { return null } }
+const testRunOf = (d: Deps, task: Task): TestRun | null => { try { return task.meta['cadre.testRun'] ? JSON.parse(task.meta['cadre.testRun']) : null } catch { return null } }
 // ---- green (9): verify at the current tree passes (or fails only as it did before the plan); the spec tests present and passing (skipped != passed); knownRed runs but never gates ----
 export async function green(h: Host, d: Deps, task: Task, wt: string): Promise<Gate> {
   const pkg = pkgOf(d, task); if (!pkg) return { ok: false, why: 'no package', card: 'green ✗ no package' }
@@ -140,23 +140,23 @@ export async function lockedViolations(run: G.Run, wt: string, spec: string, loc
 export async function testerDone(h: Host, d: Deps, task: Task, wt: string, view: string, tests: { path: string; name: string; ids?: string[] }[], agentId?: string, run?: TestRun): Promise<Gate> {
   const pkg = pkgOf(d, task); if (!pkg?.tdd) return { ok: false, setup: true, why: 'its package has no tdd config', card: 'red ✗ no tdd config' }
   // live 0.12.1: a package with only a compile check, so red ran compile, it passed, and every report was refused as "the tests pass": the tests never ran. Red needs a check that runs them
-  const use = run && d.cfg.tdd?.testerCommand.use !== false ? run : undefined, noTest = !pkg.tdd.check && redOf(pkg) !== 'test'
+  const use = run, noTest = !pkg.tdd.check && redOf(pkg) !== 'test'
   if (noTest && !use) return { ok: false, setup: true, why: `package ${pkg.root} has no test check, so the tests never ran (red would run only "${redOf(pkg)}"); add a "test" check (or tdd.check) to its package in .cadre/config.json`, card: 'red ✗ no test check' }
-  const pipe = pipeOf(d.reg), steps = pipe(task.type, task.meta['cadre.lane']), hasRed = steps.includes('red'), au = await auditView(h, d, task, view, agentId), dec: Declared = tests.map(t => ({ name: t.name, ids: t.ids ?? [] }))
+  const steps = pipeOf(task.type, task.meta['cadre.lane']), hasRed = steps.includes('red'), au = await auditView(h, d, task, view, agentId), dec: Declared = tests.map(t => ({ name: t.name, ids: t.ids ?? [] }))
   if (hasRed && !dec.length) return { ok: false, why: 'tests: declare every test you wrote, as tests[{path,name,ids}] with the scenario ids it checks', card: 'red ✗ no tests declared' }
   const pre = await G.tip(h.run, wt, 'HEAD'), undo = () => G.op(h, async () => { await G.git(h.run, wt, ['reset', '--hard', '-q', pre]); await G.git(h.run, wt, ['clean', '-fdq']) }).catch(() => {})   // a refused gate must not leave the copy-in behind (a retry would see "identical")
   let spec: string
   try { spec = await copyIn(h, d, task, wt, view, pkg) } catch (e) { await undo(); return { ok: false, why: String((e as Error).message), card: `red ✗ ${(e as Error).message}` } }
   const only = hasRed ? task.meta['cadre.redOnly'] || undefined : undefined, g = await red(h, d, task, wt, pkg, dec, { pass: !hasRed, only, run: use }), card = `${g.card}\n${au.text}`
   if (!g.ok) { await undo(); return { ...g, card } }
-  const miss = d.cfg.review.coverage.enforce ? untested(task.acceptance, dec) : []   // ADR 0022: a scenario no test declares never reaches the worker
+  const miss = covers(task.type) ? untested(task.acceptance, dec) : []   // ADR 0022: a scenario no test declares never reaches the worker
   if (miss.length) { await undo(); return { ok: false, why: `no test declares ${miss.join(', ')}: write a test for every scenario and list its id in that test's ids (e.g. ids ["${miss[0]}"])`, card: `red ✗ no test for ${miss.join(', ')}` } }
   const base = task.meta['cadre.base'] ?? spec, locked = await lockedOf(h.run, wt, base, spec, pkg)
   await setLocks(h, task.id, locked.map(p => `${wt}/${p}`))
   await d.store.setMeta(task.id, { 'cadre.specCommit': spec, 'cadre.redOnly': '', 'cadre.red': card, 'cadre.specTests': JSON.stringify(dec), 'cadre.coverVia': g.structural ? 'results' : 'report',   // effective coverage: the gate's results, else the reviewer's coverage list
      'cadre.locked': JSON.stringify(locked), 'cadre.testRun': use ? JSON.stringify(use) : '', ...(steps.includes('worker') ? {} : { 'cadre.sourceCommit': spec }) }, d.actor)
-  const adopted = use && noTest && !pkg.checks.test && g.structural && use.command.some(a => a.includes('CADRE_JUNIT')) && d.cfg.tdd?.testerCommand.adopt !== false ? await adopt(h, d, pkg, use, tests.map(t => t.path), task.id) : null
-  for (let i = 0; i < (hasRed ? 2 : 1); i++) await apply(h, { kind: 'advance', id: task.id, at: await h.now(), actor: 'mod' }, pipe)   // tester -> red -> worker
+  const adopted = use && noTest && !pkg.checks.test && g.structural && use.command.some(a => a.includes('CADRE_JUNIT')) ? await adopt(h, d, pkg, use, tests.map(t => t.path), task.id) : null
+  for (let i = 0; i < (hasRed ? 2 : 1); i++) await apply(h, { kind: 'advance', id: task.id, at: await h.now(), actor: 'mod' })   // tester -> red -> worker
   const nx = (await h.board.read()).tasks.find(x => x.id === task.id)?.step; if (nx) await d.store.setMeta(task.id, { 'cadre.step': nx }, d.actor)   // the store keeps the step: a /clear rebuilds the board from it (a worker's report was refused 'active·tester')
   if (adopted) h.log(adopted)   // the human's (Activity, decisions); the tester is not told
   return { ...g, card }
@@ -169,11 +169,11 @@ export async function testerDone(h: Host, d: Deps, task: Task, wt: string, view:
 export async function specAsk(h: Host, id: string, why: string, scenario = ''): Promise<void> {
   const t = (await h.board.read()).tasks.find(x => x.id === id)
   const stuck = !!t && (await resolveDeps(h).then(async d => !!(await d.store.get(id)).meta['cadre.specReset']).catch(() => false))   // Accept already failed on a real conflict
-  const acc = !stuck && (!t || (await resolveDeps(h).then(d => pipeOf(d.reg)(t.type, t.lane).includes('tester')).catch(() => true)))
+  const acc = !stuck && (!t || (await resolveDeps(h).then(d => pipeOf(t.type, t.lane).includes('tester')).catch(() => true)))
   await ask(h, flagDecision(id, 'spec_change', undefined, { hash: fnv1a64(why), lines: ['the worker asks to change the locked spec', ...why.slice(0, 400).split('\n').filter(Boolean), ...(scenario ? [`new scenario wording: ${scenario.slice(0, 300)}`] : []), acc ? 'Accept: the tester amends it and a new red follows. Reject: it conforms to the locked tests.' : `${stuck ? 'The spec change could not be applied to its working folder (a conflict).' : 'This task has no step that rewrites its tests.'} Reject: it conforms to the brief and its tests. Cancel task: it ends here.`], keys: acc ? undefined : ['x', 'c'] })!)   // the reason is on the card; emit's generic flag decision then keeps this one
 }
 export async function specChange(h: Host, d: Deps, id: string, why: string, scenario = ''): Promise<void> {
-  await apply(h, { kind: 'block', id, at: await h.now(), actor: 'mod' }, pipeOf(d.reg)); await d.store.move(id, 'blocked', d.actor).catch(() => undefined)
+  await apply(h, { kind: 'block', id, at: await h.now(), actor: 'mod' }); await d.store.move(id, 'blocked', d.actor).catch(() => undefined)
   await d.store.setMeta(id, { 'cadre.blocked': 'spec_change', 'cadre.specChange': why.slice(0, 1500), 'cadre.specScenario': scenario.slice(0, 300) }, d.actor)
   if (yoloOn((await h.board.read()).drive)) return   // yolo: main decides it (core/drive asks main, core/close.decide applies it)
   await specAsk(h, id, why, scenario)
@@ -184,8 +184,8 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
   const d = await resolveDeps(h), t = (await h.board.read()).tasks.find(x => x.id === id), task = t && (await d.store.get(id))
   if (!t || t.state !== 'blocked' || task?.meta['cadre.blocked'] !== 'spec_change') return { text: `${id} is not waiting on a spec change` }
   if (how !== 'accept' && how !== 'reject') return { text: `/cadre resolve ${id} accept|reject` }
-  const pipe = pipeOf(d.reg), acc = how === 'accept', sp = (x: string) => spawnIt(snap, x), snap = await h.board.read()
-  if (acc && !pipe(t.type, t.lane).includes('tester')) return { text: `${id}: type ${t.type} has no tester step; reject instead` }
+  const acc = how === 'accept', sp = (x: string) => spawnIt(snap, x), snap = await h.board.read()
+  if (acc && !pipeOf(t.type, t.lane).includes('tester')) return { text: `${id}: type ${t.type} has no tester step; reject instead` }
   if (acc && task!.meta['cadre.specReset']) return { text: modelText('tool-result', `${id}: the spec change could not be applied to its working folder; reject instead, or cancel the task.`) }
   // the red gate runs on the worktree: with the worker's commits still in it the amended tests pass (live: "the tests pass at the spec commit" after an Accept), so drop them; the spec commit is the tree the tester amends.
   // Before the board moves: a refused or failed reset leaves the task blocked, to answer again. A rework merge of the plan tip (core/rebase) came after the spec: it is put back, or the landed tasks vanish from the tree
@@ -209,7 +209,7 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
       return { text: modelText('tool-result', `${id}: the working folder could not be reset right now; answer again in a moment.`) } }
     await d.store.setMeta(id, { 'cadre.sourceCommit': '' }, d.actor)
   }
-  const r = await apply(h, acc ? { kind: 'rewind', id, at: await h.now(), actor: by, on: 'tester' } : { kind: 'unblock', id, at: await h.now(), actor: by }, pipe)
+  const r = await apply(h, acc ? { kind: 'rewind', id, at: await h.now(), actor: by, on: 'tester' } : { kind: 'unblock', id, at: await h.now(), actor: by })
   if (!r.ok) return { text: r.error }
   await d.store.resume(id, d.actor)   // the store follows the board out of blocked (as unblock does), or the next report cannot move it
   if (acc) await reset(h, id, 'red')   // the refusals before the change were for the old tests: the amended ones get their own rounds
