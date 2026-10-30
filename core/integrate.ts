@@ -13,7 +13,7 @@ import { casRef, exists, git, ok, op, subInit, tip, worktreeRemove } from './git
 import { baseOf, baseRef, checkedOut, landDev, mergeEpic, move, pendingRef, release, wtPath, wtRootOf } from './branches'
 import { active } from './pipeline'
 import { modrun } from './modrun'
-import { deliver, retryHooks, runHooks } from './hooks'
+import { deliver, retryHooks, runHooks, semver } from './hooks'
 import { runSlot } from './gate'
 import type { LandResult } from '../types/profile'
 import { clearKnownRed, repoKeyOf, scoped } from '../commands/init'
@@ -23,6 +23,7 @@ import { coreLanded, refresh, refreshEpics, resolveTask, trial } from './rebase'
 import { resolveDeps, type Deps } from './admission'
 
 
+const alnum = (c: string) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 const setPlan = (h: Host, ev: string, patch: Record<string, unknown> = {}) =>
   h.board.update(b => { const n = b.plan && epicNext(b.plan.state, ev); return n ? { ...b, plan: { ...b.plan!, ...patch, state: n } } : b })
 const gitFlags = async (h: Host) => Object.keys((await h.git.read()).flags ?? {}).filter(f => f.startsWith('git:'))
@@ -183,7 +184,7 @@ export async function releaseDev(h: Host, want?: string): Promise<string> {
   if (s.plan?.state === 'integrating') return no('an integration is running')
   const gf = await gitFlags(h), bf = [...(s.plan?.flags ?? []), ...s.tasks.flatMap(t => t.flags)].find(blocks)
   if (gf.length || bf) return no(`flag ${gf[0] ?? bf} is open; ask the human to resolve it in the cadre dialog first`)
-  if (want && !/^\d+\.\d+\.\d+$/.test(want)) return no(`version "${want}": expected x.y.z`)
+  if (want && !semver(want)) return no(`version "${want}": expected x.y.z`)
   const [root, cfg] = [await h.cwd(), await cfgOf(h)], dev = cfg.branches.dev
   const main = await mainOf(h, cfg, root)
   if (!(await exists(h.run, root, dev))) return no(`no ${dev} branch`)
@@ -236,7 +237,7 @@ export async function landPending(h: Host, b: string, click = false): Promise<st
         const held = click ? undefined : ((await h.store.get(K)) as { key: string; why: string } | undefined)
         if (held?.key === key) { if (!(await asked(h, b))) await ask1(h, b, held.why); return 'held' }
         const F = `${root} ${b}`; if (inFlight.has(F)) return 'busy'
-        tmp = wtPath(await wtRootOf(h, cfg), repoKeyOf(root), `land-${b.replace(/\W/g, '-')}-${Math.random().toString(36).slice(2, 8)}`)
+        tmp = wtPath(await wtRootOf(h, cfg), repoKeyOf(root), `land-${[...b].map(c => (alnum(c) || c === '_' ? c : '-')).join('')}-${Math.random().toString(36).slice(2, 8)}`)
         inFlight.add(F)
         let why: string | null = null
         try {

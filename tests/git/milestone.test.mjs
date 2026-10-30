@@ -12,7 +12,8 @@ const { fakeHost } = await import('../support.ts')
 const { defaults } = await import('../../config/index.ts')
 const { integrateEpic, releaseDev } = await import('../../core/integrate.ts')
 const { mirror } = await import('../../core/dispatch.ts')
-const { insert, skeleton } = await import('../../modules/changelog.mjs')
+const { insert, normalise, skeleton } = await import('../../modules/changelog.mjs')
+const { deliver } = await import('../../core/hooks.ts')
 const PL = await import('../../core/pipeline.ts'), { sessionProfile } = await import('../dev/register.mjs')
 const { MemoryStore } = await import('../../task-management/adapters/memory/store.ts')
 const { types: dt } = await import('../../profiles/default.ts'), types = () => dt
@@ -102,4 +103,18 @@ test('after an epic lands, the other running epic takes the new milestone tip', 
   assert.equal(sh(d, 'merge-base', '--is-ancestor', ms, 'epic/signup'), ''); assert.equal(sh(d, 'show', 'epic/signup:b.txt'), 'login')
   const b = await h.board.read(); assert.equal(b.plan.landed, undefined); assert.equal(b.plan.state, 'approved'); assert.notEqual(sh(d, 'rev-parse', 'dev'), sh(d, 'rev-parse', ms))   // one epic of two: the milestone is NOT landed (no early "landed on dev")
   const ev = Object.values((await h.events.read()).epics).flat().filter(e => e.type === 'plan.landed'); assert.deepEqual(ev.map(e => [e.data.planId, e.data.on]), [[ep[1], ms]])
+})
+// B6 in a milestone: each epic branch carries its own docs(changelog) hook commit, so two epics edit the same hunk of CHANGELOG.md. The profile's landing.union makes git merge it with
+// the union driver (core/git.unionAttrs, info/attributes), and the changelog module's next normalisation turns the concatenation into one clean Unreleased block.
+test('two epics each close a task with the real changelog hook: both merge into the milestone without a conflict, and both entries survive the normalisation', async () => {
+  const { d, h, m, ms, ep } = await world(), dirs = { root: d, wtRoot: `${d}-wt`, key: 'k' }
+  for (const [name, category, entry, id] of [['signup', 'Added', 'signup form', 't-1'], ['login', 'Added', 'login page', 't-2']]) {
+    await deliver(h, dirs, 'task.closed', { id, base: `epic/${name}`, input: { id, title: name, type: 'feature', branch: `epic/${name}`, fields: { changelog: JSON.stringify({ category, entry }) } }, vars: { id, title: name } })
+    assert.equal(sh(d, 'log', '-1', '--format=%s', `epic/${name}`), `docs(changelog): ${id}`)
+  }
+  assert.equal(await integrateEpic(h, ep[0]), null); assert.equal(await integrateEpic(h, ep[1]), null)   // the second merge does not conflict
+  assert.equal((await h.board.read()).plan.state, 'done-on-dev')
+  const text = normalise(sh(d, 'show', 'dev:CHANGELOG.md') + '\n')
+  assert.ok(text.includes('- signup form (t-1)') && text.includes('- login page (t-2)')); assert.equal(text.split('### Added').length, 2); assert.equal(text.split('signup form').length, 2)
+  assert.equal(sh(d, 'config', '--get', 'core.bare'), 'false'); assert.match(execFileSync('cat', [join(d, '.git/info/attributes')], { encoding: 'utf8' }), /^CHANGELOG\.md merge=union$/m)
 })

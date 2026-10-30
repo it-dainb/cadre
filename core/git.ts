@@ -41,7 +41,20 @@ export const guardedRun = (run: Run, root: () => Promise<string>): Run => {
 }
 
 // git.op: CAS busy=true -> fn -> epoch++ -> busy=false (effect.ts re-baselines on an epoch change). A busy repo refuses; callers retry at the next hook.
+// Paths the profile lists as `landing.union` merge with git's union driver in every cadre merge: each epic or task appends to them (a changelog), so two sides never conflict.
+// Written once per repository and process into the common git dir's info/attributes (every worktree and merge-tree read it); the file's other lines stay.
+export const UNION: { paths: () => string[] } = { paths: () => [] }
+const seen = new Set<string>()
+export async function unionAttrs(h: Host): Promise<void> {
+  const want = UNION.paths(); if (!want.length) return
+  const root = await h.cwd(), key = `${root}\0${want.join('\0')}`; if (seen.has(key)) return
+  const file = `${await git(h.run, root, ['rev-parse', '--path-format=absolute', '--git-common-dir'])}/info/attributes`, have = (await h.readText(file)) ?? '', lines = have.split('\n')
+  const add = want.map(p => `${p} merge=union`).filter(l => !lines.includes(l))
+  if (add.length) await h.write(file, `${have}${have === '' || have.endsWith('\n') ? '' : '\n'}${add.join('\n')}\n`)
+  seen.add(key)
+}
 export async function op<T>(h: Host, fn: () => Promise<T>): Promise<T> {
+  await unionAttrs(h).catch(() => undefined)   // not a repository yet, or no write: the merge goes on as plain git
   let got = false
   await h.git.update(g => { got = !g.busy; return g.busy ? g : { ...g, busy: true } })
   if (!got) throw new Error('git busy')

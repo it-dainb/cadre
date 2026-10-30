@@ -34,6 +34,13 @@ describe('the built-in profiles', () => {
     const a = await loadProfile(host({ user: 'analysis' })); expect(a.profile.hooks).toEqual({}); expect(a.profile.types.analysis.pipeline).toEqual(['explore', 'work', 'verify', 'review', 'land']); expect(a.profile.checks.check.network).toBe(false)
     expect((await loadProfile(host({ user: 'nope' }))).user).toContain('no such built-in profile')   // the default stays, the refusal is shown
   })
+  test('S6: envPass names are environment variable names, landing.union paths are plain repo paths; the default unions CHANGELOG.md, docs and analysis nothing', () => {
+    const c = (landing: object, hooks: object = {}) => cross({ ...DEFAULT, landing: { ...DEFAULT.landing, ...landing }, hooks } as Profile)
+    expect(c({ envPass: ['GH_TOKEN', '_x1'] })).toBeNull(); expect(c({ union: ['CHANGELOG.md', 'docs/NOTES.md'] })).toBeNull()
+    for (const n of ['1X', 'A-B', 'A B', '', 'A=1']) expect(c({ envPass: [n] })).toContain('is not an environment variable name'), expect(c({}, { release: [{ run: ['x'], envPass: [n] }] })).toContain('is not an environment variable name')
+    for (const u of ['/etc/x', '../x', 'a b', 'a*', '!x', '#x', '']) expect(c({ union: [u] })).toContain('landing.union')
+    expect(check({ schema: 2, landing: { ...DEFAULT.landing, union: 'CHANGELOG.md' } })).toContain('landing'); expect(DEFAULT.landing.union).toEqual(['CHANGELOG.md']); expect(BUILTIN.docs.landing!.union).toBeUndefined(); expect(BUILTIN.analysis.landing!.union).toBeUndefined()
+  })
   test('pipelines for the six default types equal 1.0.1\'s defaults() (golden), and so do the commit prefixes (G5)', () => {
     expect(Object.fromEntries(Object.entries(DEFAULT.types).map(([k, v]) => [k, [v.commit ?? null, v.pipeline.join('>'), v.contract]]))).toEqual({
       feature: ['feat', 'tester>red>worker>green>reviewer>merge', 'required'], bug: ['fix', 'tester>red>worker>green>reviewer>merge', 'required'], refactor: ['refactor', 'worker>green>reviewer>merge', 'required'],

@@ -99,7 +99,7 @@ export const steps: Record<string, Step> = {
 export const profile: Profile = {
   schema: 2, types, steps, roles, checks, flags,
   hooks: { 'task.closed': [{ run: ['node', '${MODULES}/changelog.mjs', 'entry'], commit: 'docs(changelog): ${id}' }], release: [{ run: ['node', '${MODULES}/release.mjs'], commit: 'chore(release): v${version}' }] },
-  landing: { provider: 'direct', onEpicDone: 'propose', prepare: 'setup', baseline: 'tolerate' },
+  landing: { provider: 'direct', onEpicDone: 'propose', prepare: 'setup', baseline: 'tolerate', union: ['CHANGELOG.md'] },
   protected: ['CHANGELOG.md'],
   sandbox: { env: { PATH: '${WT}/.venv/bin:${PATH}' } },
   fields: [{ name: 'scope', store: 'meta', required: false }, { name: 'breaking', store: 'meta', required: false, kind: 'bool' }, { name: 'package', store: 'meta', required: false }, { name: 'changelog', store: 'meta', required: ['feature', 'bug', 'refactor'] }, { name: 'holds', store: 'meta', required: false, kind: 'ids' }, { name: 'lane', store: 'meta', required: false, kind: { enum: ['ask', 'lite', 'full', 'milestone'] } },

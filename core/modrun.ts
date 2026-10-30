@@ -11,7 +11,7 @@ export interface Ran { exit: number; timedOut: boolean; result?: unknown; bad?: 
 // `scratch`: a folder of this run only (made 0700, the caller removes it); `envPass`: the env names this caller declared. A hang is killed by the host at `timeoutMs`.
 export async function modrun(h: Host, o: { argv: readonly string[]; cwd: string; input: unknown; scratch: string; envPass?: readonly string[]; timeoutMs?: number }): Promise<Ran> {
   // a name is read by `printenv` through the host's own run (the kit lists the variables a module reads by literal name, so a profile's envPass names cannot go through $.env)
-  const get = async (n: string) => { const r = await h.run(['printenv', '-0', n]).catch(() => undefined); return r && !r.exitCode ? r.stdout.slice(0, -1) : undefined }, input = `${o.scratch}/input.json`, out = `${o.scratch}/result.json`
+  const get = async (n: string) => { const r = await h.run(['printenv', '-0', '--', n]).catch(() => undefined); return r && !r.exitCode ? r.stdout.slice(0, -1) : undefined }, input = `${o.scratch}/input.json`, out = `${o.scratch}/result.json`
   await h.run(['mkdir', '-p', '-m', '700', o.scratch]); await h.write(input, JSON.stringify(o.input))
   const env: string[] = [`HOME=${await h.home()}`, `TMPDIR=${o.scratch}`, `CADRE_INPUT=${input}`, `CADRE_RESULT=${out}`]
   for (const n of [...ALLOW, ...(o.envPass ?? [])]) { const v = await get(n); if (v) env.push(`${n}=${v}`) }

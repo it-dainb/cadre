@@ -26,6 +26,7 @@ export type Landing = {
   baseline: 'tolerate' | 'strict'
   args?: Record<string, string | boolean>
   envPass?: string[]                              // env names the provider module may inherit (D20)
+  union?: string[]                                // plain paths git merges with merge=union (core/git.unionAttrs): files every task or epic appends to, as the default's CHANGELOG.md
 }
 
 // engine counters not tied to a step. Counter names an effect may use: docs/counters.md
