@@ -1,5 +1,6 @@
-// The default profile (plan 2.11), grown slice by slice: S2 holds the check slots only. Data, JSON-serializable, no code.
-import type { FlagSpec, Profile } from '../types/profile'
+// The default profile (plan 2.11), grown slice by slice: S2 the check slots, S3 the flag table, S4 the work roles. Data, JSON-serializable, no code.
+import type { FlagSpec, Profile, RoleSpec } from '../types/profile'
+import { PROMPTS } from '../agents/prompts'
 import { modelText } from '../core/say'
 
 export const checks = {
@@ -42,4 +43,30 @@ export const flags: Record<string, FlagSpec> = {
   blocked: { why: 'blocked: the worker asks a question. Type your answer in the chat: it goes to the worker. Keep leaves it waiting for that answer; Cancel task ends it.', holds: false, yolo: 'main', options: [{ key: 'k', label: 'Keep', effect: [{ do: 'wait' }] }, CANCEL] },
   shape: { why: 'its agent kept sending reports in a wrong form (an over-long value, an unknown field, a wrong type). Retry: it starts again. Cancel task ends it.', holds: false, yolo: 'human', options: [{ key: 'r', label: 'Retry', effect: [{ do: 'retry', counter: 'shapeRefusals' }, { do: 'unblock', note: modelText('context', 'Retry from the human: report again in the form the report tool describes (each value within its length cap, only its fields).') }] }, CANCEL] },
   attempts: STUCK, 'no-report': STUCK, stagnant: STUCK, stale: STUCK, loop: STUCK,
+}
+
+// The work roles (plan 2.4). The prompts stay in agents/prompts.ts (the source of truth); planner and specifier are core planning roles outside this table (core/roles).
+// `report.fields` is the report form per role: caps are data (S0 gap G3), `requiredWith` and `ask` the outcome-conditional fields (G2); onSilent per S0 gap G1 (types/profile.ts).
+const R = 'mcp__cadre__report', C = 'mcp__cadre__run_check', I = 'mcp__cadre__inspect'
+const STOP = 'You stopped without calling report; a hand-back message is not a report. Call the report tool now'
+const cell = (model: string, effort: string) => ({ model, effort })
+const text = (n: number) => ({ list: 5, of: { text: n } })
+export const roles: Record<string, RoleSpec> = {
+  worker: { description: 'implements one approved task in its own folder', prompt: PROMPTS.worker, tools: ['Read', 'Edit', 'Write', 'NotebookEdit', 'Bash', 'PowerShell', 'Monitor', 'TodoWrite', R, C], mcpAllow: true, network: 'on', write: ['**'], ttl: '1h',
+    onSilent: 'nudge', nudge: modelText('nudge', `${STOP}: {"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"} (or outcome "blocked" with reason).`),
+    report: { outcomes: ['done', 'blocked', 'spec_change'], fields: { summary: { text: 800 }, reason: { text: 400 }, scenario: { text: 300 }, risks: text(120), questions: text(120), followups: { list: 5 } }, required: ['summary'], requiredWith: { blocked: ['reason'], spec_change: ['reason', 'scenario'] },
+      ask: { reason: modelText('tool-result', 'required with outcome {outcome}; say what is in the way, then report again'), scenario: modelText('tool-result', 'required with outcome {outcome}; give the changed scenario in full as "S<n>: Given … When … Then …", then report again') } },
+    routing: { light: cell('haiku', 'high'), standard: cell('haiku', 'high'), thorough: cell('haiku', 'high'), core: cell('haiku', 'high') } },
+  tester: { description: 'writes black-box tests for one task from its scenarios', prompt: PROMPTS.tester, tools: ['Read', 'Write', 'Edit', R], network: 'off', write: ['**'], ttl: '1h',
+    onSilent: 'nudge', nudge: modelText('nudge', `${STOP} with role "tester", outcome "done", summary and tests.`),
+    report: { outcomes: ['done'], fields: { summary: { text: 800 }, tests: { list: 50, of: { object: { path: { text: 200 }, name: { text: 300 }, ids: { list: 10, of: { text: 20 } } }, required: ['path', 'name'] } }, run: 'command' }, required: ['summary'], requiredWith: { done: ['tests'] } },
+    routing: { light: cell('haiku', 'high'), standard: cell('sonnet', 'medium'), thorough: cell('sonnet', 'medium'), core: cell('sonnet', 'medium') } },
+  reviewer: { description: 'reviews one task commit against its scenarios', prompt: PROMPTS.reviewer, tools: ['Read', I, C, R], network: 'off', write: [], ttl: '1h',
+    onSilent: 'retry', nudge: modelText('nudge', `${STOP} with role "reviewer", verdict, summary, findings, coverage and contractStatus.`),
+    report: { outcomes: ['pass', 'fail'], fields: { summary: { text: 1500 }, findings: { list: 50 }, coverage: { list: 50 }, contractStatus: { list: 100 } }, required: ['summary', 'findings', 'coverage', 'contractStatus'] },
+    verdict: { pass: 'pass', fail: 'changes', findings: 'files' },
+    routing: { light: cell('sonnet', 'high'), standard: cell('sonnet', 'high'), thorough: cell('opus', 'high'), core: cell('sonnet', 'high') } },
+  explorer: { description: 'read-only recon, discovery and spikes', prompt: PROMPTS.explorer, tools: ['Read', I, R], network: 'off', write: [], ttl: '5m', effort: 'low', maxTurns: 40,
+    onSilent: 'nudge', nudge: modelText('nudge', `${STOP}, once: {"schemaVersion":1,"role":"explorer","answer":"<your answer>","citations":[{"path":"src/a.ts","line":1}]}`),
+    report: { outcomes: [], fields: { answer: { text: 2000 }, citations: { list: 30 } }, required: ['answer'], ask: { answer: 'required for role explorer' } } },
 }
