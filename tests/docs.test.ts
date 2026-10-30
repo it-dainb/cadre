@@ -45,9 +45,10 @@ test('docs/profile.md contains the profiles/default.ts JSON and states what onFa
   expect(doc).toContain(asJson(DEFAULT))
   expect(JSON.parse(asJson(DEFAULT))).toEqual(JSON.parse(JSON.stringify(DEFAULT)))
   expect(doc).toContain('`then: {"back": "<step>"}`'); expect(doc).toContain('sent back `retry` times'); expect(doc).toContain('`then: "human"`'); expect(doc).toContain('the `retry`-th failing round raises the flag')
+  expect(doc).toContain('never put them inside `sh -c`')
   for (let n = 1; n <= 23; n++) expect(doc).toContain(`| B${n} |`)
 })
 test('docs/limitations.md states the repo-layer risk, the engine-text exception and the unjailed-argv entry', () => {
   const l = BUDGET.docs.limitations as string
-  for (const s of ['accepted owner risk', '/proc/<pid>/environ', 'adapters.<name>.url', 'run[0]', '.cadre/profile.json', '.cadre/config.json', 'Without bwrap', 'engine-text-exception', 'drive.limited', 'queue.modelRefusal', 'exit-only', 'B23']) expect(l).toContain(s)
+  for (const s of ['accepted owner risk', '/proc/<pid>/environ', 'adapters.<name>.url', 'run[0]', '.cadre/profile.json', '.cadre/config.json', 'Without bwrap', 'engine-text-exception', 'drive.limited', 'queue.modelRefusal', 'exit-only', 'B23', '`landing.provider` is an unconfined path', 'cleared environment']) expect(l).toContain(s)
 })
