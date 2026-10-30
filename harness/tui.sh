@@ -56,6 +56,8 @@ start)
   # pre-seed first-run state: theme + onboarding done + folder trusted (no dialogs); anything else still appears -> handled below
   W=/work/run${CWD:+/$CWD}
   docker exec "$C" sh -c "echo '{\"hasCompletedOnboarding\":true,\"theme\":\"dark\",\"projects\":{\"/work/run\":{\"hasTrustDialogAccepted\":true,\"hasCompletedProjectOnboarding\":true},\"$W\":{\"hasTrustDialogAccepted\":true,\"hasCompletedProjectOnboarding\":true}}}' > /cchome/.claude.json"
+  # no bypass-mode dialog: its `Down Enter`, sent while the screen redraws, can land in the composer and turn a typed /cadre into plain text
+  docker exec "$C" sh -c "echo '{\"skipDangerousModePermissionPrompt\":true}' > /cchome/.claude/settings.json"
   # a fixture may leave .harness-profile.json (the user layer's `profile`: a built-in name or an inline profile) in the work dir: merged into the pins
   "$0" pins | R="$D/work/.harness-profile.json" node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8")),f=process.env.R;if(require("fs").existsSync(f))o.profile=JSON.parse(require("fs").readFileSync(f,"utf8"));console.log(JSON.stringify(o))' | docker exec -i "$C" sh -c 'cat > /cchome/.claude/cadre.json' || exit 1   # every cadre route on haiku
   rm -f "$D/work/.harness-profile.json"
