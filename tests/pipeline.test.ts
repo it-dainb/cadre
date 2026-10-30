@@ -71,6 +71,7 @@ describe('the machine reads the profile: a docs-style profile moves a task write
 // a moved plan sends a task back to the step that made its change, and cadre's own tasks take a type the profile has: never the default's names on another profile
 test('makerOf and typeOr follow the active profile: worker/feature on the default, write/doc on docs, work/analysis on analysis', () => {
   for (const t of ['feature', 'bug', 'refactor', 'docs']) expect(makerOf(t)).toBe('worker')
+  expect(makerOf('test')).toBe('tester')   // a test task's change is the tester's: it is the one reworked, refreshed and checkpointed
   expect(makerOf('feature', 'lite')).toBe('worker'); expect(typeOr('bug')).toBe('bug'); expect(firstType()).toBe('feature')
   for (const [k, ty, step] of [['docs', 'doc', 'write'], ['analysis', 'analysis', 'work']] as const) {
     try {
