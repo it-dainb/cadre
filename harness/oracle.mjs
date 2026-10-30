@@ -475,7 +475,7 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     else if (!after.length || after.some(x => !LESSON.test(x.brief))) fail(o, `${after.length} brief(s) after the pass, ${carry.length} carry the lesson (want every one)`)
   }
 }
-stats.usd = +debug.map(ls => Math.max(0, ...ls.map(l => +(l.match(/cost=\$([\d.]+)/)?.[1] ?? 0)))).reduce((a, b) => a + b, 0).toFixed(2)
+stats.usd = +debug.map(ls => ls.reduce((m, l) => Math.max(m, +(l.match(/cost=\$([\d.]+)/)?.[1] ?? 0)), 0))   // no spread: a long run's log overflows the call stack.reduce((a, b) => a + b, 0).toFixed(2)
 stats.secs = Math.round((tEnd - (drv[0]?.t ?? tEnd)) / 1000)
 // A real 429 that ended the cell: cadre's own stop toast (drive stopped · usage limit until) AND a debug line whose JSON error type is rate_limit_error, with no usage_limit
 // injected by the stub (the usage-limit S cell expects that toast). A cell with a failed invariant is a FAIL whatever the 429; otherwise it judged nothing about cadre: inconclusive, rerun it. Harness-side only.
