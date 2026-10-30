@@ -228,3 +228,27 @@ describe('B5: an agent that needs something it cannot get reports blocked; nobod
     expect((rep.inputSchema as any).properties).not.toHaveProperty('request')
   })
 })
+
+// ---- S4: the work roles are the profile's data; one table feeds the agent files, the report form, the exit rule and the main-agent guard ----
+import { roles as PROFILE_ROLES } from '../profiles/default'
+import { roleSpecs, setRoles } from '../core/roles'
+import { mainAgent } from '../core/plantools'
+import { PROMPTS } from '../agents/prompts'
+
+describe('roles as profile data (S4)', () => {
+  const critic = { description: 'critic', prompt: 'p', tools: ['Read', 'mcp__cadre__report'], network: 'off' as const, write: [], ttl: '5m' as const, onSilent: 'block' as const, report: { outcomes: [], fields: { note: 'text' as const }, required: ['note'] } }
+  test('every built-in prompt is the one in agents/prompts.ts (the source of truth); ROLES_DEFAULT is the profile\'s roles plus the planning roles', () => {
+    for (const r of ['worker', 'tester', 'reviewer', 'explorer'] as const) expect(ROLES_DEFAULT[r].prompt).toBe(PROMPTS[r])
+    expect(Object.keys(ROLES_DEFAULT)).toEqual([...Object.keys(PROFILE_ROLES), 'planner', 'specifier']); expect(Object.keys(roleSpecs())).toEqual(['worker', 'tester', 'reviewer', 'explorer'])
+  })
+  test('the exit-tool rule holds for every spec of the table and for a custom one: no spec drops or disallows an exit tool', () => {
+    for (const s of [...Object.values(PROFILE_ROLES), critic]) { expect(exitIssue(s)).toBeNull(); for (const t of EXIT) expect(exitIssue({ ...s, disallowedTools: [t] })).toContain(t) }
+    expect(customIssue('critic', { description: 'd', prompt: 'p', tools: ['Read', 'mcp__cadre__report', 'SubagentHandback'] })).toContain('StructuredOutput')
+  })
+  test('the main-agent guard is generated from the table: a work role of the profile is main\'s to plan around, any other cadre: name is a custom role of main\'s', () => {
+    const call = (n: string) => mainAgent({ tool: 'Agent', subagent_type: `cadre:${n}`, prompt: 'look into it' }, [])
+    for (const n of ['worker', 'tester', 'reviewer', 'explorer', 'planner']) expect(call(n)).toHaveProperty('deny')
+    expect(call('critic')).toBeUndefined()
+    setRoles({ ...PROFILE_ROLES, critic }); try { expect(call('critic')).toHaveProperty('deny') } finally { setRoles(PROFILE_ROLES) }
+  })
+})
