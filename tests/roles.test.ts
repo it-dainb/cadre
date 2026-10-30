@@ -8,6 +8,7 @@ import { cachePrefix, fence, guard, setPolicy, shelled } from '../policy/guards'
 import { fence as frozen } from './fixtures/fence-v0.15.0'
 import GOLD from './fixtures/roles-golden'
 import { fakeHost, task } from './support'
+import { SPECS } from '../tools/index'
 import type { Role } from '../types'
 
 // ---- the differential: the v0.15.0 fence() (frozen fixture) against the live one, role x tool x path x task state x locks/core ----
@@ -222,5 +223,8 @@ describe('B5: an agent that needs something it cannot get reports blocked; nobod
     expect(reportRefusal({ schemaVersion: 1, role: 'worker', outcome: 'blocked', summary: 'x', reason: 'needs a package' })).toBeNull()
     for (const r of Object.values(ROLES_DEFAULT)) expect(r).not.toHaveProperty('canRequest')
     expect(customIssue('x', { ...AUD, canRequest: ['explore'] })).toContain('not a role field')
+    const rep = SPECS.find(t => t.name === 'report')!   // the tool schema the model sees offers no request either
+    expect((rep.inputSchema as any).properties.outcome.enum).toEqual(['done', 'blocked', 'spec_change'])
+    expect((rep.inputSchema as any).properties).not.toHaveProperty('request')
   })
 })

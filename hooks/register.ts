@@ -86,7 +86,7 @@ function host($): Host {
     store: { get: k => $.store.get(k), set: async (k, v) => { await $.store.set(k, v) }, del: async k => { await $.store.delete(k) } },
     env: async () => ({
       CADRE_STRICTNESS: await $.env.get('CADRE_STRICTNESS'), CADRE_STORE: await $.env.get('CADRE_STORE'),
-      CADRE_DISABLE: await $.env.get('CADRE_DISABLE'), CADRE_SPAWN: await $.env.get('CADRE_SPAWN'), PATH: await $.env.get('PATH'), LANG: await $.env.get('LANG'),   // an install run's own environment (core/git.setupJail)
+      CADRE_DISABLE: await $.env.get('CADRE_DISABLE'), CADRE_SPAWN: await $.env.get('CADRE_SPAWN'), PATH: await $.env.get('PATH'), LANG: await $.env.get('LANG'),   // session variables cadre reads
       GIT_AUTHOR_NAME: await $.env.get('GIT_AUTHOR_NAME'), GIT_AUTHOR_EMAIL: await $.env.get('GIT_AUTHOR_EMAIL'),   // identity prefill (core/git.identity)
     }),
     readText: async path => { try { return String(await $.fs.read(path)) } catch { return null } },
@@ -224,7 +224,7 @@ export const register: Register = (on, opts) => {
 
   // 0. the spawner: outermost, so it runs after every other turn-end hook (close, drain); the only registration that starts agents (core/spawner)
   on('turn.complete', { reason: /(?:)/ }, async ($, e, next) => { const r = await next(e); if (await wake(host($)).catch(() => false)) await spawnStep(spawner($, next), next.event).catch(x => $.ui.log(`spawner: ${x}`)); return r })
-  // 1. resume-drain: the only sender, after await next(e), never from a timer; the one exception is a setup install (core/needs.settleSetups, detached on the host's timer): it answers and sends the requester's resume itself, as no turn end follows it (DESIGN 2.2). 2. observe.
+  // 1. resume-drain: the only sender, after await next(e), never from a timer. 2. observe.
   on('turn.complete', { reason: /./ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return drain(host($), e, next) })
   on('turn.complete', { reason: /^/ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return observe(host($), e, next) })
   on('turn.complete', { reason: /./ }, async ($, e, next) => { const r = await next(e); await turnEnd(host($), e).catch(() => {}); if (!e.agentId) await mainTurn(host($), false).catch(x => $.ui.log(`plan card: ${x}`)); return r })   // agent-run setup/init (ADR 0010): re-check when main stops; works in dormant repos too
