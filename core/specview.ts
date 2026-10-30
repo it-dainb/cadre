@@ -9,6 +9,7 @@ import { renderContract } from './briefs'
 import * as G from './git'
 import { ownerOf, unitsOf } from './discover'
 import { pathsOf } from './validate'
+import { active } from './pipeline'
 
 export interface Pkg { root: string; setup?: string[]; checks: Record<string, string[]>; verify?: string[]; knownRed?: string[]; viewInclude?: string[]; routing?: Record<string, { model: string; effort?: string }>; ownGit?: boolean; concurrency?: number; tdd?: { check?: string; paths: string[]; stubs?: string[]; skeleton?: string[] } }
 
@@ -21,10 +22,12 @@ export const pkgOf = (d: Pick<Deps, 'cfg'>, task: Pick<Task, 'meta'>): Pkg | und
   return ownerOf(all, at)
 }
 // a task's paths lie in one repository: a submodule unit's edits are committed in its own repository, the rest in the parent's, so a task across both is split
-// an epic whose every path is one cadre refuses its task agents (git.PROTECTED, the configured changelog) can never be planned into a task: refused where its paths are written
-export const protectedOnly = (cfg: any, paths: unknown): string | null => {
+// a path no task agent may change: the fixed set (git.PROTECTED) and the profile's `protected` globs
+export const isProtected = (p: string): boolean => G.isProt(p) || matches(active().protected, p)
+// an epic whose every path is one cadre refuses its task agents can never be planned into a task: refused where its paths are written
+export const protectedOnly = (paths: unknown): string | null => {
   const ps = Array.isArray(paths) ? paths.map(String) : []
-  return ps.length && ps.every(p => G.isProt(p, cfg.changelog?.path)) ? modelText('tool-result', `metadata.paths: every path of this epic is protected (${ps.join(', ')}): cadre writes the changelog itself and no task may change the rest; drop the epic or give it the files it changes`) : null
+  return ps.length && ps.every(isProtected) ? modelText('tool-result', `metadata.paths: every path of this epic is protected (${ps.join(', ')}): no task may change these files; drop the epic or give it the files it changes`) : null
 }
 export const repoSplit = (cfg: any, paths: unknown): string | null => {
   if (!Array.isArray(paths)) return null

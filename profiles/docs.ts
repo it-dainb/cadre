@@ -6,7 +6,7 @@ import { roles as base } from './default'
 const R = 'mcp__cadre__report', I = 'mcp__cadre__inspect'
 export const profile: ProfileLayer = {
   schema: 2,
-  types: { doc: { pipeline: ['write', 'review', 'land'], acceptance: { format: 'what the reader must be able to do', cover: 'none' }, contract: 'none', rubric: 'accuracy, tone, completeness', commit: 'docs' } },
+  types: { doc: { pipeline: ['write', 'review', 'land'], acceptance: { format: 'what the reader must be able to do', cover: 'none' }, contract: 'none', rubric: 'accuracy, tone, completeness', branch: 'docs/', commit: 'docs' } },
   steps: {
     write: { role: 'writer', workspace: 'worktree', brief: ['description', 'acceptance', 'notes'] },
     review: { role: 'critic', workspace: 'none', brief: ['diff', 'acceptance'], onFail: { retry: 2, then: { back: 'write' } } },

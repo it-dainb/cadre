@@ -50,7 +50,7 @@ function split(text) {
   return { head: ls.slice(0, u + 1), pre, sec, tail: ls.slice(end) }
 }
 const body = sec =>
-  KAC.filter(c => sec.has(c)).flatMap(c => ['', `### ${c}`, '', ...sec.get(c)!])
+  KAC.filter(c => sec.has(c)).flatMap(c => ['', `### ${c}`, '', ...sec.get(c)])
 
 function checked(text) { const e = validate(text); if (e) throw new Error(`changelog invalid: ${e}`); return text }
 

@@ -1,5 +1,5 @@
 // Session lifecycle (DESIGN 8.2, 13.4, 13.5): lazy rehydrate after /clear, /resume or a new session, the board pointer, the resume card, session.start policy, store hygiene.
-import { verdictAt } from './pipeline'
+import { active, verdictAt } from './pipeline'
 import type { Binding, Host, Snapshot } from '../types'
 import type { TaskStore } from '../task-management/store'
 import { StoreError } from '../task-management/store'
@@ -206,7 +206,7 @@ ROUTES.continue = async h => ({ text: modelText('context', await continueRun(h))
 export async function start(h: Host): Promise<void> {
   const cfg = await cfgOf(h), root = await h.cwd(), home = await h.home(), repo = (await h.stat(root, { resolve: true }))?.realPath ?? root
   await setPolicy(h, { repo, wtRoot: `${await realRoot(h, await wtRootOf(h, cfg))}/${repoKeyOf(root)}`, home, mcpAllow: cfg.mcpAllow,
-    protect: [cfg.branches.main || 'main', cfg.branches.dev], effectCheck: cfg.effectCheck, epicPrefix: cfg.branches.epicPrefix, changelog: cfg.changelog.path })   // locks are kept: core/tdd owns them
+    protect: [cfg.branches.main || 'main', cfg.branches.dev], effectCheck: cfg.effectCheck, epicPrefix: cfg.branches.epicPrefix, guarded: active().protected })   // locks are kept: core/tdd owns them
   const ascii = asciiOf(cfg.ui.glyphs, await h.env()), theme = (await h.theme?.().catch(() => 'unknown')) ?? 'unknown'
   await h.ui.update(u => ({ ...u, cfg: { ...(u.cfg as object | undefined), glyphs: cfg.ui.glyphs, flash: cfg.ui.flash, density: cfg.ui.density, notify: cfg.ui.notify, escalateAfterMs: cfg.ui.escalateAfterMs, ascii, theme, maxTurns: cfg.drive.maxTurns } }))   // the render hooks cannot read env: resolve it here
   await safe(h, 'prune', () => prune(h))

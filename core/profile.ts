@@ -132,6 +132,7 @@ export async function loadProfile(h: Host): Promise<Loaded> {
   const out: Loaded = { profile: DEFAULT, name, owner: {} }
   const base = BUILTIN[name]; if (!base) out.name = 'default'
   let p = { ...DEFAULT, ...(base ?? DEFAULT), flags: { ...DEFAULT.flags, ...(base ?? DEFAULT).flags } } as Profile   // a built-in profile replaces the sections it names; its flag rows go over the default's
+  if (plugin) p = expand(p, plugin) as Profile   // the built-in hooks run the plugin's modules
   const own = (l: ProfileLayer, who: string) => { for (const k of ['types', 'steps', 'roles', 'checks', 'flags']) for (const x of Object.keys((l as any)[k] ?? {})) out.owner[`${k}.${x}`] = who }
   own(base ?? DEFAULT, out.name)
   const layer = async (who: string, l: unknown, dir: string, repo: boolean): Promise<string | null> => {

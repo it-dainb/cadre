@@ -12,7 +12,7 @@ const { defaults } = await import('../../config/index.ts')
 const { integrateEpic } = await import('../../core/integrate.ts')
 const { ROUTES } = await import('../../core/dispatch.ts')
 await import('../../core/revert.ts')
-const { skeleton } = await import('../../core/changelog.ts')
+const { cut, insert, skeleton } = await import('../../modules/changelog.mjs')
 const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: o.cwd }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()
 const commit = (d, f, body, msg) => { writeFileSync(join(d, f), body); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', msg) }
@@ -21,7 +21,7 @@ const commit = (d, f, body, msg) => { writeFileSync(join(d, f), body); sh(d, 'ad
 async function world(land = true, noRecord = false) {
   const d = mkdtempSync(join(tmpdir(), 'cadre-rev-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
   commit(d, 'CHANGELOG.md', skeleton(), 'chore: init'); sh(d, 'branch', 'dev')
-  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.units = [{ root: '.', setup: ['true'], checks: { test: ['true'] } }]; cfg.jail = 'off'
+  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.units = [{ root: '.', checks: { setup: ['true'], test: ['true'] } }]; cfg.jail = 'off'
   const h = fakeHost(); Object.assign(h, { cwd: async () => d, home: async () => d, run, config: async () => cfg, readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } }, write: async (p, t) => writeFileSync(p, t) })
   const store = await h.taskStore(), epic = await store.createEpic('auth', 'goal'), br = `epic/${epic}-auth`
   sh(d, 'branch', br, 'dev'); sh(d, 'checkout', '-q', br); commit(d, 'c.txt', 'c\n', 'feat: login'); sh(d, 'checkout', '-q', 'main')
@@ -43,7 +43,7 @@ test('a revert lands through integrate: new merge on dev, files gone, recorded b
   const dev = sh(d, 'rev-parse', 'dev'); assert.notEqual(dev, before)
   assert.equal(sh(d, 'rev-list', '--parents', '-n1', dev).split(' ').length, 3, 'a --no-ff merge of the revert branch (mergeEpic + landDev)'); assert.match(sh(d, 'log', '-1', '--format=%s', dev), /^revert /)
   assert.equal(existsSync(join(d, 'c.txt')), false); assert.throws(() => sh(d, 'show', 'dev:c.txt'))
-  assert.match(sh(d, 'show', 'dev:CHANGELOG.md'), /### Removed\n\n- Reverted: auth/)
+  assert.equal(sh(d, 'show', 'dev:CHANGELOG.md'), skeleton().trim())   // the changelog is the hooks': a revert adds no line of its own (B6)
   assert.equal(sh(d, 'branch', '--list', `revert/${epic}`), ''); assert.equal(sh(d, 'branch', '--list', 'feat/t1-login'), '', 'recorded branch removed'); assert.match(sh(d, 'branch', '--list', 'feat/t9-unrecorded'), /t9-unrecorded/)
   assert.equal(sh(d, 'status', '--porcelain'), ''); assert.equal(sh(d, 'worktree', 'list').split('\n').length, 1); assert.deepEqual(await decisions(h), [])
   const e = await store.get(epic); assert.ok(e.meta['cadre.reverted']); assert.match((await press(e.meta['cadre.reverted'])).text, /revert-of-revert/)
@@ -141,13 +141,13 @@ test('R-04: a branch revert/<id> that cadre did not make is not deleted: the rev
   sh(d, 'branch', `revert/${epic}`, mine); await press(epic); await ans(`revert:${epic}`, 'c')
   assert.match((await ans(`revert-sure:${epic}`, 'y')).text, /refused \(busy\)/); assert.equal(sh(d, 'rev-parse', `revert/${epic}`), mine); assert.equal(sh(d, 'rev-parse', 'dev'), before)
 })
-test('R-05: changelog.path must stay inside the repo: config refuses it, and a revert refuses it before writing', async () => {
-  const { check } = await import('../../config/index.ts')
-  for (const v of ['../x.md', 'a/../../x.md', '/etc/x', '', 'a\\..\\x']) assert.notEqual(check('changelog.path', v), null, v)
-  for (const v of ['CHANGELOG.md', 'docs/CHANGES.md']) assert.equal(check('changelog.path', v), null, v)
-  const { d, cfg, epic, ans, press } = await world(), before = sh(d, 'rev-parse', 'dev'); cfg.changelog.path = '../../escaped.md'
-  await press(epic); await ans(`revert:${epic}`, 'c'); assert.match((await ans(`revert-sure:${epic}`, 'y')).text, /leaves the worktree/)
-  assert.equal(sh(d, 'rev-parse', 'dev'), before); assert.equal(existsSync(join(`${d}-wt`, 'escaped.md')), false)
+test('R-05: a protected file the revert conflicts on (the changelog, changed by a later release) stays as dev has it and never blocks the revert', async () => {
+  const { d, h, epic, ans, press } = await world(false), br = `epic/${epic}-auth`
+  sh(d, 'checkout', '-q', br); commit(d, 'CHANGELOG.md', insert(skeleton(), 'Added', 'login', 'm-1'), 'docs(changelog): m-1'); sh(d, 'checkout', '-q', 'main')
+  assert.equal(await integrateEpic(h, epic), null)
+  sh(d, 'checkout', '-q', 'dev'); const released = cut(sh(d, 'show', 'dev:CHANGELOG.md') + '\n', '0.1.0', '2026-01-01'); commit(d, 'CHANGELOG.md', released, 'chore(release): v0.1.0'); sh(d, 'checkout', '-q', 'main')
+  await press(epic); await ans(`revert:${epic}`, 'c'); assert.match((await ans(`revert-sure:${epic}`, 'y')).text, /reverted/)
+  assert.equal(existsSync(join(d, 'c.txt')), false); assert.equal(sh(d, 'show', 'dev:CHANGELOG.md'), released.trim())
 })
 test('R-07: the confirm covers the recorded commits and the merge flag: a change between the confirms re-asks', async () => {
   const { store, t, epic, ans, press } = await world()

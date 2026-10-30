@@ -11,7 +11,7 @@ const b = (taskId: string, role: Role, worktree: string, step = 'worker'): Bindi
 async function mk(opt: { strictness?: string; locks?: Record<string, string[]> } = {}) {
   const h = fakeHost({ options: { strictness: opt.strictness } })
   h.stat = async (p, o) => { const r = norm(p); return EXISTS.includes(r) ? { kind: 'file', realPath: o?.resolve ? r : undefined } : undefined }
-  await setPolicy(h, { repo: '/x/repo', wtRoot: '/x', home: '/hm/u', locks: opt.locks })
+  await setPolicy(h, { repo: '/x/repo', wtRoot: '/x', home: '/hm/u', locks: opt.locks, guarded: ['CHANGELOG.md'] })
   await h.board.update(s => ({ ...s, tasks: [task('bd-a1', { state: 'active', step: 'worker' }), task('bd-a2', { state: 'active', step: 'tester' })] }))
   await h.bind.update(() => ({ w1: b('bd-a1', 'worker', '/x/bd-a1'), t1: b('bd-a1', 'tester', '/x/bd-a1.view', 'tester'), r1: b('bd-a1', 'reviewer', '/x/bd-a1', 'reviewer') }))
   return h
@@ -115,11 +115,11 @@ describe('judge, send, configSet', () => {
     expect(idsIn('TASK-my_project-403.1', k)).toEqual(['my_project-403.1']); expect(idsIn('see my_project-403.', k)).toEqual(['my_project-403'])
     expect(idsIn('x_my_project-403 my_project-403_x', k)).toEqual([])
   })
-  test('G7: the configured changelog.path is mod-owned like CHANGELOG.md; isProt takes it too', async () => {
-    const h = await mk(); await setPolicy(h, { changelog: 'docs/CHANGES.md' })
+  test('G7: a path the profile guards is mod-owned; isProt knows only the fixed set (the profile\'s `protected` is core/specview.isProtected)', async () => {
+    const h = await mk(); await setPolicy(h, { guarded: ['docs/CHANGES.md'] })
     expect(denied(await call(h, { tool: 'Write', agentId: 'w1', file_path: '/x/bd-a1/docs/CHANGES.md' }))).toBe(true)
     expect(denied(await call(h, { tool: 'Write', agentId: 'w1', file_path: '/x/bd-a1/src/CHANGES.md' }))).toBe(false)
-    expect(isProt('docs/CHANGES.md')).toBe(false); expect(isProt('docs/CHANGES.md', 'docs/CHANGES.md')).toBe(true); expect(isProt('CHANGELOG.md')).toBe(true)
+    expect(isProt('docs/CHANGES.md')).toBe(false); expect(isProt('CHANGELOG.md')).toBe(false); expect(isProt('.cadre/config.json')).toBe(true)
   })
   test('G6a: re-entry spawn judged from the event: a task marker is refused, marker-less passes', () => {
     expect(judgeSpawn({ prompt: 'implement TASK-bd-a1' })).toMatch(/refused/); expect(judgeSpawn({ prompt: 'do bd-a7 now' })).toMatch(/refused/)

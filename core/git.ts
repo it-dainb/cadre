@@ -9,8 +9,8 @@ export async function identity(run: Run, env: Record<string, string | undefined>
   return { ok: (await run(['git', 'var', 'GIT_COMMITTER_IDENT']).catch(() => ({ exitCode: 1 }))).exitCode === 0 && (await run(['git', 'var', 'GIT_AUTHOR_IDENT']).catch(() => ({ exitCode: 1 }))).exitCode === 0, name: (await get('user.name')) || env.GIT_AUTHOR_NAME || '', email: (await get('user.email')) || env.GIT_AUTHOR_EMAIL || '' }
 }
 // paths the mod owns in a repo: agents never change them (close refuses, guards fence, the brief names them)
-export const PROTECTED = ['.git/', '.cadre/', '.claude/', '.mcp.json', 'CHANGELOG.md']
-export const isProt = (p: string, changelog?: string) => [...PROTECTED, ...(changelog ? [changelog] : [])].some(x => (x.endsWith('/') ? p.startsWith(x) : p === x))   // changelog: the configured changelog.path (repo-relative)
+export const PROTECTED = ['.git/', '.cadre/', '.claude/', '.mcp.json']   // the profile's `protected` globs come on top (core/specview.isProtected)
+export const isProt = (p: string) => PROTECTED.some(x => (x.endsWith('/') ? p.startsWith(x) : p === x))
 
 // git -C <cwd> <args>: stdout trimmed; a non-zero exit throws with git's own stderr (P6: facts only, never parsed for decisions).
 export async function git(run: Run, cwd: string, args: readonly string[]): Promise<string> {

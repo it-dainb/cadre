@@ -2,6 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { BUILTIN, check, cross, describe as show, loadProfile, bootProfile, loaded, nameOk } from '../core/profile'
 import { setProfile, pipeOf, active } from '../core/pipeline'
 import { profile as DEFAULT } from '../profiles/default'
+const LOADED = JSON.parse(JSON.stringify(DEFAULT).split('${MODULES}').join('/plug/modules'))   // the default as a session loads it: its hooks run the plugin's modules
 import { resolve } from '../config/index'
 import { runShape } from '../core/validate'
 import { fakeHost } from './support'
@@ -27,7 +28,7 @@ describe('the built-in profiles', () => {
     expect(Object.keys(BUILTIN)).toEqual(['default', 'docs', 'analysis'])
   })
   test('the default loads as the default; docs replaces the sections it names and keeps the default flag rows', async () => {
-    const d = await loadProfile(host()); expect(d.bad).toBeUndefined(); expect(d.profile).toEqual(DEFAULT); expect(d.name).toBe('default')
+    const d = await loadProfile(host()); expect(d.bad).toBeUndefined(); expect(d.profile).toEqual(LOADED); expect(d.name).toBe('default')
     const x = await loadProfile(host({ user: 'docs' })); expect(Object.keys(x.profile.types)).toEqual(['doc']); expect(Object.keys(x.profile.roles)).toEqual(['explorer', 'writer', 'critic']); expect(x.profile.flags).toEqual({ ...DEFAULT.flags, ...BUILTIN.docs.flags })
     const a = await loadProfile(host({ user: 'analysis' })); expect(a.profile.types.analysis.pipeline).toEqual(['explore', 'work', 'verify', 'review', 'land']); expect(a.profile.checks.check.network).toBe(false)
     expect((await loadProfile(host({ user: 'nope' }))).user).toContain('no such built-in profile')   // the default stays, the refusal is shown
@@ -112,7 +113,7 @@ describe('the repo layer (D18, B23): as is, the repo wins; an invalid one is dor
       [LAYER({ landing: { provider: 'direct', onEpicDone: 'off', baseline: 'strict', envPass: ['GH_TOKEN'] } }), 'GH_TOKEN is a credential name', { gh: { credentialEnv: 'GH_TOKEN' } }]]
     for (const [repo, why, adapters] of cases) {
       const h = host({ repo, adapters }), l = await loadProfile(h)
-      expect(l.bad).toContain(why); expect(l.bad).toMatch(/^repo profile: /); expect(l.bad).not.toContain('\n'); expect(l.profile).toEqual(DEFAULT)   // the layers below are shown, never run on
+      expect(l.bad).toContain(why); expect(l.bad).toMatch(/^repo profile: /); expect(l.bad).not.toContain('\n'); expect(l.profile).toEqual(LOADED)   // the layers below are shown, never run on
       const sec: any = { active: true }; h.secret.read = async () => sec
     }
   })
@@ -132,7 +133,7 @@ describe('the repo layer (D18, B23): as is, the repo wins; an invalid one is dor
     } finally { setProfile(DEFAULT) }
   })
   test('a user profile that is refused is shown and the default stays; the repo is not blamed', async () => {
-    const l = await loadProfile(host({ user: { schema: 2, colour: 1 } })); expect(l.user).toContain('colour: unknown key'); expect(l.bad).toBeUndefined(); expect(l.profile).toEqual(DEFAULT)
+    const l = await loadProfile(host({ user: { schema: 2, colour: 1 } })); expect(l.user).toContain('colour: unknown key'); expect(l.bad).toBeUndefined(); expect(l.profile).toEqual(LOADED)
   })
 })
 

@@ -9,10 +9,10 @@ import { ROUTES, cfgOf, storeOf } from './dispatch'
 import { ask, settle } from './decide'
 import { git, exists, ok, op, tip, worktreeAdd, worktreeRemove } from './git'
 import { baseOf, checkedOut, landDev, mergeEpic, wtPath, wtRootOf } from './branches'
+import { isProtected } from './specview'
 import { offer, runSuites } from './integrate'
 import { repoKeyOf } from '../commands/init'
 import { reportOf } from './close'
-import { insert } from './changelog'
 import { modelText } from './say'
 
 type RevertCode = 'unknown' | 'revert-of-revert' | 'already-reverted' | 'not-landed' | 'busy' | 'pr-mode'   // declared: a refusal carries its code, never read from its text
@@ -39,14 +39,14 @@ export async function planOf(h: Host, id: string): Promise<Plan> {
   const sha = own ? ls : up && sq ? sq : '', merge = !!own
   if (sha && (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(sha) || ![dev, cfg.branches.main].includes(lb) || !(await ok(h.run, root, ['check-ref-format', `refs/heads/${lb}`])))) no('unknown', `${id}: its recorded landing is not valid`)   // the store's sha and branch reach git: a shape allowlist and the configured landing branches
   const rec = await recorded(h, store, t), live: Record<string, string> = {}, skipped: string[] = []
-  const mine = [cfg.branches.epicPrefix, 'milestone/', 'revert/', 'wip/', ...Object.values(active().types).map(x => x.commit && `${x.commit}/`)].filter(Boolean) as string[]   // the branches cadre itself makes: epic, milestone, revert and task (commit type) names
+  const mine = [cfg.branches.epicPrefix, 'milestone/', 'revert/', 'wip/', ...Object.values(active().types).map(x => x.branch)].filter(Boolean) as string[]   // the branches cadre itself makes: epic, milestone, revert and task (type prefix) names
   for (const b of rec.names) {   // a recorded name is a full branch ref under cadre's own prefixes or it is not touched: `@{-1}`, `-x`, `a..b`, a tag, a sha or the user's own branch
     if (!(await ok(h.run, root, ['check-ref-format', `refs/heads/${b}`])) || !(mine.some(x => b.startsWith(x)) || [dev, cfg.branches.main, 'main', 'master'].includes(b))) {   // dev and main pass only to be named protected by drop()
        skipped.push(b); continue }
     if (await ok(h.run, root, ['show-ref', '--verify', '--quiet', `refs/heads/${b}`])) live[b] = await tip(h.run, root, `refs/heads/${b}`)
   }
   const names = Object.keys(live)
-  if (sha && cfg.landing.mode === 'pr' && lb === dev) no('pr-mode', 'reverts land through the pull-request flow; not yet supported')
+  if (sha && active().landing.provider !== 'direct' && lb === dev) no('pr-mode', 'reverts land through the pull-request flow; not yet supported')
   if (!sha) {   // abandon: only an idle target with its own branch (a landed epic has none left)
     const bd = (await h.board.read()), bp = bd.plan, mine = bp && (bp.id === id || bp.epics?.some(e => e.id === id)), run = bp?.epics?.some(e => (e.id === id || bp.id === id) && (e.state === 'running' || e.state === 'planning'))
     if (rec.live || (mine && (bp.state === 'integrating' || bp.pr || run || bd.tasks.some(x => x.state === 'active' || x.state === 'review')))) no('busy', `${id} is still running or landing; wait for it to stop first`)
@@ -57,7 +57,7 @@ export async function planOf(h: Host, id: string): Promise<Plan> {
   let files: string[] = [], commits: string[] = []
   if (sha) { files = (await git(h.run, root, ['diff', '--name-only', '--end-of-options', `${sha}^`, sha])).split('\n').filter(Boolean); commits = (await git(h.run, root, ['log', '--format=%h %s', '--end-of-options', `${sha}^..${sha}`])).split('\n').filter(Boolean) }
   else if (t.type === 'epic' && rec.own && live[rec.own]) { const b = rec.own; files = (await git(h.run, root, ['diff', '--name-only', `${dev}...${b}`])).split('\n').filter(Boolean); commits = (await git(h.run, root, ['log', '--format=%h %s', `${dev}..${b}`])).split('\n').filter(Boolean) }
-  else return no('not-landed', t.category === 'done' ? (cfg.landing.mode === 'pr' ? `${id} landed through a pull request, which is not recorded; reverts there are not yet supported` : `${id} has no recorded landing${up === undefined && t.parent ? ' (its epic has not landed)' : ''}`) : `${id} has not landed, and has no branch to abandon`)
+  else return no('not-landed', t.category === 'done' ? (active().landing.provider !== 'direct' ? `${id} landed through a pull request, which is not recorded; reverts there are not yet supported` : `${id} has no recorded landing${up === undefined && t.parent ? ' (its epic has not landed)' : ''}`) : `${id} has not landed, and has no branch to abandon`)
   const ce = t.meta['cadre.changelog'] ? JSON.parse(t.meta['cadre.changelog']) : null, list = (xs: string[]) => (xs.length ? xs.slice(0, 5).join(', ') + (xs.length > 5 ? ` +${xs.length - 5}` : '') : 'none')
   const lines = [`changelog: ${ce?.entry ?? 'none'}`, `summary: ${reportOf(t.meta['cadre.report']).summary || t.description.slice(0, 120) || 'none'}`,
     `result: ${sha ? `landed ${sha.slice(0, 7)} on ${on}` : `never landed; removes ${names.join(', ')}`} · tests: ${t.meta['cadre.checks'] || 'none recorded'}`,
@@ -93,7 +93,6 @@ async function perform(h: Host, p: Plan): Promise<string> {
   if (!p.sha) { const r = await drop(h, p); if (!r.failed.length) await flagAll('abandoned'); return `${p.id} ${r.failed.length ? 'is not fully abandoned (try again)' : 'abandoned'}: ${dropText(r)}` }
   const gf = Object.keys((await h.git.read()).flags ?? {}).find(f => f.startsWith('git:')); if (gf) return `refused: git flag ${gf} is open; keep or restore it in the dialog first`
   const rb = `revert/${p.id}`, key = repoKeyOf(root), wt = wtPath(await wtRootOf(h, cfg), key, `rev-${p.id}`), tmp = wtPath(await wtRootOf(h, cfg), key, `int-rev-${p.id}`)
-  if (cfg.changelog.path.startsWith('/') || cfg.changelog.path.split('/').includes('..')) return `refused: the changelog path ${cfg.changelog.path} leaves the worktree`   // belt and braces: config validation refuses it too
   const stamp = async () => store.setMeta(p.id, { 'cadre.revertTip': await tip(h.run, root, `refs/heads/${rb}`) }, 'cadre')   // the tip cadre made: only a branch at it is ours to delete
   if ((await exists(h.run, root, `refs/heads/${rb}`)) && (await tip(h.run, root, `refs/heads/${rb}`)) !== (await store.get(p.id)).meta['cadre.revertTip']) throw new RevertRefusal('busy', `a branch ${rb} exists that cadre did not make; rename or delete it first`)
   let made = false   // set once this operation owns rb
@@ -101,13 +100,11 @@ async function perform(h: Host, p: Plan): Promise<string> {
   const rv = await op(h, async () => {
     made = true; await worktreeRemove(h.run, root, wt, rb); await worktreeRemove(h.run, root, tmp)   // what an earlier attempt of ours left
     await worktreeAdd(h.run, root, wt, rb, await baseOf(h, p.on)); await stamp()
-    const cl = cfg.changelog.path, r = await h.run(['git', '-C', wt, 'revert', '--no-commit', ...(p.merge ? ['-m', '1'] : []), '--end-of-options', p.sha])
-    const un = r.exitCode ? (await git(h.run, wt, ['diff', '--name-only', '--diff-filter=U'])).split('\n').filter(Boolean) : [], bad = un.filter(f => f !== cl)   // the changelog is cadre's: later releases changed it, so it never blocks a revert
+    const r = await h.run(['git', '-C', wt, 'revert', '--no-commit', ...(p.merge ? ['-m', '1'] : []), '--end-of-options', p.sha])
+    const un = r.exitCode ? (await git(h.run, wt, ['diff', '--name-only', '--diff-filter=U'])).split('\n').filter(Boolean) : [], bad = un.filter(f => !isProtected(f))   // a protected file (the changelog) is the hooks': later releases changed it, so it never blocks a revert
     const why = r.exitCode && (bad.length || !un.length) ? (bad.length ? `reverting ${p.id} conflicts with what landed after it, in ${bad.join(', ')}` : `reverting ${p.id} failed: ${r.stderr.trim().slice(-200)}`) : ''
-    if (!why) {   // the changelog stays as dev has it, plus one Removed line
-      const to = `${wt}/${cl}`
-      await h.run(['git', '-C', wt, 'checkout', 'HEAD', '--', cl]); const text = await h.readText(to)
-      if (text !== null) await h.write(to, insert(text, 'Removed', `Reverted: ${p.title}`, p.id))
+    if (!why) {   // a protected file that conflicts stays as dev has it
+      if (un.length) await git(h.run, wt, ['checkout', 'HEAD', '--', ...un])
       await git(h.run, wt, ['add', '-A']); await git(h.run, wt, ['commit', '--no-verify', '-m', `revert ${p.id}: ${p.title}`]); await stamp()
     } else await h.run(['git', '-C', wt, 'revert', '--abort'])
     await worktreeRemove(h.run, root, wt, why ? rb : undefined)
