@@ -6,7 +6,6 @@
 import { readFileSync, readdirSync, existsSync, writeFileSync, statSync } from 'node:fs'
 import { join, basename, dirname } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { installs, refused } from './installs.mjs'
 
 const dir = process.argv[2], wantLanded = process.argv.includes('--landed')
 const TURNS = +(process.env.ORACLE_TURNS ?? 10), DIALOGS = +(process.env.ORACLE_DIALOGS ?? 3), STUCK = 1000 * +(process.env.ORACLE_STUCK_S ?? 90)
@@ -273,11 +272,6 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (ex > 1) fail('underscore', `${ex} explorers (main's one allowed)`)
     if (!wk) fail('underscore', 'no worker spawned in a repo folder with `_`')
   }
-  if (o === 'straymanifest') {   // the second install of ms changes no file: its reply says the manifest lists ms (computed from it), never the old blanket "already list them"
-    const all = subs.filter(x => /Worker brief/.test(x.brief)).map(x => read(x.f)).join('\n')   // the worker's own transcript: what cadre answered it
-    if (/already list them/.test(all)) fail('straymanifest', 'a reply said "already list them" (the blanket claim)')
-    if (!/Nothing changed: package\.json already lists ms/.test(all)) fail('straymanifest', 'the second install\'s reply never said what the manifest holds ("package.json already lists ms")')
-  }
   if (o === 'holds') {   // the held scenario's test passed at red (its card line says so), the other failed, and nothing blocked
     const tr = subs.filter(x => /Tester brief/.test(x.brief)).flatMap(x => [...x.results.values()]).join('\n')
     if (!/\(S2 holds\)/.test(tr)) fail('holds', 'the red card never showed the held S2 test passing ("(S2 holds)")')
@@ -426,23 +420,6 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     else if (ws.join() !== [...ws].sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).join()) fail(o, `workers started in the order ${ws.join(', ')} (want the admit order)`)
     if (two) fail(o, `two tasks ran at once in the snapshot at ${two.t}`)
   }
-  if (o === 'needs-explore') {   // a worker asks the explore helper: it waits (no nudge, no card), the helper answers once, the SAME worker resumes with the answer and the task lands; no dialog
-    const all = Object.assign({}, ...snaps.map(x => runs(x.s)), ...hist.map(runs)), needs = Object.assign({}, ...snaps.map(x => pick(x.s, 'need')), ...hist.map(h => pick(h, 'need'))), budgets = Object.assign({}, ...snaps.map(x => pick(x.s, 'budget')), ...hist.map(h => pick(h, 'budget')))
-    const ws = Object.entries(all).filter(([, r]) => r.role === 'worker'), hs = Object.entries(all).filter(([, r]) => r.role === 'explorer' && needs[r.taskId]), st = r => (r.log ?? []).map(x => x.state), wk = subs.filter(x => /Worker brief/.test(x.brief))
-    Object.assign(stats, { workers: ws.length, helpers: hs.length, runs: Object.fromEntries(Object.entries(all).map(([a, r]) => [a, `${r.role}:${st(r).join('>')}`])), needs })
-    if (ws.length !== 1 || wk.length !== 1) fail('needs-explore', `${ws.length} worker run(s), ${wk.length} worker transcript(s) (want 1: the same agent resumes)`)
-    else {
-      const s = st(ws[0][1]), i = s.indexOf('waiting')
-      if (i < 0 || !s.slice(i).includes('running')) fail('needs-explore', `the worker never waited and resumed: ${s.join('>')}`)
-      if (!/Answer to your request/.test(read(wk[0].f))) fail('needs-explore', 'the worker transcript holds no answer to its request')
-      if ((ws[0][1].log ?? []).some(x => x.event === 'turn.end')) fail('needs-explore', `the waiting worker was nudged: ${s.join('>')}`)
-    }
-    if (hs.length !== 1 || hs.some(([, r]) => st(r).at(-1) !== 'ended')) fail('needs-explore', `${hs.length} helper run(s) (want 1, ended): ${hs.map(([a, r]) => `${a} ${st(r).join('>')}`).join(' ')}`)
-    const ns = Object.values(needs); if (ns.length !== 1 || ns[0].ok !== true || ns[0].fails !== 0) fail('needs-explore', `${ns.length} need record(s), want one answered ok with no failure: ${JSON.stringify(ns[0] ?? null)}`)
-    if (Object.values(budgets).some(b => b.nudges || b.silentRuns)) fail('needs-explore', `a nudge or a silent run was charged: ${JSON.stringify(Object.values(budgets)[0])}`)
-    const hd = drv.filter(e => e.kind === 'dialog' && /helper/i.test(e.text)); if (hd.length || others > 1) fail('needs-explore', `${hd.length} helper dialog(s), ${others} dialog(s) besides the plan's and the release's: ${drv.filter(e => e.kind === 'dialog').map(e => e.text).join(' / ')}`)   // the landing's own dialog on a checked-out main is the one other every cell shows
-    if (!wantLanded) fail('needs-explore', 'run it with LANDED=1: the task must land')
-  }
   if (o === 'lessons') {   // the side-model pass: ONE request (haiku, 800 tokens) answered by the stub, one lesson with evidence, and every brief after it carries the lesson
     const reqs = read(join(dir, 'stubbed.jsonl')).split('\n').filter(l => l.includes('"lessons_pass"')).map(l => JSON.parse(l)), LESSON = /Run the project's tests before you report\./
     const briefs = subs.filter(x => /(Worker|Tester|Reviewer) brief/.test(x.brief)).sort((a, b) => a.t - b.t), after = briefs.filter(x => x.t > (reqs[0]?.at ?? Infinity)), carry = briefs.filter(x => LESSON.test(x.brief))
@@ -451,53 +428,6 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     else if (!(reqs[0].max_tokens >= 800 && reqs[0].max_tokens <= 800 + 2048) ||   // the engine adds a 2048-token thinking allowance to the 800 asked (measured: 2848)
        !/haiku/.test(reqs[0].model ?? '')) fail(o, `the request was ${reqs[0].model} max_tokens ${reqs[0].max_tokens} (want haiku, 800 + the engine's 2048)`)
     else if (!after.length || after.some(x => !LESSON.test(x.brief))) fail(o, `${after.length} brief(s) after the pass, ${carry.length} carry the lesson (want every one)`)
-  }
-  if (o === 'needs-setup') {   // the worker asks the setup helper; cadre installs and commits `chore(deps)` (manifest + lockfile only) on the task branch; HOME is untouched; the dependency is on dev; the task lands
-    const needs = Object.assign({}, ...snaps.map(x => pick(x.s, 'need')), ...hist.map(h => pick(h, 'need'))), ns = Object.values(needs).filter(n => n.helper === 'setup')
-    const cs = read(join(dir, 'deps-commits')).split('\n').filter(Boolean).map(l => { const [sha, subject, branches, files] = l.split('\t'); return { sha: sha.slice(0, 7), subject, branches: branches ? branches.split(',') : [], files: files ? files.split(',') : [] } })
-    const MAN = /(^|\/)(package(-lock)?\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|requirements[\w.-]*\.txt|pyproject\.toml|uv\.lock|poetry\.lock|Cargo\.(toml|lock)|go\.(mod|sum))$/
-    const [hb, ha] = ['home-before', 'home-after'].map(f => new Set(read(join(dir, f)).split('\n').filter(Boolean))), made = [...ha].filter(p => !hb.has(p))
-    Object.assign(stats, { setupNeeds: ns.length, depsCommits: cs, homeNew: made.length })
-    // cadre ran the install itself: no helper agent was ever started for the request
-    const after = seq => { const i = seq.findIndex(s => Object.values(pick(s, 'need')).some(n => n.helper === 'setup')), old = new Set(seq.slice(0, Math.max(i, 0)).flatMap(s => Object.keys(runs(s)))); return i < 0 ? [] : seq.slice(i).flatMap(s => Object.entries(runs(s))).filter(([a]) => !old.has(a)) },   // a run first seen after the setup need appeared (the need record is one per task: an earlier explore on the same task is not for the setup)
-      helperRuns = Object.entries(Object.fromEntries([...after(snaps.map(x => x.s)), ...after(hist)])).filter(([, r]) => r.role === 'explorer' && ns.some(n => n.task === r.taskId))
-    if (helperRuns.length) fail(o, `${helperRuns.length} helper run(s) for a setup request (cadre runs the install itself): ${helperRuns.map(([a, r]) => `${r.role} ${a}`).join(', ')}`)
-    if (!ns.length) fail(o, 'no setup request was made (the worker never asked for the install)')
-    else if (ns.some(n => n.ok !== true || n.fails !== 0)) fail(o, `the setup request was not answered ok: ${JSON.stringify(ns[0])}`)
-    // no chore(deps) commit is acceptable only when nothing else touched a manifest or lockfile either (the helper installed what was already declared and found nothing to commit); a worker that edited the manifest itself is not this cell
-    const others = read(join(dir, 'manifest-commits')).split('\n').filter(Boolean).map(l => l.split('\t')).filter(([sha]) => !cs.some(c => sha.startsWith(c.sha)))
-    if (!cs.length && (others.length || !ns.some(n => /^Nothing to commit/.test(n.answer ?? '')))) fail(o, `no chore(deps) commit on any branch${others.length ? `, and other commit(s) touched a manifest or lockfile: ${others.slice(0, 3).map(([s, m]) => `${s.slice(0, 7)} ${m}`).join('; ')}` : ''}`)
-    for (const c of cs) {
-      if (!/^chore\(deps\): \S/.test(c.subject)) fail(o, `commit ${c.sha} subject: ${c.subject}`)
-      if (!c.files.length || c.files.some(f => !MAN.test(f))) fail(o, `commit ${c.sha} touches more than a manifest and lockfile: ${c.files.join(', ')}`)
-      if (!c.branches.length || c.branches.some(b => b === 'dev' || b === 'main')) fail(o, `commit ${c.sha} is on ${c.branches.join(',') || 'no branch'} (want the task's own branch)`)
-    }
-    if (!existsSync(join(dir, 'home-before')) || !existsSync(join(dir, 'home-after'))) fail(o, 'no HOME listings (the scenario did not reach its end)')
-    else if (made.length) fail(o, `HOME changed: ${made.slice(0, 5).join(', ')}`)
-    if (!new RegExp(`(package(-lock)?\\.json|pyproject\\.toml|uv\\.lock):.*\\b${process.env.ORACLE_DEP}\\b`).test(read(join(dir, 'deps-final')))) fail(o, `dev's manifests do not name ${process.env.ORACLE_DEP}`)
-    if (!wantLanded) fail(o, 'run it with LANDED=1: the task must land')
-    // S: the scripted worker printed the package manager settings its shell inherited: all offline (the live cells cannot show it: nobody prints them)
-    if (process.env.S) { const seenEnv = subs.map(x => read(x.f)).find(t => /npm_config_offline=/.test(t)) ?? ''; for (const kv of ['npm_config_offline=true', 'UV_OFFLINE=1', 'PIP_NO_INDEX=1', 'CARGO_NET_OFFLINE=true', 'GOPROXY=off', 'YARN_ENABLE_OFFLINE_MODE=1']) if (!seenEnv.includes(kv)) fail(o, `the agent's shell did not inherit ${kv}`)
-      for (const [k, d] of [['npm_config_cache', 'npm-cache'], ['npm_config_logs_dir', 'npm-logs'], ['UV_CACHE_DIR', 'uv-cache']]) if (!new RegExp(`${k}=\\S*/cadre-\\d+/${d}\\b`).test(seenEnv)) fail(o, `the agent's shell did not inherit ${k} (a folder of the user's own, cadre-<uid>/${d})`) }
-    // an agent's own shell is outside cadre's jail: an install it ran itself writes the real HOME and is no setup request (named first, so a HOME change is not mistaken for cadre's)
-    const own = subs.flatMap(x => x.uses.filter(u => u.name === 'Bash' && installs(u.input?.command) && !refused(x.results.get(u.id), u.input?.command)).map(u => `${basename(x.f)}: ${String(u.input.command).replace(/\s+/g, ' ').slice(0, 90)}`))
-    if (own.length) fail(o, `an agent ran an install in its own shell that the offline settings did not stop (not through the setup request): ${own[0]}`)
-    const hd = drv.filter(e => e.kind === 'dialog' && /dependencies wait for you|Allow cadre to install|Installing needs isolation/i.test(e.text)); if (hd.length) fail(o, `${hd.length} install dialog(s) (the repo is approved): ${hd.map(e => e.text).join(' / ')}`)
-  }
-  if (o === 'planner-probe') {   // a milestone's epic planner asks the probe helper: it waits, the probe answers once from a tree of its own, the SAME planner resumes and drafts; no probe tree or branch is left; no dialog about it
-    const all = Object.assign({}, ...snaps.map(x => runs(x.s)), ...hist.map(runs)), needs = Object.assign({}, ...snaps.map(x => pick(x.s, 'need')), ...hist.map(h => pick(h, 'need')))
-    const ps = Object.entries(all).filter(([, r]) => r.role === 'planner'), hs = Object.entries(all).filter(([, r]) => r.role === 'explorer' && needs[r.taskId]), st = r => (r.log ?? []).map(x => x.state), pl = subs.filter(x => /# PLAN-/.test(x.brief))
-    const js = walk(join(dir, 'jsonl')).filter(f => f.endsWith('.jsonl')), ns = Object.values(needs)
-    Object.assign(stats, { planners: ps.length, helpers: hs.length, needs })
-    // under load the first epic may land before the cell ends and its follower's planner runs too: every planner must wait and resume, each request has one ended helper
-    if (!ps.length || !pl.length) fail(o, `${ps.length} planner run(s), ${pl.length} planner transcript(s) (want one planner that resumes; an ended run's record is pruned, so a follower may show only as a transcript)`)
-    if (!ps.some(([, r]) => { const s = st(r), i = s.indexOf('waiting'); return i >= 0 && s.slice(i).includes('running') })) fail(o, `no planner waited and resumed: ${ps.map(([, r]) => st(r).join('>')).join(' | ')}`)   // a follower may still wait when the cell ends
-    if (!pl.some(x => /Answer to your request/.test(read(x.f)) && /plan accepted: \d+ tasks approved/.test(read(x.f)))) fail(o, 'no planner transcript has the probe\'s answer and an accepted plan')
-    if (hs.filter(([, r]) => st(r).at(-1) === 'ended').length !== ns.filter(n => n.answer !== undefined).length) fail(o, `${hs.length} helper run(s) for ${ns.length} request(s) (want one ended helper per answered request)`)
-    if (!ns.length || ns.some(n => n.helper !== 'probe' || (n.answer !== undefined && n.ok !== true) || n.fails !== 0)) fail(o, `want probe requests answered ok with no failure: ${JSON.stringify(ns[0] ?? null)}`)
-    if (!js.some(f => /"cwd":"[^"]*\/probe-/.test(read(f)))) fail(o, 'the probe never ran in a tree of its own (no transcript has a probe- folder as its cwd)')
-    const left = [...read(join(dir, 'refs-after')).split('\n').filter(l => /^probe\//.test(l)), ...read(join(dir, 'worktrees-after')).split('\n').filter(l => /\/probe-/.test(l))]; const done = left.filter(l => ns.some(n => n.answer !== undefined && l.includes(`${n.task}-${n.needId}`))); if (done.length) fail(o, `a probe tree or branch is left after its answer: ${done.join(' | ')}`)
-    const hd = drv.filter(e => e.kind === 'dialog' && /helper|dependenc/i.test(e.text)); if (hd.length) fail(o, `${hd.length} helper dialog(s): ${hd.map(e => e.text).join(' / ')}`)
   }
   if (o === 'submodule') {   // the task landed in lib's own dev, and the parent's dev records that commit
     const d = existsSync(join(dir, 'submodule.json')) ? JSON.parse(read(join(dir, 'submodule.json'))) : null

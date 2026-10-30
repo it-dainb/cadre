@@ -3,12 +3,12 @@ import { MAIN_TOOLS, ROLES, TOOLS, TTL, allowlist, file, spec } from '../agents/
 import { REG, defaults, resolve } from '../config/index'
 import { fixedRules, ROLES_DEFAULT, EXIT, PROMPT_CAP, agentSpec, customIssue, exitIssue, writes } from '../core/roles'
 import { routeOf } from '../core/admission'
-import { REPORTS } from '../core/validate'
-import { fence, guard, setPolicy, shelled } from '../policy/guards'
-import { OFFLINE, offlinePrefix } from '../core/helpers'
+import { REPORTS, reportRefusal } from '../core/validate'
+import { cachePrefix, fence, guard, setPolicy, shelled } from '../policy/guards'
 import { fence as frozen } from './fixtures/fence-v0.15.0'
 import GOLD from './fixtures/roles-golden'
 import { fakeHost, task } from './support'
+import { SPECS } from '../tools/index'
 import type { Role } from '../types'
 
 // ---- the differential: the v0.15.0 fence() (frozen fixture) against the live one, role x tool x path x task state x locks/core ----
@@ -107,7 +107,7 @@ describe('custom roles: the load checks', () => {
     expect(U({ ...AUD, tools: [...AUD.tools, 'Write'], write: ['src/**'], model: 'sonnet', effort: 'low', maxTurns: 5 }).diagnostics).toEqual([])
     for (const c of [{ tools: [...AUD.tools, 'Nope'] }, { tools: ['Read'] }, { write: ['/etc/*'] }, { write: ['../x'] }, { maxTurns: 0 }, { effort: 'max2' }, { model: 'gpt-9' }, { network: 'maybe' }, { tools: [...AUD.tools, 'WebFetch'] }]) expect(U({ ...AUD, ...c }).config.roles.custom).toEqual(c.model ? { x: { ...AUD, ...c } } : {})
     expect(U({ ...AUD, model: 'gpt-9' }).diagnostics.join()).toContain('roles.custom.x.model')   // modelIssues: refused at load, the drive does not start
-    for (const n of ['worker', 'reviewer', 'explore']) expect(customIssue(n, AUD)).toContain('built-in')
+    for (const n of ['worker', 'reviewer', 'explorer']) expect(customIssue(n, AUD)).toContain('built-in')
     expect(customIssue('x', { ...AUD, disallowedTools: ['StructuredOutput'] })).toContain('StructuredOutput'); expect(customIssue('x', { ...AUD, tools: [...AUD.tools, 'SubagentHandback'] })).toContain('StructuredOutput')
   })
   test('a description over 300 bytes is refused; Bash needs network on and write **', async () => {
@@ -116,8 +116,8 @@ describe('custom roles: the load checks', () => {
     for (const c of [{}, { network: 'on' }, { network: 'on', write: ['src/**'] }, { write: ['**'] }]) expect(U({ ...B, ...c }).diagnostics.join()).toContain('Bash can reach the network and write anywhere')
     expect(U({ ...B, network: 'on', write: ['**'] }).diagnostics).toEqual([])
   })
-  test('repo layer: Write, Bash, network, a write glob, a wider canRequest or a leaky prompt is refused; read-only passes', async () => {
-    for (const c of [{ tools: [...AUD.tools, 'Write'] }, { tools: [...AUD.tools, 'Bash'] }, { network: 'on' }, { write: ['src/**'] }, { canRequest: ['explore'] }, { prompt: 'Run the hook and report.' }]) { const r = R({ ...AUD, ...c }); expect(r.config.roles.custom).toEqual({}); expect(r.diagnostics.join()).toContain('roles.custom.x') }
+  test('repo layer: Write, Bash, network, a write glob or a leaky prompt is refused; read-only passes', async () => {
+    for (const c of [{ tools: [...AUD.tools, 'Write'] }, { tools: [...AUD.tools, 'Bash'] }, { network: 'on' }, { write: ['src/**'] }, { prompt: 'Run the hook and report.' }]) { const r = R({ ...AUD, ...c }); expect(r.config.roles.custom).toEqual({}); expect(r.diagnostics.join()).toContain('roles.custom.x') }
     expect(R({ ...AUD, write: [], network: 'off' }).diagnostics).toEqual([])
     const both = resolve([{ name: 'u', trust: 'user', value: { roles: { custom: { x: { ...AUD, tools: [...AUD.tools, 'Write'], write: ['**'] } } } } }, { name: 'r', trust: 'repo', value: { roles: { custom: { x: AUD, y: AUD } } } }])
     expect(Object.keys(both.config.roles.custom)).toEqual(['y', 'x']); expect((both.config.roles.custom.x as any).write).toEqual(['**'])   // a name the user layer has stays the user's
@@ -199,12 +199,12 @@ describe('custom roles: the guard enforces the role\'s own spec', () => {
   })
 })
 
-describe('a cadre agent\'s Bash call goes on with the package managers offline, for that one shell', () => {
+describe('a cadre agent\'s Bash call goes on with the install caches in a folder of its own, for that one shell', () => {
   const host = async () => { const h: any = fakeHost(); await h.bind.update((b: any) => ({ ...b, ag1: { role: 'worker', taskId: 'c-1-1', worktree: '/x/wt' } })); return h }
-  test('a bound agent\'s Bash gets the offline prefix in front of its own command, untouched; main, other tools and agents cadre did not start are unchanged', async () => {
+  test('a bound agent\'s Bash gets the cache prefix in front of its own command, untouched; main, other tools and agents cadre did not start are unchanged', async () => {
     const h = await host(), e = { tool: 'Bash', agentId: 'ag1', command: 'npm install ms && npm test', description: 'x', timeout: 5 }, r = await shelled(h, e)
-    expect(r.command).toBe(`${offlinePrefix()}npm install ms && npm test`); expect(r).toMatchObject({ tool: 'Bash', agentId: 'ag1', description: 'x', timeout: 5 })
-    for (const [k, v] of Object.entries(OFFLINE)) expect(r.command).toContain(`${k}=${v}`)   // what the shell does with it: tests/git/shell.test.mjs
+    expect(r.command).toBe(`${cachePrefix()}npm install ms && npm test`); expect(r).toMatchObject({ tool: 'Bash', agentId: 'ag1', description: 'x', timeout: 5 })
+    expect(r.command).not.toContain('offline')   // what the shell does with it: tests/git/shell.test.mjs
     expect(e.command).toBe('npm install ms && npm test')   // the original event is not edited
     for (const x of [{ tool: 'Bash', command: 'ls' }, { tool: 'Bash', agentId: 'stranger', command: 'ls' }, { tool: 'Read', agentId: 'ag1', file_path: 'a' }, { tool: 'PowerShell', agentId: 'ag1', command: 'ls' }, { tool: 'Bash', agentId: 'ag1' }]) expect(await shelled(h, x)).toBe(x)
   })
@@ -212,6 +212,19 @@ describe('a cadre agent\'s Bash call goes on with the package managers offline, 
     const h: any = fakeHost(); await h.bind.update((b: any) => ({ ...b, ag1: { role: 'worker', taskId: 'c-1-1', worktree: '/x/wt', step: 'worker' } }))
     h.config = async () => ({ strictness: 'advisory' }); await setPolicy(h, { repo: '/x/repo', wtRoot: '/x', home: '/hm/u' })
     const seen: any[] = []; await guard(h, { tool: 'Bash', agentId: 'ag1', command: 'ls' }, (x: any) => { seen.push(x); return {} })
-    expect(seen.length).toBe(1); expect(seen[0].command === 'ls' || seen[0].command === `${offlinePrefix()}ls`).toBe(true)
+    expect(seen.length).toBe(1); expect(seen[0].command === 'ls' || seen[0].command === `${cachePrefix()}ls`).toBe(true)
+  })
+})
+
+describe('B5: an agent that needs something it cannot get reports blocked; nobody asks a helper', () => {
+  test('outcome request is refused by shape for every role that took it, and no role has canRequest', () => {
+    for (const r of [{ role: 'worker', outcome: 'request', summary: 'x' }, { role: 'tester', outcome: 'request', summary: 'x', tests: [] }, { role: 'planner', outcome: 'request' }, { role: 'worker', outcome: 'done', summary: 'x', request: {} }])
+      expect(reportRefusal({ schemaVersion: 1, ...r })).toMatchObject({ code: 'shape' })
+    expect(reportRefusal({ schemaVersion: 1, role: 'worker', outcome: 'blocked', summary: 'x', reason: 'needs a package' })).toBeNull()
+    for (const r of Object.values(ROLES_DEFAULT)) expect(r).not.toHaveProperty('canRequest')
+    expect(customIssue('x', { ...AUD, canRequest: ['explore'] })).toContain('not a role field')
+    const rep = SPECS.find(t => t.name === 'report')!   // the tool schema the model sees offers no request either
+    expect((rep.inputSchema as any).properties.outcome.enum).toEqual(['done', 'blocked', 'spec_change'])
+    expect((rep.inputSchema as any).properties).not.toHaveProperty('request')
   })
 })

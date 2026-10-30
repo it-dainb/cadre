@@ -50,7 +50,6 @@ export async function note(h: Host, kind: string, ref: string, text: string, at:
 const INPUT: Record<string, (d: any) => [kind: string, ref: string, text: string] | undefined> = {
   'flag.raised': d => ['flag', d.taskId, `task ${d.taskId} was flagged ${d.flag}`],
   'check.ran': d => (d.ok === false ? ['failure', d.taskId, `check ${d.name} failed on task ${d.taskId}`] : undefined),
-  'help.done': d => (d.ok === false ? ['helper', d.taskId, `a ${d.helper} helper failed for task ${d.taskId}`] : undefined),
   'drive.decided': d => ['decided', d.taskId ?? d.kind, `${d.kind}: ${d.text}`],
   'decision.answered': d => ['answer', d.id ?? '', `the human answered ${d.choice}`],
   'config.changed': d => ['config', d.key, `the human changed ${d.key} from ${JSON.stringify(d.from)} to ${JSON.stringify(d.to)}`],

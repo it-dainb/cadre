@@ -1,6 +1,5 @@
 // L1 capability allowlist, file fence (DESIGN 13.1-13.2), tool.check allow, session.send isolation (4.6), config.set guard. Slots #4, #5, #7, config.set.
 import { modelText } from '../core/say'
-import { offlinePrefix } from '../core/helpers'
 import type { Binding, Host, Hook } from '../types'
 import { MAIN_TOOLS, allowlist } from '../agents/index'
 import { repoKeyOf, scoped } from '../commands/init'
@@ -135,10 +134,14 @@ async function watchCall(h: Host, e: any, role: string): Promise<string | undefi
   if (r && !seen.includes(e.tool) && !e.tool.startsWith('mcp__') && !allowlist(role as any).includes(e.tool)) { const k = await scoped(h, 'injected'), x = ((await h.store.get(k)) as string[] | undefined) ?? []; if (!x.includes(e.tool)) await h.store.set(k, [...x, e.tool]) }
   return r?.exit ? 'you have made the same call over and over; stop now' : undefined
 }
-// A cadre agent's Bash call goes on with the package managers offline for that one shell (core/helpers.OFFLINE); main's, other tools' and non-cadre agents' calls are unchanged
+// A cadre agent's Bash call goes on with the install caches and logs of the tools that matter in a folder of the user's own (`${TMPDIR:-/tmp}/cadre-<uid>`, made 0700 by the prefix itself, used only when it is
+// ours and not a link), so an install writes nothing under HOME and no other OS user can plant a cache there. An `export …;` in front of that one command, never a parse of it; Bash only.
+// main's, other tools' and non-cadre agents' calls are unchanged.
+export const CACHES: Record<string, string> = { npm_config_cache: 'npm-cache', npm_config_logs_dir: 'npm-logs', UV_CACHE_DIR: 'uv-cache', PIP_CACHE_DIR: 'pip-cache' }
+export const cachePrefix = (): string => `__cd="\${TMPDIR:-/tmp}/cadre-$(id -u)"; mkdir -p -m 700 "$__cd" 2>/dev/null; if [ -O "$__cd" ] && [ ! -L "$__cd" ]; then chmod 700 "$__cd" 2>/dev/null; export ${Object.entries(CACHES).map(([k, d]) => `${k}="$__cd/${d}"`).join(' ')}; fi; unset __cd; `
 export async function shelled(h: Host, e: any): Promise<any> {
   if (e.tool !== 'Bash' || !e.agentId || typeof e.command !== 'string' || !(await h.bind.read())[e.agentId]) return e   // the tool's arguments sit beside `tool` in the event (e.command)
-  return { ...e, command: `${offlinePrefix()}${e.command}` }
+  return { ...e, command: `${cachePrefix()}${e.command}` }
 }
 // a tool.call event carries the tool's arguments beside `tool` (the d.ts: `e.command` for Bash); the reserved keys are not arguments
 const argsOf = (e: any) => { const { tool, tool_use_id, agentId, requestMeta, consent, ...args } = e; void tool; void tool_use_id; void agentId; void requestMeta; void consent; return args }

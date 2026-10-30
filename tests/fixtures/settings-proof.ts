@@ -19,7 +19,5 @@ export const ELSEWHERE: Record<string, [string, string]> = {
   'lessons.decayDays': ['tests/lessons.test.ts', 'settings: lessons.decayDays'], 'lessons.maxAgeDays': ['tests/lessons.test.ts', 'settings: lessons.maxAgeDays'], 'lessons.perBrief': ['tests/lessons.test.ts', 'settings: lessons.perBrief'],
   'roles.custom': ['tests/roles.test.ts', 'refused at load: roles.custom'],
   'roles.specifier.enabled': ['tests/specifier.test.ts', 'settings: roles.specifier.enabled'],
-  'limits.helpers.perTask': ['tests/needs.test.ts', 'settings: limits.helpers.perTask'], 'limits.helpers.minutes': ['tests/needs.test.ts', 'settings: limits.helpers.minutes'],
   'limits.stagnantNudges': ['tests/hygiene.test.ts', 'settings: limits.stagnantNudges'], 'lifecycle.firstOutputSec': ['tests/hygiene.test.ts', 'settings: lifecycle.firstOutputSec'], 'lifecycle.staleMin': ['tests/hygiene.test.ts', 'settings: lifecycle.staleMin'], 'lifecycle.goneSec': ['tests/hygiene.test.ts', 'settings: lifecycle.goneSec'],
-  'deps.auto': ['tests/git/setup.test.mjs', 'deps.auto'],
 }

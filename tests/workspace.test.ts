@@ -2,7 +2,7 @@
 // units is cross-unit (core/close runs every one's verify checks on its squash). tests/git/units.test.mjs runs the real squash.
 import { describe, expect, test } from 'claude-code/testing'
 import { ownerOf, parse, unitsOf } from '../core/discover'
-import { manifestOnly, pkgOf, repoSplit, unitsOfTask } from '../core/specview'
+import { pkgOf, repoSplit, unitsOfTask } from '../core/specview'
 import { missingList, missingOf } from '../core/validate'
 import { defaults } from '../task-management/registry'
 import { resolve } from '../config/index'
@@ -15,9 +15,6 @@ describe('units', () => {
   test('a task across a submodule and the main repository is refused: one task per repository', () => {
     const cfg = { units: [U[0], { root: 'lib', kind: 'submodule', ownGit: true, checks: {} }] }
     expect(repoSplit(cfg, ['lib/x.c', 'src/a.ts'])).toBe('metadata.paths: lib and the main repository are separate repositories; split this into one task per repository')
-    // a task of manifest and lock files only is the install itself (live: "Declare six as a dependency", Files: pyproject.toml, uv.lock)
-    expect(manifestOnly(['pyproject.toml', 'uv.lock'])).toMatch(/a package is not a task/); expect(manifestOnly(['web/package.json', 'web/package-lock.json'])).toMatch(/only manifest and lock files/)
-    expect(manifestOnly(['pyproject.toml', 'src/textlib/text.py'])).toBeNull(); expect(manifestOnly([])).toBeNull(); expect(manifestOnly(undefined)).toBeNull()
     expect([repoSplit(cfg, ['lib/x.c', 'lib/y.c']), repoSplit(cfg, ['src/a.ts']), repoSplit(cfg, undefined)]).toEqual([null, null, null])
   })
   test('parse: every refusal names units[i].field; runner and concurrency are checked', () => {

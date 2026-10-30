@@ -207,25 +207,6 @@ test('red refused: a collection error is named back to the tester ("the tests di
   assert.equal(r.ok, false); assert.match(r.why, /pass at the spec commit/); assert.equal(existsSync(join(p.root, '.cadre/config.json')), false)   // nothing adopted from a refused red
 })
 
-test('red: a runner that is not installed blocks at once with one dialog naming it; no tester round', async () => {
-  const w = noCheck(), { wt, view, res } = await testerRun(w, { 'test/login.test.mjs': LOGIN }, { command: ['node', '-e', 'console.error("sh: my_project_runner: command not found"); process.exit(127)'] })
-  assert.equal(res.ok, false); assert.equal(res.setup, true); assert.match(res.why, /missing runner, exit=127/); assert.equal(w.meta['cadre.specCommit'], undefined)
-  await bindTester(w, wt, view)
-  assert.match(await CL.report(w.h, w.d, 'ag1', { ...rep, tests: [{ path: 'test/login.test.mjs', name: 'S1 login ok' }], run: { command: ['node', '-e', 'process.exit(127)'] } }), /waits for the user/)
-  const s = await w.h.board.read(); assert.equal(s.tasks[0].state, 'blocked'); assert.equal(s.decisions.length, 1); assert.match(s.decisions[0].lines.join('\n'), /missing runner/)
-})
-
-test('red: a package that is not installed goes back to the tester with the way to ask for it; past the rounds it blocks with one dialog', async () => {
-  const cmd = { command: ['node', '-e', 'console.error("Error: Cannot find module \'left-pad\'"); process.exit(1)'] }
-  const w = noCheck(); w.d.cfg.limits.testerRounds = 2; const { wt, view, res } = await testerRun(w, { 'test/login.test.mjs': LOGIN }, cmd)
-  assert.equal(res.ok, false); assert.equal(res.setup, true); assert.match(res.why, /missing module.*left-pad/)
-  await bindTester(w, wt, view); const again = { ...rep, tests: [{ path: 'test/login.test.mjs', name: 'S1 login ok' }], run: cmd }
-  await assert.rejects(CL.report(w.h, w.d, 'ag1', again), e => /red gate refused: a module the tests need is not installed[\s\S]*left-pad[\s\S]*report outcome "request" with request \{"helper":"setup"/.test(e.message))
-  assert.equal((await w.h.board.read()).tasks[0].state, 'active', 'a tester round, not a block')
-  assert.match(await CL.report(w.h, w.d, 'ag1', again), /waits for the user/)
-  const s = await w.h.board.read(); assert.equal(s.tasks[0].state, 'blocked'); assert.equal(s.decisions.length, 1); assert.match(s.decisions[0].lines.join('\n'), /missing module/)
-})
-
 test('settings: tdd.testerCommand.use off: the command is ignored; with no test check the task blocks with the setup dialog', async () => {
   const w = noCheck(); w.d.cfg.tdd = { ...w.d.cfg.tdd, testerCommand: { use: false, adopt: true } }
   const r = (await testerRun(w, { 'test/login.test.mjs': LOGIN }, JUNIT)).res

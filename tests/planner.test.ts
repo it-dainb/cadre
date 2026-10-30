@@ -79,11 +79,6 @@ describe("the planner's report: main's draft checks, rounds, auto-approval", () 
     expect(w.submitted).toEqual([])
     expect(spawnable(modelView(s), await w.h.bind.read()).filter(x => x.role === 'claim').map(x => x.id)).toEqual([ts[0].id])
   })
-  test('a planner\'s task whose files are only manifests and lockfiles is refused with the rest of the round: a package is not a task', async () => {
-    const w = await ms(), [a] = w.es; await w.turn()
-    const r = await w.rep('ag1', { tasks: [task('Declare six', 'pyproject.toml', { metadata: { ...FULL, paths: ['pyproject.toml', 'uv.lock'] } })] })
-    expect(r).toContain('task 1: metadata.paths: these are only manifest and lock files, and a package is not a task'); expect(await w.store.list({ parent: a })).toEqual([])
-  })
   test('a planner\'s task whose holds names a scenario it does not have is refused with the round', async () => {
     const w = await ms(), [a] = w.es; await w.turn()
     const r = await w.rep('ag1', { tasks: [task('Writer', 'src/export/w.ts', { metadata: { ...FULL, paths: ['src/export/w.ts'], holds: ['S9'] } })] })
@@ -113,16 +108,5 @@ describe('milestone.epicPlanner main', () => {
     const w = await ms({ planner: 'main' }), s = await w.board()
     expect(s.drive.planner).toBeUndefined(); expect(nextAction(modelView(s), [], true)).toContain(`plan epic ${w.es[0]}`)
     await w.turn(); expect(w.spawned).toEqual([])
-  })
-})
-
-describe("a planner's probe: its tree goes with the start that failed", () => {
-  const REQ = { outcome: 'request', request: { helper: 'probe', ask: 'where is the parser?', why: 'I plan after it' } }
-  test('a start that made no agent removes the probe tree and its branch again; a start that did keeps them', async () => {
-    const w = await ms(); await w.turn(); expect(await w.rep('ag1', REQ)).toMatch(/^request recorded/)
-    Object.assign(w.h, { spawnAgent: (a: any) => admitWith(w.h, w.d, a, Object.assign(async () => ({}), { origin: { plugin: 'cadre' } })) })   // the engine started nobody (no agent id, no deny)
-    await w.turn(); const add = w.calls.filter(c => c.includes('worktree') && c.includes('add')), del = w.calls.filter(c => c.includes('branch') && c.includes('-D') && c.some(x => x.startsWith('probe/')))
-    expect(add).toHaveLength(1); expect(add[0]).toContain(`probe/${w.es[0]}-n1`); expect(del).toHaveLength(1); expect(w.calls.indexOf(del[0])).toBeGreaterThan(w.calls.indexOf(add[0]))   // the undo, after the add
-    expect(w.calls.filter(c => c.includes('worktree') && c.includes('remove')).length).toBeGreaterThanOrEqual(2)
   })
 })

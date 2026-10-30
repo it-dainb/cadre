@@ -285,7 +285,6 @@
     "cadre.branch",
     "cadre.changelog",
     "cadre.decision",
-    "cadre.depsCommits",
     "cadre.package",
     "cadre.rec.blocked",
     "cadre.redOnly",

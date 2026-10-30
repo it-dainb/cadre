@@ -158,15 +158,14 @@ export function runShape(run: any): string | null {
 }
 // Per-role/outcome report contracts (strict, checkInput): an unknown field, a wrong type or an over-cap value is refused before anything is stored; caps reject, never truncate
 const RS = (n: number) => ({ type: 'string', maxLength: n }), RA = (n: number, items: Sch = { type: 'object' }) => ({ type: 'array', maxItems: n, items })
-const REQ = { type: 'object', required: ['helper', 'ask', 'why'], properties: { helper: RS(40), ask: RS(2000), why: RS(500), paths: RA(20, RS(200)), argv: RA(64, RS(500)) } }   // an outcome "request": the helper to ask, what, and why (setup: argv, the install command)
 const V1 = { schemaVersion: {}, role: {} }
 export const DEVIATIONS = ['none', 'wrong_path', 'scenario_conflict', 'missing_dep']   // a specifier's one way to say the approved task is wrong (it never edits a scenario)
 export const REPORTS: Record<string, Sch> = {
-  worker: { type: 'object', required: ['outcome', 'summary'], properties: { ...V1, outcome: { type: 'string', enum: ['done', 'blocked', 'spec_change', 'request'] }, summary: RS(800), reason: RS(400), scenario: RS(300), request: REQ, risks: RA(5, RS(120)), questions: RA(5, RS(120)), followups: RA(5) } },
-  tester: { type: 'object', required: ['outcome', 'summary'], properties: { ...V1, outcome: { type: 'string', enum: ['done', 'request'] }, summary: RS(800), tests: RA(50), run: { type: 'object' }, request: REQ } },
+  worker: { type: 'object', required: ['outcome', 'summary'], properties: { ...V1, outcome: { type: 'string', enum: ['done', 'blocked', 'spec_change'] }, summary: RS(800), reason: RS(400), scenario: RS(300), risks: RA(5, RS(120)), questions: RA(5, RS(120)), followups: RA(5) } },
+  tester: { type: 'object', required: ['outcome', 'summary'], properties: { ...V1, outcome: { type: 'string', enum: ['done'] }, summary: RS(800), tests: RA(50), run: { type: 'object' } } },
   reviewer: { type: 'object', required: ['verdict', 'summary', 'findings', 'coverage', 'contractStatus'], properties: { ...V1, verdict: { type: 'string', enum: ['pass', 'changes'] }, summary: RS(1500), findings: RA(50), coverage: RA(50), contractStatus: RA(100) } },
   explorer: { type: 'object', required: ['answer'], properties: { ...V1, answer: RS(2000), citations: RA(30) } },
-  planner: { type: 'object', properties: { ...V1, outcome: { type: 'string', enum: ['request'] }, summary: RS(1500), tasks: RA(20), request: REQ } },
+  planner: { type: 'object', properties: { ...V1, summary: RS(1500), tasks: RA(20) } },
   specifier: { type: 'object', required: ['notes', 'deviation'], properties: { ...V1, notes: RS(1500), deviation: { type: 'string', enum: DEVIATIONS } } },
 }
 const WHY: Record<string, string> = { blocked: 'reason', spec_change: 'reason' }   // the field an outcome cannot go without
@@ -183,10 +182,8 @@ export function reportRefusal(r: any): Coded | null {
   const e = checkInput(REPORTS[r.role], r); if (e) return shape(e.replace('call again', 'report again'))
   const k = WHY[r.outcome]; if (k && !str(r[k])) return sem(`${k}: required with outcome ${r.outcome}; say what is in the way, then report again`)
   if (r.outcome === 'spec_change' && !str(r.scenario)) return sem('scenario: required with outcome spec_change; give the changed scenario in full as "S<n>: Given … When … Then …", then report again')
-  if (r.request && r.outcome !== 'request') return sem('request: only with outcome request; drop it or change the outcome, then report again')
-  if (r.outcome === 'request' && !r.request) return sem('request: required with outcome request, e.g. {"helper":"explore","ask":"where is X handled?","why":"I must change it"}; add it and report again')
-  if (r.role === 'tester' && r.outcome !== 'request' && r.tests === undefined) return sem('tests: required; add it and report again')
-  if (r.role === 'planner' && r.outcome !== 'request' && r.tasks === undefined) return sem('tasks: required; add it and report again')
+  if (r.role === 'tester' && r.tests === undefined) return sem('tests: required; add it and report again')
+  if (r.role === 'planner' && r.tasks === undefined) return sem('tasks: required; add it and report again')
   if (r.role === 'explorer' && !str(r.answer)) return sem('answer: required for role explorer')
   if (r.role === 'tester' && r.run !== undefined) { const x = runShape(r.run); if (x) return shape(x) }
   return null

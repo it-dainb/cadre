@@ -13,19 +13,17 @@ const R = (role: string, o: object) => validateReport({ schemaVersion: 1, role, 
 describe('report contracts: role × outcome', () => {
   test('each role has its contract; a good report of each passes', () => {
     expect(Object.keys(REPORTS)).toEqual(['worker', 'tester', 'reviewer', 'explorer', 'planner', 'specifier'])
-    expect(R('worker', { outcome: 'done', summary: 's' })).toBeNull(); expect(R('worker', { outcome: 'request', summary: 's', request: { helper: 'explore', ask: 'where is X?', why: 'I change it' } })).toBeNull()
+    expect(R('worker', { outcome: 'done', summary: 's' })).toBeNull()
     expect(R('tester', { outcome: 'done', summary: 's', tests: [{ path: 't', name: 'S1', scenario: 'S1' }] })).toBeNull()
     expect(R('reviewer', { verdict: 'pass', summary: 's', findings: [], coverage: [], contractStatus: [] })).toBeNull()
     expect(R('explorer', { answer: 'a', citations: [] })).toBeNull(); expect(R('planner', { tasks: [] })).toBeNull()
   })
   test('outcomes need their field; a field of another role is refused', () => {
     for (const o of ['blocked', 'spec_change']) expect(R('worker', { outcome: o, summary: 's' })).toBe(`reason: required with outcome ${o}; say what is in the way, then report again`)
-    expect(R('worker', { outcome: 'request', summary: 's' })).toContain('request: required with outcome request')
-    expect(R('worker', { outcome: 'request', summary: 's', request: { helper: 'explore', ask: 'a' } })).toBe('request.why: required; add it and report again')
-    expect(R('worker', { outcome: 'request', summary: 's', request: { helper: 'explore', ask: 'a'.repeat(2001), why: 'w' } })).toBe('request.ask: at most 2000 characters, got 2001; shorten it and report again')
+    expect(R('worker', { outcome: 'request', summary: 's' })).toContain('outcome: expected one of "done", "blocked", "spec_change"')
     expect(R('tester', { outcome: 'done', summary: 's' })).toBe('tests: required; add it and report again')
     expect(R('worker', { outcome: 'done', summary: 's', verdict: 'pass' })).toContain('verdict: unknown field (allowed: schemaVersion, role, outcome')
-    expect(R('tester', { outcome: 'blocked', summary: 's', tests: [] })).toBe('outcome: expected one of "done", "request", got "blocked"; fix it and report again')
+    expect(R('tester', { outcome: 'blocked', summary: 's', tests: [] })).toBe('outcome: expected one of "done", got "blocked"; fix it and report again')
   })
   test('caps reject, never truncate', () => {
     expect(R('worker', { outcome: 'done', summary: 's', risks: Array(6).fill('r') })).toBe('risks: at most 5 items, got 6; split the work and report again')

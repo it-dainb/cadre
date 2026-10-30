@@ -10,11 +10,7 @@
 //   holds: full lane, one task with S1 (new) and S2 (already true, metadata.holds): the tester's S2 test passes at red, S1's fails (holds-scenario);
 //   shape: lite, the worker sends four reports with an over-long summary (a shape refusal each, never the run's tries), then the valid one (shape-refusal-budget);
 //   pair: full lane, two independent tasks (concurrency-fifo, with concurrency.default 1 in the repo's config);
-//   needs: lite, the worker first asks the explore helper (report outcome request), and writes its files once it is answered (needs-explore);
-//   stray: lite, the worker asks for [npm install ms] twice: the second changes no file, and its reply says what the manifest holds (setup-stray-manifest);
-//   setup: the worker asks for an install with its argv (a global one first: refused at once; then [npm install ms]); cadre installs it from the real registry, no helper (needs-setup-s);
 //   multi: full lane, two tasks (kebabCase after titleCase), an amend on a stale revision refused then retried (plan-tools-full);
-//   probe: a milestone of two epics (the second after the first); the epic's planner asks the probe helper first, and drafts its tasks once it is answered (planner-probe);
 //   sub: lite, the task in the `lib` submodule unit (submodule-unit); cont: lite, the reviewer waits 14 s first (continue-after-quit-s kills before or during it).
 import type { Register } from 'claude-code'
 
@@ -52,16 +48,6 @@ function main(rows: Row[]): Act {
   if (!answered) return { text: 'Waiting for the explorer.' }
   if (!used('ask')) return { tool: T('ask'), input: { clarity: { outcome: 1, scope: 1, acceptance: 1, constraints: 1 } } }
   const mission = /There is no mission yet/.test(rows[g].text) ? { mission: 'Goal: add titleCase(s) to the library\nConstraints: none\nNon-goals: none' } : {}
-  if (script === 'probe') {   // a milestone: two epics (the second after the first), the critic's review, then main waits for the roadmap's dialog
-    const n = (t: string) => calls.filter(c => c.tool === T(t)).length, ids = after.flatMap(r => (r.role === 'user' ? r.toolResults ?? [] : [])).map(r => r.text ?? ''), id = (k: number) => ids.filter(x => /"id":\s*"/.test(x))[k]?.match(/"id":\s*"([^"]+)"/)?.[1]
-    const rev = Math.max(1, ...ids.map(x => +(x.match(/"revision":\s*(\d+)/)?.[1] ?? 0)), 0)
-    if (!used('plan')) return { tool: T('plan'), input: { title: 'Add two string helpers to the library', description: 'wordCount(s) and truncate(s, n), each with node:test tests.', lane: 'milestone', reason: 'two separate features', ...mission } }
-    if (n('epic') < 2) return { tool: T('epic'), input: { ...EPICS[n('epic')], ...(n('epic') ? { after: [id(1)] } : {}) } }
-    if (n('explore') < 2) return { tool: T('explore'), input: { question: `Review this roadmap for gaps, overlaps and a wrong order: ${EPICS.map((e, i) => `${i + 1}. ${e.title}: ${e.goal} (files ${e.paths.join(', ')})`).join('; ')}` } }
-    if (after.filter(r => isText(r) && /Result of ask-|its answer was already given/.test(r.text)).length < 2) return { text: 'Waiting for the critic.' }
-    if (!used('amend')) return { tool: T('amend'), input: { id: id(0), expectedRevision: rev, critique: 'The critic found no gaps or overlaps: the order stands.' } }
-    return { text: 'The roadmap is drafted: approve it in the dialog (key 1 opens it).' }
-  }
   if (script === 'multi') {   // res: the k-th result of a tool's calls (its text, whether refused)
     const n = (t: string) => calls.filter(c => c.tool === T(t)).length
     const res = (t: string, k: number) => { let j = -1; for (let i = 0; i < after.length; i++) if (after[i].role === 'assistant' && after[i].toolUses?.some(c => c.tool === T(t)) && ++j === k) return after[i + 1]?.toolResults?.[0] }
@@ -90,16 +76,13 @@ function main(rows: Row[]): Act {
   }
   return { text: 'The plan is drafted: approve it in the dialog (key 1 opens it).' }
 }
-const EPICS = [{ title: 'wordCount(s)', goal: 'wordCount(s) in src/words.mjs returns the number of words in s', size: 1, paths: ['src/words.mjs', 'test/words.test.mjs'] },
-  { title: 'truncate(s, n)', goal: 'truncate(s, n) in src/truncate.mjs cuts s to n characters and ends it with "..."', size: 1, paths: ['src/truncate.mjs', 'test/truncate.test.mjs'] }]
 // the function a brief is about (multi: kebabCase is the second task), its test and files
 type Fn = { name: string; title: string; input: string; out: string; impl: string; what: string; lit?: string }   // lit: the expected value as code, when it is no string
-const FNS: Fn[] = [   // wordCount is the probe script's task (its epic's planner drafts it); fnOf picks it by name
+const FNS: Fn[] = [
   { name: 'titleCase', title: 'S1: titleCase capitalises each word', input: 'hello big world', out: 'Hello Big World', impl: String.raw`s => s.replace(/(^|\s)(\S)/g, (_, a, b) => a + b.toUpperCase())`, what: 'uppercase the first letter of each whitespace-separated word, leave the rest unchanged' },
   { name: 'kebabCase', title: 'S1: kebabCase joins the words with dashes', input: 'Hello Big World', out: 'hello-big-world', impl: String.raw`s => s.trim().toLowerCase().split(/\s+/).join('-')`, what: 'lowercase the words and join them with dashes' },
-  { name: 'wordCount', title: 'S1: wordCount counts the words', input: 'a b c', out: '3', lit: '3', impl: String.raw`s => s.trim().split(/\s+/).length`, what: 'count the whitespace-separated words' },
 ]
-const fnOf = (brief: string) => (/wordCount/.test(brief) ? FNS[2] : /kebabCase/.test(brief) ? FNS[1] : FNS[0])
+const fnOf = (brief: string) => (/kebabCase/.test(brief) ? FNS[1] : FNS[0])
 const TEST = (f: Fn) => `import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ${f.name} } from '../src/${f.name}.mjs'
@@ -119,14 +102,6 @@ const WAIT = { tool: 'Bash', input: { command: 'node -e "setTimeout(() => {}, 12
 const ROLES: Record<string, (k: number, brief: string, cwd: string, rows: Row[]) => Act> = {
   worker: (k, b, _c, rows) => { if (script === 'docs') return [{ tool: 'Bash', input: { command: "mkdir -p docs && printf '# Usage\\n\\nImport the helpers from src/ and call them.\\n' > docs/usage.md", description: 'Write docs/usage.md' } }, { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: 'Added docs/usage.md.', risks: [] } }][k] ?? { text: END }
     const f = fnOf(b), w = { tool: 'Bash', input: { command: FILES(f), description: `Write ${f.name} and its test` } }
-    const answered = rows.some(r => isText(r) && /Answer to your request/.test(r.text))   // the answer comes back as a message of its own: after it the worker goes on
-    const req = (request: unknown, summary: string) => ({ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'request', summary, request } })
-    if (script === 'setup' && !answered) return [{ tool: 'Bash', input: { command: 'env | grep -E "^(npm_config_offline|npm_config_cache|npm_config_logs_dir|UV_OFFLINE|UV_CACHE_DIR|PIP_NO_INDEX|CARGO_NET_OFFLINE|GOPROXY|YARN_ENABLE_OFFLINE_MODE)=" | sort', description: 'Show the package manager settings' } },   // the settings this agent's shell starts with
-      req({ helper: 'setup', ask: 'add ms', why: `${f.name} needs the ms package`, argv: ['npm', 'install', '-g', 'ms'] }, 'I need the ms package installed.'),   // refused at once (a global install): the report comes back with the allowed forms
-      req({ helper: 'setup', ask: 'add ms', why: `${f.name} needs the ms package`, argv: ['npm', 'install', 'ms'] }, 'I need the ms package installed.')][k] ?? { text: END }
-    const nAnswers = rows.filter(r => isText(r) && /Answer to your request/.test(r.text)).length
-    if (script === 'stray' && nAnswers < 2) return [req({ helper: 'setup', ask: 'add ms', why: `${f.name} needs the ms package`, argv: ['npm', 'install', 'ms'] }, 'I need the ms package installed.')][k] ?? { text: END }   // asked again after the first answer: nothing left to change
-    if (script === 'needs' && !answered) return [req({ helper: 'explore', ask: 'Where do the string helpers live and how are they exported?', why: `I add ${f.name} next to them`, paths: ['src/'] }, 'I need to know where string helpers live.')][k] ?? { text: END }
     const BAD = { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: 'x'.repeat(801) } }
     if (script === 'shape') return [w, BAD, BAD, BAD, BAD, { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } }, { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: `Added ${f.name}(s) in src/${f.name}.mjs with a node:test test; npm test passes.`, risks: [] } }][k] ?? { text: END }
     return script === 'silent' ? [w][k] ?? { text: END } : script === 'loop' ? { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } } : (script === 'slow' ? [WAIT] : []).concat([w, { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
@@ -137,13 +112,8 @@ const ROLES: Record<string, (k: number, brief: string, cwd: string, rows: Row[])
     return [{ tool: 'Write', input: { file_path: `${cwd}/test/${f.name}.test.mjs`, content: TEST(f) } },
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'tester', outcome: 'done', summary: `One test per scenario in test/${f.name}.test.mjs.`, tests: [{ path: `test/${f.name}.test.mjs`, name: f.title, scenario: 'S1' }], run: { command: ['node', '--test', `test/${f.name}.test.mjs`] } } }][k] ?? { text: END } },
   reviewer: (k, b) => { if (script === 'docs') return [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'reviewer', verdict: 'pass', summary: 'The commit adds docs/usage.md only.', findings: [], coverage: [], contractStatus: [] } }][k] ?? { text: END }
-    const f = fnOf(b), full = ['full', 'multi', 'pair', 'probe', 'holds'].includes(script); return [{ tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
+    const f = fnOf(b), full = ['full', 'multi', 'pair', 'holds'].includes(script); return [{ tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'reviewer', verdict: 'pass', summary: `The commit adds ${f.name} and its test only; npm test passes.`, findings: [], coverage: full ? [{ scenario: 'S1', test: f.title, ok: true }, ...(script === 'holds' ? [{ scenario: 'S2', test: 'S2: slug still trims and lowercases', ok: true }] : [])] : [], contractStatus: full ? [{ name: f.name, ok: true }] : [] } }][k] ?? { text: END } },
-  planner: (k, _b, _c, rows) => rows.some(r => isText(r) && /Answer to your request/.test(r.text))
-    ? [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'planner', summary: 'One task.', tasks: [{ subject: 'wordCount(s) with node:test tests', description: 'Create src/words.mjs exporting wordCount: the number of whitespace-separated words in s.',
-      metadata: { type: 'feature', package: '.', paths: ['src/words.mjs', 'test/words.test.mjs'], scenarios: ["S1: Given 'a b c' When wordCount is called Then it returns 3"], changelog: { category: 'Added', entry: 'wordCount(s): the number of words in s' },
-        interface: { symbols: [{ name: 'wordCount', kind: 'function', params: ['s: string'], returns: 'number', status: 'new' }] } } }] } }][k] ?? { text: END }   // after the probe's answer: the plan
-    : [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'planner', outcome: 'request', summary: 'I look at the project before I plan.', request: { helper: 'probe', ask: 'Where do the string helpers live and how are they tested?', why: 'I plan the tasks next to them', paths: ['src/'] } } }][k] ?? { text: END },
   explorer: k => [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'explorer', answer: 'One string helper, slug, in src/slug.mjs as a named ESM export; tests in test/ use node:test; npm test runs node --test.', citations: [{ path: 'src/slug.mjs', line: 1 }, { path: 'package.json', line: 1 }] } }][k] ?? { text: END },
 }
 function agent(rows: Row[], cwd: string): [string, Act] {

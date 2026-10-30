@@ -19,7 +19,6 @@ import { admit, tick as heartbeat } from '../core/admission'
 import { contain, heal } from '../policy/containment'
 import { check, guard, send, judge, judgeSpawn, configSet, settingsOnly, EXIT, exitCall } from '../policy/guards'
 import { backstop, exitStep } from '../core/lifecycle'
-import { overdue, sweepProbes } from '../core/needs'
 import { autoLand } from '../core/integrate'
 import { TASK_TOOLS, mainAgent } from '../core/plantools'
 import { agentSpec, exitIssue } from '../core/roles'
@@ -87,7 +86,7 @@ function host($): Host {
     store: { get: k => $.store.get(k), set: async (k, v) => { await $.store.set(k, v) }, del: async k => { await $.store.delete(k) } },
     env: async () => ({
       CADRE_STRICTNESS: await $.env.get('CADRE_STRICTNESS'), CADRE_STORE: await $.env.get('CADRE_STORE'),
-      CADRE_DISABLE: await $.env.get('CADRE_DISABLE'), CADRE_SPAWN: await $.env.get('CADRE_SPAWN'), PATH: await $.env.get('PATH'), LANG: await $.env.get('LANG'),   // an install run's own environment (core/git.setupJail)
+      CADRE_DISABLE: await $.env.get('CADRE_DISABLE'), CADRE_SPAWN: await $.env.get('CADRE_SPAWN'), PATH: await $.env.get('PATH'), LANG: await $.env.get('LANG'),   // session variables cadre reads
       GIT_AUTHOR_NAME: await $.env.get('GIT_AUTHOR_NAME'), GIT_AUTHOR_EMAIL: await $.env.get('GIT_AUTHOR_EMAIL'),   // identity prefill (core/git.identity)
     }),
     readText: async path => { try { return String(await $.fs.read(path)) } catch { return null } },
@@ -209,10 +208,10 @@ export const register: Register = (on, opts) => {
     { const h = host($), act = await wake(h).catch(() => false), set = [...SPECS, ...(act ? MAIN_SPECS : []), ...(act || (await setupDue(h).catch(() => true)) ? [PREFS_SPEC] : [])], refused: string[] = []   // report, inspect, run_check: isDeferred:false (5.2); main's tools only where the work is due (a repo that turns on later gets them at main's next turn: arm)
       for (const t of set) await $.tool.register(t).catch(() => { refused.push(t.name) }); const listed = ((await $.tool.list().catch(() => [])) as { name: string }[]).map(t => t.name)
       await update($, secret, x => ({ ...x, tools: { on: set.map(t => t.name), refused, task: TASK_TOOLS.filter(n => listed.includes(n)) } })) }   // task: the task tools this session still shows (Doctor: the repo's settings lack the gate)   // refused (managed allowedMcpServers, --bare): Doctor says so
-    { const h = host($); if (await wake(h).catch(() => false)) { await nudge(h).catch(() => {}); await sweepProbes(h).catch(() => {}); await autoLand(h).catch(x => $.ui.log(`land: ${x}`)) } }   // a landing that waited for the user's checkout   // active repos only: no setup stamp for this Claude Code build -> one toast
+    { const h = host($); if (await wake(h).catch(() => false)) { await nudge(h).catch(() => {}); await autoLand(h).catch(x => $.ui.log(`land: ${x}`)) } }   // a landing that waited for the user's checkout   // active repos only: no setup stamp for this Claude Code build -> one toast
     await update($, secret, x => ({ ...x, roles: undefined, turn: 0, start: undefined }))   // a secret that survived a resume holds registers of an earlier engine: register again; a complete start clears an earlier failure
     if (await wake(host($)).catch(() => false)) await roles($).catch(x => $.ui.log(`roles: ${x}`))   // active repos only; a repo turned on later gets them next session
-    $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void watch(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}); void watchdog(h).catch(() => {}); void h.secret.read().then(s => Promise.all([backstop(h, s.session ?? ''), overdue(h, s.session ?? ''), stalls(h, s.session ?? '').catch(x => h.log(`stalls: ${x}`))])).catch(() => {}); void autoLand(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
+    $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void watch(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}); void watchdog(h).catch(() => {}); void h.secret.read().then(s => Promise.all([backstop(h, s.session ?? ''), stalls(h, s.session ?? '').catch(x => h.log(`stalls: ${x}`))])).catch(() => {}); void autoLand(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
     $.clock.every(30_000, () => { const h = host($); void wake(h).then(act => act && tickUi(h)).catch(() => {}) })   // live timeline cursor (blit, no re-render)
     } catch (x) {   // a step failed (live under load: a session.start HooksError, not reproduced in a test of 8 starts at once): the session goes on, and Doctor says that cadre started only in part
       void $.ui.log(`session start: ${x}`); await update($, secret, s => ({ ...s, old, start: { failed: String(x).slice(0, 160) } })).catch(() => {})
@@ -225,7 +224,7 @@ export const register: Register = (on, opts) => {
 
   // 0. the spawner: outermost, so it runs after every other turn-end hook (close, drain); the only registration that starts agents (core/spawner)
   on('turn.complete', { reason: /(?:)/ }, async ($, e, next) => { const r = await next(e); if (await wake(host($)).catch(() => false)) await spawnStep(spawner($, next), next.event).catch(x => $.ui.log(`spawner: ${x}`)); return r })
-  // 1. resume-drain: the only sender, after await next(e), never from a timer; the one exception is a setup install (core/needs.settleSetups, detached on the host's timer): it answers and sends the requester's resume itself, as no turn end follows it (DESIGN 2.2). 2. observe.
+  // 1. resume-drain: the only sender, after await next(e), never from a timer. 2. observe.
   on('turn.complete', { reason: /./ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return drain(host($), e, next) })
   on('turn.complete', { reason: /^/ }, async ($, e, next) => { if (!(await wake(host($)))) return next(e); return observe(host($), e, next) })
   on('turn.complete', { reason: /./ }, async ($, e, next) => { const r = await next(e); await turnEnd(host($), e).catch(() => {}); if (!e.agentId) await mainTurn(host($), false).catch(x => $.ui.log(`plan card: ${x}`)); return r })   // agent-run setup/init (ADR 0010): re-check when main stops; works in dormant repos too

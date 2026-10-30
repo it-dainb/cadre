@@ -40,9 +40,7 @@ export function errorOk(text: string, syms: Sym[], skeleton: boolean): boolean {
 }
 
 // a runner or a module that is not installed is a machine problem no tester round fixes (exit 127, "command not found", execvp, "No module named", "Cannot find module"):
-// (a relative or file import is the tester's own path: it stays a tester round) the gate sets `setup`, so the task blocks at once with one dialog naming it. An import of a status:new symbol (no skeleton) is still the right red (errorOk).
-// what a tester is told when its tests need a package nobody installed: it cannot install, it can ask (the setup helper), and report its tests again
-export const ASK_SETUP = modelText('tool-result', 'You cannot install it yourself: report outcome "request" with request {"helper":"setup","ask":"add <package>","why":"..."}, then report your tests again.')
+// (a relative or file import is the tester's own path: it stays a tester round) the task blocks at once with one dialog naming it. An import of a status:new symbol (no skeleton) is still the right red (errorOk).
 export function missing(exit: number, out: string, syms: Sym[], sk: boolean): string | null {
   const l = out.split('\n').find(x => /command not found|execvp/.test(x))
   if (exit === 127 || l) return `the test runner is not installed (missing runner, exit=${exit}): ${(l ?? out.trim().split('\n').pop() ?? '').slice(0, 200)}; install it, then run again`
@@ -73,7 +71,6 @@ const reportOf = (pkg: Pkg) => (pkg.runner === 'text' ? undefined : pkg.tdd?.rep
 // only: the scenario a spec_change Accept amended: the first red after it requires failing only for the tests named after it (the others must still run), see `lenient`
 export async function red(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, tests: { name: string }[], pass = false, only?: string): Promise<Gate> {
   const r = await runCheck(h, d, task, wt, pkg, redOf(pkg), pass ? 'pass' : 'red'), no = (why: string): Gate => ({ ok: false, why, card: `red ✗ ${why}` })
-  const mis = r.exit ? missing(r.exit, r.tail, symbolsOf(task.design), !!pkg.tdd?.skeleton) : null; if (mis) return { ok: false, setup: true, why: mis, card: `red ✗ ${mis}` }
   if (pass) return r.exit ? no(`its tests must pass (test task) but exit=${r.exit}: ${r.tail.slice(-300)}`) : { ok: true, card: `tests ✓ pass (${secs(r.ms)})`, tests: r.cases?.map(c => c.name) ?? tests.map(t => t.name) }
   const must = mustFail(task, tests, only), hg = holdsGapOf(task, tests) ?? amendedGap(tests, only); if (hg) return no(hg)
   if (!r.exit && must.length) return { ...no('the tests pass at the spec commit; red needs them failing'), passing: [...new Set(must.flatMap(t => passIds(task, t.name)))] }   // exit 0: every test passed
@@ -140,7 +137,6 @@ async function redRun(h: Host, d: Deps, task: Task, wt: string, pkg: Pkg, tests:
   const r = await runTests(h, d, task, wt, pkg, run, pass ? 'pass' : 'red'), no = (why: string): Gate => ({ ok: false, why, card: `red ✗ ${why}` })
   const col = collectLine(r.out, d.cfg.tdd?.collectErrors ?? []), syms = symbolsOf(task.design), sk = !!pkg.tdd?.skeleton
   const didNot = col && !errorOk(col, syms, sk) ? no(`the tests did not run: ${col}`) : null   // an import of a status:new symbol (no skeleton) is the right red, as an <error> is
-  const mis = r.exit ? missing(r.exit, r.out, syms, sk) : null; if (mis) return { ok: false, setup: true, why: mis, card: `red ✗ ${mis}` }
   if (pass) return r.exit ? didNot ?? no(`its tests must pass (test task) but exit=${r.exit}: ${r.tail.slice(-300)}`) : { ok: true, card: `tests ✓ pass (${secs(r.ms)})`, tests: r.cases?.map(c => c.name) ?? tests.map(t => t.name) }
   const must = mustFail(task, tests, only), gap = holdsGapOf(task, tests) ?? amendedGap(tests, only); if (gap) return no(gap)
   if (!r.exit && must.length) return { ...no('the tests pass at the spec commit; red needs them failing'), passing: [...new Set(must.flatMap(t => passIds(task, t.name)))] }   // exit 0: every test passed
@@ -329,25 +325,13 @@ export async function resolveSpec(h: Host, id: string, how: string, by: 'human' 
     let pre = ''
     try {
       await G.op(h, async () => {
-        // the install commits (cadre's own, on record in cadre.depsCommits: manifest + lockfile) are not the worker's implementation: they go back on after the reset, or the
-        // worker asks for the same install again (live: it could not, offline, and the task blocked). Selected by the record, never by a commit's subject
-        const rec = new Set((task!.meta['cadre.depsCommits'] ?? '').split(' ').filter(Boolean)), kept: string[] = []
         pre = await G.tip(h.run, wt, 'HEAD')   // a failed step puts the worktree back exactly here
-        const deps = (await G.git(h.run, wt, ['log', '--first-parent', '--no-merges', '--reverse', '--format=%H', `${sc}..HEAD`])).split('\n').filter(c => rec.has(c))
         await G.git(h.run, wt, ['reset', '--hard', '-q', sc]); await G.git(h.run, wt, ['clean', '-fdq'])
         if (base && (await h.run(['git', '-C', wt, 'merge-base', '--is-ancestor', base, 'HEAD'])).exitCode) await G.git(h.run, wt, ['merge', '--no-ff', '--no-edit', '-q', '-m', `merge the plan tip into ${id}`, base])
-        // an install commit that conflicts with the merged plan tip is dropped, not forced: the install is requested again and regenerates the lock against the merged manifest
-        let dropped = 0
-        for (const c of deps) {
-          if (!(await h.run(['git', '-C', wt, 'cherry-pick', '--allow-empty', '--keep-redundant-commits', c])).exitCode) { kept.push(await G.tip(h.run, wt, 'HEAD')); continue }
-          if (!(await G.ok(h.run, wt, ['rev-parse', '-q', '--verify', 'CHERRY_PICK_HEAD']))) throw new Error('git cherry-pick failed')
-          await G.git(h.run, wt, ['cherry-pick', '--abort']); h.log(`${id}: install commit ${c.slice(0, 8)} conflicts with the plan tip; dropped, the install is requested again`); dropped++
-        }
-        await d.store.setMeta(id, { 'cadre.depsCommits': kept.join(' '), ...(dropped ? { 'cadre.depsDropped': String(Number(task!.meta['cadre.depsDropped'] || 0) + dropped) } : {}) }, d.actor)
       })
     } catch (e) { h.log(`${id}: reset for the spec change failed: ${e}`)
-      const conflict = (await G.ok(h.run, wt, ['rev-parse', '-q', '--verify', 'CHERRY_PICK_HEAD'])) || (await G.ok(h.run, wt, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']))   // a fact of the worktree, not parsed text: a real conflict never passes by waiting
-      await h.run(['git', '-C', wt, 'merge', '--abort']); await h.run(['git', '-C', wt, 'cherry-pick', '--abort'])
+      const conflict = await G.ok(h.run, wt, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'])   // a fact of the worktree, not parsed text: a real conflict never passes by waiting
+      await h.run(['git', '-C', wt, 'merge', '--abort'])
       if (pre) await G.op(h, async () => { await G.git(h.run, wt, ['reset', '--hard', '-q', pre]); await G.git(h.run, wt, ['clean', '-fdq']) }).catch((x: Error) => h.log(`${id}: the worktree could not be put back: ${x}`))   // the worker's code stays: the task stays blocked, spec unamended
       if (conflict) {   // deterministic: ask again with a card that offers no Accept, so the same answer cannot loop
         await d.store.setMeta(id, { 'cadre.specReset': 'conflict' }, d.actor); await specAsk(h, id, `${task!.meta['cadre.specChange'] ?? ''}\nThe spec change could not be applied: the working folder conflicts with the reset.`, task!.meta['cadre.specScenario'] ?? '')

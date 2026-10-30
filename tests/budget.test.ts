@@ -12,3 +12,7 @@ test('UI v2 files (first line `// UI v2`) hold no literal glyph, theme key or co
 test('A4: every built-in role prompt <= 1664 B (the audited largest, rounded up to 64 B; the cap only goes down)', async () => { for (const [r, n] of Object.entries(BUDGET.promptBytes)) expect([r, n <= 1664]).toEqual([r, true]) })
 test('A4: agents/*.md + guides/* <= 17693 B (the audited total; the cap only goes down)', async () => { expect(BUDGET.shippedBytes).toBeLessThanOrEqual(17693) })
 test('the specifier prompt <= 1536 B (0.17 plan, slice 7)', async () => { expect(BUDGET.promptBytes.specifier).toBeLessThanOrEqual(1536) })
+test('B5: the helper and need modules are gone from the module list', async () => {
+  expect(Object.keys(BUDGET.modules).filter(m => /^core\/(helpers|needs)\.ts$/.test(m))).toEqual([])
+  expect(Object.keys(BUDGET.modules).length).toBeGreaterThan(40)   // the list is the real one, not an empty scan
+})

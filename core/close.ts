@@ -16,7 +16,7 @@ import { card, comment, spawnIt, commitMessage, noReportCard, startNew, type Rec
 import { checkpoint, resolveGit, sweep } from './effect'
 import { policyOf } from '../policy/guards'
 import { integrateEpic } from './integrate'
-import { green as tddGreen, lockedViolations, verifyOf, redOf, resolveSpec, specChange, testerDone, ASK_SETUP } from './tdd'
+import { green as tddGreen, lockedViolations, verifyOf, redOf, resolveSpec, specChange, testerDone } from './tdd'
 import { inRepo, modeOf, pkgOf, unitsOfTask } from './specview'
 import * as G from './git'
 import { decided, hardStop, limited, stop } from './drive'
@@ -29,7 +29,6 @@ import { held } from './session'
 import { landed } from './reuse'
 import { specSettle } from './specifier'
 import { REPEAT, charge, prune, reset, retry, runOf, settled, step } from './lifecycle'
-import { drop as dropNeed, helperDone, helperStopped, request } from './needs'
 // the worker's report kept for the reviewer and the merge: the report contract caps its fields (validate.REPORTS), so it is kept whole
 export const reportMeta = (r: any) => JSON.stringify({ summary: String(r.summary ?? ''), risks: r.risks ?? [], questions: r.questions ?? [] })
 export const reportOf = (m?: string): { summary?: string } => { try { return m ? JSON.parse(m) : {} } catch { return { summary: m?.slice(0, 800) } } }   // reports stored by older versions may be cut mid-string
@@ -207,17 +206,14 @@ async function explorerDone(h: Host, d: Deps, t: SnapTask, agentId: string, r: a
 // The one entry for an accepted report (tools/index validated the envelope). Returns the text the agent sees; a thrown Error is a refusal the agent may retry.
 export async function report(h: Host, d: Deps, agentId: string | undefined, r: any, o: { lax?: boolean } = {}): Promise<string> {
   const b = agentId ? (await h.bind.read())[agentId] : undefined, s = await h.board.read(), t = b && s.tasks.find(x => x.id === b.taskId)
-  if (b?.parent) return helperDone(h, b, r)   // a helper answers its requester, before the task lookup (a planner's task is an epic), the step gate and the role dispatch
   if (!b || !t) throw new Error('no task is bound to this agent; only a spawned owner reports')
-  if (r.outcome === 'request') return request(h, agentId!, b, r)   // the requester waits on its answer
   if (r.role !== b.role) throw new Error(`role: this agent is bound as ${b.role}, got ${r.role}`)
   if (!(t.step === b.step && STEP_CAT[b.step] === t.state)) throw new Error(`${t.id} is ${t.state}·${t.step}: nothing to report at your step`)
   if (r.role === 'tester') {
     const task = await d.store.get(t.id), g = await testerDone(h, d, task, task.meta['cadre.worktree'], b.worktree, r.tests, agentId, r.run)
     if (!g.ok) {   // bounded (limits.testerRounds, across agents: the task budget's red): past it, or a setup fault the tester cannot fix, the task blocks once with one dialog naming the check
       const n = await charge(h, t.id, 'red')   // only the dialog's Retry clears it
-      const pkgMissing = g.setup && /\(missing module\)/.test(g.why ?? '')   // a package: the tester can ask for it; a missing runner stays a dialog
-      if ((!g.setup || pkgMissing) && n < d.cfg.limits.testerRounds) throw new Error(`red gate refused: ${g.why}\n${g.card}${pkgMissing ? `\n${ASK_SETUP}` : ''}`)
+      if (!g.setup && n < d.cfg.limits.testerRounds) throw new Error(`red gate refused: ${g.why}\n${g.card}`)
       await redAsk(h, d, t.id, g.setup ? g.why! : `check "${redOf(pkgOf(d, task)!)}" after ${n} tester rounds: ${g.why}`, g.setup ? [] : g.passing)
       await blockTask(h, d, t, `red: ${g.why}`, 'red', { summary: r.summary, tests: r.tests })
       return 'Your tests are kept, but they cannot be made to fail for the right reason here; the task now waits for the user. Stop.'
@@ -253,7 +249,6 @@ async function release(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
 export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
   const b = (await h.bind.read())[e.agentId], t = b && (await h.board.read()).tasks.find(x => x.id === b.taskId)
   if (b && (await runOf(h, e.agentId))?.state?.state === 'waiting') return   // a parked run (a decision, a rework, a need): no nudge, charge or card
-  if (b?.parent) return helperStopped(h, b, e)   // a helper ends and answers exactly once (core/needs), whatever its role's step is
   if (b?.role === 'planner') return planStopped(h, d, e)   // an epic's planner (core/planner)
   if (b && t && (await runOf(h, e.agentId))?.exit) { await end(h, e.agentId, 'loop', 'blocked'); return blockTask(h, d, t, `its agent made the same call ${REPEAT} times in a row`, 'loop', {}) }   // the breaker spent it (exit rule 4): one dialog
   const moved = !!b && !!t && !(t.step === b.step && STEP_CAT[b.step] === t.state)
@@ -287,7 +282,7 @@ export async function stalls(h: Host, me: string): Promise<void> {
 async function stallPass(h: Host, me: string): Promise<void> {
   const d = await resolveDeps(h), now = await h.now(), bind = await h.bind.read(), tasks = (await h.board.read()).tasks
   for (const [a, b] of Object.entries(bind)) {
-    const r = a.startsWith('~') || b.parent || b.retired || b.role === 'planner' ? undefined : await runOf(h, a), t = tasks.find(x => x.id === b.taskId)
+    const r = a.startsWith('~') || b.retired || b.role === 'planner' ? undefined : await runOf(h, a), t = tasks.find(x => x.id === b.taskId)
     if (!r || r.exit || !['running', 'refused', 'silent'].includes(r.state?.state ?? '') || !t || !(t.step === b.step && STEP_CAT[b.step] === t.state) || (await askOf(h, a))) continue
     const idle = now - (b.lastAt ?? b.startedAt), hd = await held(h, b.sessionId), mine = hd === 'here' || b.sessionId === me, staleMs = d.cfg.lifecycle.staleMin * 60_000, open = !!b.openAt && now - b.openAt < OPEN_CALL * staleMs
     const kind = hd === 'gone' && !mine ? (idle > d.cfg.lifecycle.goneSec * 1000 ? 'gone' : null) : !mine ? null : idle > staleMs && !open ? 'stale' : !b.lastAt && idle > d.cfg.lifecycle.firstOutputSec * 1000 ? 'first' : null
@@ -310,7 +305,6 @@ export const observe: Hook = async (h, e, next) => observeWith(h, await resolveD
 
 // ---- close (3.4, 3.8): review✓ -> squash into the epic -> done -> cleanup ----
 async function cleanup(h: Host, d: Deps, id: string, task: Task, keep?: string) {
-  await dropNeed(h, id)
   const gone = agentsOf(await h.bind.read(), id); for (const a of gone) await end(h, a, 'answer', keep ? 'cancelled' : 'done')
   await prune(h, id, gone)   // the ended records and the budget of a closed task go
   const wt = task.meta['cadre.worktree'], br = task.meta['cadre.branch']; d = inRepo(d, pkgOf(d, task))
@@ -378,7 +372,7 @@ async function releaseTask(h: Host, d: Deps, id: string): Promise<string | null>
   const t = (await h.board.read()).tasks.find(x => x.id === id), task = await d.store.get(id), wt = task.meta['cadre.worktree']
   if (!t) return `no task ${id}`
   if (!['active', 'review', 'blocked'].includes(t.state)) return `${id} is ${t.state}: nothing to release`
-  await dropNeed(h, id); for (const a of agentsOf(await h.bind.read(), id)) await end(h, a, 'stopped', 'released')
+  for (const a of agentsOf(await h.bind.read(), id)) await end(h, a, 'stopped', 'released')
   if (wt && (await h.stat(wt))) await checkpoint(h, d.store, d.actor, id, wt).catch(() => {})
   const m = await apply(h, { kind: 'release', id, at: await h.now(), actor: 'main' }, pipe(d)); if (!m.ok) return m.error
   await d.store.release(id, d.actor, 'released by main'); return null
@@ -470,7 +464,7 @@ ROUTES.resolve = async (h, c) => {
    // the red dialog's Retry (redAsk): back to the tester step, rounds reset
     const r = await apply(h, { kind: 'rewind', id: a, at: await h.now(), actor: 'human', on: 'tester' }, pipe(d)); if (!r.ok) return { text: r.error }
     await d.store.resume(a, d.actor); await d.store.setMeta(a, { 'cadre.blocked': '' }, d.actor); await retry(h, a, 'red'); await clear(h, a, 'red')   // human.retry{red}: its stop lifts
-    await dropNeed(h, a); for (const x of agentsOf(await h.bind.read(), a)) await end(h, x, 'retry', 'retry')   // the tester that waited on it is done: a new one writes the tests
+    for (const x of agentsOf(await h.bind.read(), a)) await end(h, x, 'retry', 'retry')   // the tester that waited on it is done: a new one writes the tests
     const bd = await h.board.read(), lifted = bd.drive.cause?.taskId === a && !!bd.drive.cause.flag?.startsWith('red')   // this answer lifts the stop it caused: the run goes on, so the mode counts as it will be
     return { text: `${a}: back to the tester${spawnIt(lifted ? { drive: { ...bd.drive, stopped: undefined } } : bd, 'spawn it')}` }
   }

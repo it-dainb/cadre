@@ -30,5 +30,3 @@ From the M0 spike ([ADR 0001](docs/adr/0001-m0-results.md)):
 - **Linux only.** On another OS (`uname -s` is not Linux) cadre logs one line, registers nothing and stays off.
 - **Keep going has no restart cap.** An agent that keeps stopping (`attempts`, `no-report`, `stagnant`, `stale`, `loop`) is restarted on every Keep going; the human ends the loop with Cancel task.
 - **Already holds is lost on a re-asked red dialog** after `/clear`: the passing ids are not stored, so the dialog comes back with Retry only.
-- **A dropped install after a spec change** is asked for again in the next brief; if that setup run finds nothing to commit, the reminder repeats until a later install commits.
-- **Installing before red** makes a "the dependency is declared" scenario pass at red: expect one "tests cannot be made red" dialog, answered with Already holds.

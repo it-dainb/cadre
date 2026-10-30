@@ -31,8 +31,6 @@ import { modelRefusal, inSlot, tasksFull } from './queue'
 import { specMark, specNeeded } from './specifier'
 import { budgetOf, intentOf, reserve, runOf, step as lifeStep, unreserve } from './lifecycle'
 import { ROLES_DEFAULT } from './roles'
-import * as P from './helpers'
-import { needOf, question, running, undelivered, delivered } from './needs'
 
 export interface Deps {
   store: TaskStore; cfg: Config; reg: TypeRegistry; root: string; home: string; wtRoot: string; key: string; actor: string; session: string
@@ -61,7 +59,7 @@ const riskFor = (d: Deps, rt?: Tier, task?: Task) => rt ?? riskOf(d.cfg.review, 
 export async function modelFor(h: Host, d: Deps, id: string, role: string): Promise<string | undefined> {
   const t = (await h.board.read()).tasks.find(x => x.id === id), task = t ? await d.store.get(id).catch(() => undefined) : undefined, step = role === 'claim' && t ? stepsOf(d)(t.type, t.lane)[0] : role
   if (t && !task) return undefined
-  return forcedOf(await h.env()).model || routeOf(d, ROLE[step] ?? (step === 'helper' ? 'explorer' : step === 'specify' ? 'specifier' : step as Role), riskFor(d, undefined, task), task ? await rounds(h, id) : 0, task && pkgOf(d, task)).model
+  return forcedOf(await h.env()).model || routeOf(d, ROLE[step] ?? (step === 'specify' ? 'specifier' : step as Role), riskFor(d, undefined, task), task ? await rounds(h, id) : 0, task && pkgOf(d, task)).model
 }
 const stepsOf = (d: Deps) => (type: string, lane?: string) => { const p = pipeOf(d.reg)(type, lane); return d.view ? p : p.filter(s => s !== 'tester' && s !== 'red') }   // no view builder: tester/red skipped
 
@@ -77,7 +75,6 @@ export async function admitWith(h: Host, d: Deps, e: any, next: ((e: any) => any
   }
   if (it?.role === 'explore') return explorer({ ...e, prompt: modelText('agent-brief', it.taskId) }, false)   // main's explore tool (core/plantools): the question rides on the intent; the answer goes to main as a message
   if (it?.role === 'specify') return specify(h, d, e, next, s, it.taskId)   // roles.specifier.enabled: the how-to notes before a claim (core/specifier)
-  if (it?.role === 'helper') return helper(h, d, e, next, s, it.taskId)   // a requester's helper (core/needs): on its task and tree
   if (it && it.role !== 'planner' && !s.tasks.some(x => x.id === it.taskId)) return deny(`${it.taskId} is no longer on the board`)
   if (it?.role === 'planner') return epicOf(s, it.taskId) ? planner(h, d, e, next, s, it.taskId) : deny(`${it.taskId} has no plan to draft now`)   // a ready epic's planner (ADR 0021)
   if (it) e = { ...e, prompt: modelText('agent-brief', '') }   // the brief's notes are main's words only
@@ -155,7 +152,6 @@ async function plan(h: Host, d: Deps, s: Snapshot, t: SnapTask, task: Task): Pro
   return { mission: s.mission ?? undefined, core: ep?.meta['cadre.coreContract'] || undefined, shared: n.shared, slice: n.slice, lessons: await feed(h, t.id, pathsOf(task)).catch(() => ''),
     others: (await Promise.all(run.map(async x => { const p = pathsOf(await d.store.get(x.id).catch(() => undefined)); return p.length ? `- ${x.id}: ${p.join(', ')}` : '' }))).filter(Boolean) }
 }
-const DEPS_DROPPED = modelText('tool-result', 'The install you had before the spec change was dropped with it (it conflicted with the merged plan). Request the packages your code and tests need again: report outcome "request" with request {"helper":"setup","ask":"add <package>","why":"..."}.')   // set in cadre.depsDropped by the spec-change reset (core/tdd), until a setup run commits again
 export async function setup(h: Host, d: Deps, task: Task, wt: string) {   // `setup` runs in the writable jail (network on)
   const pkg = pkgOf(d, task) as any
   const pkgRoot = !rootOf(pkg) ? wt : `${wt}/${pkg.root}`, scratch = `${d.wtRoot}/${d.key}.scratch/${task.id}`
@@ -259,7 +255,7 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
       handoff = handoffOf(task.meta, cp, await G.diffStat(h.run, wt, `${hb}..${cp}`), await G.diffPatch(h.run, wt, `${hb}..${cp}`))
     }
     const cwd = spike ? d.root : viewed(d, role) ? await d.view!(h, d, task, wt) : wt
-    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, { ...(await plan(h, d, s, t, task)), handoff, decisions: [...(role === 'tester' ? [task.meta['cadre.specDecision']] : [task.meta['cadre.decision'], await undelivered(h, t.id)]), task.meta['cadre.depsDropped'] ? DEPS_DROPPED : ''].filter(Boolean) as string[] })), cwd, t.step, spike ? '' : cwd, undo, undefined, task).then(async r => { if (r?.agentId) { await delivered(h, t.id); if (role === 'tester' && task.meta['cadre.specDecision']) await d.store.setMeta(t.id, { 'cadre.specDecision': '' }, d.actor) } return r })   // a tester hears only the spec change's decision, once (a stale answer never reaches it)   // an answer its requester never got goes in once
+    return await launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, { ...(await plan(h, d, s, t, task)), handoff, decisions: [...(role === 'tester' ? [task.meta['cadre.specDecision']] : [task.meta['cadre.decision']])].filter(Boolean) as string[] })), cwd, t.step, spike ? '' : cwd, undo, undefined, task).then(async r => { if (r?.agentId) { if (role === 'tester' && task.meta['cadre.specDecision']) await d.store.setMeta(t.id, { 'cadre.specDecision': '' }, d.actor) } return r })   // a tester hears only the spec change's decision, once (a stale answer never reaches it)
   } catch (err) { await undo(); throw err }
 }
 
@@ -288,14 +284,6 @@ async function planner(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snaps
   if (!(await reserve(h, id, 'planner', d.session))) return deny(`${id} already has a planner; wait`)
   const undo = () => unreserve(h, id, 'planner')
   try { return await launch(h, d, e, next, { id } as SnapTask, 'planner', await plannerBrief(h, d, s, ep), d.root, 'planner', d.root, undo, undefined) } catch (err) { await undo(); throw err }
-}
-
-// ---- a requester's helper: a read-only explorer on the requester's task and tree, bound to its request; its report answers it (core/needs) ----
-async function helper(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapshot, id: string) {
-  const n = await needOf(h, id), t = s.tasks.find(x => x.id === id) ?? ({ id } as SnapTask), task = await d.store.get(id).catch(() => null)
-  if (!n || running(await h.bind.read(), n) || n.answer !== undefined || !task) return deny(`${id} has no request to help with now`)
-  const probe = n.helper === 'probe', wt = probe ? await P.probeAdd(h, d.root, `${d.wtRoot}/${d.key}`, n) : task.meta['cadre.worktree'] || d.root   // a probe looks around in a scratch tree of its own
-  return launch(h, d, e, next, t, 'explorer', brief('explorer', { id: '', title: '', type: '', question: question(n) }), wt, 'helper', wt, async () => { if (probe) await P.probeEnd(h, d.root, `${d.wtRoot}/${d.key}`, n) }, undefined, undefined, { parent: n.requester, needId: n.needId })
 }
 
 // ---- lease heartbeat (8.4): the tick calls this; the store only, no hooks needed. Beats each of THIS session's bound tasks every `every` ms. ----
