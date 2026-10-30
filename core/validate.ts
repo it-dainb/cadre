@@ -106,7 +106,8 @@ export function sliceNotes(notes: Note[], paths: string[], slice: boolean): { sh
 }
 // review coverage (ADR 0022): the scenario ids (S1, S2…) of the acceptance that no locked spec test name carries ("test_s3_login" carries S3, "S30" does not)
 // the one-line scenario a worker's spec_change proposes: checked when it reports, and again before cadre writes it into the spec
-export const SPEC_SCENARIO = /^\s*(S\d+)\s*:\s*(\S[^\n]*)$/
+// [id, text] of one line "S<n>: …", else null (no regex: the id is S and digits, the text is not empty)
+export const specScenario = (s: string): [string, string] | null => { const i = s.indexOf(':'), id = s.slice(0, i).trim(), t = s.slice(i + 1).trim(); return i > 0 && !s.includes('\n') && id.length > 1 && id[0] === 'S' && [...id.slice(1)].every(c => c >= '0' && c <= '9') && t ? [id, t] : null }
 // `holds`: scenario ids whose behaviour already exists (the planner's call, kept in meta cadre.holds). Each must be a scenario of the task
 export const holdsOf = (t?: Pick<Task, 'meta'>): string[] => { try { const v = JSON.parse(t?.meta['cadre.holds'] || '[]'); return Array.isArray(v) ? v.map(String) : [] } catch { return [] } }
 export const holdsGap = (holds: unknown, acceptance?: string): string | null => {
@@ -114,13 +115,12 @@ export const holdsGap = (holds: unknown, acceptance?: string): string | null => 
   return bad.length ? `metadata.holds: ${bad.join(', ')} ${bad.length === 1 ? 'is' : 'are'} not ${bad.length === 1 ? 'a scenario' : 'scenarios'} of this task (its scenarios: ${[...have].join(', ') || 'none yet'}); fix holds or the scenarios` : null
 }
 export const scenarioIds = (acceptance?: string): string[] => (acceptance ?? '').split('\n').map(l => /^S\d+/.exec(l.trim())?.[0]).filter(Boolean) as string[]
-// names null: the task has no locked spec tests (no tester step), nothing to check
-export const specTestsOf = (t: Pick<Task, 'meta'>): string[] | null => { try { const v = JSON.parse(t.meta['cadre.specTests'] ?? 'null'); return Array.isArray(v) ? v.map(String) : null } catch { return null } }
-// a test name carries a scenario id ("test_s3_login" carries S3, "S30" does not)
-export const carries = (id: string, name: string): boolean => new RegExp(`(?<![A-Za-z0-9])${id}(?![0-9])`, 'i').test(name)
-export const untested = (acceptance: string | undefined, names: string[] | null): string[] => !names ? [] : scenarioIds(acceptance).filter(id => !names.some(n => carries(id, n)))
+// the tester's declared tests {name, ids}: null = the task has no locked spec tests (no tester step), nothing to check
+export const specTestsOf = (t: Pick<Task, 'meta'>): { name: string; ids: string[] }[] | null => { try { const v = JSON.parse(t.meta['cadre.specTests'] ?? 'null'); return Array.isArray(v) ? v.map(x => ({ name: String(x.name), ids: Array.isArray(x.ids) ? x.ids.map(String) : [] })) : null } catch { return null } }
+// the scenario ids of the acceptance that no declared test lists in its ids
+export const untested = (acceptance: string | undefined, dec: { ids: string[] }[] | null): string[] => !dec ? [] : scenarioIds(acceptance).filter(id => !dec.some(t => t.ids.includes(id)))
 // what blocks a pass: untested scenarios, and coverage entries the reviewer did not mark ok:true (missing or weak). Off: nothing.
-export function coverageGaps(enforce: boolean, acceptance: string | undefined, names: string[] | null, coverage: unknown): string[] {
+export function coverageGaps(enforce: boolean, acceptance: string | undefined, names: { ids: string[] }[] | null, coverage: unknown): string[] {
   if (!enforce) return []
   const key = (s: unknown) => /^S\d+/.exec(String(s))?.[0] ?? String(s), cov = Array.isArray(coverage) ? coverage : []
   const weak = cov.filter((c: any) => c?.ok !== true).map((c: any) => `scenario ${key(c?.scenario)} is not covered by a test that checks it`)
@@ -145,15 +145,11 @@ export async function capped(h: Host, key: string): Promise<boolean> { return ((
 
 // Report envelope (DESIGN 6.2): entry point for wave 3 (`tools/index`); semantic checks (6.3: files exist at sourceCommit...) are theirs to add.
 // Returns an example-bearing error or null.
-// the tester's test command (ADR 0023): an argv run without a shell, inside the offline sandbox like any check. Only a test runner: a shell or a file/git/network
-// tool as argv[0] is refused (the jail discards writes and has no network, but with jail off it runs on the host; the tests themselves are code the checks run anyway)
-const NOT_RUNNER = /^(sh|bash|zsh|dash|ksh|fish|env|sudo|su|doas|rm|mv|cp|dd|ln|chmod|chown|git|curl|wget|ssh|scp|nc|kill|xargs)$/
+// the tester's test command (ADR 0023): an argv run without a shell, inside the offline sandbox like any check (task data run through the test slot, never host code)
 export function runShape(run: any): string | null {
   const eg = 'e.g. {"command":["node","--test","test/login.test.js"]}'
   if (!run || typeof run !== 'object' || !Array.isArray(run.command) || !run.command.length || run.command.length > 64 || !run.command.every((a: unknown) => typeof a === 'string' && a && a.length < 1000)) return `run.command: expected the argument list that runs only your tests, no shell, ${eg}`
-  if (NOT_RUNNER.test(String(run.command[0]).split('/').pop()!)) return `run.command: "${run.command[0]}" is not a test runner; give the runner itself, ${eg}`
   if (run.cwd !== undefined && (typeof run.cwd !== 'string' || run.cwd.startsWith('/') || run.cwd.split('/').includes('..'))) return 'run.cwd: expected a folder relative to your test folder, e.g. "web"'
-  if (run.junit !== undefined && typeof run.junit !== 'string') return 'run.junit: expected "$CADRE_JUNIT" (the path your runner writes its JUnit XML report to)'
   return null
 }
 // Per-role/outcome report contracts (strict, checkInput): an unknown field, a wrong type or an over-cap value is refused before anything is stored; caps reject, never truncate
@@ -162,7 +158,7 @@ const V1 = { schemaVersion: {}, role: {} }
 export const DEVIATIONS = ['none', 'wrong_path', 'scenario_conflict', 'missing_dep']   // a specifier's one way to say the approved task is wrong (it never edits a scenario)
 export const REPORTS: Record<string, Sch> = {
   worker: { type: 'object', required: ['outcome', 'summary'], properties: { ...V1, outcome: { type: 'string', enum: ['done', 'blocked', 'spec_change'] }, summary: RS(800), reason: RS(400), scenario: RS(300), risks: RA(5, RS(120)), questions: RA(5, RS(120)), followups: RA(5) } },
-  tester: { type: 'object', required: ['outcome', 'summary'], properties: { ...V1, outcome: { type: 'string', enum: ['done'] }, summary: RS(800), tests: RA(50), run: { type: 'object' } } },
+  tester: { type: 'object', required: ['outcome', 'summary'], properties: { ...V1, outcome: { type: 'string', enum: ['done'] }, summary: RS(800), tests: RA(50, { type: 'object', required: ['path', 'name'], properties: { path: RS(200), name: RS(300), ids: RA(10, RS(20)) } }), run: { type: 'object' } } },
   reviewer: { type: 'object', required: ['verdict', 'summary', 'findings', 'coverage', 'contractStatus'], properties: { ...V1, verdict: { type: 'string', enum: ['pass', 'changes'] }, summary: RS(1500), findings: RA(50), coverage: RA(50), contractStatus: RA(100) } },
   explorer: { type: 'object', required: ['answer'], properties: { ...V1, answer: RS(2000), citations: RA(30) } },
   planner: { type: 'object', properties: { ...V1, summary: RS(1500), tasks: RA(20) } },

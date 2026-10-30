@@ -8,7 +8,7 @@ import { LIFECYCLE, holdsAmend } from './plantools'
 import { ROUTES } from './dispatch'
 import { modelText } from './say'
 import { resolveDeps, type Deps } from './admission'
-import { Refusal, SPEC_SCENARIO, coverageGaps, overlap, pathsOf, specTestsOf } from './validate'
+import { Refusal, specScenario, coverageGaps, overlap, pathsOf, specTestsOf } from './validate'
 import { agentsOf, fnv1a64, patchBinding } from './board'
 import { apply, STEP_CAT, transition } from './machine'
 import { emit } from './events'
@@ -110,7 +110,7 @@ async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any): Pr
   let green: { ok: boolean; check: string; secs: number } | undefined
   if (pipe(d)(t.type, t.lane).includes('green')) {
     const g = await tddGreen(h, d, task, wt); if (!g.ok) throw new Error(`green gate failed: ${g.why}\nFix it and report again`)
-    green = { ok: true, check: 'verify', secs: Math.round(Number(/\((\d+(?:\.\d+)?)s\)/.exec(g.card)?.[1] ?? 0)) }
+    green = { ok: true, check: 'verify', secs: g.secs ?? 0 }
   }
   const st = await numstat(h, wt, `${base}..${C}`), p = pipe(d)(t.type, t.lane), at = await h.now()
   for (let i = p.indexOf('worker'); p[i] !== 'reviewer'; i++) { const m = await apply(h, { kind: 'advance', id: t.id, at, actor: 'mod' }, pipe(d)); if (!m.ok) throw new Error(m.error) }
@@ -226,7 +226,7 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
   if (r.role === 'reviewer') { const err = o.lax ? null : await semantic(h, await d.store.get(t.id), b.worktree, r, d.cfg.review.coverage.enforce); if (err) throw new Refusal(err, 'semantic'); return verdict(h, d, t, b, agentId!, r) }
   if (r.outcome === 'done') return workerDone(h, d, t, b, r)
   const spec = r.outcome === 'spec_change', why = String(r.reason ?? r.summary ?? '').slice(0, 400)
-  if (spec && r.scenario !== undefined && r.scenario !== '' && !SPEC_SCENARIO.test(String(r.scenario))) throw new Error('scenario: expected one line "S<n>: Given … When … Then …"')   // before anything is written: the worker fixes it at once
+  if (spec && r.scenario !== undefined && r.scenario !== '' && !specScenario(String(r.scenario))) throw new Error('scenario: expected one line "S<n>: Given … When … Then …"')   // before anything is written: the worker fixes it at once
   if (spec) { await specChange(h, d, t.id, why, String(r.scenario ?? '')); await record(h, d, t.id, 'blocked', t.step, { why }, { summary: r.summary, reason: r.reason }); await raise(h, t.id, 'spec_change') }
   else { await d.store.setMeta(t.id, { 'cadre.question': why }, d.actor); await blockTask(h, d, t, why, 'blocked', { summary: r.summary, reason: r.reason, questions: r.questions }) }   // yolo: main answers it from this (core/drive)
   return spec ? 'spec change recorded; it is decided for you. Stop and wait.' : 'blocked recorded; you are resumed with the answer. Stop and wait.'

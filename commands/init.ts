@@ -15,6 +15,8 @@ import { validate as kac } from '../core/changelog'
 import { validate as regErrors } from '../task-management/registry'
 import { spec } from '../agents'
 import * as D from '../core/discover'
+import { probeOf, runSlot } from '../core/gate'
+import { modelText } from '../core/say'
 import { realRoot, setPolicy } from '../policy/guards'
 import { wtRootOf } from '../core/branches'
 
@@ -74,12 +76,17 @@ type Red = { root: string; n: string }
 async function audit(c: Ctx): Promise<{ why: string | null; caches: string[]; red: Red[] }> {
   const pkgs = D.unitsOf(c.cfg) as (D.Pkg & { knownRed?: string[] })[], sig = fnv1a64(canon(pkgs)), key = `init.audit:${c.rk}`
   let a = (await c.h.store.get(key)) as { sig: string; runs: D.Run[] } | undefined
-  if (a?.sig !== sig) { a = { sig, runs: [] }; for (const p of pkgs) a.runs.push(await D.exec(c.h, c.root, c.home, { ...p, setup: p.setup ?? [] }, { audit: true, knownRed: p.knownRed })); await c.h.store.set(key, a) }
+  if (a?.sig !== sig) { a = { sig, runs: [] }; for (const p of pkgs) { const r = await D.exec(c.h, c.root, c.home, { ...p, setup: p.setup ?? [] }, { audit: true, knownRed: p.knownRed, probe: runSlot }); a.runs.push(r); if (r.junit != null && p.checks.test) await c.h.store.set(await scoped(c.h, `junit:${p.root}`), { ok: r.junit, argv: p.checks.test }) }   // the probe: a machine-local fact, per unit, read by Doctor and never run from there
+    await c.h.store.set(key, a) }
   const goal = !!(await c.h.secret.read()).run?.goal, red: Red[] = []   // a goal run (ADR 0014): a check red before the goal is often the goal's own bug; it becomes known red on the safety card, never skipped or weakened
   const bad = pkgs.flatMap((p, i) => !a!.runs[i].setupOk ? [`${p.root}: setup ${(p.setup ?? []).join(' ')} fails in a clean copy`]
     : Object.entries(a!.runs[i].results).flatMap(([n, v]) => v === 'red' && goal ? (red.push({ root: p.root, n }), []) : v === 'red' ? [`${p.root}: ${n} fails on a clean checkout (fix the command or leave it out)`] : v === 'net' ? [`${p.root}: ${n} needs the network at test time (leave it out)`] : []))
   return { why: bad.length ? bad.join('; ') : null, caches: [...new Set(a.runs.flatMap(r => r.caches))], red }
 }
+// what the probe found, per unit: a line for main on each "no" and on a unit with no test check (D15, D16)
+const probed = async (c: Ctx): Promise<Item[]> => (await Promise.all(D.unitsOf(c.cfg).map(async u => [u.root, await probeOf(c.h, u)] as const))).flatMap(([r, s]): Item[] => s === 'yes' ? [{ name: `unit ${r}: test check writes JUnit`, st: 'ok' }]
+  : s === 'no' ? [{ name: `unit ${r}: test check writes JUnit`, st: 'warn', why: modelText('tool-result', `unit ${r}: the test check wrote no valid JUnit at $CADRE_JUNIT, so red is exit-code only; change its test argv to write JUnit (install a reporter if needed), then rerun /cadre init`) }]
+  : s === 'none' ? [{ name: `unit ${r}: test check`, st: 'ok', why: modelText('tool-result', 'no test check yet: the first test-driven task sets one up, or choose a lite/docs pipeline') }] : [])
 function workflow(c: Ctx): string | null {
   const errs = regErrors(c.cfg.types as any)
   for (const r of ['worker', 'tester', 'reviewer', 'explorer'] as const) if (!spec(r, { roles: c.cfg.roles as any, mcpAllow: c.cfg.mcpAllow }).prompt) errs.push(`roles.${r} does not render`)
@@ -176,12 +183,12 @@ export async function initItems(h: Host, o: { quick?: boolean } = {}): Promise<I
   const a = !r && !s && !p && !o.quick ? await audit(c) : undefined, w = workflow(c), l = await changelog(c)
   const audited: Item = a && !a.why && a.red.length ? { name: 'commands pass on a clean checkout', st: 'ok', why: redLine(a.red) } : it('commands pass on a clean checkout', a?.why ?? null, !a)
   const sd = r ? [] : (await repoFileDiag(h)).map(d => d.replace(/\bjail\w*/g, 'a safety key'))   // red only: then the follow-up, the stop refusal and the tool-result line name it
-  const out = [it('repository', r), ...(sd.length ? [it('settings file', `.cadre/config.json: ${sd.join('; ')}; fix or remove these keys (the user sets the rest in the cadre pane)`)] : []), it('task store', s, !!r), m, it('build and test commands', p), audited, it('workflow', w), it('changelog', l)]
+  const out = [it('repository', r), ...(sd.length ? [it('settings file', `.cadre/config.json: ${sd.join('; ')}; fix or remove these keys (the user sets the rest in the cadre pane)`)] : []), it('task store', s, !!r), m, it('build and test commands', p), audited, ...(a && !a.why ? await probed(c) : []), it('workflow', w), it('changelog', l)]
   const st = (await c.h.run(['find', c.root, '-maxdepth', '4', '(', '-name', '.git', '-o', '-name', 'node_modules', ')', '-prune', '-o', '-type', 'd', '-name', '.cadre', '-print', '-prune'])).stdout.split('\n').filter(p => p.endsWith('/.cadre') && p !== `${c.root}/.cadre`).map(p => p.replace(`${c.root}/`, ''))   // made from a shell left in a package folder (live 0.10.0). ponytail: 4 levels deep
   if (st.length) out.splice(1, 0, it('no setup folder outside the root', `${st.join(', ')} is not the project root's: delete ${st.length > 1 ? 'them' : 'it'} (rm -rf ${st.map(p => `${c.root}/${p}`).join(' ')})`))
   if (o.quick) return out
   if (await contained(c)) out.push({ name: 'safety settings', st: 'ok' })
-  else if (out.every(i => i.st === 'ok' || (i === m && i.st === 'wait'))) { await propose5(c, a!.caches, a!.red); out.push({ name: 'safety settings', st: 'wait', why: 'confirm them on their card' }) }
+  else if (out.every(i => i.st === 'ok' || i.st === 'warn' || (i === m && i.st === 'wait'))) { await propose5(c, a!.caches, a!.red); out.push({ name: 'safety settings', st: 'wait', why: 'confirm them on their card' }) }
   else out.push({ name: 'safety settings', st: 'todo', why: 'after the steps above' })
   return out
 }

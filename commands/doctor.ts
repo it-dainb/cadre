@@ -16,6 +16,8 @@ import { GATE, GATE_REV, gated, progress, scoped, type Item } from './init'
 import { prefsItem, prefsRow } from './prefs'
 import { doctorRows } from '../config/route'
 import { runOf } from '../core/lifecycle'
+import { probeOf } from '../core/gate'
+import { unitsOf } from '../core/discover'
 
 export type Row = ['ok' | 'warn' | 'crit', string, string?]   // level, line, fix (a command for the human)
 const PIN = '2.1.295', EXITS = '2.1.299', STAMP = 'cadre:setup', USER_CARD = 91, UNSET_CARD = 92, TODO = 'CLAUDE_CODE_ENABLE_TODO_TOOLS', KEPT = 'cadre:setup:todo'
@@ -191,6 +193,8 @@ async function project(h: Host, cfg: Config): Promise<Row[]> {
   if (!(await gitOk(h.run, root, ['rev-parse', '--git-dir']))) return [['crit', 'not inside a git repo', '/cadre init']]
   const miss = (await progress(h)).filter(s => !s.done)
   rows.push(miss.length ? ['warn', `init incomplete: ${miss.map(s => s.name).join(', ')}`, '/cadre init'] : ['ok', 'init complete'])
+  const us = unitsOf(cfg), ROW = { yes: ['ok', 'test check writes JUnit: yes'], no: ['warn', 'test check writes JUnit: no: red checks use the exit code only', 'rerun /cadre init'], unprobed: ['warn', 'test check writes JUnit: not probed on this machine: rerun /cadre init'], none: ['ok', 'test check: none: the first feature/bug task sets one up'] } as const
+  for (const u of us) { const r = ROW[await probeOf(h, u)]; rows.push([r[0], `${us.length > 1 ? `${u.root}: ` : ''}${r[1]}`, r[2]]) }   // read from the store: Doctor probes nothing
   const pol = await policyOf(h), c = assess(await safe(() => h.settings(), {}), pol.repo, pol.wtRoot)
   rows.push(c.state === 'contained' ? ['ok', 'containment contained'] : ['warn', `containment degraded: ${c.why.join('; ')}`, '/cadre init'])
   for (const old of ['.beads', '.cadre/store']) if (await h.stat(`${root}/${old}`)) rows.push(['warn', `${old}: a task store from an older version; it is not read`, `finish its plans with that version, then delete ${old}`])   // clean break (0.15)

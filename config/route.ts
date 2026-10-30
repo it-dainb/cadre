@@ -6,6 +6,9 @@ import { ask, settle } from '../core/decide'
 import { emit } from '../core/events'
 import { prune as pruneLesson, rows as lessonRows } from '../core/lessons'
 import { start } from '../core/session'
+import { sessionOf, storeOf } from '../core/board'
+import { REPO } from '../core/gate'
+import { StoreError } from '../task-management/store'
 import { repoKeyOf } from '../commands/init'
 import { HEADLESS, REG, check, headlessMain, layersOf, resolve, rows, tighten } from './index'
 import { clamped, modelIssues } from '../core/queue'
@@ -73,19 +76,43 @@ async function editCard(h: any, row: Row, error?: string): Promise<void> {
 }
 const back = (h: any, key: string) => settle(h, ID(key))
 
+// read-modify-write of one settings file: `mut` sees the parsed file ({} when absent) and returns the next object or a refusal string; .bak of the old bytes, write, re-read
+async function writeJson(h: any, path: string, mut: (cur: any) => any): Promise<{ ok: true; text: string } | { ok: false; why: string }> {
+  let cur: any; try { cur = JSON.parse((await h.readText(path)) ?? '{}') } catch { return { ok: false, why: `${path.endsWith('/.cadre/config.json') ? '.cadre/config.json' : '~/.claude/cadre.json'} is not valid JSON` } }
+  if (!plain(cur)) return { ok: false, why: 'the settings file is not an object' }
+  const next = await mut(cur); if (typeof next === 'string') return { ok: false, why: next }
+  const text = `${JSON.stringify(next, null, 2)}\n`, old = await h.readText(path)
+  if (old !== null && old !== text) await h.write(`${path}.bak`, old)
+  if (DRIVE.humanWrite) await DRIVE.humanWrite(h, () => h.write(path, text)); else await h.write(path, text)   // the human's own change: a running drive takes it as its new baseline
+  return (await h.readText(path)) === text ? { ok: true, text } : { ok: false, why: 'the file could not be written' }
+}
+// The one writer of .cadre/config.json (adoption, the config route, saveUnit; the init wizard later): a lock in the task store's control doc, {session, until ~10 s}, a lapsed `until` is
+// stolen by the next writer, so a crash between acquire and release cannot wedge it. The file is re-read under the lock, so no concurrent update is lost.
+export const CFG_LOCK_MS = 10_000
+export async function writeRepoConfig(h: any, mut: (cur: any) => any): Promise<{ ok: true; text: string } | { ok: false; why: string }> {
+  const store = await storeOf(h).catch(() => undefined), me = await sessionOf(h), path = `${await h.cwd()}/.cadre/config.json`
+  if (!store) return writeJson(h, path, mut)   // a host with no task store (a bare test host) has one session: nothing to serialize against
+  let mine: { session: string; until: number } | undefined
+  for (let i = 0; i < 50 && !mine; i++) {
+    const cur = (await store.control()).doc.cfgLock as { session: string; until: number } | undefined, now = await h.now()
+    if (cur && cur.until > now && cur.session !== me) { await h.run(['sleep', '0.2']); continue }   // held: wait; a lapsed lock is ours to take
+    try { await store.setControl({ cfgLock: { session: me, until: now + CFG_LOCK_MS } }, { cfgLock: cur }); mine = { session: me, until: now + CFG_LOCK_MS } } catch (e) { if (!(e instanceof StoreError && e.code === 'GuardMismatch')) throw e }
+  }
+  if (!mine) return { ok: false, why: '.cadre/config.json is being written by another session; try again' }
+  try { return await writeJson(h, path, mut) } finally { await store.setControl({ cfgLock: null }, { cfgLock: mine }).catch(() => undefined) }
+}
+
 // a unit's scalar field (ui/settings): the unit is re-parsed, the model gate re-run, then .cadre/config.json is written once with its .bak
 async function saveUnit(h: any, key: string, raw: string, no: (why: string) => Promise<{ text: string }>): Promise<{ text: string }> {
-  const [, i, f] = key.match(UNIT)!, { root } = await ctx(h), path = `${root}/.cadre/config.json`, v = raw.trim()
-  let cur: any; try { cur = JSON.parse((await h.readText(path)) ?? '{}') } catch { return no('.cadre/config.json is not valid JSON') }
-  const u = cur?.units?.[Number(i)]; if (!u) return no('there is no such unit in .cadre/config.json')
-  let val: unknown = v; try { if (f === 'setup') val = JSON.parse(v); else if (f === 'concurrency') val = v === '' || v === '0' ? undefined : Number(v) } catch { return no('expected a JSON argument list, e.g. ["npm","ci"]') }
-  const { [f]: _o, ...rest } = u, next = val === undefined ? rest : { ...rest, [f]: val }, bad = parse([next]); if (typeof bad === 'string') return no(bad.replace(/^units\[0\]\./, ''))
-  cur.units = cur.units.map((x: any, j: number) => (j === Number(i) ? next : x))
-  const gate = modelIssues({ ...resolve(await layersOf(h, await ctx(h))).config, units: cur.units }); if (gate.length) return no(gate[0])
-  const text = `${JSON.stringify(cur, null, 2)}\n`, old = await h.readText(path)
-  if (old !== null && old !== text) await h.write(`${path}.bak`, old)
-  if (DRIVE.humanWrite) await DRIVE.humanWrite(h, () => h.write(path, text)); else await h.write(path, text)
-  if ((await h.readText(path)) !== text) return no('the file could not be written')
+  const [, i, f] = key.match(UNIT)!, v = raw.trim(); let u: any, val: unknown = v
+  const w = await writeRepoConfig(h, async cur => {
+    u = cur?.units?.[Number(i)]; if (!u) return 'there is no such unit in .cadre/config.json'
+    try { if (f === 'setup') val = JSON.parse(v); else if (f === 'concurrency') val = v === '' || v === '0' ? undefined : Number(v) } catch { return 'expected a JSON argument list, e.g. ["npm","ci"]' }
+    const { [f]: _o, ...rest } = u, next = val === undefined ? rest : { ...rest, [f]: val }, bad = parse([next]); if (typeof bad === 'string') return bad.replace(/^units\[0\]\./, '')
+    const units = cur.units.map((x: any, j: number) => (j === Number(i) ? next : x)), gate = modelIssues({ ...resolve(await layersOf(h, await ctx(h))).config, units }); if (gate.length) return gate[0]
+    return { ...cur, units }
+  })
+  if (!w.ok) return no(w.why)
   await start(h); await refreshSettings(h)
   if (((await h.board.read()).decisions ?? []).some((d: any) => d.id === ID(key))) await back(h, key)
   return { text: `${u.root} ${f} = ${JSON.stringify(val ?? null)} · saved to the repo` }
@@ -100,23 +127,21 @@ async function save(h: any, scope: 'user' | 'repo', key: string, raw: string): P
   if (key === 'strictness' && (await h.board.read()).tasks.some((t: any) => t.state === 'active' || t.state === 'review')) return no('strictness cannot change while tasks are running; retry when they finish')
   const val = coerce(row, raw); if (val instanceof Error) return no(val.message)
   if (scope === 'repo' && REG[key]?.tighten) { const b = at(await below(h), key.split('.')); if (JSON.stringify(tighten(key, b, val)) !== JSON.stringify(val)) return no(`${key}: the repo file may only make it stricter than ${show(b) || '(empty)'}`) }
-  const { root, home, rk } = await ctx(h), path = scope === 'repo' ? `${root}/.cadre/config.json` : `${home}/.claude/cadre.json`, ks = key.split('.')
-  let cur: any; try { cur = JSON.parse((await h.readText(path)) ?? '{}') } catch { return no(`${scope === 'repo' ? '.cadre/config.json' : '~/.claude/cadre.json'} is not valid JSON`) }
-  if (!plain(cur)) return no('the settings file is not an object')
-  const sec = scope === 'user' && plain(cur.repos?.[rk]) && at(cur.repos[rk], ks) !== undefined ? cur.repos[rk] : cur   // a key already set in this repo's section stays there, or it would be shadowed
-  let o = sec; for (const k of ks.slice(0, -1)) o = o[k] = plain(o[k]) ? o[k] : {}
-  o[ks[ks.length - 1]] = val
-  const bad = resolve([{ name: 'set', trust: scope === 'repo' ? 'repo' : 'user', value: (({ repos: _r, ...x }) => x)(sec) }]).diagnostics.filter(d => d.includes(key) && !(scope === 'repo' && d.endsWith('may only tighten this key')))   // tightening is judged against the user's value just above
-  if (bad.length) return no(bad.join('; '))
-  const text = `${JSON.stringify(cur, null, 2)}\n`, old = await h.readText(path)
-  if (old !== null && old !== text) await h.write(`${path}.bak`, old)
-  if (DRIVE.humanWrite) await DRIVE.humanWrite(h, () => h.write(path, text)); else await h.write(path, text)   // the human's own change: a running drive takes it as its new baseline
-  if ((await h.readText(path)) !== text) return no('the file could not be written')
+  const { home, rk } = await ctx(h), ks = key.split('.'), mut = (cur: any) => {
+    const sec = scope === 'user' && plain(cur.repos?.[rk]) && at(cur.repos[rk], ks) !== undefined ? cur.repos[rk] : cur   // a key already set in this repo's section stays there, or it would be shadowed
+    let o = sec; for (const k of ks.slice(0, -1)) o = o[k] = plain(o[k]) ? o[k] : {}
+    o[ks[ks.length - 1]] = val
+    const bad = resolve([{ name: 'set', trust: scope === 'repo' ? 'repo' : 'user', value: (({ repos: _r, ...x }) => x)(sec) }]).diagnostics.filter(d => d.includes(key) && !(scope === 'repo' && d.endsWith('may only tighten this key')))   // tightening is judged against the user's value just above
+    return bad.length ? bad.join('; ') : cur
+  }
+  const w = scope === 'repo' ? await writeRepoConfig(h, mut) : await writeJson(h, `${home}/.claude/cadre.json`, mut)
+  if (!w.ok) return no(w.why)
   await emit(h, 'config.changed', { key, from: row.value, to: val }); await start(h); await refreshSettings(h)
   if (((await h.board.read()).decisions ?? []).some((d: any) => d.id === ID(key))) await back(h, key)
   return { text: `${key} = ${JSON.stringify(val)} · saved ${scope === 'repo' ? 'to the repo' : 'for you'}` }
 }
 
+REPO.write = writeRepoConfig
 ROUTES.config = async (h, c) => {
   const [sub, key, ...v] = c.args
   if (sub === 'lessons' || sub === 'lprune' || sub === 'lsel') {   // the Lessons tab (ui/views/lessons): refresh, x prunes the row named, n/p move
