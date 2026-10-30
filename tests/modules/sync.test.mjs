@@ -167,9 +167,10 @@ test('(7) apply rules: no sync grant, an op outside the set, another target\'s m
   await no({ state: 'ok', ops: [edit1, { op: 'edit', id: ids[0], fields: { type: 'bug' } }] }, /outside what a pull may set/)
   await no({ state: 'ok', ops: [edit1, { op: 'ref', id: ids[0], ref: 'other:1' }] }, /outside what a pull may set/)
   await no({ state: 'ok', target: 'other', ops: [edit1] }, /not trk/); await no({ state: 'ok', ops: [edit1, { op: 'flag', id: 'nope', flag: 'edited' }] }, /no task nope/)
-  await no({ state: 'ok', ops: [edit1], who: 'me' }, /unknown key/)
+  await no({ state: 'ok', ops: [edit1], who: 'me' }, /unknown key/); await no({ state: 'ok', ops: [edit1], actor: 'cadre/evil+sync' }, /unknown key/)   // the actor is core's: a result cannot name one
   assert.deepEqual(Object.keys(ROUTES).filter(k => k.startsWith('sync.')), [], 'no sync.* command'); assert.ok(isHuman({ kind: 'adapter', name: 'sync' }), 'origin adapter:sync stays refused')
   assert.equal((await S.applySync(h, u(), { state: 'ok', ops: [edit1] })).stale, 0); assert.equal((await store.get(ids[0])).title, 'new')
+  assert.ok((await store.events(undefined, 100)).events.some(e => e.id === ids[0] && e.actor === 'cadre/fake+sync'), 'stamped by core')
 })
 
 test('(8) events: an events adapter gets the snapshot and the events; reset:true after the blob delete; returned commands are refused with the old line', async () => {

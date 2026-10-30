@@ -135,4 +135,6 @@ test('B22: Doctor reads the module result and its age, never calls the adapter, 
   expect(rows).toContainEqual(['sync result offline', 'warn', 'sync t: adapter trk: exit 3']); expect(rows).toContainEqual(['sync result old', 'warn', 'sync t: no result for 12 min'])
   expect(rows).toContainEqual(['sync ops stale', 'warn', 'sync t: 2 ops stale, retried next cycle']); expect(rows).toContainEqual(['sync credential missing', 'warn', 'sync t credential TRK_KEY: missing'])
   expect(JSON.stringify(rows)).not.toContain('SECRET-VALUE')   // no row carries a value, and an adapter start would have thrown above
+  const h = mk({ repo: true }); await SYNC({ state: 'ok', at: 1 }, true)(h); const calls: string[][] = [], run = h.run; Object.assign(h, { run: async (a: string[], i?: any) => { calls.push(a); return run(a, i).catch(() => ({ exitCode: 1, stdout: '', stderr: '' })) } })
+  await doctor(h); expect(calls.filter(a => a.includes('trk-adapter') || a.includes('ping'))).toEqual([])   // no live ping, even where a failing start would be swallowed
 })
