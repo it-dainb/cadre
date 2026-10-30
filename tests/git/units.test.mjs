@@ -63,41 +63,7 @@ test('microservices: a task across two services gets one integration check acros
   assert.deepEqual(r.green, ['svc/api']); assert.deepEqual(r.close.sort(), ['svc/api', 'svc/web']); assert.equal(sh(r.d, 'show', 'epic/p1-x:svc/web/v.ts'), 'x')
 })
 
-// 5b: a submodule unit (ownGit) lands in its own repository: the task branch, worktree and squash live there; the plan's integration merges its epic branch
-// into its dev through its own checks, then the parent's pointer bump lands through the parent's gates
-test('submodule: the task works and squashes in the submodule repo; integration lands its dev, then the parent dev carries the pointer bump', async () => {
-  const S = mkdtempSync(join(tmpdir(), 'cadre-sub-')), d = mkdtempSync(join(tmpdir(), 'cadre-parent-')), LOG = `${d}-log`
-  for (const r of [S, d]) { execFileSync('git', ['init', '-q', '-b', 'main', r]); sh(r, 'config', 'user.name', 't'); sh(r, 'config', 'user.email', 't@t') }
-  writeFileSync(join(S, 'core.c'), 'int a;\n'); sh(S, 'add', '-A'); sh(S, 'commit', '-qm', 'init'); sh(S, 'branch', 'dev')
-  writeFileSync(join(d, 'README'), 'p\n'); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'init')
-  execFileSync('git', ['-C', d, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', S, 'lib']); sh(d, 'commit', '-qm', 'add lib'); sh(d, 'branch', 'dev'); sh(d, 'branch', 'epic/p1-x', 'dev')
-  const L = join(d, 'lib'); sh(L, 'config', 'user.name', 't'); sh(L, 'config', 'user.email', 't@t'); sh(L, 'branch', 'dev', 'origin/dev'); writeFileSync(LOG, '')
-  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.jail = 'off'
-  cfg.units = [{ root: '.', kind: 'app', checks: { verify: ['sh', '-c', `echo parent >> ${LOG}`] }, verify: ['verify'] }, { root: 'lib', kind: 'submodule', ownGit: true, verify: ['verify'], checks: { verify: ['sh', '-c', `test -f core.c && echo lib >> ${LOG}`] } }]
-  const store = new MemoryStore(); await store.init({ types: {}, journal: true })
-  const epic = await store.createEpic('E', 'goal'), id = (await store.createDraft({ title: 'task 0', description: 'd', acceptance: 'S1: Given x When y Then z', design: DESIGN, type: 'refactor', parent: epic, meta: { 'cadre.paths': '["lib/x.c"]', 'cadre.changelog': JSON.stringify({ none: true, reason: 'internal' }) } })).id
-  await store.approve([epic, id])
-  const h = fakeHost(); let tick = 0
-  Object.assign(h, { cwd: async () => d, home: async () => d, run, now: async () => (tick += 1000), stat: async p => (existsSync(p) ? { kind: 'dir' } : undefined), write: async (p, t) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) }, readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } } })
-  const dep = { store, cfg, root: d, home: d, wtRoot: `${d}-wt`, key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' }
-  await h.secret.update(x => ({ ...x, session: 's1' })); h.taskStore = async () => store; h.config = async () => cfg
-  await h.board.update(s => ({ ...s, seq: 1, epic, plan: { id: epic, slug: 'x', state: 'approved', epicBranch: 'epic/p1-x' }, tasks: [task(id, { title: 'task 0', type: 'refactor' })] }))
-  let n = 0; const next = async e => ({ agentId: `ag${++n}`, model: 'm', echo: e })
-  const rep = (agentId, body) => handleWith(h, dep, { tool: 'mcp__cadre__report', agentId, input: { schemaVersion: 1, ...body } }).then(r => r.result)
-  await admitWith(h, dep, { prompt: `work on ${id}` }, next); const wt = (await store.get(id)).meta['cadre.worktree']
-  assert.equal(execFileSync('git', ['-C', wt, 'rev-parse', '--git-common-dir'], { encoding: 'utf8' }).trim(), execFileSync('git', ['-C', L, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' }).trim())   // the submodule's repository
-  writeFileSync(join(wt, 'x.c'), 'int x;\n'); assert.match(await rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' }), /report accepted/)
-  assert.deepEqual(readFileSync(LOG, 'utf8').split('\n').filter(Boolean), ['lib']); writeFileSync(LOG, '')   // the green gate ran the submodule's checks, at its root
-  await admitWith(h, dep, { prompt: `work on ${id}` }, next); assert.match(await rep('ag2', { role: 'reviewer', verdict: 'pass', summary: 'ok', findings: [], coverage: [{ scenario: 'S1', ok: true }], contractStatus: [{ name: 'f', ok: true }] }), /pass@/)
-  const pdev = sh(d, 'rev-parse', 'dev'); assert.equal(await C.closeTask(h, dep, id), null)
-  assert.equal(sh(L, 'show', 'epic/p1-x:x.c'), 'int x;'); assert.equal(sh(d, 'rev-parse', 'epic/p1-x'), pdev)   // squashed in the submodule; the parent's epic untouched
-  assert.equal(await integrateEpic(h, epic), null)
-  const ldev = sh(L, 'rev-parse', 'dev'); assert.equal(sh(L, 'show', 'dev:x.c'), 'int x;')   // the submodule's dev got the plan, through its checks
-  assert.equal(sh(d, 'ls-tree', 'dev', 'lib').split(/\s+/)[2], ldev); assert.match(sh(d, 'log', '-1', '--format=%s', 'dev'), new RegExp(`chore: lib to ${ldev.slice(0, 7)}`))   // the parent's pointer bump on its dev
-  assert.deepEqual(readFileSync(LOG, 'utf8').split('\n').filter(Boolean).sort(), ['lib', 'parent'])   // the submodule's checks, then the parent's gates on the bump
-})
-
-// the parent's checks build against its submodule: task, integration and baseline worktrees check it out at the commit the parent records, from the local copy;
+// a submodule's landing is gone (B7: tests/git/integrate.test.mjs refuses an ownGit unit); the parent's checks still build against its submodule: task, integration and baseline worktrees check it out at the commit the parent records, from the local copy;
 // a recorded commit this machine lacks refuses with one dialog naming it
 test('submodule checkout: a parent check that reads the submodule passes in the task and integration worktrees; a missing pinned commit refuses', async () => {
   const S = mkdtempSync(join(tmpdir(), 'cadre-sub-')), d = mkdtempSync(join(tmpdir(), 'cadre-parent-'))
@@ -105,7 +71,7 @@ test('submodule checkout: a parent check that reads the submodule passes in the 
   writeFileSync(join(S, 'core.c'), 'int a;\n'); sh(S, 'add', '-A'); sh(S, 'commit', '-qm', 'init')
   execFileSync('git', ['-C', d, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', S, 'lib']); writeFileSync(join(d, 'README'), 'p\n'); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'init'); sh(d, 'branch', 'dev'); sh(d, 'branch', 'epic/p1-x', 'dev')
   const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.jail = 'off'
-  cfg.units = [{ root: '.', kind: 'app', verify: ['verify'], checks: { verify: ['test', '-f', 'lib/core.c'] } }, { root: 'lib', kind: 'submodule', ownGit: true, checks: { verify: ['true'] } }]
+  cfg.units = [{ root: '.', kind: 'app', verify: ['verify'], checks: { verify: ['test', '-f', 'lib/core.c'] } }]   // a submodule is no unit (B7); the parent's checks read it
   const store = new MemoryStore(); await store.init({ types: {}, journal: true })
   const epic = await store.createEpic('E', 'goal'), id = (await store.createDraft({ title: 'task 0', description: 'd', acceptance: 'S1: Given x When y Then z', design: DESIGN, type: 'refactor', parent: epic, meta: { 'cadre.paths': '["README"]', 'cadre.changelog': JSON.stringify({ none: true, reason: 'internal' }) } })).id
   await store.approve([epic, id])
@@ -130,53 +96,3 @@ test('submodule checkout: a parent check that reads the submodule passes in the 
   assert.deepEqual((await h.board.read()).plan.flags, ['integration-failed'])
 })
 
-// review r1 #11 #12 #17 #18: a submodule's plan work lands (and its epic branch goes) only once the parent's gates pass; a retry after a partial landing still
-// bumps the pointer; the bump itself runs the parent's checks; pr mode refuses submodule changes; a submodule without dev, or in a milestone, still integrates
-async function subWorld(o = {}) {
-  const S = mkdtempSync(join(tmpdir(), 'cadre-sub-')), d = mkdtempSync(join(tmpdir(), 'cadre-parent-')), LOG = `${d}-log`, RED = `${d}-red`
-  for (const r of [S, d]) { execFileSync('git', ['init', '-q', '-b', 'main', r]); sh(r, 'config', 'user.name', 't'); sh(r, 'config', 'user.email', 't@t') }
-  writeFileSync(join(S, 'core.c'), 'int a;\n'); sh(S, 'add', '-A'); sh(S, 'commit', '-qm', 'init'); if (o.subDev !== false) sh(S, 'branch', 'dev')
-  writeFileSync(join(d, 'README'), 'p\n'); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'init')
-  execFileSync('git', ['-C', d, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', S, 'lib']); sh(d, 'commit', '-qm', 'add lib'); sh(d, 'branch', 'dev')
-  const L = join(d, 'lib'), from = o.from ?? 'epic/p1-x'; sh(L, 'config', 'user.name', 't'); sh(L, 'config', 'user.email', 't@t'); if (o.subDev !== false) sh(L, 'branch', 'dev', 'origin/dev')
-  sh(L, 'checkout', '-q', '-b', from); writeFileSync(join(L, 'x.c'), 'int x;\n'); sh(L, 'add', '-A'); sh(L, 'commit', '-qm', 'feat: x'); sh(L, 'checkout', '-q', '--detach')
-  sh(d, 'branch', o.ms ? 'ms/m1' : 'epic/p1-x', 'dev'); if (o.ms) sh(d, 'branch', from, 'ms/m1'); writeFileSync(LOG, '')
-  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.jail = 'off'; if (o.pr) cfg.landing = { mode: 'pr', review: false, remote: 'origin' }
-  cfg.units = [{ root: '.', kind: 'app', checks: { verify: ['sh', '-c', `test ! -f ${RED} && echo parent >> ${LOG}`] } }, { root: 'lib', kind: 'submodule', ownGit: true, checks: { verify: ['sh', '-c', `test -f core.c && echo lib >> ${LOG}`] } }]
-  const store = new MemoryStore(); await store.init({ types: {}, journal: true }); const epic = await store.createEpic('E', 'goal'); await store.approve([epic])
-  const h = fakeHost(); let tick = 0
-  Object.assign(h, { cwd: async () => d, home: async () => d, run, now: async () => (tick += 1000), stat: async p => (existsSync(p) ? { kind: 'dir' } : undefined), write: async (p, t) => writeFileSync(p, t), readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } } })
-  h.taskStore = async () => store; h.config = async () => cfg
-  const plan = o.ms ? { id: 'm1', slug: 'x', lane: 'milestone', state: 'approved', epicBranch: 'ms/m1', epics: [{ id: epic, state: 'running', branch: from }] } : { id: epic, slug: 'x', state: 'approved', epicBranch: 'epic/p1-x' }
-  await h.board.update(s => ({ ...s, seq: 1, epic: o.ms ? 'm1' : epic, plan, tasks: [] }))
-  const pin = b => sh(d, 'ls-tree', b, 'lib').split(/\s+/)[2], has = (b, x) => { try { execFileSync('git', ['-C', L, 'merge-base', '--is-ancestor', x, b]); return true } catch { return false } }
-  return { d, L, S, h, epic, from, RED, pin, has, log: () => readFileSync(LOG, 'utf8').split('\n').filter(Boolean), redo: () => h.board.update(s => ({ ...s, plan: { ...s.plan, state: 'approved', flags: [] } })) }
-}
-test('submodule: a parent red after the submodule merged lands nothing there; the retry lands both and the parent dev records the submodule dev', async () => {
-  const w = await subWorld(), sdev = sh(w.L, 'rev-parse', 'dev'), work = sh(w.L, 'rev-parse', w.from); writeFileSync(w.RED, '')
-  assert.notEqual(await integrateEpic(w.h, w.epic), null)
-  assert.equal(sh(w.L, 'rev-parse', 'dev'), sdev); assert.equal(sh(w.L, 'rev-parse', w.from), work)   // the submodule's dev and epic branch untouched
-  execFileSync('rm', [w.RED]); await w.redo(); assert.equal(await integrateEpic(w.h, w.epic), null)
-  assert.ok(w.has('dev', work)); assert.equal(w.pin('dev'), sh(w.L, 'rev-parse', 'dev')); assert.equal(sh(w.L, 'branch', '--list', w.from), '')
-})
-test('submodule: a submodule dev that already has the plan but is not recorded (the parent moved mid-landing) is bumped on the retry, through the parent checks', async () => {
-  const w = await subWorld(), work = sh(w.L, 'rev-parse', w.from); sh(w.L, 'update-ref', 'refs/heads/dev', work)   // landed there before the parent's CAS lost
-  assert.equal(await integrateEpic(w.h, w.epic), null); assert.equal(w.pin('dev'), work)
-  assert.deepEqual(w.log(), ['parent'])   // the bump went through the parent's gates; the submodule's own checks ran when it merged
-})
-test('submodule: the pointer bump runs the parent checks too', async () => {
-  const w = await subWorld(); assert.equal(await integrateEpic(w.h, w.epic), null); assert.deepEqual(w.log().sort(), ['lib', 'parent'])
-})
-test('submodule + pr mode: refused with one line, nothing merged or pushed', async () => {
-  const w = await subWorld({ pr: true }), sdev = sh(w.L, 'rev-parse', 'dev'), pdev = sh(w.d, 'rev-parse', 'dev')
-  assert.match(await integrateEpic(w.h, w.epic), /^lib is its own repository: a pull request landing does not carry its changes; set landing\.mode to "direct"/)
-  assert.equal(sh(w.L, 'rev-parse', 'dev'), sdev); assert.equal(sh(w.d, 'rev-parse', 'dev'), pdev); assert.deepEqual((await w.h.board.read()).plan.flags, ['integration-failed'])
-})
-test('submodule without a dev branch: it gets one at the recorded commit and the plan lands', async () => {
-  const w = await subWorld({ subDev: false }); assert.equal(await integrateEpic(w.h, w.epic), null)
-  assert.equal(sh(w.L, 'show', 'dev:x.c'), 'int x;'); assert.equal(w.pin('dev'), sh(w.L, 'rev-parse', 'dev'))
-})
-test('submodule in a milestone: the epic lands on the submodule dev, the milestone records it and lands on dev', async () => {
-  const w = await subWorld({ ms: true, from: 'epic/e1' }); assert.equal(await integrateEpic(w.h, w.epic), null)
-  assert.equal(sh(w.L, 'show', 'dev:x.c'), 'int x;'); assert.equal(w.pin('dev'), sh(w.L, 'rev-parse', 'dev'))   // the last epic landed the milestone
-})

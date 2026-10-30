@@ -6,7 +6,7 @@ const words = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 // ≤ 24 chars, cut at a word boundary (a single longer word is cut hard)
 export const slug = (title: string): string => { const w = words(title); if (w.length <= 24) return w || 'task'; const c = w.slice(0, 25), i = c.lastIndexOf('-'); return i > 0 ? c.slice(0, i) : w.slice(0, 24) }
 export const slug32 = (title: string): string => words(title).slice(0, 32) || 'task'   // names before 0.9.1: still used when such a branch exists
-export const taskBranch = (commitType: string, id: string, title: string) => `${commitType}/${id}-${slug(title)}`
+export const taskBranch = (prefix: string, id: string, title: string) => `${prefix}${id}-${slug(title)}`   // prefix: the type's plain `branch` string (feat/)
 export const epicBranch = (prefix: string, id: string, title: string) => `${prefix}${id}-${slug(title)}`
 // the configured worktree root, else ${XDG_CACHE_HOME:-$HOME/.cache}/cadre/wt (the one default; config/defaults documents it)
 export const wtRootOf = async (h: Host, cfg: { worktrees: { root: string } }): Promise<string> => cfg.worktrees.root || `${(await h.env()).XDG_CACHE_HOME || `${await h.home()}/.cache`}/cadre/wt`
@@ -75,12 +75,3 @@ export async function move(h: Host, b: string, next: string, old: string): Promi
   if (!pend) await git(h.run, root, ['update-ref', baseRef(b), old])
   return true
 }
-// Version from our own commit headers (3.9): `!` -> major (0.x -> minor), feat -> minor, else patch; no tag -> 0.1.0.
-export function inferVersion(lastTag: string | null, subjects: readonly string[]): string {
-  if (!lastTag) return '0.1.0'
-  const [a, b, c] = lastTag.replace(/^v/, '').split('.').map(Number)
-  const brk = subjects.some(s => /^\w+(\([^)]*\))?!:/.test(s)), feat = subjects.some(s => /^feat(\(|:|!)/.test(s))
-  if (brk) return a === 0 ? `0.${b + 1}.0` : `${a + 1}.0.0`
-  return feat ? `${a}.${b + 1}.0` : `${a}.${b}.${c + 1}`
-}
-export const lastTag = async (h: Host): Promise<string | null> => (await git(h.run, await h.cwd(), ['tag', '--list', 'v*', '--sort=-v:refname'])).split('\n')[0] || null

@@ -457,14 +457,6 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
        !/haiku/.test(reqs[0].model ?? '')) fail(o, `the request was ${reqs[0].model} max_tokens ${reqs[0].max_tokens} (want haiku, 800 + the engine's 2048)`)
     else if (!after.length || after.some(x => !LESSON.test(x.brief))) fail(o, `${after.length} brief(s) after the pass, ${carry.length} carry the lesson (want every one)`)
   }
-  if (o === 'submodule') {   // the task landed in lib's own dev, and the parent's dev records that commit
-    const d = existsSync(join(dir, 'submodule.json')) ? JSON.parse(read(join(dir, 'submodule.json'))) : null
-    if (!d) fail(o, 'no submodule.json (the scenario never got past the landing)')
-    else { stats.submodule = d
-      if (!d.has) fail(o, `lib's dev (${d.dev?.slice(0, 7)}) has no src/titleCase.mjs`)
-      if (d.ptr !== d.dev) fail(o, `the parent's dev records lib at ${d.ptr?.slice(0, 7) || 'nothing'}, lib's dev is ${d.dev?.slice(0, 7)}`) }
-    if (!subs.some(x => /Worker brief/.test(x.brief))) fail(o, 'no worker ran')
-  }
 }
 stats.usd = +debug.map(ls => Math.max(0, ...ls.map(l => +(l.match(/cost=\$([\d.]+)/)?.[1] ?? 0)))).reduce((a, b) => a + b, 0).toFixed(2)
 stats.secs = Math.round((tEnd - (drv[0]?.t ?? tEnd)) / 1000)

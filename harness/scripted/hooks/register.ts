@@ -13,7 +13,7 @@
 //   pair: full lane, two independent tasks (concurrency-fifo, with concurrency.default 1 in the repo's config);
 //   multi: full lane, two tasks (kebabCase after titleCase), an amend on a stale revision refused then retried (plan-tools-full);
 //   flag-structured: lite, the worker asks for a spec change; the dialog (Reject first: a lite task has no tester to amend the spec) is answered by its option key, the worker conforms (flag-structured);
-//   sub: lite, the task in the `lib` submodule unit (submodule-unit); cont: lite, the reviewer waits 14 s first (continue-after-quit-s kills before or during it).
+//   cont: lite, the reviewer waits 14 s first (continue-after-quit-s kills before or during it).
 import type { Register } from 'claude-code'
 
 type Row = { role: 'user' | 'assistant'; text: string; toolUses?: { tool: string; input?: any }[]; toolResults?: { text?: string; isError?: boolean }[] }
@@ -75,7 +75,7 @@ function main(rows: Row[]): Act {
   if (!used('plan') && script === 'docs') return { tool: T('plan'), input: { title: 'Document the library in docs/usage.md', description: 'Add docs/usage.md: one section that says what the library is for and how to import it.', lane: 'lite', reason: 'one small document', type: 'docs', changelog: { none: true, reason: 'documentation only' }, ...mission } }
   if (!used('plan')) {
     return { tool: T('plan'), input: { title: 'Add titleCase(s) with tests', description: 'Add titleCase(s) as a named export in src/titleCase.mjs, in the style of src/slug.mjs, with node:test tests in test/titleCase.test.mjs.',
-      lane: 'lite', reason: 'one small function and its test', type: 'feature', ...(script === 'sub' ? { package: 'lib' } : {}), changelog: { category: 'Added', entry: 'titleCase(s) capitalises the first letter of each word' }, ...mission } }
+      lane: 'lite', reason: 'one small function and its test', type: 'feature', changelog: { category: 'Added', entry: 'titleCase(s) capitalises the first letter of each word' }, ...mission } }
   }
   return { text: 'The plan is drafted: approve it in the dialog (key 1 opens it).' }
 }

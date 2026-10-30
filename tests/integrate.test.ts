@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { fakeHost, task } from './support'
 import { integrateEpic, releaseDev } from '../core/integrate'
-import { inferVersion } from '../core/branches'
 import { ROUTES } from '../core/dispatch'
 
 const plan = (state: string, flags?: string[]) => ({ id: 'p3', slug: 'a', state, epicBranch: 'epic/p3-a', ...(flags ? { flags } : {}) }) as any
@@ -25,12 +24,5 @@ describe('integration gates (3.9; git runs in tests/git/integrate.test.mjs)', ()
     expect(await releaseDev(await world(), '1.0')).toContain('expected x.y.z')
     expect(await releaseDev(await world('approved', [task('m-2', { state: 'done', flags: ['drift'] })]))).toContain('flag drift is open')
     expect(typeof ROUTES.release).toBe('function')
-  })
-  test('version inference table', () => {
-    const t: [string | null, string[], string][] = [
-      [null, ['feat: x'], '0.1.0'], ['v1.2.3', ['fix: a', 'docs: b'], '1.2.4'], ['v1.2.3', ['fix: a', 'feat(ui): b'], '1.3.0'],
-      ['v1.2.3', ['feat!: a'], '2.0.0'], ['v1.2.3', ['fix(api)!: a', 'feat: b'], '2.0.0'], ['v0.4.1', ['feat!: a'], '0.5.0'], ['v0.4.1', ['refactor: a'], '0.4.2'], ['v0.4.1', ['feature: a'], '0.4.2'],
-    ]
-    for (const [tag, s, want] of t) expect(inferVersion(tag, s)).toBe(want)
   })
 })
