@@ -8,7 +8,7 @@ import { fakeHost } from './support'
 import { SAY, leaks, modelText } from '../core/say'
 import { buildView } from '../core/specview'
 import { brief } from '../core/briefs'
-import { NUDGE } from '../core/close'
+import { ROLES_DEFAULT } from '../core/roles'
 import { NUDGE as ASK_NUDGE, askCard, askTask } from '../core/asks'
 import { noReportCard } from '../core/render'
 import { reportRefusal } from '../core/validate'
@@ -50,7 +50,7 @@ describe('what agents read', () => {
       testPaths: ['test/**'], locked: ['test/page.test.mjs'], redCard: 'red ✓ 1 failing', greenCard: 'green ✓', deps: [{ id: 'p-1.0', title: 'Base', out: 'done' }], findings: ['F1 name the edge'], decisions: ['keep the API'],
       handoff: 'pick up at green', others: ['p-1.2'], protectedPaths: ['CHANGELOG.md'], sourceCommit: 'abc1234', diffStat: '1 file', diff: '-a\n+b', audit: '0 outside', report: 'done', changelog: 'Fixed: page offset', flags: ['rework:1/2'], question: 'what does page do?' }
     for (const r of ['tester', 'worker', 'reviewer', 'explorer'] as const) expect([r, bannedFor('agent-brief', brief(r, b))]).toEqual([r, []])
-    expect(bannedFor('nudge', ...Object.values(NUDGE), ASK_NUDGE)).toEqual([])
+    expect(bannedFor('nudge', ...['worker', 'tester', 'reviewer', 'explorer'].map(r => (ROLES_DEFAULT as any)[r].nudge), ASK_NUDGE)).toEqual([])
     expect(bannedFor('card', noReportCard({ id: 'p-1.1', title: 'T' }, 'worker', 'worker'), askCard({ id: 'ask-1', q: 'what?', k: 0 } as any), askCard({ id: 'ask-1', q: 'what?', answer: 'x', auto: true, k: 2 } as any))).toEqual([])
     expect(bannedFor('taskget', askTask({ id: 'ask-1', q: 'what?', answer: 'x', auto: true } as any))).toEqual([])
   })

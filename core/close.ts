@@ -1,6 +1,7 @@
 // report -> review -> verdict -> close (DESIGN 3.4, 3.8, 6.3). Slot #2 `observe`; `report` is called by tools/index; LIFECYCLE + ROUTES.resolve register at load.
 // Every function takes explicit Deps (admission.resolveDeps in the slots) so tests drive them with a MemoryStore and a scripted run.
-import { NUDGE as ASK_NUDGE, askOf, askStopped } from './asks'
+import { askOf, askStopped } from './asks'
+import { roleSpec } from './roles'
 import type { Binding, Hook, Host, SnapTask } from '../types'
 import type { Task } from '../task-management/store'
 import { pipeOf } from '../task-management/registry'
@@ -36,7 +37,9 @@ export const reportMeta = (r: any) => JSON.stringify({ summary: String(r.summary
 export const reportOf = (m?: string): { summary?: string } => { try { return m ? JSON.parse(m) : {} } catch { return { summary: m?.slice(0, 800) } } }   // reports stored by older versions may be cut mid-string
 
 
-export const NUDGE: Record<string, string> = { worker: 'You stopped without calling report; a hand-back message is not a report. Call the report tool now: {"schemaVersion":1,"role":"worker","outcome":"done","summary":"…"} (or outcome "blocked" with reason).', tester: 'You stopped without calling report; a hand-back message is not a report. Call the report tool now with role "tester", outcome "done", summary and tests.', reviewer: 'You stopped without calling report; a hand-back message is not a report. Call the report tool now with role "reviewer", verdict, summary, findings, coverage and contractStatus.', explorer: ASK_NUDGE }
+// a role that retries is never accepted without its result (RoleSpec.onSilent 'retry', the reviewer): its ended run gives the task back, main starts a fresh one
+const retries = (role?: string) => roleSpec(role ?? '')?.onSilent === 'retry'
+const giveBack = async (h: Host, id: string, agentId: string, cause: 'stopped' | 'stalled' = 'stopped') => { await patch(h, id, x => ({ ...x, owner: undefined })); return end(h, agentId, cause, 'released') }
 const num = (v?: string) => Number(v ?? 0) || 0
 const sha7 = (s: string) => s.slice(0, 7)
 
@@ -253,23 +256,28 @@ export async function stopped(h: Host, d: Deps, e: any): Promise<void> {
   if (b && (await runOf(h, e.agentId))?.state?.state === 'waiting') return   // a parked run (a decision, a rework, a need): no nudge, charge or card
   if (b?.role === 'planner') return planStopped(h, d, e)   // an epic's planner (core/planner)
   if (b && t && (await runOf(h, e.agentId))?.exit) { await end(h, e.agentId, 'loop', 'blocked'); return blockTask(h, d, t, `its agent made the same call ${REPEAT} times in a row`, 'loop', {}) }   // the breaker spent it (exit rule 4): one dialog
-  const moved = !!b && !!t && !(t.step === b.step && STEP_CAT[b.step] === t.state)
-  if (moved && !(b.role === 'worker' && t.state === 'blocked' && t.step === b.step) && ['running', 'refused', 'silent'].includes((await runOf(h, e.agentId))?.state?.state ?? '')) { if (b.role === 'reviewer') await patch(h, t.id, x => ({ ...x, owner: undefined })); return void (await end(h, e.agentId, 'stopped', t.state === 'blocked' ? 'blocked' : 'released')) }   // its turn ended on a task that waits for the user (a tester's malformed reports) or that is at another step: the run is dead, and left `running` it holds the idle fallback off for every other task; a worker blocked at its own step stays bound (the answer resumes it)
-  if (!b || !t || moved) return   // no binding, or it reported/moved on
+  if (b && t) return endedRun(h, d, t, b, e)
+}
+// A work role's run ended (its turn.complete or stop) with the task still at its step. What it means follows the role's spec (plan 2.4): `onSilent` nudge = nudge, then block; retry = nudge,
+// then give the task back with no flag and no charge (a verdict is never invented); block = no nudge, block at once.
+async function endedRun(h: Host, d: Deps, t: SnapTask, b: Binding, e: any): Promise<void> {
+  const sp = roleSpec(b.role), moved = !(t.step === b.step && STEP_CAT[b.step] === t.state)
+  if (moved && !(sp?.report.outcomes.includes('blocked') && t.state === 'blocked' && t.step === b.step) && ['running', 'refused', 'silent'].includes((await runOf(h, e.agentId))?.state?.state ?? '')) { if (retries(b.role)) await patch(h, t.id, x => ({ ...x, owner: undefined })); return void (await end(h, e.agentId, 'stopped', t.state === 'blocked' ? 'blocked' : 'released')) }   // its turn ended on a task that waits for the user (a tester's malformed reports) or that is at another step: the run is dead, and left `running` it holds the idle fallback off for every other task; a role that may ask a question stays bound at its own step (the answer resumes it)
+  if (moved) return   // it reported/moved on
   if (e.reason === 'answer') {
     const run = await runOf(h, e.agentId), k = run?.state?.state === 'silent' ? run.state.n : 0, stag = (run?.stag ?? 0) >= d.cfg.limits.stagnantNudges   // this run's nudges so far · nudged that often with no tool call between
-    if (!stag && k < d.cfg.limits.nudges) {
-      await step(h, e.agentId, { type: 'turn.end', text: NUDGE[b.role] }); await charge(h, t.id, 'nudges')
+    if (sp?.onSilent !== 'block' && !stag && k < d.cfg.limits.nudges) {
+      await step(h, e.agentId, { type: 'turn.end', text: sp?.nudge ?? '' }); await charge(h, t.id, 'nudges')
       await patch(h, t.id, x => ({ ...x, card: noReportCard(x, b.role, b.step) }))   // (wrap builds the same card for the Agent result, which returns before this stop is observed)
       return
     }
-    if (b.role === 'reviewer') { await patch(h, t.id, x => ({ ...x, owner: undefined })); return end(h, e.agentId, 'stopped', 'released') }   // a verdict is never invented; main spawns a fresh reviewer
+    if (retries(b.role)) return giveBack(h, t.id, e.agentId)
     if (b.worktree) await checkpoint(h, d.store, d.actor, t.id, b.worktree).catch(() => {})   // its edits are kept for whoever goes on, never accepted as its result
     await end(h, e.agentId, 'stopped', 'blocked')   // it ends (exit rule 1): the stop itself is never refused
     return blockTask(h, d, t, stag ? `its ${b.role} stopped ${run!.stag} times in a row without a report or a tool call; nothing it did was accepted as a result` : `its ${b.role} ended without a report; nothing it did was accepted as a result`, stag ? 'stagnant' : 'no-report', {})
   }
-  if (await limited(h, e)) { await end(h, e.agentId, 'stopped', 'released'); if (b.role === 'reviewer') return patch(h, t.id, x => ({ ...x, owner: undefined })); await apply(h, { kind: 'release', id: t.id, at: await h.now(), actor: 'mod' }, pipe(d)); return void (await d.store.release(t.id, d.actor, 'usage limit')) }   // not an attempt: the drive waits for the reset
-  if (b.role === 'reviewer') { await patch(h, t.id, x => ({ ...x, owner: undefined })); return end(h, e.agentId, 'stopped', 'released') }
+  if (await limited(h, e)) { if (retries(b.role)) return giveBack(h, t.id, e.agentId); await end(h, e.agentId, 'stopped', 'released'); await apply(h, { kind: 'release', id: t.id, at: await h.now(), actor: 'mod' }, pipe(d)); return void (await d.store.release(t.id, d.actor, 'usage limit')) }   // not an attempt: the drive waits for the reset
+  if (retries(b.role)) return giveBack(h, t.id, e.agentId)
   await release(h, d, t, b, e.agentId, String(e.reason ?? 'stopped'))
 }
 // the 5 s tick: the stall timers (ADR 0024 B2). first: no model request and no tool call since its start (lifecycle.firstOutputSec, 240 s: a slow first answer on a loaded host is not a failed start); stale: no activity for lifecycle.staleMin (the run is cancelled and its task blocks, never replaced by itself);
@@ -291,7 +299,7 @@ async function stallPass(h: Host, me: string): Promise<void> {
     if (!kind) continue
     if (b.worktree) await checkpoint(h, d.store, d.actor, t.id, b.worktree).catch(() => {})
     if (kind === 'stale') await end(h, a, 'stalled', 'cancelled')
-    else if (b.role === 'reviewer') { await patch(h, t.id, x => ({ ...x, owner: undefined })); await end(h, a, 'stalled', 'released') }   // a verdict is never invented; main spawns a fresh reviewer
+    else if (retries(b.role)) await giveBack(h, t.id, a, 'stalled')   // a verdict is never invented; main spawns a fresh one
     else await release(h, d, t, b, a, `stalled (${kind})`)
     if (kind !== 'gone') await h.stopAgent?.(a).catch(() => {})
     if (kind === 'stale') await blockTask(h, d, t, `its ${b.role} did nothing for ${d.cfg.lifecycle.staleMin} minutes and was stopped`, 'stale', {})
@@ -415,7 +423,7 @@ async function unblock(h: Host, d: Deps, id: string, text: string, flag: string,
   const bind = await h.bind.read(), at = (await h.board.read()).tasks.find(x => x.id === id)?.step, w0 = ownerOf(bind, id, 'worker'), w = w0 && bind[w0].step === at ? w0 : undefined   // the worker goes on only at its own step: a block that came from the tester or reviewer step is answered by a fresh agent of that role (a resumed worker has nothing to report there, and its run would stay bound for good)
   if (w) await step(h, w, { type: 'resume', text })
   for (const x of agentsOf(bind, id)) if (x !== w && !x.startsWith('~') && ['running', 'refused', 'silent'].includes((await runOf(h, x))?.state?.state ?? '')) await end(h, x, 'retry', 'retry')   // a task waits for the user only after its agent's turn ended (a tester's malformed reports): a run still `running` is dead, and would hold its role and the idle fallback (core/drive.idle) off for good
-  if (at === 'reviewer') await patch(h, id, x => ({ ...x, owner: undefined }))   // the reviewer launch set the owner and its ended run cannot clear it: without this the task would never list as spawnable
+  if (retries(at)) await patch(h, id, x => ({ ...x, owner: undefined }))   // the reviewer launch set the owner and its ended run cannot clear it: without this the task would never list as spawnable
   return null
 }
 const wrapL = (f: (h: Host, d: Deps, id: string, e: any) => Promise<string | null>) => async (h: Host, id: string, e: any) => f(h, await resolveDeps(h), id, e)

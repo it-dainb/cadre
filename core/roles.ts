@@ -6,7 +6,7 @@ import { roles as defaultRoles } from '../profiles/default'
 import { PROMPTS } from '../agents/prompts'
 import { leaks, modelText } from './say'
 
-export type RoleSpec = Pick<ProfileRole, 'description' | 'prompt' | 'tools' | 'write' | 'ttl' | 'mcpAllow' | 'effort' | 'disallowedTools' | 'maxTurns'>
+export type RoleSpec = Pick<ProfileRole, 'description' | 'prompt' | 'tools' | 'write' | 'ttl' | 'nudge' | 'mcpAllow' | 'effort' | 'disallowedTools' | 'maxTurns'>
 const R = 'mcp__cadre__report', C = 'mcp__cadre__run_check', I = 'mcp__cadre__inspect'
 // write: globs under the role's tree; [] = read-only. The tester's tree is its view; fence() subtracts the PROTECTED paths it already refuses (git.PROTECTED) after this match.
 export const ROLES_DEFAULT: Record<Role, RoleSpec> = {
