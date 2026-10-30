@@ -35,7 +35,8 @@ switch (req.method) {
       if (t.note) (cur.comments ??= []).push(t.note)
       st.tasks[rid] = cur; results.push({ localId: t.localId, rid, etag: cur.etag, rUpdated: cur.seq })
     }
-    save(); ok({ results }); break
+    save(); if (st.slow) await new Promise(r => setTimeout(r, st.slow))   // a slow tracker (a test of the module's deadline and wall), after the write
+    ok({ results }); break
   }
   case 'pull': {
     const since = Number(p.since ?? 0)

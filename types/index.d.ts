@@ -126,7 +126,6 @@ export interface Host {
   write(path: string, text: string): Promise<void>     // $.fs.write (creates dirs); mod-owned files only, after human confirmation (CC-16)
   cwd(): Promise<string>; home(): Promise<string>      // session cwd (repo root) · $HOME
   ops?: UiOps                                          // ui/ side effects (render, toast, notify, prefill, timers); built by host($), absent in plain test hosts
-  spawn?(a: { argv: readonly string[]; input: string; timeoutMs?: number }): Promise<{ exitCode: number | null; stdout: string; stderr: string }>   // $.process.spawn one-shot: stdin = input then closed, output collected (task-management/protocol)
   theme?(): Promise<'light' | 'dark' | 'unknown'>         // $.config.list() row `theme` (the Raster palette); unknown when absent
   version?(): Promise<string>                           // $.session.version().version: the running Claude Code build (commands/doctor)
   taskStore?(): Promise<any>; config?(): Promise<any>   // the TaskStore (a core/dispatch storeOf) and resolved Config; register.ts wires them (config falls back to env layer + defaults)

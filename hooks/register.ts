@@ -31,7 +31,7 @@ import { context, attachment } from '../core/briefs'
 import { decide, run } from '../commands/cadre'
 import { nudge, oldLine, setupDue, tooOld } from '../commands/doctor'
 import { pump, resume, turnEnd, seen, ran, stopCheck, redNote, watch, halt } from '../commands/agentrun'
-import { tick } from '../task-management/sync-engine/loop'
+import { syncTick } from '../core/syncrun'
 import { autoAsk, onEvent, renderBand, renderCard, renderPane, tickUi, ack, mapCard, resumeBanner } from '../ui/index'
 import { load } from '../config/index'
 import { wire, repoKeyOf, rootFor } from '../commands/init'
@@ -98,17 +98,6 @@ function host($): Host {
     stat: async (p, o) => { try { return await $.fs.stat(p, { resolve: !!o?.resolve }) } catch { return undefined } },
     run: G.guardedRun(async (argv, init) => $.process.run(argv, { cwd: await h.cwd(), ...init }), () => h.cwd()),   // the repo root by default: in an agent's turn-end frame the session's cwd is the agent's worktree, which a close removes (ADR 0018)
     settings: () => $.settings.read(),
-    spawn: async a => {   // adapter protocol (SA-09): one request, stdin closed after `input`; leaving the loop kills the child
-      const it = $.process.spawn({ argv: [...a.argv], input: a.input })[Symbol.asyncIterator](), dead = new Promise<'t'>(r => { void $.clock.after(a.timeoutMs ?? 30_000, () => r('t')) })
-      let stdout = '', stderr = ''
-      try {
-        for (;;) {
-          const r: any = await Promise.race([it.next(), dead]); if (r === 't') throw new Error('timeout')
-          if (r.done) return { exitCode: r.value?.code ?? null, stdout, stderr }
-          if (r.value.stream === 'stderr') stderr += r.value.text; else stdout += r.value.text
-        }
-      } finally { void it.return?.(undefined) }
-    },
     write: async (p, t) => { await $.fs.write(p, t) },
     cwd: async () => (await read($, secret)).root ?? rootFor(((await $.store.get('cadre:roots')) ?? undefined) as Record<string, string> | undefined, await top($)), home: async () => String((await $.env.get('HOME')) ?? ''),
     ops: {   // ui/ side effects; a press's own work and every timer run through after()
@@ -215,7 +204,7 @@ export const register: Register = (on, opts) => {
     { const h = host($); if (await wake(h).catch(() => false)) { await nudge(h).catch(() => {}); await autoLand(h).catch(x => $.ui.log(`land: ${x}`)) } }   // a landing that waited for the user's checkout   // active repos only: no setup stamp for this Claude Code build -> one toast
     await update($, secret, x => ({ ...x, roles: undefined, turn: 0, start: undefined }))   // a secret that survived a resume holds registers of an earlier engine: register again; a complete start clears an earlier failure
     if (await wake(host($)).catch(() => false)) await roles($).catch(x => $.ui.log(`roles: ${x}`))   // active repos only; a repo turned on later gets them next session
-    $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void watch(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void tick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}); void watchdog(h).catch(() => {}); void h.secret.read().then(s => Promise.all([backstop(h, s.session ?? ''), stalls(h, s.session ?? '').catch(x => h.log(`stalls: ${x}`))])).catch(() => {}); void autoLand(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
+    $.clock.every(5000, () => { const h = host($); void pump(h).catch(() => {}); void watch(h).catch(() => {}); void autoAsk(h).catch(() => {}); void wake(h).then(act => { if (act) { void syncTick(h).catch(() => {}); void heartbeat(h).catch(() => {}); void heal(h).catch(() => {}); void watchdog(h).catch(() => {}); void h.secret.read().then(s => Promise.all([backstop(h, s.session ?? ''), stalls(h, s.session ?? '').catch(x => h.log(`stalls: ${x}`))])).catch(() => {}); void autoLand(h).catch(() => {}) } }).catch(() => {}) })   // timer calls skip all our hooks (G6): queue/heal only
     $.clock.every(30_000, () => { const h = host($); void wake(h).then(act => act && tickUi(h)).catch(() => {}) })   // live timeline cursor (blit, no re-render)
     } catch (x) {   // a step failed (live under load: a session.start HooksError, not reproduced in a test of 8 starts at once): the session goes on, and Doctor says that cadre started only in part
       void $.ui.log(`session start: ${x}`); await update($, secret, s => ({ ...s, old, start: { failed: String(x).slice(0, 160) } })).catch(() => {})
