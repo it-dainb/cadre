@@ -8,7 +8,7 @@ import type { Task, TaskId, TaskStore } from '../../store'
 
 export interface FileHost {
   run(argv: readonly string[], init?: { timeoutMs?: number }): Promise<{ exitCode: number; stdout: string; stderr: string }>
-  write(path: string, text: string): Promise<void>; now(): Promise<number>; rand(bytes?: number): string
+  write(path: string, text: string): Promise<void>; now(): Promise<number>; rand(bytes?: number): string; log?(t: string): void
 }
 type Ev = NonNullable<Awaited<ReturnType<MemoryStore['events']>>>['events'][number]
 type Entry = { s: number; op: string; ret?: unknown; e0: number; ev: Ev[]; docs: Record<string, unknown> }
@@ -34,7 +34,9 @@ for f in "$@"; do rm -f "$d/d/$f"; done; find "$d/tmp" -type f -mmin +30 -exec r
   probe: `mkdir -p "$1/tmp" && t="$1/tmp/probe.$2" && : > "$t" && ln "$t" "$t.l" && s "$t.l"; r=$?; rm -f "$t" "$t.l"; exit $r`,
 }
 const sh = (k: keyof typeof SCRIPTS, ...a: string[]) => ['sh', '-c', `s() { sync "$@" 2>/dev/null || sync; }\n${SCRIPTS[k]}`, '--', ...a]
-const TIMEOUT = 120_000, KEEP = 64, MAX_TAIL = 256, TRIES = 8   // compaction leaves the last KEEP entries (op-id lookups, event cursors) once the tail passes MAX_TAIL
+const TIMEOUT = 120_000, KEEP = 64, MAX_TAIL = 256, TRIES = 8, BYTES = 1 << 20
+// compaction leaves the last KEEP entries (op-id lookups, event cursors) once the tail passes MAX_TAIL entries or BYTES of JSON. A scan prints the whole tail through a host that
+// cuts stdout (4 MiB in Claude Code): a longer tail loses its end marker, every cold scan fails, and a fold (which scans) can never shrink it again. Large docs: keep fewer entries.
 const json = (s: string) => { try { return JSON.parse(s) } catch { return undefined } }
 
 export class FileStore implements TaskStore {
@@ -126,7 +128,7 @@ export class FileStore implements TaskStore {
       const tmp = `${this.dir}/tmp/${this.sid}.${id}.${this.h.rand(4)}`
       await this.h.write(tmp, JSON.stringify({ ...e, s: undefined }))
       const code = await this.h.run(sh('commit', tmp, `${this.dir}/j/${s}`, `${this.dir}/j`, String(s)), { timeoutMs: TIMEOUT }).then(r => r.exitCode, () => -1)
-      if (code === 0) { this.apply(e); if (this.tail.length > MAX_TAIL) await this.fold(KEEP).catch(() => {}); return ret }
+      if (code === 0) { this.apply(e); if (this.tail.length > MAX_TAIL || this.bytes() > BYTES) await this.fold(this.keep()).catch(x => this.h.log?.(`store compaction failed: ${x}`)); return ret }
       if (code === 17 || code === 18) continue                                   // slot taken / slot already folded: re-read the head, redo
       await this.sync(); const late = this.tail.find(x => x.op === id); if (late) return late.ret as T
       this.pending.set(call, id); throw new StoreError('Timeout', 'the store write did not finish: retry the same call')
@@ -134,6 +136,11 @@ export class FileStore implements TaskStore {
     throw new StoreError('Busy', 'the store is busy: retry')
   }
   private read<T>(fn: (m: MemoryStore) => Promise<T>): Promise<T> { return this.serial(() => this.sync().then(() => fn(this.mem))) }
+
+  private sz = new WeakMap<Entry, number>()
+  private size(e: Entry) { let n = this.sz.get(e); if (n === undefined) this.sz.set(e, (n = JSON.stringify(e).length)); return n }
+  private bytes() { return this.tail.reduce((n, e) => n + this.size(e), 0) }
+  private keep() { let n = 0, k = 0; for (let i = this.tail.length - 1; i >= 0 && k < KEEP; i--, k++) if ((n += this.size(this.tail[i])) > BYTES / 2) break; return k }   // newest entries within half the budget, at most KEEP
 
   // fold entries <= head-KEEP: write every doc changed above the old snap (named by its last seq), then the snap marker, then unlink folded entries
   compact(keep = KEEP): Promise<number> { return this.serial(() => this.fold(keep)) }
