@@ -181,7 +181,7 @@ export async function syncAdd(h: Host, name: string, args: string[] = []): Promi
       const res = { state: 'ok', ops, cursor, lastHeal: 0 }, au: Unit = { id: `add:${name}`, kind: 'target', adapter: name, a: cfg.adapters[name], target: name }
       await applySync(h, au, res, true)
       const w = await writeRepoConfig(h, cur => { cur.sync ??= {}; cur.sync[name] = { adapter: name, ...cur.sync[name], ...set }; return cur }); if (!w.ok) return `sync add: ${w.why}`
-      await applySync(h, au, res)
+      if ((await applySync(h, au, res)).stale) return `sync add: a task changed during the confirm, so its part was not written; run /cadre sync add ${name} again`
       st.d = { ...st.d, ...d }; st.n = p.n + 1; delete st.pending; await h.store.set(k, st)
       return st.n > 5 ? (await h.store.del(k), `sync add ${name}: done. Syncing starts on the next tick (/cadre sync now).`) : `sync add ${name}: step ${p.n}/5 done. Next: /cadre sync add ${name}`
     }
