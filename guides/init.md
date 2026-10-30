@@ -25,10 +25,10 @@ Find how this project installs, builds and tests. Read, in this order (CI wins o
 Write the result into `.cadre/config.json` as `"units"` (keep `branches`):
 ```
 "units": [
-  { "root": ".", "setup": ["npm", "ci"], "checks": { "test": ["npm", "test"], "lint": ["npm", "run", "lint"] }, "tdd": { "paths": ["test/**"] } }
+  { "root": ".", "checks": { "setup": ["npm", "ci"], "test": ["npm", "test"], "lint": ["npm", "run", "lint"] }, "tdd": { "paths": ["test/**"] } }
 ]
 ```
-- One entry per unit (a package, service, app or submodule); `setup` is `[]` when there is none.
+- One entry per unit (a package, service or app; a git submodule is no unit); `checks.setup` runs first and is left out when there is none.
 - Pick each unit's `test` argv so it writes JUnit XML to `$CADRE_JUNIT` (`--junitxml=$CADRE_JUNIT`); install a reporter if needed.
 - No tests: write the unit without `checks.test`.
 - Not code (docs, analysis): ask the user whether to use the docs or analysis profile.

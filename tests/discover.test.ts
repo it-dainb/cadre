@@ -22,12 +22,12 @@ describe('discovery (DESIGN 10.2)', () => {
     expect(caches('')).toEqual([])
   })
   test('package list parsing: examples in errors, root escapes and an unknown key such as tdd.report refused', async () => {
-    const ok = [{ root: 'api', setup: ['npm', 'ci'], checks: { test: ['npm', 'test'] }, fetches: ['test'], tdd: { paths: ['t/**'] } }]
+    const ok = [{ root: 'api', checks: { setup: ['npm', 'ci'], test: ['npm', 'test'] }, fetches: ['test'], tdd: { paths: ['t/**'] } }]
     expect(parse(ok)).toEqual(ok)
     const bad = (f: (p: any) => void, why: string) => { const r = JSON.parse(JSON.stringify(ok)); f(r[0]); expect(parse(r)).toContain(why) }
-    bad(p => { p.root = '../x' }, '.root'); bad(p => { p.setup = 'npm ci' }, '.setup'); bad(p => { p.checks = {} }, '.checks')
+    bad(p => { p.root = '../x' }, '.root'); bad(p => { p.setup = ['npm', 'ci'] }, 'moved into checks'); bad(p => { p.ownGit = true }, 'git submodule'); bad(p => { p.checks = {} }, '.checks')
     bad(p => { p.tdd.report = '/tmp/cadre/j.xml' }, 'units[0].tdd.report: unknown key'); bad(p => { p.runner = 'text' }, 'units[0].runner: unknown key'); bad(p => { p.fetches = ['nope'] }, '.fetches')
     expect(parse([])).toContain('units: expected'); expect(parse(undefined)).toContain('e.g.')
-    for (const setup of [[], undefined]) { const r = JSON.parse(JSON.stringify(ok)); if (setup) r[0].setup = setup; else delete r[0].setup; expect((parse(r) as any)[0].setup).toEqual([]) }   // no install step
+    const bare = JSON.parse(JSON.stringify(ok)); delete bare[0].checks.setup; expect(parse(bare)).toEqual(bare)   // no install step
   })
 })

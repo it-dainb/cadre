@@ -6,6 +6,7 @@
 // S4 exception, edited by hand (B9): the resolved config loses review.deepLabels, review.coreTask, review.coreDiff and review.tiers (the planner declares the risk); nothing else differs
 // S2 exception, edited by hand: the tester report's tests[] items are {path,name,ids} (B2: ids replace the scenario string; the schema now names the item fields) and the resolved config loses tdd.collectErrors (B14); nothing else differs
 // S5 exception, edited by hand: the config keys the profile took over (types, tdd, review, lanes, roles.custom, limits.testerRounds) are gone from the resolved config; `profile` and `limits.specAccepts` are new (B16)
+// S6 exception, edited by hand: the config keys the profile took over (changelog, suites, release, landing.mode/review/remote) are gone from the resolved config (B16)
 export default {
  "spec": {
   "base/worker": {
@@ -1006,9 +1007,6 @@ export default {
     "jail": "auto",
     "jailWritable": [],
     "effectCheck": "auto",
-    "changelog": {
-     "path": "CHANGELOG.md"
-    },
     "roles": {
      "testerView": "view",
      "tdd": {
@@ -1170,9 +1168,6 @@ export default {
     },
     "sync": {},
     "units": [],
-    "suites": {
-     "integration": "all"
-    },
     "limits": {
      "reportRetries": 3,
      "shapeRetries": 6,
@@ -1203,14 +1198,6 @@ export default {
      "main": "",
      "dev": "dev",
      "epicPrefix": "epic/"
-    },
-    "release": {
-     "onEpicDone": "propose"
-    },
-    "landing": {
-     "mode": "direct",
-     "review": false,
-     "remote": "origin"
     },
     "ui": {
      "glyphs": "unicode",
@@ -1255,9 +1242,6 @@ export default {
     "jail": "auto",
     "jailWritable": [],
     "effectCheck": "auto",
-    "changelog": {
-     "path": "CHANGELOG.md"
-    },
     "roles": {
      "testerView": "view",
      "tdd": {
@@ -1419,9 +1403,6 @@ export default {
     },
     "sync": {},
     "units": [],
-    "suites": {
-     "integration": "all"
-    },
     "limits": {
      "reportRetries": 3,
      "shapeRetries": 6,
@@ -1452,14 +1433,6 @@ export default {
      "main": "",
      "dev": "dev",
      "epicPrefix": "epic/"
-    },
-    "release": {
-     "onEpicDone": "propose"
-    },
-    "landing": {
-     "mode": "direct",
-     "review": false,
-     "remote": "origin"
     },
     "ui": {
      "glyphs": "unicode",
@@ -1504,9 +1477,6 @@ export default {
     "jail": "auto",
     "jailWritable": [],
     "effectCheck": "auto",
-    "changelog": {
-     "path": "CHANGELOG.md"
-    },
     "roles": {
      "testerView": "view",
      "tdd": {
@@ -1675,9 +1645,6 @@ export default {
       ]
      }
     ],
-    "suites": {
-     "integration": "all"
-    },
     "limits": {
      "reportRetries": 3,
      "shapeRetries": 6,
@@ -1708,14 +1675,6 @@ export default {
      "main": "",
      "dev": "dev",
      "epicPrefix": "epic/"
-    },
-    "release": {
-     "onEpicDone": "propose"
-    },
-    "landing": {
-     "mode": "direct",
-     "review": false,
-     "remote": "origin"
     },
     "ui": {
      "glyphs": "unicode",

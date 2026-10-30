@@ -3,13 +3,13 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { initItems, repoKeyOf, scoped, wire } from '../commands/init'
 import { probeOf } from '../core/gate'
-import { skeleton } from '../core/changelog'
+const skeleton = () => '# Changelog\n\n## [Unreleased]\n'   // a file the init check finds (the format is the changelog hook's to check)
 import { MemoryStore } from '../task-management/adapters/memory/store'
 import { fakeHost } from './support'
 import type { Host } from '../types'
 
 const ROOT = '/repo', HOME = '/hm/u', CFG = `${ROOT}/.cadre/config.json`, GOOD = '<testsuite><testcase name="a"><failure message="m"/></testcase></testsuite>'
-const unit = (checks: Record<string, string[]>) => ({ root: '.', setup: [], checks, tdd: { paths: ['test/**'] } })
+const unit = (checks: Record<string, string[]>) => ({ root: '.', checks, tdd: { paths: ['test/**'] } })
 // `report`: what the test check writes at $CADRE_JUNIT (undefined = an exit-only runner); `red`: inner argvs that exit 1
 function mk(units: unknown[], report?: string, red: string[] = []) {
   const files: Record<string, string> = { [CFG]: JSON.stringify({ branches: { main: 'main', dev: 'dev' }, units }), [`${ROOT}/.git/info/exclude`]: '.cadre/state/\n.claude/settings.local.json\n', [`${ROOT}/CHANGELOG.md`]: skeleton() }, calls: string[][] = []

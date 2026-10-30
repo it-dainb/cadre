@@ -30,7 +30,7 @@ describe('settings rows (scenario: every layer)', () => {
   })
   for (const w of [60, 120]) test(`golden lines at ${w}`, () => {
     const t = frame(w).join('\n'), s = frame(w, rowsOf(settingsScenario).findIndex(r => r.key === 'strictness')).join('\n')
-    expect(frame(w, rowsOf(settingsScenario).findIndex(r => r.key === 'changelog.path')).join('\n')).toContain('changelog.path docs/CHANGES.md repo')
+    expect(frame(w, rowsOf(settingsScenario).findIndex(r => r.key === 'branches.epicPrefix')).join('\n')).toContain('branches.epicPrefix work/ repo')
     expect(t).toContain('concurrency.default 5 user')
     expect(frame(w, rowsOf(settingsScenario).findIndex(r => r.key === 'roles.worker.byRisk.light.model')).join('\n')).toContain('worker.light.model opus user')
     expect(frame(w, rowsOf(settingsScenario).findIndex(r => r.key === 'concurrency.default')).join('\n')).toContain('e: change')

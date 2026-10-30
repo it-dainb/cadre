@@ -48,7 +48,7 @@ const PROBES: Record<string, [unknown, (c: Config) => unknown]> = {
   'notes.slice': [false, c => sliceNotes([{ paths: ['src/a'], text: 'x' }], ['src/a'], c.notes.slice)],
   profile: ['docs', async c => Object.keys((await loadProfile(host(c))).profile.types)],
   'branches.main': ['trunk', c => protectedRef('trunk', c.branches)], 'branches.dev': ['develop', c => protectedRef('dev', c.branches)], 'branches.epicPrefix': ['feat/', c => protectedRef('feat/x', c.branches)],
-  'changelog.path': ['docs/CHANGES.md', c => isProt('docs/CHANGES.md', c.changelog.path)], 'worktrees.root': ['/fast/wt', c => wtRootOf(host(c), c)],
+  'worktrees.root': ['/fast/wt', c => wtRootOf(host(c), c)],
   strictness: ['advisory', c => strictOf(host(c))], mcpAllow: [['mcp__x__y'], async c => (await started(c)).pol.mcpAllow],
   jail: ['on', c => modeOf(host(c), { cfg: c }).catch(e => (e as Error).message)], jailWritable: [['/cache'], c => writableJail({ wt: '/w', scratch: '/s', pkgRoot: '/w', argv: ['true'], writable: c.jailWritable }).join(' ')],
   effectCheck: ['always', async c => (await started(c)).pol.effectCheck],

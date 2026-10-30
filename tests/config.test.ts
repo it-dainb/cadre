@@ -12,8 +12,8 @@ describe('defaults (DESIGN 12)', () => {
     const d = defaults()
     expect([d.strictness, d.mcpAllow, d.jail, d.effectCheck, d.roles.testerView, d.roles.tdd.author]).toEqual(['strict', [], 'auto', 'auto', 'view', 'separate'])
     expect([d.store.kind, d.drive, d.cost.clearHintPct, d.cost.compactPct]).toEqual(['file', { mode: 'auto', spawn: 'mod', maxTurns: 100, maxCostUsd: 20, maxWallMinutes: 240, noProgressTurns: 3 }, 40, 60])
-    expect([d.concurrency.default, d.reuse, d.limits.reportRetries, d.roles.reviewer.byRisk.thorough, d.ui.glyphs, d.branches.dev, d.branches.epicPrefix, d.release.onEpicDone, d.changelog.path])
-      .toEqual([3, { maxContextPct: 60, cacheTtlMs: 3_600_000 }, 3, { model: 'opus', effort: 'high', escalate: { after: 0, model: 'opus', effort: 'high' } }, 'unicode', 'dev', 'epic/', 'propose', 'CHANGELOG.md'])
+    expect([d.concurrency.default, d.reuse, d.limits.reportRetries, d.roles.reviewer.byRisk.thorough, d.ui.glyphs, d.branches.dev, d.branches.epicPrefix, 'release' in d, 'changelog' in d, 'landing' in d, 'suites' in d])
+      .toEqual([3, { maxContextPct: 60, cacheTtlMs: 3_600_000 }, 3, { model: 'opus', effort: 'high', escalate: { after: 0, model: 'opus', effort: 'high' } }, 'unicode', 'dev', 'epic/', false, false, false, false])   // B16: the profile owns them
     expect([d.profile, d.limits.specAccepts, d.limits.rebaseRounds, 'types' in d, 'review' in d, 'tdd' in d, 'lanes' in d, 'custom' in d.roles, 'testerRounds' in d.limits]).toEqual(['default', 2, 2, false, false, false, false, false, false])   // B16: the profile owns them
     expect(d.roles.explorer).toEqual({ model: 'haiku', effort: 'low' })
   })
@@ -28,7 +28,7 @@ describe('classes', () => {
   test('S / U / O by longest prefix', async () => {
     for (const k of ['strictness', 'mcpAllow', 'jail', 'jailWritable', 'effectCheck', 'roles.testerView']) expect(classOf(k)).toBe('S')
     for (const k of ['adapters.pm.command', 'store.kind', 'worktrees.root', 'drive.maxTurns', 'cost.prices', 'disable']) expect(classOf(k)).toBe('U')
-    for (const k of ['changelog.path', 'cost.clearHintPct', 'profile', 'units', 'sync.pm', 'limits.specAccepts', 'concurrency.default', 'ui.glyphs', 'roles.worker.tier', 'roles.tdd.author', 'models.fast']) expect(classOf(k)).toBe('O')
+    for (const k of ['cost.clearHintPct', 'profile', 'units', 'sync.pm', 'limits.specAccepts', 'concurrency.default', 'ui.glyphs', 'roles.worker.tier', 'roles.tdd.author', 'models.fast']) expect(classOf(k)).toBe('O')
   })
   test('tighten: bool takes only the strict value, enum the stricter, list the intersection', async () => {
     expect(tighten('jail', 'auto', 'on')).toBe('on')
@@ -43,11 +43,11 @@ describe('layers', () => {
     const r = resolve([user({ concurrency: { default: 2 }, ui: { glyphs: 'ascii' } }, 'userConfig'), user({ concurrency: { default: 4 } }), user({ concurrency: { default: 5 } }, 'home[repo]'), repo({ concurrency: { default: 6 } }), user({ concurrency: { default: 7 } }, 'env')])
     expect(r.config.concurrency.default).toBe(7); expect(r.config.ui.glyphs).toBe('ascii'); expect(r.diagnostics).toEqual([])
   })
-  test('branch and remote names that reach git push/fetch: an option-like value is refused', async () => {
-    const r = resolve([repo({ branches: { dev: '--upload-pack=x', main: '' }, landing: { remote: '-o' } })])
-    expect([r.config.branches.dev, r.config.branches.main, r.config.landing.remote]).toEqual(['dev', '', 'origin'])
-    expect(r.diagnostics.map(d => d.split(': a git name')[0]).sort()).toEqual(['repo: branches.dev', 'repo: landing.remote'])
-    expect(resolve([repo({ branches: { dev: 'release/next' }, landing: { remote: 'up-stream' } })]).diagnostics).toEqual([])
+  test('branch names that reach git push/fetch: an option-like value is refused', async () => {
+    const r = resolve([repo({ branches: { dev: '--upload-pack=x', main: '' } })])
+    expect([r.config.branches.dev, r.config.branches.main]).toEqual(['dev', ''])
+    expect(r.diagnostics.map(d => d.split(': a git name')[0]).sort()).toEqual(['repo: branches.dev'])
+    expect(resolve([repo({ branches: { dev: 'release/next' } })]).diagnostics).toEqual([])
   })
   test('repo may not relax S keys: ignored with a diagnostic; may tighten', async () => {
     const r = resolve([user({ strictness: 'advisory', mcpAllow: ['a', 'b'] }), repo({ strictness: 'strict', mcpAllow: ['b', 'c'] })])

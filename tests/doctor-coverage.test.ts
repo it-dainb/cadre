@@ -61,8 +61,6 @@ doctorHost('planning tools not loaded yet', { repo: true }, async h => { await h
 doctorHost('built-in task tools on', { repo: true }, async h => { await h.secret.update(x => ({ ...x, tools: { on: ['plan'], refused: [], task: ['TaskCreate'] } })) })
 doctorHost('pane could not open', {}, async h => { await h.ui.update(u => ({ ...u, paneErr: { at: 1, reason: 'no pane surface' } })) })
 doctorHost('refused setting and effort override', { files: { [`${HOME}/.claude/cadre.json`]: '{"drive":{"mode":"fast"}}' }, env: { CLAUDE_CODE_EFFORT_LEVEL: 'low' } })
-doctorHost('pr landing: no gh', { repo: true, ghOut: 'missing' }, async h => { const c = defaults() as any; c.landing.mode = 'pr'; Object.assign(h, { config: async () => c }) })
-doctorHost('pr landing: gh signed out', { repo: true, ghOut: 1 }, async h => { const c = defaults() as any; c.landing.mode = 'pr'; Object.assign(h, { config: async () => c }) })
 doctorHost('older task store', { repo: true }, h => { const st = h.stat; Object.assign(h, { stat: async (p: string) => (p === '/repo/.beads' ? { kind: 'dir' } : st(p)) }) })
 doctorHost('older store folder', { repo: true }, h => { const st = h.stat; Object.assign(h, { stat: async (p: string) => (p === '/repo/.cadre/store' ? { kind: 'dir' } : st(p)) }) })
 doctorHost('sync target does not answer', { repo: true }, h => { const c = defaults() as any; c.sync = { tracker: { adapter: 'nope' } }; Object.assign(h, { config: async () => c }) })
@@ -81,7 +79,7 @@ doctorHost('drive stopped', { repo: true }, async h => { await h.board.update(b 
 doctorHost('drive paused', { repo: true }, async h => { await h.board.update(b => ({ ...b, drive: { ...b.drive, paused: 'a flag is open' } })) })
 
 // the JUnit probe rows (D15, D16): read from the store, never run from Doctor
-const U = (checks: Record<string, string[]>) => ({ ...defaults() as any, units: [{ root: '.', setup: [], checks, tdd: { paths: ['t/**'] } }] }), JK = async (h: Host) => scoped(h, 'junit:.')
+const U = (checks: Record<string, string[]>) => ({ ...defaults() as any, units: [{ root: '.', checks, tdd: { paths: ['t/**'] } }] }), JK = async (h: Host) => scoped(h, 'junit:.')
 doctorHost('junit probe: yes', { repo: true }, async h => { const c = U({ test: ['t', '$CADRE_JUNIT'] }); Object.assign(h, { config: async () => c }); await h.store.set(await JK(h), { ok: true, argv: ['t', '$CADRE_JUNIT'] }) })
 doctorHost('junit probe: no', { repo: true }, async h => { const c = U({ test: ['t'] }); Object.assign(h, { config: async () => c }); await h.store.set(await JK(h), { ok: false, argv: ['t'] }) })
 doctorHost('junit probe: stale argv', { repo: true }, async h => { const c = U({ test: ['t', '-x'] }); Object.assign(h, { config: async () => c }); await h.store.set(await JK(h), { ok: true, argv: ['t'] }) })

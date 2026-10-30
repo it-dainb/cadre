@@ -15,7 +15,7 @@ const { admitWith } = await import('../../core/admission.ts')
 const C = await import('../../core/close.ts')
 const { handleWith } = await import('../../tools/index.ts')
 const { loadProfile, resetProfile } = await import('../../core/profile.ts')
-const PL = await import('../../core/pipeline.ts'), { profile: DEFAULT } = await import('../../profiles/default.ts')
+const PL = await import('../../core/pipeline.ts'), { sessionProfile: DEFAULT } = await import('../dev/register.mjs')
 
 const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: o.cwd }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()

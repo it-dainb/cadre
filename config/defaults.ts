@@ -12,7 +12,6 @@ type Cell = ReturnType<typeof cell>
 export const defaults = () => ({
   strictness: 'strict', mcpAllow: [] as string[],
   jail: 'auto', jailWritable: [] as string[], effectCheck: 'auto',
-  changelog: { path: 'CHANGELOG.md' },
   roles: {   // ADR 0017 locked routing, every role x risk cell explicit (ADR 0019): nothing is routed by a rule outside these
     testerView: 'view', tdd: { author: 'separate' },
     worker: byRisk('worker', 1, 'sonnet'), tester: byRisk('tester'), reviewer: byRisk('reviewer'),
@@ -28,11 +27,10 @@ export const defaults = () => ({
   sync: {} as Record<string, unknown>,
   profile: 'default' as unknown,   // a built-in profile name (a user layer may also give an inline profile, core/profile); the repo's own is .cadre/profile.json
   units: [] as { root: string; knownRed?: string[]; [k: string]: unknown }[],
-  suites: { integration: 'all' as string | string[] },
   limits: { ...active().limits },   // the engine counters: the active profile's values are the defaults (the step retries are the steps' onFail.retry)
   lifecycle: { firstOutputSec: 240, staleMin: 45, goneSec: 60 },   // stall timers (core/close stalls)
   planning: { clarify: { enabled: true, maxQuestions: 3, threshold: 0.7 }, deep: { maxRounds: 8 } },   // ADR 0020: explorer + clarity before a goal's plan; /cadre deep
-  branches: { main: '', dev: 'dev', epicPrefix: 'epic/' }, release: { onEpicDone: 'propose' }, landing: { mode: 'direct' as 'direct' | 'pr', review: false, remote: 'origin' },
+  branches: { main: '', dev: 'dev', epicPrefix: 'epic/' },
   ui: { glyphs: 'unicode', flash: true, density: 'normal', notify: 'on', escalateAfterMs: 120_000 },
   concurrency: { default: 3, models: {} as Record<string, number>, providers: {} as Record<string, number> }, models: { allow: [] as string[] },   // default counts tasks (0 = no cadre cap); a model or provider key counts running runs (core/queue)
   milestone: { maxEpics: 2, epicPlanner: 'agent' as 'agent' | 'main' }, planner: { maxRounds: 3 },
@@ -96,12 +94,11 @@ export const REG: Record<string, Meta> = {
   'planning.clarify.threshold': m(PL, 'clarity (0-1) each of outcome, scope, acceptance, constraints needs before Claude plans without asking', { min: 0, max: 1 }),
   'planning.deep.maxRounds': m(PL, '/cadre deep: question rounds before Claude plans anyway', N(1, 20)),
   'branches.main': m(G, 'the release branch (set by init)', { ok: ref(true) }), 'branches.dev': m(G, 'the integration branch', { ok: ref() }), 'branches.epicPrefix': m(G, 'epic branch name prefix'),
-  'release.onEpicDone': m(G, 'after an epic lands on dev: propose a release, or not', { opts: ['propose', 'off'] }),
-  'landing.mode': m(G, 'a plan lands on dev directly, or as a pull request that merges when its checks pass', { opts: ['direct', 'pr'] }), 'landing.review': m(G, 'pr mode: the pull request also needs an approving review'), 'landing.remote': m(G, 'pr mode: the git remote the pull request goes to', { ok: ref() }), 'limits.rebaseRounds': m(G, 'reworks onto a moved plan tip before asking you', N(0, 10)),
-  'changelog.path': m(G, 'the changelog cadre writes at close', { ok: relPath }), 'worktrees.root': m(G, "task worktrees ('' = ~/.cache/cadre/wt)", { cls: 'U' }),
+  'limits.rebaseRounds': m(G, 'reworks onto a moved plan tip before asking you', N(0, 10)),
+  'worktrees.root': m(G, "task worktrees ('' = ~/.cache/cadre/wt)", { cls: 'U' }),
   'roles.testerView': m(C, 'view: the tester sees only the interface; full: the whole tree', { cls: 'S', opts: ['full', 'view'], tighten: 'enum' }),
   'roles.tdd.author': m(C, 'separate: a tester agent writes the tests; same: the worker does', { opts: ['separate', 'same'] }),
-  units: m(C, 'workspace units {root, kind, ownGit, concurrency, setup, checks, routing} (set by init)', { open: true }), 'suites.integration': m(C, "checks run at integration ('all' or a list)", { ok: v => (v === 'all' ? null : strs(v)) }),
+  units: m(C, 'workspace units {root, kind, ownGit, concurrency, checks, routing} (set by init)', { open: true }),
   strictness: m(SF, 'strict: guards refuse; advisory: guards warn', { cls: 'S', opts: ['advisory', 'strict'], tighten: 'enum' }),
   mcpAllow: m(SF, 'MCP tools task agents may call', { cls: 'S', tighten: 'list', ok: strs }), jail: m(SF, 'checks run in a sandbox: off, auto (when available), on', { cls: 'S', opts: ['off', 'auto', 'on'], tighten: 'enum' }),
   jailWritable: m(SF, 'extra paths the sandbox may write', { cls: 'S', tighten: 'list', ok: strs }), effectCheck: m(SF, 'audit git effects of tool calls: off, auto, always', { cls: 'S', opts: ['off', 'auto', 'always'], tighten: 'enum' }),

@@ -18,11 +18,11 @@ describe('units', () => {
   })
   test('parse: every refusal names units[i].field; unknown keys and concurrency are checked', () => {
     expect(parse([{ ...U[1], kind: 'lib' }], 'units')).toBe('units[0].kind: one of package, service, submodule, app')
-    expect(parse([{ ...U[1], ownGit: 'yes' }], 'units')).toMatch(/^units\[0\]\.ownGit: /)
+    expect(parse([{ ...U[1], ownGit: 'yes' }], 'units')).toMatch(/^units\[0\]: a unit that is its own repository/)
     expect(parse([{ ...U[1], routing: { worker: { effort: 'high' } } }], 'units')).toMatch(/^units\[0\]\.routing: /)
     expect(parse([{ root: '../x', checks: { t: ['x'] } }], 'units')).toMatch(/^units\[0\]\.root: /)
-    expect(parse([U[0]])).toEqual([{ ...U[0], setup: [] }])
-    expect(parse([{ ...U[1], concurrency: 2 }])).toEqual([{ ...U[1], concurrency: 2, setup: [] }])
+    expect(parse([U[0]])).toEqual([U[0]])
+    expect(parse([{ ...U[1], concurrency: 2 }])).toEqual([{ ...U[1], concurrency: 2 }])
     expect(parse([{ ...U[1], runner: 'text' }])).toMatch(/^units\[0\]\.runner: unknown key/); expect(parse([{ ...U[1], concurrency: 0 }])).toMatch(/^units\[0\]\.concurrency: /)
   })
   test('unitsOf: the units themselves; `packages` is refused with "renamed: units" in any layer', () => {
