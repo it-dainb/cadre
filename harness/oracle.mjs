@@ -308,6 +308,7 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (roles('Tester')) fail(o, `${roles('Tester')} tester run(s) on a docs task`)
     if (!log.some(l => /^docs(\(|:)/.test(l))) fail(o, `no docs commit on dev: ${log.join(' | ') || 'dev has none'}`)
     if (log.some(l => /^(feat|fix|refactor)(\(|:)/.test(l))) fail(o, `a code commit on dev: ${log.find(l => /^(feat|fix|refactor)(\(|:)/.test(l))}`)
+    if (log.some(l => /^docs\(changelog\)/.test(l))) fail(o, 'a changelog commit is on dev (this profile wires no delivery hook)')
     if (/usage/i.test(read(join(dir, 'dev-changelog')))) fail(o, 'the changelog has an entry for a docs task (its changelog decision is none)')
     if (runs(snaps.at(-1)?.s ?? {}) && Object.values(Object.assign({}, ...snaps.map(x => runs(x.s)), ...hist.map(runs))).some(r => r.role === 'tester')) fail(o, 'a tester run record exists')
   }

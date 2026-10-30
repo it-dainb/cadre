@@ -30,7 +30,8 @@ describe('the built-in profiles', () => {
   test('the default loads as the default; docs replaces the sections it names and keeps the default flag rows', async () => {
     const d = await loadProfile(host()); expect(d.bad).toBeUndefined(); expect(d.profile).toEqual(LOADED); expect(d.name).toBe('default')
     const x = await loadProfile(host({ user: 'docs' })); expect(Object.keys(x.profile.types)).toEqual(['doc']); expect(Object.keys(x.profile.roles)).toEqual(['explorer', 'writer', 'critic']); expect(x.profile.flags).toEqual({ ...DEFAULT.flags, ...BUILTIN.docs.flags })
-    const a = await loadProfile(host({ user: 'analysis' })); expect(a.profile.types.analysis.pipeline).toEqual(['explore', 'work', 'verify', 'review', 'land']); expect(a.profile.checks.check.network).toBe(false)
+    expect(x.profile.hooks).toEqual({}); expect(x.profile.protected).toEqual([]); expect(x.profile.landing.provider).toBe('direct')   // S6: the docs profile wires no delivery hook (no changelog) and protects nothing
+    const a = await loadProfile(host({ user: 'analysis' })); expect(a.profile.hooks).toEqual({}); expect(a.profile.types.analysis.pipeline).toEqual(['explore', 'work', 'verify', 'review', 'land']); expect(a.profile.checks.check.network).toBe(false)
     expect((await loadProfile(host({ user: 'nope' }))).user).toContain('no such built-in profile')   // the default stays, the refusal is shown
   })
   test('pipelines for the six default types equal 1.0.1\'s defaults() (golden), and so do the commit prefixes (G5)', () => {

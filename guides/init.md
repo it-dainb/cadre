@@ -28,7 +28,7 @@ Write the result into `.cadre/config.json` as `"units"` (keep `branches`):
   { "root": ".", "checks": { "setup": ["npm", "ci"], "test": ["npm", "test"], "lint": ["npm", "run", "lint"] }, "tdd": { "paths": ["test/**"] } }
 ]
 ```
-- One entry per unit (a package, service or app; a git submodule is no unit); `checks.setup` runs first and is left out when there is none.
+- One entry per unit (package, service or app; no submodule); `checks.setup` is left out when none.
 - Pick each unit's `test` argv so it writes JUnit XML to `$CADRE_JUNIT` (`--junitxml=$CADRE_JUNIT`); install a reporter if needed.
 - No tests: write the unit without `checks.test`.
 - Not code (docs, analysis): ask the user whether to use the docs or analysis profile.
