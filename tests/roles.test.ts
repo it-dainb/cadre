@@ -8,7 +8,8 @@ import { cachePrefix, fence, guard, setPolicy, shelled } from '../policy/guards'
 import { fence as frozen } from './fixtures/fence-v0.15.0'
 import GOLD from './fixtures/roles-golden'
 import { fakeHost, task } from './support'
-import { roles as PROFILE_ROLES } from '../profiles/default'
+import { roles as PROFILE_ROLES, profile as DEFAULT } from '../profiles/default'
+import { setProfile } from '../core/pipeline'
 import { check } from '../core/profile'
 import { SPECS } from '../tools/index'
 import type { Role } from '../types'
@@ -228,10 +229,10 @@ describe('roles as profile data (S4)', () => {
     for (const s of [...Object.values(PROFILE_ROLES), critic]) { expect(exitIssue(s)).toBeNull(); for (const t of EXIT) expect(exitIssue({ ...s, disallowedTools: [t] })).toContain(t) }
     expect(customIssue('critic', { description: 'd', prompt: 'p', tools: ['Read', 'mcp__cadre__report', 'SubagentHandback'] })).toContain('StructuredOutput')
   })
-  test('the main-agent guard is generated from the table: a work role of the profile is main\'s to plan around, any other cadre: name is a custom role of main\'s', () => {
+  test('the main-agent guard is generated from the steps: the role of a step is main\'s to plan around, any other cadre: name (a role no step runs) is a role of main\'s', () => {
     const call = (n: string) => mainAgent({ tool: 'Agent', subagent_type: `cadre:${n}`, prompt: 'look into it' }, [])
     for (const n of ['worker', 'tester', 'reviewer', 'explorer', 'planner']) expect(call(n)).toHaveProperty('deny')
     expect(call('critic')).toBeUndefined()
-    setRoles({ ...PROFILE_ROLES, critic }); try { expect(call('critic')).toHaveProperty('deny') } finally { setRoles(PROFILE_ROLES) }
+    setProfile({ ...DEFAULT, roles: { ...PROFILE_ROLES, critic }, steps: { ...DEFAULT.steps, verify: { role: 'critic', workspace: 'none', brief: [] } } }); try { expect(call('critic')).toHaveProperty('deny') } finally { setProfile(DEFAULT) }   // a role some step runs is that step's
   })
 })

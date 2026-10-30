@@ -19,7 +19,6 @@ import { retouch, roadmapRules } from './lanes'
 import { MS, epicOf, isMs, planEpic } from './milestone'
 import { epicBranch, slug } from './branches'
 import { capped, clearRetries, holdsGap, holdsOf, missingLine, questionsOf, refuse, validateFields } from './validate'
-import { roleSpecs } from './roles'
 import { nextAction, subject, taskText } from './render'
 import { clarifyTool } from './clarify'
 import { idsIn } from './briefs'
@@ -309,8 +308,8 @@ export const PLAN_TOOLS: Record<string, (h: Host, i: In) => Promise<Out>> = { pl
 // admission: a session where Claude starts the agents (headless) still runs. The task tools of a repo whose settings still show them: refused the same way.
 // An agent's own calls carry agentId and pass.
 export const TASK_TOOLS = ['TaskCreate', 'TaskGet', 'TaskList', 'TaskUpdate']
-// main's call of a role of its own (roles.custom): a cadre: name that is neither a work role of the profile nor the planner (generated from the profile's roles; specifier stays as in 1.0.1)
-const isCustom = (a: string) => /^cadre:[\w-]+$/.test(a) && ![...Object.keys(roleSpecs()), 'planner'].includes(a.slice(6))
+// main's call of a role of its own (a role of the profile that no step runs): a cadre: name that is neither the role of a step of the profile nor the planner (generated from the profile's steps; specifier stays as in 1.0.1)
+const isCustom = (a: string) => /^cadre:[\w-]+$/.test(a) && ![...Object.values(active().steps).flatMap(s => ('role' in s ? [s.role] : [])), 'planner'].includes(a.slice(6))
 export const mainAgent = (e: { tool?: string; agentId?: string; prompt?: string; subagent_type?: string }, ids: string[], origin?: { plugin?: string }) => (e.agentId || (origin?.plugin && origin.plugin !== 'engine') ? undefined   // a plugin's own call (cadre's spawner starting an explorer or a task) passes
   : e.tool === 'Agent' && !idsIn(String(e.prompt ?? ''), ids).length && !isCustom(String(e.subagent_type ?? '')) ? { deny: modelText('deny', 'plan the work with plan and task; to learn about the code or ask a critic, call explore with your question') }
   : TASK_TOOLS.includes(String(e.tool)) ? { deny: modelText('deny', 'plan with the plan tools instead: plan, task, epic, amend; status reads the plan and moves a task on') } : undefined)

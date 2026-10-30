@@ -2,7 +2,7 @@
 // completeness (scenarios, changelog decision, contract, package) is checked at approve. Pure: no Host, no store.
 import type { Host } from '../types'
 import type { Task } from '../task-management/store'
-import { active, kindOf, typeOf } from './pipeline'
+import { active, hasField, kindOf, typeOf } from './pipeline'
 import { matches } from './specview'
 import { roleSpec, roleSpecs } from './roles'
 import { RISKS, type Tier } from './routing'
@@ -74,9 +74,9 @@ export function missingOf(t: Task): string[] {
   if (t.type === 'epic') return [...(t.description.trim() ? [] : ['goal']), ...(t.meta['cadre.size'] ? [] : ['size']), ...(t.meta['cadre.core'] === 'true' && Number(t.meta['cadre.size']) > 2 ? ['a core epic has at most 2 tasks'] : [])]   // a roadmap epic (ADR 0015)
   const spec = typeOf(t.type); if (!spec || kindOf(t.type) === 'spike') return []
   const out: string[] = []
-  if (t.meta['cadre.lane'] === 'lite') return [...(t.description.trim() ? [] : ['description']), ...(t.meta['cadre.changelog'] ? [] : ['changelog'])]   // lite (ADR 0011): title, description, changelog decision
+  if (t.meta['cadre.lane'] === 'lite') return [...(t.description.trim() ? [] : ['description']), ...(t.meta['cadre.changelog'] || !hasField('changelog') ? [] : ['changelog'])]   // lite (ADR 0011): title, description, changelog decision
   if (!t.acceptance?.trim()) out.push('scenarios')
-  if (!t.meta['cadre.changelog']) out.push('changelog')
+  if (!t.meta['cadre.changelog'] && hasField('changelog')) out.push('changelog')
   if (spec.contract === 'required' && !t.design) out.push('interface')
   if (!t.meta['cadre.package'] && !pathsOf(t).length) out.push('package')   // its declared paths name its unit (H7)
   return out
@@ -151,6 +151,7 @@ export async function capped(h: Host, key: string): Promise<boolean> { return ((
 export function runShape(run: any): string | null {
   const eg = 'e.g. {"command":["node","--test","test/login.test.js"]}'
   if (!run || typeof run !== 'object' || !Array.isArray(run.command) || !run.command.length || run.command.length > 64 || !run.command.every((a: unknown) => typeof a === 'string' && a && a.length < 1000)) return `run.command: expected the argument list that runs only your tests, no shell, ${eg}`
+  if (Object.keys(run).some(k => k !== 'command' && k !== 'cwd')) return `run: only command and cwd (${eg}); the check that runs it is not yours to pick`   // argv only, never a check slot
   if (run.cwd !== undefined && (typeof run.cwd !== 'string' || run.cwd.startsWith('/') || run.cwd.split('/').includes('..'))) return 'run.cwd: expected a folder relative to your test folder, e.g. "web"'
   return null
 }

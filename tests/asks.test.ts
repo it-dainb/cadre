@@ -16,7 +16,7 @@ import { banned } from './fixtures/wording'
 const PROSE = `I looked around the repository. ${'The parser lives in src/parse.ts and it is long. '.repeat(60)}`
 async function mk() {
   const h = fakeHost() as any, store = new MemoryStore(() => 1000), sent: [string, string][] = [], submitted: string[] = []
-  await store.init({ types: defaults().types as any, journal: false })
+  await store.init({ types: {}, journal: false })
   const cfg = defaults(), d = { store, cfg, root: '/repo', home: '/hm/u', wtRoot: '/wt', key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' }
   Object.assign(h, { taskStore: async () => store, config: async () => cfg, sendTo: async (id: string, text: string) => { sent.push([id, text]); return { isDelivered: true } }, submit: async (t: string) => { submitted.push(t) }, usage: async () => ({}) })
   await h.secret.update((s: any) => ({ ...s, session: 'S1' }))

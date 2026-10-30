@@ -26,11 +26,13 @@ export const catOf = (step: string): Category => (verdictAt(step) || gateAt(step
 export const producer = (p: readonly string[], i: number): string => [...p.slice(0, i)].reverse().find(s => roleAt(s) && !verdictAt(s)) ?? p[0]
 export const enter = (type: string, lane?: string): string | undefined => pipeOf(type, lane)[0]
 export const next = (type: string, lane: string | undefined, step: string): string | undefined => { const p = pipeOf(type, lane), i = p.indexOf(step); return i < 0 ? undefined : p[i + 1] }
-// a task works in a tree when one of its steps does; one with no such step only reads (an answer, no landing)
-export const kindOf = (type: string): Kind => (pipeOf(type).some(s => workspaceAt(s) === 'worktree') ? 'code' : 'spike')
+// a task works in a tree when one of its steps does (a tester's view is cut from that tree too); one with no such step only reads (an answer, no landing)
+export const kindOf = (type: string): Kind => (pipeOf(type).some(s => ['worktree', 'view'].includes(workspaceAt(s) ?? '')) ? 'code' : 'spike')
 export const merges = (type: string): boolean => pipeOf(type).some(s => gateAt(s) === 'integrate')
 // a type whose acceptance is covered (by the gate's results or the reviewer's list) needs a test or a coverage entry per item; `none` covers nothing
 export const covers = (type: string): boolean => (P.types[type]?.acceptance.cover ?? 'none') !== 'none'
+// a task field the profile declares (the changelog decision is the default profile's; a profile without it asks for none)
+export const hasField = (name: string): boolean => P.fields.some(f => f.name === name)
 export const onFail = (step: string): OnFail | undefined => P.steps[step]?.onFail
 // the step's retries are spent at its n-th failed round (1-based): a step that goes `back` is sent back `retry` times and raised on the next failure (the review rounds);
 // a step that waits for the human (`then: human`) counts the failing round itself (the tester's rounds)

@@ -1,5 +1,6 @@
 // Model-visible text only (DESIGN 6.5): the task record, commit message (CCm), result card (6.4), TaskGet text, main context line (4.5).
 // Renderers read only records, the model view and Tasks; the band, toasts and pane are ui/'s.
+import { catOf, gateAt, roleAt, verdictAt } from './pipeline'
 import type { Snapshot, SnapTask } from '../types'
 import type { Task } from '../task-management/store'
 import { yoloMain } from './flags'
@@ -41,7 +42,7 @@ export const card = (c: Card): string => [
 export const flagName = (f: string): string => f.replace(/^quarantine/, 'stray-edit')
 
 // state as a subject prefix: `[review✓] title`
-export const tag = (t: Pick<SnapTask, 'state' | 'step'>): string => (t.state === 'review' && t.step === 'merge' ? 'review✓' : t.state)
+export const tag = (t: Pick<SnapTask, 'state' | 'step'>): string => (t.state === 'review' && gateAt(t.step) === 'integrate' ? 'review✓' : t.state)
 export const subject = (t: SnapTask): string => `[${tag(t)}] ${t.title}`
 
 // TaskGet text: description + scenarios + contract + changelog + records (meta cadre.rec.<kind> = the stored record, rendered by `comment`'s facts)
@@ -69,7 +70,7 @@ const isReady = (t: SnapTask, all: SnapTask[]) => t.state === 'todo' && t.deps.e
 export function contextLine(s: Omit<Snapshot, 'seq' | 'cost'>, idle: string[] = []): string {
   if (!s.plan) return ''
   const ts = s.tasks as SnapTask[]
-  const ready = ts.filter(t => isReady(t, ts)), running = ts.filter(t => t.owner && !idle.includes(t.id) && (t.state === 'active' || (t.state === 'review' && t.step === 'reviewer')))
+  const ready = ts.filter(t => isReady(t, ts)), running = ts.filter(t => t.owner && !idle.includes(t.id) && (t.state === 'active' || (t.state === 'review' && verdictAt(t.step))))
   const parts = [`${s.plan.lane === 'milestone' ? 'milestone' : 'plan'} ${s.plan.id} ${s.plan.state}`, s.plan.epicBranch, s.plan.epics?.length && `epics: ${s.plan.epics.map(e => `${e.id} ${e.state}`).join(' ')}`, ready.length && `ready: ${ready.map(t => t.id).join(' ')}`, running.length && `running: ${running.map(t => `${t.id}(${LETTER[t.step] ?? '?'})`).join(' ')}`,
     ...ts.filter(t => !running.includes(t) && ['review', 'blocked'].includes(t.state)).map(t => `${t.id} ${tag(t)}`),
     ...s.sync.filter(x => x.state !== 'ok').map(x => `sync: ${x.target} ${x.state} (${x.pending})`)]
@@ -81,9 +82,9 @@ export function contextLine(s: Omit<Snapshot, 'seq' | 'cost'>, idle: string[] = 
 // ready task of a live epic (role 'claim': admission picks its first step). With the binding table, also active steps no live agent runs (tester -> worker, a decision).
 export function spawnable(s: Omit<Snapshot, 'seq' | 'cost'>, bind?: Record<string, { taskId: string; role: string; retired?: boolean }>): { id: string; role: string }[] {
   const ts = s.tasks as SnapTask[], es = s.plan?.epics ?? [], live = (t: SnapTask) => !t.epic || es.find(e => e.id === t.epic)?.state === 'running'   // milestone (ADR 0015): a stopped epic's tasks wait
-  const runs = (t: SnapTask) => Object.entries(bind ?? {}).some(([a, b]) => b.taskId === t.id && b.role === t.step && (a.startsWith('~') || !b.retired))   // per step: another step's start does not hold this one
-  return [...ts.filter(t => t.state === 'review' && t.step === 'reviewer' && !t.owner && !runs(t)).map(t => ({ id: t.id, role: 'reviewer' })),
-    ...(bind ? ts.filter(t => t.state === 'active' && (t.step === 'tester' || t.step === 'worker') && !runs(t)).map(t => ({ id: t.id, role: t.step })) : []),
+  const runs = (t: SnapTask) => Object.entries(bind ?? {}).some(([a, b]) => b.taskId === t.id && b.role === (roleAt(t.step) ?? t.step) && (a.startsWith('~') || !b.retired))   // per step: another step's start does not hold this one
+  return [...ts.filter(t => t.state === 'review' && verdictAt(t.step) && !t.owner && !runs(t)).map(t => ({ id: t.id, role: t.step })),
+    ...(bind ? ts.filter(t => t.state === 'active' && catOf(t.step) === 'active' && roleAt(t.step) && !runs(t)).map(t => ({ id: t.id, role: t.step })) : []),
     ...ts.filter(t => isReady(t, ts) && live(t)).map(t => ({ id: t.id, role: 'claim' })),
     ...(s.drive?.planner === 'agent' ? es.filter(e => (e.state === 'ready' || e.state === 'planning') && !Object.values(bind ?? {}).some(b => b.taskId === e.id)).map(e => ({ id: e.id, role: 'planner' })) : [])]   // milestone.epicPlanner agent (ADR 0021): a ready epic's planner
 }
@@ -96,11 +97,11 @@ export const RUNS = 'wait: the tasks run by themselves and you hear when each la
 export function nextAction(s: Omit<Snapshot, 'seq' | 'cost'>, idle: string[] = [], mod = false): string {
   const ts = s.tasks as SnapTask[], a: string[] = []
   if (s.plan?.state === 'draft') return s.approval.missing.length ? 'complete the draft plan (see missing)' : `ask the human to approve ${s.plan.id}`
-  if (!mod) a.push(...ts.filter(t => t.state === 'review' && t.step === 'merge').map(t => `complete TASK-${t.id}`))
+  if (!mod) a.push(...ts.filter(t => t.state === 'review' && gateAt(t.step) === 'integrate').map(t => `complete TASK-${t.id}`))
   const y = s.drive?.on && !s.drive.stopped && s.drive.mode === 'yolo'   // yolo: main answers blocked tasks itself (core/drive)
   a.push(...ts.filter(t => t.state === 'blocked').map(t => (y && t.flags.some(yoloMain) ? `decide ${t.id} yourself (status {id:"${t.id}", choice or args})` : t.flags.includes('spec_change') ? `wait: the user decides the spec change of ${t.id} in its own dialog` : `${t.id} waits for the user (go on with the rest)`)))   // live: main asked the spec change a second time
   const sp = mod ? [] : spawnable(s), es = s.plan?.epics ?? []   // mod mode (ADR 0018): the spawner starts all of these, idle steps included
-  a.push(...sp.filter(x => x.role === 'reviewer').map(x => `spawn TASK-${x.id} (reviewer)`))
+  a.push(...sp.filter(x => verdictAt(x.role)).map(x => `spawn TASK-${x.id} (reviewer)`))
   if (!mod) a.push(...ts.filter(t => t.state === 'active' && idle.includes(t.id)).map(t => startNew(t.id, t.step)))
   const r = sp.find(x => x.role === 'claim'); if (r) a.push(`spawn TASK-${r.id}`)   // one per turn; the ready list on the line says the rest
   for (const e of es) {

@@ -2,6 +2,7 @@
 // The re-entry rule: an agent started from a call outside a hook (timer, ui handler) runs with EVERY cadre hook left out (no guard, no report), and one started
 // from registration #k leaves #k out for the agent's own events. So the spawn is made only from a frame whose event no agent raises inside its run
 // (turn.complete: a subagent's is not nested, probed; command.run). hooks/register.ts gives h.spawnAgent only to those frames; spawnStep refuses any other.
+import { gateAt } from './pipeline'
 import type { Host } from '../types'
 import { DRIVE, cfgOf, storeOf } from './dispatch'
 import { headlessMain } from '../config/index'
@@ -99,7 +100,7 @@ async function land(h: Host): Promise<boolean> {
 async function landAll(h: Host): Promise<boolean> {
   const d = await resolveDeps(h), closed = (st: string) => st === 'done' || st === 'cancelled'
   let n = 0
-  for (const t of (await h.board.read()).tasks.filter(t => t.state === 'review' && t.step === 'merge')) {
+  for (const t of (await h.board.read()).tasks.filter(t => t.state === 'review' && gateAt(t.step) === 'integrate')) {
     if (!(await d.store.get(t.id)).meta['cadre.review']?.startsWith('pass@')) continue   // the verdict is mid-write (another turn end): its reviewer's own turn end lands it
     const e = await closeTask(h, d, t.id, 'mod').catch((x: Error) => x.message); if (e) h.log(`${t.id} not landed: ${e}`); else { n++; await told(h, `${t.id} "${t.title}" landed`) }
   }

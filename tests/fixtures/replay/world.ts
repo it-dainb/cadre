@@ -22,7 +22,7 @@ export async function world(o: { n?: number; type?: string; ids?: string[]; mode
   const cfg = defaults(); cfg.drive.spawn = o.mode ?? 'mod'; cfg.jail = 'off' as any; cfg.units = [(o.pkg ?? { root: '.', verify: ['verify'], checks: { verify: ['true'], test: ['true'] } }) as any]
   let epic = '', ids: string[] = []
   if (fresh) {
-    await store.init({ types: cfg.types as any, journal: true }); epic = await store.createEpic('Service', 'goal')
+    await store.init({ types: {}, journal: true }); epic = await store.createEpic('Service', 'goal')
     for (let i = 0; i < (o.n ?? 1); i++) ids.push((await store.createDraft({ title: `task ${i}`, description: 'd', acceptance: ACCEPT, type: o.type ?? 'docs', parent: epic, meta: { 'cadre.package': '.', 'cadre.changelog': JSON.stringify({ none: true, reason: 'internal' }) } })).id)
     if (o.ids) ids = ids.map((id, i) => rename(store, id, o.ids![i] ?? id))   // e.g. an id with "_" (bd names ids after the repo folder)
     await store.approve([epic, ...ids])

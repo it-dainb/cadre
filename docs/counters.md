@@ -8,8 +8,8 @@ The `counter` of a flag effect (`retry`, `reset`) is a runtime budget key of `co
 | `shapeRefusals` | `limits.shapeRetries` (6) | yes, as `shapeRetries` | charged and capped `tools/index.ts:81`; the runtime name differs from the config key |
 | `silentRuns` | `limits.silentRuns` (3) | yes | charged and capped `close.ts:247-250` |
 | `nudges` | `limits.nudges` (1) | yes | charged `close.ts:265`; the cap test reads the run's own nudge count (`close.ts:264`), the budget value is a task tally. `stagnantNudges` (3) is a separate key on the run's `stag` (`close.ts:263`), not a budget counter |
-| `red` | runtime-only; cap `limits.testerRounds` (3) until S5, then the tester step's `onFail.retry` | no | charged `close.ts:218`; reset `tdd.ts:361` |
-| `rework` | runtime-only; cap `review.maxRework` (3) until S5, then the reviewer step's `onFail.retry` | no | charged and capped `close.ts:174` |
+| `red` | runtime-only; cap = the red step's `onFail.retry` (3; the failing round counts) | no | charged `close.ts:218`; reset `tdd.ts:361` |
+| `rework` | runtime-only; cap = the reviewer step's `onFail.retry` (3; sent back 3 times, raised on the 4th) | no | charged and capped `close.ts:174` |
 | `startFails` | `limits.startFails` (3) | yes | charged and capped `spawner.ts:136`; not a flag-effect counter |
 | `refusals` | none | no | charged `tools/index.ts:76` (a refused report); the per-run tries are on the run, not capped by config; not a flag-effect counter |
 | `epoch` | none | no | charged `lifecycle.ts:94` (one per spawn, the wake key); never reset, not a flag-effect counter |

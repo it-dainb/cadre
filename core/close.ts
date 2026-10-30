@@ -4,7 +4,7 @@ import { askOf, askStopped } from './asks'
 import { roleSpec } from './roles'
 import type { Binding, Hook, Host, SnapTask } from '../types'
 import type { Task } from '../task-management/store'
-import { catOf, covers, onFail, pipeOf, spent, typeOf } from './pipeline'
+import { catOf, covers, gateAt, hasField, next, onFail, pipeOf, producer, roleAt, spent, typeOf, verdictAt, workspaceAt } from './pipeline'
 import { LIFECYCLE, holdsAmend } from './plantools'
 import { ROUTES, resolveEpic } from './dispatch'
 import { flagDecision, kindOf, pick, specOf } from './flags'
@@ -79,7 +79,8 @@ export async function runCheck(h: Host, d: Deps, task: Task, wt: string, name: s
 // ---- 6.3 semantic validation of a reviewer report ----
 async function semantic(h: Host, task: Task, wt: string, r: any, enforce: boolean): Promise<string | null> {
   const C = task.meta['cadre.sourceCommit'], fs: any[] = r.findings
-  if (!Array.isArray(fs) || !Array.isArray(r.coverage) || !Array.isArray(r.contractStatus)) return 'findings, coverage, contractStatus: expected arrays (may be empty)'
+  const fields = roleSpec(r.role)?.report.fields ?? {}, cov: unknown[] = r.coverage ?? [], cs: unknown[] = r.contractStatus ?? []   // a judge's form may leave coverage and contractStatus out (its own report fields say)
+  if (!Array.isArray(fs) || (!Array.isArray(cov) && 'coverage' in fields) || (!Array.isArray(cs) && 'contractStatus' in fields)) return 'findings, coverage, contractStatus: expected arrays (may be empty)'
   for (const [i, f] of fs.entries()) {
     if (!['blocker', 'major', 'minor', 'nit'].includes(f?.severity) || typeof f?.file !== 'string' || typeof f?.issue !== 'string') return `findings[${i}]: expected {"severity":"major","file":"src/a.ts","line":3,"issue":"…","fix":"…"}, severity in blocker|major|minor|nit`
     if (!(await G.ok(h.run, wt, ['cat-file', '-e', `${C}:${f.file}`]))) return `findings[${i}].file: ${f.file} does not exist at sourceCommit ${sha7(C)}`
@@ -87,11 +88,11 @@ async function semantic(h: Host, task: Task, wt: string, r: any, enforce: boolea
   if (r.verdict === 'changes' && !fs.some(f => f.severity === 'blocker' || f.severity === 'major')) return 'verdict changes needs at least one blocker or major finding; minor/nit alone is a pass'
   if (r.verdict === 'pass' && fs.some(f => f.severity === 'blocker')) return 'verdict pass is refused while a blocker finding is listed'
   const key = (s: unknown) => /^S\d+/.exec(String(s))?.[0] ?? String(s)
-  const want = (task.acceptance ?? '').split('\n').map(l => /^S\d+/.exec(l)?.[0]).filter(Boolean) as string[], got = r.coverage.map((c: any) => key(c?.scenario))
-  if (want.some(s => !got.includes(s))) return `coverage must name every scenario; missing ${want.filter(s => !got.includes(s)).join(', ')} (e.g. {"scenario":"S1","test":"path","ok":true})`
+  const want = (task.acceptance ?? '').split('\n').map(l => /^S\d+/.exec(l)?.[0]).filter(Boolean) as string[], got = cov.map((c: any) => key((c as any)?.scenario))
+  if ('coverage' in fields && want.some(s => !got.includes(s))) return `coverage must name every scenario; missing ${want.filter(s => !got.includes(s)).join(', ')} (e.g. {"scenario":"S1","test":"path","ok":true})`
   const gaps = r.verdict === 'pass' ? coverageGaps(enforce, task.acceptance, specTestsOf(task), r.coverage) : []   // ADR 0022: coverage is a hard check
   if (gaps.length) return `coverage: verdict pass is refused: ${gaps.join('; ')}. Report verdict changes with a major finding for each (or give the test that really checks it, ok:true)`
-  const syms: string[] = (task.design ? JSON.parse(task.design).symbols ?? [] : []).map((s: any) => s.name), have = r.contractStatus.map((c: any) => c?.name)
+  const syms: string[] = (task.design ? JSON.parse(task.design).symbols ?? [] : []).map((s: any) => s.name), have = cs.map((c: any) => c?.name)
   if (syms.some(s => !have.includes(s))) return `contractStatus must name every contract symbol; missing ${syms.filter(s => !have.includes(s)).join(', ')} (e.g. {"name":"login","ok":true})`
   return null
 }
@@ -117,16 +118,17 @@ async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any): Pr
     green = { ok: true, check: 'verify', secs: g.secs ?? 0 }
   }
   const st = await numstat(h, wt, `${base}..${C}`), p = pipeOf(t.type, t.lane), at = await h.now()
-  for (let i = p.indexOf('worker'); p[i] !== 'reviewer'; i++) { const m = await apply(h, { kind: 'advance', id: t.id, at, actor: 'mod' }); if (!m.ok) throw new Error(m.error) }
-  await d.store.setMeta(t.id, { 'cadre.sourceCommit': C, 'cadre.step': 'reviewer', 'cadre.report': reportMeta(r), 'cadre.checks': green ? 'verify' : '' }, d.actor)
+  const rvStep = p.find(verdictAt)!, rvRole = roleAt(rvStep)!, me = roleAt(t.step)!
+  for (let i = p.indexOf(t.step); !verdictAt(p[i]); i++) { const m = await apply(h, { kind: 'advance', id: t.id, at, actor: 'mod' }); if (!m.ok) throw new Error(m.error) }
+  await d.store.setMeta(t.id, { 'cadre.sourceCommit': C, 'cadre.step': rvStep, 'cadre.report': reportMeta(r), 'cadre.checks': green ? 'verify' : '' }, d.actor)
   await d.store.move(t.id, 'review', d.actor)
-  await record(h, d, t.id, 'report', 'worker', { commit: C, ...st, green: green ? `${green.ok ? 'pass' : 'fail'} (${green.secs}s)` : 'n/a' }, { outcome: 'done', summary: r.summary, risks: r.risks })
+  await record(h, d, t.id, 'report', me, { commit: C, ...st, green: green ? `${green.ok ? 'pass' : 'fail'} (${green.secs}s)` : 'n/a' }, { outcome: 'done', summary: r.summary, risks: r.risks })
   await followups(d, t.id, r.followups)
-  const bind = await h.bind.read(), rv = ownerOf(bind, t.id, 'reviewer'), last = rv && bind[rv].lastReviewedCommit
+  const bind = await h.bind.read(), rv = ownerOf(bind, t.id, rvRole), last = rv && bind[rv].lastReviewedCommit
   if (!rv) await patch(h, t.id, x => ({ ...x, owner: undefined }))   // no reviewer yet: the next step is "spawn the reviewer", not "running" (live: main waited on a reviewer that never existed); a bound one is resumed below
   if (rv) await step(h, rv, { type: 'resume', text: `Re-review ${t.id}: the worker reworked. Review ${last ? `${sha7(last)}..` : ''}${sha7(C)} (sourceCommit ${C}) and report your verdict.` })
   const flags = ((await h.board.read()).tasks.find(x => x.id === t.id)?.flags) ?? []
-  await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'worker', to: 'review', green, ...st, commit: C, flags, next: rv ? 'reviewer resumed' : startNew(t.id, 'reviewer', 'worker') }) }))
+  await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: me, to: 'review', green, ...st, commit: C, flags, next: rv ? 'reviewer resumed' : startNew(t.id, rvStep, me) }) }))
   return `report accepted: commit ${sha7(C)}, ${st.files} files (+${st.add} −${st.del})${green ? `, verify ${green.ok ? '✓' : '✗'}` : ''}. Now in review; stop and wait.`
 }
 
@@ -168,10 +170,11 @@ async function verdict(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
   }
   const m = await apply(h, { kind: 'verdict', id: t.id, at, actor: 'reviewer', verdict: r.verdict }); if (!m.ok) throw new Error(m.error)
   await patchBinding(h, agentId, { lastReviewedCommit: C })
-  await record(h, d, t.id, 'review', 'reviewer', { verdict: r.verdict, sourceCommit: C, findings: findings.length }, { summary: r.summary, findings, coverage: r.coverage, contractStatus: r.contractStatus })
+  const judge = roleAt(t.step)!, back = producer(pipeOf(t.type, t.lane), pipeOf(t.type, t.lane).indexOf(t.step)), maker = roleAt(back)!   // who judged, the step that goes back, and its role
+  await record(h, d, t.id, 'review', judge, { verdict: r.verdict, sourceCommit: C, findings: findings.length }, { summary: r.summary, findings, coverage: r.coverage, contractStatus: r.contractStatus })
   if (r.verdict === 'pass') {
-    await d.store.setMeta(t.id, { 'cadre.review': `pass@${C}`, 'cadre.step': 'merge' }, d.actor)
-    await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'reviewer', to: 'review✓', commit: C, flags: x.flags, next: `complete TASK-${t.id}${filed}` }) }))
+    await d.store.setMeta(t.id, { 'cadre.review': `pass@${C}`, 'cadre.step': next(t.type, t.lane, t.step)! }, d.actor)
+    await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: judge, to: 'review✓', commit: C, flags: x.flags, next: `complete TASK-${t.id}${filed}` }) }))
     return `verdict accepted: pass@${sha7(C)}. Stop.`
   }
   const n = await charge(h, t.id, 'rework'), max = onFail(t.step)!.retry, dr = (await h.board.read()).drive
@@ -185,14 +188,14 @@ async function verdict(h: Host, d: Deps, t: SnapTask, b: Binding, agentId: strin
     await stop(h, `${t.id} failed review ${n} times and ${need.join(', ')} need${need.length === 1 ? 's' : ''} it`, { taskId: t.id, flag: 'rework:' })
   }
   const asked = findings.map(f => `- [${f.severity}] ${f.file}${f.line ? `:${f.line}` : ''} ${f.issue}${f.fix ? ` (fix: ${f.fix})` : ''}`).join('\n')
-  await d.store.resume(t.id, d.actor); await d.store.setMeta(t.id, { 'cadre.step': 'worker', 'cadre.review': '', 'cadre.rejected': `review of ${sha7(C)}: ${r.summary}\n${asked}` }, d.actor)   // the handoff's Rejected (briefs.handoffOf)
+  await d.store.resume(t.id, d.actor); await d.store.setMeta(t.id, { 'cadre.step': back, 'cadre.review': '', 'cadre.rejected': `review of ${sha7(C)}: ${r.summary}\n${asked}` }, d.actor)   // the handoff's Rejected (briefs.handoffOf)
   await clear(h, t.id, 'rework:'); if (spent(t.step, n)) await raise(h, t.id, `rework:${n}/${max}`)
-  const bind = await h.bind.read(), w = ownerOf(bind, t.id, 'worker')
+  const bind = await h.bind.read(), w = ownerOf(bind, t.id, maker)
   const lockedNote = onLocked.length ? `\nA finding on ${onLocked.join(', ')} cannot be fixed by editing it (locked spec test): if it is right, report outcome "spec_change" with scenario: the changed scenario in full; fix the others.` : ''
   const outNote = outside.size ? `\nA finding on ${[...outside].slice(0, 5).map(f => f.slice(0, 120)).join(', ')}${outside.size > 5 ? ` and ${outside.size - 5} more` : ''} ${outside.size === 1 ? 'is' : 'are'} outside your files: do not edit ${outside.size === 1 ? 'it' : 'them'} and do not block on ${outside.size === 1 ? 'it' : 'them'}; list ${outside.size === 1 ? 'it' : 'them'} under followups, fix the others, then report done.` : ''
   const text = `Review of ${sha7(C)} asks for changes (${n}/${max}):\n${r.summary}\n${asked}${lockedNote}${outNote}\nFix them, then report done again.`.slice(0, 3000)
   if (w) await step(h, w, { type: 'resume', text })
-  await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'reviewer', to: 'worker', commit: C, flags: x.flags, next: w ? 'worker resumed' : startNew(t.id, 'worker', 'reviewer') }) }))
+  await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: judge, to: maker, commit: C, flags: x.flags, next: w ? `${maker} resumed` : startNew(t.id, back, judge) }) }))
   return `verdict accepted: changes (${n}/${max}). Stop.`
 }
 
@@ -213,7 +216,7 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
   if (!b || !t) throw new Error('no task is bound to this agent; only a spawned owner reports')
   if (r.role !== b.role) throw new Error(`role: this agent is bound as ${b.role}, got ${r.role}`)
   if (!(t.step === b.step && catOf(b.step) === t.state)) throw new Error(`${t.id} is ${t.state}·${t.step}: nothing to report at your step`)
-  if (r.role === 'tester') {
+  if (workspaceAt(b.step) === 'view') {
     const task = await d.store.get(t.id), g = await testerDone(h, d, task, task.meta['cadre.worktree'], b.worktree, r.tests, agentId, r.run)
     if (!g.ok) {   // bounded (the red step's onFail.retry, across agents: the task budget's red): past it, or a setup fault the tester cannot fix, the task blocks once with one dialog naming the check
       const n = await charge(h, t.id, 'red')   // only the dialog's Retry clears it
@@ -227,8 +230,8 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
     await record(h, d, t.id, 'red', 'tester', { gate: 'red ✓' }, { summary: r.summary, tests: r.tests }); await patch(h, t.id, x => ({ ...x, ...(rv ? { owner: undefined } : {}), card: card({ id: t.id, title: t.title, role: 'tester', to: rv ? 'reviewer' : 'worker', flags: x.flags, next: startNew(t.id, rv ? 'reviewer' : 'worker', 'tester') }) }))
     return `${g.card}\nred accepted; stop.`
   }
-  if (r.role === 'explorer') return explorerDone(h, d, t, agentId!, r)
-  if (r.role === 'reviewer') { const err = o.lax ? null : await semantic(h, await d.store.get(t.id), b.worktree, r, covers(t.type)); if (err) throw new Refusal(err, 'semantic'); return verdict(h, d, t, b, agentId!, r) }
+  if (workspaceAt(b.step) === 'none' && !verdictAt(b.step)) return explorerDone(h, d, t, agentId!, r)
+  if (verdictAt(b.step)) { const err = o.lax ? null : await semantic(h, await d.store.get(t.id), b.worktree, r, covers(t.type)); if (err) throw new Refusal(err, 'semantic'); return verdict(h, d, t, b, agentId!, r) }
   if (r.outcome === 'done') return workerDone(h, d, t, b, r)
   const spec = r.outcome === 'spec_change', why = String(r.reason ?? r.summary ?? '').slice(0, 400)
   if (spec && r.scenario !== undefined && r.scenario !== '' && !specScenario(String(r.scenario))) throw new Error('scenario: expected one line "S<n>: Given … When … Then …"')   // before anything is written: the worker fixes it at once
@@ -326,7 +329,7 @@ export const lastNext = async (h: Host, plan: string | undefined, or: string, ep
 export async function closeTask(h: Host, d: Deps, id: string, actor: 'main' | 'mod' = 'main'): Promise<string | null> {   // 'mod': the spawner closes it (ADR 0018)
   const t = (await h.board.read()).tasks.find(x => x.id === id)
   if (!t) return `no task ${id}`
-  if (!(t.state === 'review' && t.step === 'merge')) return `${id} is ${t.state}${t.step ? `·${t.step}` : ''}: only a review-passed task (review✓) can be completed`
+  if (!(t.state === 'review' && gateAt(t.step) === 'integrate')) return `${id} is ${t.state}${t.step ? `·${t.step}` : ''}: only a review-passed task (review✓) can be completed`
   await sweep(h).catch(() => {})
   const gf = Object.keys((await h.git.read()).flags ?? {}).find(f => f.startsWith('git:')); if (gf) return `merges are refused while git flag ${gf} is open; ask the human to keep or restore it (they answer it in the cadre dialog)`
   d = inRepo(d, pkgOf(d, await d.store.get(id)))   // a submodule unit's task squashes into that repository's epic branch (H7)
@@ -335,7 +338,7 @@ export async function closeTask(h: Host, d: Deps, id: string, actor: 'main' | 'm
   if (task.meta['cadre.review'] !== `pass@${C}`) return `${id} has no pass@${sha7(C)} review`
   if ((await G.tip(h.run, wt, 'HEAD')) !== C) return `${id}: the worktree moved past the reviewed commit ${sha7(C)}`
   if (await G.git(h.run, wt, ['status', '--porcelain'])) return `${id}: the worktree has uncommitted changes`
-  if (!task.meta['cadre.changelog']) return `${id}: no changelog decision`
+  if (!task.meta['cadre.changelog'] && hasField('changelog')) return `${id}: no changelog decision`
   const files = (await G.git(h.run, wt, ['diff', '--name-only', `${base}..${C}`])).split('\n').filter(Boolean), spc = task.meta['cadre.specCommit']
   const theirs = await ours(h, wt, task.meta['cadre.resolve'], C), bad = [...files.filter(p => G.isProt(p, d.cfg.changelog.path) && !theirs(p)), ...(spc ? await lockedViolations(h.run, wt, spc, JSON.parse(task.meta['cadre.locked'] ?? '[]'), C) : [])]; if (bad.length) return `${id}: protected or locked paths differ: ${bad.join(', ')}`
   const rep = reportOf(task.meta['cadre.report']).summary
@@ -419,10 +422,10 @@ async function unblock(h: Host, d: Deps, id: string, text: string, flag: string,
   const m = await apply(h, { kind: 'unblock', id, at: await h.now(), actor: 'main' }); if (!m.ok) return m.error
   await d.store.resume(id, d.actor); await d.store.setMeta(id, { 'cadre.decision': text.slice(0, 1000), 'cadre.blocked': '' }, d.actor)
   await d.store.record('decision', `${id}: ${text.slice(0, 60)}`, text, id); await clear(h, id, flag, quiet)
-  const bind = await h.bind.read(), at = (await h.board.read()).tasks.find(x => x.id === id)?.step, w0 = ownerOf(bind, id, 'worker'), w = w0 && bind[w0].step === at ? w0 : undefined   // the worker goes on only at its own step: a block that came from the tester or reviewer step is answered by a fresh agent of that role (a resumed worker has nothing to report there, and its run would stay bound for good)
+  const bind = await h.bind.read(), at = (await h.board.read()).tasks.find(x => x.id === id)?.step, w0 = workspaceAt(at ?? '') === 'worktree' ? ownerOf(bind, id, roleAt(at ?? '')!) : undefined, w = w0 && bind[w0].step === at ? w0 : undefined   // the worker goes on only at its own step: a block that came from the tester or reviewer step is answered by a fresh agent of that role (a resumed worker has nothing to report there, and its run would stay bound for good)
   if (w) await step(h, w, { type: 'resume', text })
   for (const x of agentsOf(bind, id)) if (x !== w && !x.startsWith('~') && ['running', 'refused', 'silent'].includes((await runOf(h, x))?.state?.state ?? '')) await end(h, x, 'retry', 'retry')   // a task waits for the user only after its agent's turn ended (a tester's malformed reports): a run still `running` is dead, and would hold its role and the idle fallback (core/drive.idle) off for good
-  if (retries(at)) await patch(h, id, x => ({ ...x, owner: undefined }))   // the reviewer launch set the owner and its ended run cannot clear it: without this the task would never list as spawnable
+  if (retries(roleAt(at ?? ''))) await patch(h, id, x => ({ ...x, owner: undefined }))   // the reviewer launch set the owner and its ended run cannot clear it: without this the task would never list as spawnable
   return null
 }
 const wrapL = (f: (h: Host, d: Deps, id: string, e: any) => Promise<string | null>) => async (h: Host, id: string, e: any) => f(h, await resolveDeps(h), id, e)

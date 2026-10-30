@@ -1,4 +1,5 @@
 // Session lifecycle (DESIGN 8.2, 13.4, 13.5): lazy rehydrate after /clear, /resume or a new session, the board pointer, the resume card, session.start policy, store hygiene.
+import { verdictAt } from './pipeline'
 import type { Binding, Host, Snapshot } from '../types'
 import type { TaskStore } from '../task-management/store'
 import { StoreError } from '../task-management/store'
@@ -173,7 +174,7 @@ export async function continueRun(h: Host): Promise<string> {
   const store = await storeOf(h), me = await sessionOf(h), now = await h.now(), rec = await casDrive(h, store, () => undefined).catch(() => undefined)
   if (rec?.on && rec.epicId === p.id && rec.lease.until > now && (await held(h, rec.lease.session)) === 'other') return `${p.id} is running in another session · continue it there, or quit that one, then /cadre continue here (a session that crashed frees it within 30 s)`
   const bind = await h.bind.read(), go: string[] = [], took: string[] = [], other: string[] = []
-  for (const t of s.tasks.filter(t => t.state === 'active' || (t.state === 'review' && t.step === 'reviewer'))) {
+  for (const t of s.tasks.filter(t => t.state === 'active' || (t.state === 'review' && verdictAt(t.step)))) {
     const mine = agentsOf(bind, t.id).filter(a => !a.startsWith('~'))
     if (mine.some(a => !bind[a].retired)) continue   // its agent works in this session
     const o = await ownerOf(h, t.id), task = await store.get(t.id).catch(() => null)

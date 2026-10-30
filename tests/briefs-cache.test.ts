@@ -84,7 +84,7 @@ describe('admission builds the briefs from the plan (notes.slice)', () => {
   })
 })
 
-describe('scenario coverage is a hard check (review.coverage.enforce)', () => {
+describe('scenario coverage is a hard check (a type whose acceptance.cover is not none)', () => {
   const acc = 'S1: Given a When b Then c\nS3: Given a When b Then c\nS30: Given a When b Then c'
   const T = (...ids: string[][]) => ids.map((i, n) => ({ name: `t${n}`, ids: i }))
   test('a scenario counts as tested only when a declared test lists its exact id (the name says nothing)', () => {

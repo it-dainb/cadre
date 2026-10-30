@@ -9,7 +9,7 @@ import { catOf, covers, kindOf, pipeOf, roleAt, typeOf, verdictAt } from './pipe
 import { repoKeyOf } from '../commands/init'
 import { cfgOf, ctlGet, ctlSet, storeOf } from './dispatch'
 import { agentsOf, commit, leaseLive, safe, sessionOf } from './board'
-import { FOCUS, riskOf, route, type Tier } from './routing'
+import { FOCUS, riskOf, route, type Cell, type Tier } from './routing'
 import { held, ownerOf, savePointer, stampAlive } from './session'
 import { apply, epicNext } from './machine'
 import { blocks } from './flags'
@@ -38,7 +38,7 @@ export interface Deps {
   top?: string   // set by specview.inRepo: root is a submodule's repository, top the parent's
   view?: (h: Host, d: Deps, t: Task, wt: string) => Promise<string>   // spec view builder (core/specview, M5); absent = tester/red are skipped (3.1)
 }
-const ROLE = (step: string): Role | undefined => (roleSpec(step) ? (step as Role) : undefined)   // a step that names a work role of the profile; red/green are mod-run, merge is main's close
+const ROLE = (step: string): Role | undefined => roleAt(step) as Role | undefined   // the role a step runs; a gate (red, green, the landing) is mod-run or main's close
 const deny = (why: string) => ({ deny: modelText('deny', why) })
 
 
@@ -53,7 +53,8 @@ export const admit: Hook = async (h, e, next) => { await warm(h); return admitWi
 
 // model x effort for a run (core/routing.route); env overrides that beat cadre (config/forcedOf) are recorded as forced (Claude Code applies them anyway)
 const rounds = async (h: Host, id: string) => { const b = await budgetOf(h, id); return b.rework + b.rebase }   // escalation (core/routing.route) counts the task's review and rebase rounds
-export const routeOf = (d: Deps, role: Role, risk: Tier, n = 0, unit?: { root: string; routing?: Record<string, any> }) => (role === 'explorer' || role === 'planner' || role === 'specifier' ? route(role, d.cfg.roles[role], '', 0)
+export const routeOf = (d: Deps, role: Role, risk: Tier, n = 0, unit?: { root: string; routing?: Record<string, any> }) => (!d.cfg.roles[role] ? route(role, { ...(roleSpec(role)?.routing?.[risk] ?? { model: roleSpec(role)?.model ?? 'sonnet', effort: roleSpec(role)?.effort ?? 'high' }) } as Cell, risk, 0)   // a role of the profile's own: its routing cell, else its own model
+  : role === 'explorer' || role === 'planner' || role === 'specifier' ? route(role, d.cfg.roles[role], '', 0)
   : ((r = route(role, { ...d.cfg.roles[role].byRisk[risk], ...unit?.routing?.[role] }, risk, n)) => (unit?.routing?.[role] && !r.escalated ? { ...r, setting: `units ${unit.root}: routing.${role}` } : r))())   // a unit's routing override (H7) wins over the risk cell
 // the model a pick will run on: launch's own routing, asked before the start (core/queue counts runs by it)
 export async function modelFor(h: Host, d: Deps, id: string, role: string): Promise<string | undefined> {
@@ -78,7 +79,7 @@ export async function admitWith(h: Host, d: Deps, e: any, next: ((e: any) => any
   if (it && it.role !== 'planner' && !s.tasks.some(x => x.id === it.taskId)) return deny(`${it.taskId} is no longer on the board`)
   if (it?.role === 'planner') return epicOf(s, it.taskId) ? planner(h, d, e, next, s, it.taskId) : deny(`${it.taskId} has no plan to draft now`)   // a ready epic's planner (ADR 0021)
   if (it) e = { ...e, prompt: modelText('agent-brief', '') }   // the brief's notes are main's words only
-  const cr = !it && /^cadre:([\w-]+)$/.exec(String(e.subagentType ?? ''))?.[1]; if (cr && !(cr in ROLES_DEFAULT)) return custom(h, e, next, cr)   // main's call of a custom role (roles.custom)
+  const cr = !it && /^cadre:([\w-]+)$/.exec(String(e.subagentType ?? ''))?.[1]; if (cr && !(cr in ROLES_DEFAULT)) return custom(h, e, next, cr)   // main's call of a role of the profile's own
   const ids = it ? [it.taskId] : idsIn(e.prompt ?? '', s.tasks.map(t => t.id))
   if (ids.length > 1) return deny(`one agent takes one task, but the prompt names ${ids.join(', ')}; spawn one agent per task`)
   if (ids.length && s.drive.on && !s.drive.stopped && s.drive.spawn === 'mod' && next.origin?.plugin !== 'cadre') return deny(`${ids[0]} starts by itself; do not spawn agents for the plan's tasks. An Agent without a task id (to explore or ask) is fine`)   // mod mode (ADR 0018): only the spawner's own call, never main's
@@ -136,7 +137,7 @@ async function launch(h: Host, d: Deps, e: any, next: (e: any) => any, t: SnapTa
 }
 // a work role's start (plan 2.4): its brief is the role's layout over the task's data (+ what this step adds), the agent is the role's own (author:same: the worker's), then the shared tail
 const spawnRole = async (h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapshot, t: SnapTask, task: Task, role: Role, step: string, cwd: string, wt: string, undo: () => Promise<void>, extra: Partial<BriefIn> = {}) =>
-  launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, { ...(await plan(h, d, s, t, task)), ...extra })), cwd, step, wt, undo, role === 'reviewer' ? riskOf(task) : undefined, task)
+  launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, { ...(await plan(h, d, s, t, task)), ...extra })), cwd, step, wt, undo, verdictAt(step) ? riskOf(task) : undefined, task)
 const viewed = (d: Deps, role: Role) => role === 'tester' && !!d.view && d.cfg.roles.testerView !== 'full' && d.cfg.roles.tdd.author !== 'same'   // testerView:full or author:same (3.5): the tester step works in the worktree
 const agentOf = (d: Deps, role: Role): Role => (role === 'tester' && d.cfg.roles.tdd.author === 'same' ? 'worker' : role)   // author:same: the worker agent, tester brief (3.5)
 export const protectedOf = (d: Deps): string[] => [...G.PROTECTED, ...(d.cfg.changelog.path !== 'CHANGELOG.md' ? [d.cfg.changelog.path] : [])]
@@ -182,7 +183,7 @@ const owner = (h: Host, d: Deps, id: string) => ctlSet(h, { [`hb:${id}`]: { s: d
 async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapshot, t: SnapTask) {
   const spec = typeOf(t.type)!, pipe = stepsOf(d), first = pipe(t.type, t.lane)[0]
   if (!s.epic || !s.plan) return deny('no approved plan yet; ask the human to approve it')
-  if (first !== 'worker' && first !== 'explorer' && first !== 'tester') return deny(`${t.id}: type ${t.type} starts at "${first}", which is not available; pick another task`)
+  if (!ROLE(first) || verdictAt(first)) return deny(`${t.id}: type ${t.type} starts at "${first}", which is not available; pick another task`)
   const flag = t.flags.find(blocks); if (flag) return deny(`${t.id} has flag ${flagName(flag)}; ask the human to resolve it (they answer it in the cadre dialog)`)
   if (t.condition?.state === 'not-met') return deny(`${t.id} never runs: its condition (${t.condition.on} failed) is not met`)
   const ep = epicOf(s, t.epic); if (ep && ep.state !== 'running') return deny(`${t.id}: its epic ${ep.id} is ${ep.state}${ep.why ? ` (${ep.why})` : ''}; go on with the other epics`)   // milestone (ADR 0015)
@@ -264,14 +265,15 @@ async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsh
 
 // ---- review -> reviewing: a fresh reviewer, never a fork, tier by labels ----
 async function review(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapshot, t: SnapTask) {
-  if (t.step !== 'reviewer') return deny(`${t.id} passed review; main completes it (status set completed)`)
+  if (!verdictAt(t.step)) return deny(`${t.id} passed review; main completes it (status set completed)`)
   const task = await d.store.get(t.id), src = task.meta['cadre.sourceCommit']
   if (!src) return deny(`${t.id} has no commit to review yet`)
-  if (!(await reserve(h, t.id, 'reviewer', d.session))) return deny(`${t.id} already has a reviewer; wait for its verdict`)
-  const wt = task.meta['cadre.worktree'] ?? wtPath(d.wtRoot, d.key, t.id), base = task.meta['cadre.base'] ?? src, undo = () => unreserve(h, t.id, 'reviewer')
+  const judge = ROLE(t.step)!
+  if (!(await reserve(h, t.id, judge, d.session))) return deny(`${t.id} already has a reviewer; wait for its verdict`)
+  const wt = task.meta['cadre.worktree'] ?? wtPath(d.wtRoot, d.key, t.id), base = task.meta['cadre.base'] ?? src, undo = () => unreserve(h, t.id, judge)
   try {
     const diffStat = await G.diffStat(h.run, wt, `${base}..${src}`), diff = await G.diffPatch(h.run, wt, `${base}..${src}`)
-    const r = await spawnRole(h, d, e, next, s, t, task, 'reviewer', 'reviewer', wt, wt, undo, { uncovered: covers(t.type) && specTestsOf(task) ? untested(task.acceptance, specTestsOf(task)) : undefined, sourceCommit: src, diffStat, diff, report: task.meta['cadre.report'], flags: t.flags, focus: FOCUS[riskOf(task)] })
+    const r = await spawnRole(h, d, e, next, s, t, task, judge, t.step, wt, wt, undo, { uncovered: covers(t.type) && specTestsOf(task) ? untested(task.acceptance, specTestsOf(task)) : undefined, sourceCommit: src, diffStat, diff, report: task.meta['cadre.report'], flags: t.flags, focus: FOCUS[riskOf(task)] })
     if (r?.agentId) await commit(h, b => ({ ...b, tasks: b.tasks.map(x => (x.id === t.id ? { ...x, owner: d.actor } : x)) }))   // the reviewer runs the step now (close clears it at the worker's report); no agent bound: nobody would ever clear it
     return r
   } catch (err) { await undo(); throw err }
