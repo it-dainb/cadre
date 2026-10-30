@@ -12,3 +12,4 @@ EOF
 echo '{ "units": [{"root":".","checks":{"setup":["node","--version"],"check":["sh",".cadre/check.sh"]}}] }' >.cadre/config.json
 git add -f .cadre/check.sh .cadre/config.json
 git commit -qm 'chore: analysis check'
+git branch -f dev main
