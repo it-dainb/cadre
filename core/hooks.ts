@@ -35,7 +35,7 @@ export async function runHooks(h: Host, d: Dirs, ev: HookEvent, at: string, inpu
       const paths = await changed(h, wt); if (!paths.length) continue
       const prot = paths.find(p => isProt(p)); if (prot) return { why: `a hook changed ${prot}, which only the person edits` }
       if (!x.commit) return { why: 'a hook changed files but has no commit message' }
-      sha = (await commitAll(h.run, wt, fill(x.commit, v)).catch(() => null)) ?? sha
+      try { sha = (await commitAll(h.run, wt, fill(x.commit, v))) ?? sha } catch (e) { return { why: `the commit failed: ${(e as Error).message.slice(0, 120)}` } }
     }
     return { sha, version }
   } finally { await h.run(['rm', '-rf', `${wt}.mod`]); if (!dry) await worktreeRemove(h.run, d.root, wt).catch(() => {}) }
@@ -43,8 +43,11 @@ export async function runHooks(h: Host, d: Dirs, ev: HookEvent, at: string, inpu
 
 // Land the event's commit on `base` (a task's epic branch, or dev) by CAS. A failure keeps what the hooks needed, so Retry runs them again (retryHooks) and Skip drops them.
 export async function deliver(h: Host, d: Dirs, ev: HookEvent, o: { id: string; base: string; input: Record<string, unknown>; vars: Record<string, string> }): Promise<void> {
-  const old = await tip(h.run, d.root, await baseOf(h, o.base)), r = await runHooks(h, d, ev, old, o.input, o.vars)
-  const why = 'why' in r ? r.why : r.sha === old || (await op(h, () => move(h, o.base, r.sha, old))) ? '' : 'the branch moved while the hooks ran'
+  // under the merge lock (git.op): the hooks and the CAS see one branch tip; a busy lock is a failure Retry can run again
+  const why = await op(h, async () => {
+    const old = await tip(h.run, d.root, await baseOf(h, o.base)), r = await runHooks(h, d, ev, old, o.input, o.vars)
+    return 'why' in r ? r.why : r.sha === old || (await move(h, o.base, r.sha, old)) ? '' : 'the branch moved while the hooks ran'
+  }).catch((e: Error) => e.message)
   const K = await scoped(h, 'hooks'), all = ((await h.store.get(K)) as Record<string, Pending> | undefined) ?? {}
   if (!why) { if (all[o.id]) { const { [o.id]: _x, ...rest } = all; await h.store.set(K, rest) } return }
   h.log(`${ev} hooks for ${o.id}: ${why}`)
