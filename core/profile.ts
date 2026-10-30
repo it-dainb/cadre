@@ -117,15 +117,20 @@ function merge(b: Profile, l: ProfileLayer): Profile {
 const refuse = (layer: string, msg: string) => { const k = msg.split('.')[0].split('[')[0].split(':')[0]; return `${layer}: ${msg}; ${EX[k] ? `example: ${EX[k]}` : `sections: ${Object.keys(SCHEMA).join(', ')}`}` }
 export const check = (l: unknown): string | null => walk(l, Object.fromEntries(Object.entries(SCHEMA).map(([k, s]) => [`${k}?`, s])), '')
 
-// `${MODULES}/<name>.mjs` of a layer: a plain file name that exists in that layer's modules folder (the plugin's, or the repo's .cadre/modules) and is a regular file under it (no link out of it)
+// a module file in `dir`: a plain `<name>.mjs` that exists there and is a regular file under it (no link out of it, and the folder itself is no link either). The profile's `${MODULES}` paths
+// and a user-bound sync adapter module (core/syncrun) share this check.
+export async function moduleBad(h: Host, dir: string, name: string): Promise<'name' | 'none' | undefined> {
+  if (!name || name.includes('/') || name.includes('..') || !name.endsWith('.mjs')) return 'name'
+  const real = dir && (await h.stat(dir))?.kind === 'dir' ? (await h.stat(dir, { resolve: true }))?.realPath : undefined, st = await h.stat(`${dir}/${name}`), at = (await h.stat(`${dir}/${name}`, { resolve: true }))?.realPath
+  return st?.kind === 'file' && real && at === `${real}/${name}` ? undefined : 'none'
+}
+// `${MODULES}/<name>.mjs` of a layer: a plain file name that exists in that layer's modules folder (the plugin's, or the repo's .cadre/modules)
 async function modules(h: Host, l: ProfileLayer, dir: string): Promise<string | null> {
   const mine = [...Object.values(l.hooks ?? {}).flat().flatMap(x => ('run' in x ? x.run : [])), ...(l.landing?.provider ? [l.landing.provider] : [])].filter(s => s.includes('${MODULES}'))
-  const real = dir && (await h.stat(dir))?.kind === 'dir' ? (await h.stat(dir, { resolve: true }))?.realPath : undefined   // the folder itself is no link either
   for (const s of mine) {
-    const name = s.slice('${MODULES}/'.length)
-    if (!s.startsWith('${MODULES}/') || !name || name.includes('/') || name.includes('..') || !name.endsWith('.mjs')) return `${s}: a module path is \${MODULES}/<name>.mjs, a plain file name`
-    const st = await h.stat(`${dir}/${name}`), at = (await h.stat(`${dir}/${name}`, { resolve: true }))?.realPath
-    if (st?.kind !== 'file' || !real || at !== `${real}/${name}`) return `${s}: no such module in ${dir.endsWith('/.cadre/modules') ? '.cadre/modules' : 'the module folder'}`
+    const bad = s.startsWith('${MODULES}/') ? await moduleBad(h, dir, s.slice('${MODULES}/'.length)) : 'name'
+    if (bad === 'name') return `${s}: a module path is \${MODULES}/<name>.mjs, a plain file name`
+    if (bad) return `${s}: no such module in ${dir.endsWith('/.cadre/modules') ? '.cadre/modules' : 'the module folder'}`
   }
   return null
 }
