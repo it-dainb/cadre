@@ -16,7 +16,7 @@ Not for ask. Call explore ONCE asking what in the project the goal touches (file
 ## Step 2: do the lane's step
 **ask**: call explore with the user's question, in plain words. Do not answer it yourself and do not ask a second time. Its answer arrives on its own.
 
-**lite**: one plan call: title, description (what to change and why, with the files you found), `"lane": "lite"`, `"reason"`, `"type": "<bug|feature|refactor|docs>"` and a changelog (`{"none": true, "reason": "<why>"}` when users would not notice the change). A bug that needs a test that fails first goes in the full lane.
+**lite**: one plan call: title, description (what to change and why, with the files you found), `"lane": "lite"`, `"reason"`, `"type": "<{types}>"` and a changelog (`{"none": true, "reason": "<why>"}` when users would not notice the change). A bug that needs a test that fails first goes in the full lane.
 
 **If the goal says "There is no mission yet"** (lite and full): also put `"mission": "Goal: …\nConstraints: …\nNon-goals: …"` in the plan call. Draft it from the goal, what you read in the project and the user's answers. They approve the mission together with the plan.
 

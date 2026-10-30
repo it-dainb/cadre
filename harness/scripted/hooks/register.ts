@@ -4,6 +4,7 @@
 // cadre in the user tier (load order): cadre's turn.step sees each scripted response come up from beneath (its cost ledger records `model: scripted`).
 // Every line it logs starts with SCRIPTED (debug log). `/s0 <end|hb|wedge>` is the forced-exit / TaskStop probe (RESULTS.md (c), (d)).
 // The script is chosen per cell by the repo's `.git/scripted.json` ({"script": …}, written by a harness/fixtures/scripted overlay), default `lite`:
+//   profile-analysis: the built-in analysis profile: main plans one analysis task, the scout reads, the analyst writes a summary, the check (JUnit at $CADRE_JUNIT) fails once and sends it back, the analyst adds the conclusion, the examiner passes it (profile-analysis)
 //   profile-docs: the built-in docs profile: main plans one doc task, the writer writes docs/usage.md, the critic passes it (profile-docs)
 //   docs: lite, a docs task (no tester, no red): the worker writes docs/usage.md; lite: main plans one lite task; full: a full-lane task (tester, worker, reviewer); loop: lite, the worker calls the same tool forever (the repeat-call breaker, then forced exit);
 //   limit: lite, the first worker's first step goes to the proxy, which answers a usage limit (stub-proxy.mjs); slow: lite, the worker waits 12 s first;
@@ -71,6 +72,7 @@ function main(rows: Row[]): Act {
     if (!used('task')) return { tool: T('task'), input: script !== 'full' ? { ...TASKS[0], acceptance: [...TASKS[0].acceptance, { id: 'S2', text: "Given ' Hello World ' When slug is called Then it returns 'hello-world'" }], holds: ['S2'] } : TASKS[0] }
     return { text: 'The plan is drafted: approve it in the dialog (key 1 opens it).' }
   }
+  if (!used('plan') && script === 'profile-analysis') return { tool: T('plan'), input: { title: 'Analyse the sample data', description: 'Read the sample data and write analysis/summary.md: what it shows, then a Conclusion: line.', lane: 'lite', reason: 'one small analysis', type: 'analysis', acceptance: [{ id: 'A1', text: 'the summary names what the data shows' }], ...mission } }
   if (!used('plan') && script === 'profile-docs') return { tool: T('plan'), input: { title: 'Document the library in docs/usage.md', description: 'Add docs/usage.md: one section that says what the library is for and how to import it.', lane: 'lite', reason: 'one small document', type: 'doc', ...mission } }
   if (!used('plan') && script === 'docs') return { tool: T('plan'), input: { title: 'Document the library in docs/usage.md', description: 'Add docs/usage.md: one section that says what the library is for and how to import it.', lane: 'lite', reason: 'one small document', type: 'docs', changelog: { none: true, reason: 'documentation only' }, ...mission } }
   if (!used('plan')) {
@@ -124,6 +126,10 @@ const ROLES: Record<string, (k: number, brief: string, cwd: string, rows: Row[])
     const f = fnOf(b), full = ['full', 'multi', 'pair', 'holds', 'gate-results'].includes(script); return [{ tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'reviewer', verdict: 'pass', summary: `The commit adds ${f.name} and its test only; npm test passes.`, findings: [], coverage: full ? [{ scenario: 'S1', test: f.title, ok: true }, ...(script === 'holds' || script === 'gate-results' ? [{ scenario: 'S2', test: 'S2: slug still trims and lowercases', ok: true }] : [])] : [], contractStatus: full ? [{ name: f.name, ok: true }] : [] } }][k] ?? { text: END } },
   writer: (k, _b, cwd) => [{ tool: 'Write', input: { file_path: `${cwd}/docs/usage.md`, content: '# Usage\n\nImport the helpers from src/ and call them.\n' } }, { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'writer', outcome: 'done', summary: 'Added docs/usage.md.' } }][k] ?? { text: END },
+  scout: k => [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'scout', outcome: 'done', summary: 'The sample data is in data/sample.csv: two columns, no gaps.' } }][k] ?? { text: END },
+  // the first round writes a summary without a Conclusion line (the check fails); a resumed analyst (a second prompt in its transcript) adds it
+  analyst: (k, _b, cwd, rows) => [{ tool: 'Write', input: { file_path: `${cwd}/analysis/summary.md`, content: `# Summary\n\nThe data has two columns and no gaps.\n${rows.filter(isText).length > 1 ? '\nConclusion: the data is complete.\n' : ''}` } }, { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'analyst', outcome: 'done', summary: 'Wrote analysis/summary.md.' } }][k] ?? { text: END },
+  examiner: k => [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'examiner', verdict: 'pass', summary: 'The summary names what the data shows and ends in a conclusion.', findings: [] } }][k] ?? { text: END },
   critic: k => [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'critic', verdict: 'pass', summary: 'The commit adds docs/usage.md only.', findings: [] } }][k] ?? { text: END },
   explorer: k => [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'explorer', answer: 'One string helper, slug, in src/slug.mjs as a named ESM export; tests in test/ use node:test; npm test runs node --test.', citations: [{ path: 'src/slug.mjs', line: 1 }, { path: 'package.json', line: 1 }] } }][k] ?? { text: END },
 }
@@ -134,7 +140,7 @@ function agent(rows: Row[], cwd: string): [string, Act] {
   if (probe === 'end') return [probe, { text: END }]
   if (probe === 'hb') return [probe, /No such tool available: SubagentHandback/.test(JSON.stringify(rows.at(-1))) ? { text: END } : { text: END, tool: 'SubagentHandback', input: { message: END } }]   // the tool exists in auto mode only
   if (probe === 'wedge' || probe === 'tools') return [probe, k === 0 ? { tool: 'Bash', input: { command: 'node -e "setTimeout(() => {}, 600000)"', description: 'Wait' } } : { text: END }]
-  const role = brief.match(/\b(Worker|Reviewer|Explorer|Tester|Planner|Writer|Critic) brief/)?.[1]?.toLowerCase() ?? (/# PLAN-\w/.test(brief) ? 'planner' : 'unknown')
+  const role = brief.match(/\b(Worker|Reviewer|Explorer|Tester|Planner|Writer|Critic|Scout|Analyst|Examiner) brief/)?.[1]?.toLowerCase() ?? (/# PLAN-\w/.test(brief) ? 'planner' : 'unknown')
   return [role, ROLES[role]?.(k, brief, cwd, rows) ?? { text: END }]
 }
 

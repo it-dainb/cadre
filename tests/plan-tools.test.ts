@@ -13,6 +13,12 @@ import { kick } from '../core/drive'
 import { stopped } from '../core/close'
 import { handleWith } from '../tools/index'
 import { FULL, world } from './fixtures/native/world'
+import { setProfile } from '../core/pipeline'
+import { BUILTIN } from '../core/profile'
+import { profile as DEFAULT } from '../profiles/default'
+import { planRules } from '../core/plantools'
+import { validateFields, scenarioIds } from '../core/validate'
+import { fieldsOf } from '../core/plantools'
 
 const MSP = { kind: 'plan', lane: 'milestone', reason: 'two features: export and import' }
 const task = (subject: string, path: string, o: Record<string, unknown> = {}) => ({ subject, description: `implement ${subject}`, metadata: { ...FULL, paths: [path] }, ...o })
@@ -108,5 +114,29 @@ describe('milestone.epicPlanner main', () => {
     const w = await ms({ planner: 'main' }), s = await w.board()
     expect(s.drive.planner).toBeUndefined(); expect(nextAction(modelView(s), [], true)).toContain(`plan epic ${w.es[0]}`)
     await w.turn(); expect(w.spawned).toEqual([])
+  })
+})
+
+// S7 (B15, theme 6): the planner's vocabulary is the profile's data
+const DOCS = { ...DEFAULT, ...BUILTIN.docs } as typeof DEFAULT
+describe('plan tools take acceptance [{id,text}] and the type list of the profile (B15)', () => {
+  test('items without an id (or with an id that cannot lead a line) are refused; any other id string is fine, and no sentence form is checked', () => {
+    for (const bad of [[{ text: 'x' }], [{ id: '', text: 'x' }], [{ id: 'A 1', text: 'x' }], [{ id: 'A:1', text: 'x' }], [{ id: 'A1' }], [{ id: 'A1', text: 'x\ny' }], [{ id: 'A1', text: 'x' }, { id: 'A1', text: 'y' }], 'A1: x', []])
+      expect(validateFields({ acceptance: bad })).toContain('metadata.acceptance')
+    expect(validateFields({ acceptance: [{ id: 'login-ok', text: 'a user can log in' }, { id: '7', text: 'whatever form' }] })).toBeNull()
+    const f = fieldsOf({ acceptance: [{ id: 'login-ok', text: 'a user can log in' }, { id: '7', text: 'whatever form' }] }); expect(f.patch.acceptance).toBe('login-ok: a user can log in\n7: whatever form')
+    expect(scenarioIds(f.patch.acceptance)).toEqual(['login-ok', '7'])
+  })
+  test('the type list in the refusal and in the plan rules is Object.keys(profile.types): the docs profile lists doc, and no bug', () => {
+    try {
+      setProfile(DOCS)
+      const e = validateFields({ type: 'bug' })!; expect(e).toContain(`one of ${Object.keys(DOCS.types).join('|')}`); expect(e).toContain('doc')
+      expect(planRules()).toContain('doc write>review>land'); expect(planRules()).not.toContain('bug'); expect(planRules()).toContain('Acceptance: doc: what the reader must be able to do')
+    } finally { setProfile(DEFAULT) }
+    expect(validateFields({ type: 'doc' })).toContain(`one of ${Object.keys(DEFAULT.types).join('|')}`); expect(planRules()).toContain('bug tester>red>worker')
+  })
+  test('the profile\'s fields are the allowed names: the docs profile declares none, so a changelog is an unknown field there', () => {
+    expect(validateFields({ changelog: { none: true, reason: 'x' } })).toBeNull(); expect(validateFields({ holds: 'S1' })).toContain('metadata.holds')
+    try { setProfile(DOCS); expect(validateFields({ changelog: { none: true, reason: 'x' } })).toContain('unknown field'); expect(validateFields({ lane: 'lite', reason: 'x', kind: 'plan' })).toBeNull() } finally { setProfile(DEFAULT) }
   })
 })

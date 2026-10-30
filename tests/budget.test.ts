@@ -35,3 +35,8 @@ test('S6b: the adapter client and the sync engine left core (task-management/pro
   expect(Object.keys(BUDGET.modules).filter(m => m === 'task-management/protocol.ts' || m.startsWith('task-management/sync-engine/'))).toEqual([])
   expect(Object.keys(BUDGET.modules)).toContain('core/syncrun.ts'); expect(BUDGET.noRegex).toContain('modules/sync.mjs'); expect(BUDGET.coreImportsModules).toEqual([])
 })
+test('S7 exit check: core has no S<n> scenario-id regex; the NO_REGEX list gains the S7 files; exactly two engine-text exception lines, in drive.ts and queue.ts', async () => {
+  expect(BUDGET.idRegex).toEqual([])
+  expect(BUDGET.noRegex).toEqual(expect.arrayContaining(['core/drive.ts', 'core/queue.ts', 'core/git.ts', 'core/admission.ts', 'core/plantools.ts', 'core/planner.ts']))
+  expect(BUDGET.engineExceptions).toHaveLength(2); expect(BUDGET.engineExceptions.map((l: string) => l.split(':')[0]).sort()).toEqual(['core/drive.ts', 'core/queue.ts']); expect(BUDGET.regexHits).toEqual([])
+})

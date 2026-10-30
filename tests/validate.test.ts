@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { reportMeta, reportOf } from '../core/close'
-import { reportRefusal, reportSch } from '../core/validate'
+import { lacks, reportRefusal, reportSch } from '../core/validate'
+import { setProfile } from '../core/pipeline'
+import { profile as DEFAULT } from '../profiles/default'
 import { budgetOf, step } from '../core/lifecycle'
 import { world } from './fixtures/replay/world'
 
@@ -100,5 +102,18 @@ describe('validateReport: one function for built-in and custom roles', () => {
   }))
   test('a role with no outcomes has no outcome field; a verdict role names it `verdict`; the schema of a built-in is the 1.0.1 one (roles-golden)', () => {
     expect(reportSch(roles.explorer).required).toEqual(['answer']); expect(reportSch(roles.reviewer).required[0]).toBe('verdict'); expect(reportSch(roles.worker).required).toEqual(['outcome', 'summary'])
+  })
+})
+
+// S7: `fields[].required` is true (every type) or a list of types; a task lacks the required fields it has no value for
+describe('fields per profile (required: boolean | string[])', () => {
+  const t = (type: string, meta: Record<string, string> = {}) => ({ type, meta })
+  test('the default profile requires a changelog decision of every type; a list names the types; false requires nothing', () => {
+    expect(lacks(t('docs'))).toEqual(['changelog']); expect(lacks(t('docs', { 'cadre.changelog': '{"none":true}' }))).toEqual([])
+    const only = (required: boolean | string[]) => ({ ...DEFAULT, fields: [{ name: 'impact', store: 'meta' as const, required }] })
+    try {
+      setProfile(only(['bug'])); expect(lacks(t('bug'))).toEqual(['impact']); expect(lacks(t('docs'))).toEqual([]); expect(lacks(t('bug', { 'cadre.impact': 'high' }))).toEqual([])
+      setProfile(only(false)); expect(lacks(t('bug'))).toEqual([]); setProfile(only(true)); expect(lacks(t('docs'))).toEqual(['impact'])
+    } finally { setProfile(DEFAULT) }
   })
 })

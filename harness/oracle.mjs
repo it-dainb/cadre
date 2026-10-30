@@ -221,7 +221,8 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     const ls = read(f).split('\n').filter(Boolean).flatMap(l => { try { return [JSON.parse(l)] } catch { return [] } }), u = ls.find(d => d.type === 'user')
     const c = u?.message?.content, brief = typeof c === 'string' ? c : Array.isArray(c) ? c.filter(b => b.type === 'text').map(b => b.text).join(' ') : ''
     const results = new Map(ls.filter(d => d.type === 'user').flatMap(d => (Array.isArray(d.message?.content) ? d.message.content : []).filter(b => b.type === 'tool_result').map(b => [b.tool_use_id, typeof b.content === 'string' ? b.content : Array.isArray(b.content) ? b.content.map(c => c.text ?? '').join(' ') : ''])))
-    return { f, brief, results, t: Date.parse(u?.timestamp ?? '') || 0, uses: ls.filter(d => d.type === 'assistant').flatMap(d => (Array.isArray(d.message?.content) ? d.message.content : []).filter(b => b.type === 'tool_use')) }
+    const texts = ls.filter(d => d.type === 'user').map(d => d.message?.content).map(c => (typeof c === 'string' ? c : Array.isArray(c) ? c.filter(b => b.type === 'text').map(b => b.text).join(' ') : '')).filter(Boolean)   // every prompt the agent was given: a second one = it was resumed
+    return { f, brief, results, texts, t: Date.parse(u?.timestamp ?? '') || 0, uses: ls.filter(d => d.type === 'assistant').flatMap(d => (Array.isArray(d.message?.content) ? d.message.content : []).filter(b => b.type === 'tool_use')) }
   })
   const sorted = v => (v && typeof v === 'object' ? (Array.isArray(v) ? v.map(sorted) : Object.fromEntries(Object.keys(v).sort().map(k => [k, sorted(v[k])]))) : v)
   // dialogs besides the plan's and the release proposal every landing ends with; main's one clarify call (its tabs, ADR 0020) is not one of cadre's
@@ -400,6 +401,18 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (!log.some(l => /^docs(\(|:)/.test(l))) fail(o, `no docs commit on dev: ${log.join(' | ') || 'dev has none'}`)
     if (/usage/i.test(read(join(dir, 'dev-changelog')))) fail(o, 'the changelog has an entry for a doc task (this profile has no changelog)')
     if (runs(snaps.at(-1)?.s ?? {}) && Object.values(Object.assign({}, ...snaps.map(x => runs(x.s)), ...hist.map(runs))).some(r => ['tester', 'worker', 'reviewer'].includes(r.role))) fail(o, 'a run record of a default-profile role exists')
+  }
+  if (o === 'profile-analysis') {   // the analysis profile: scout > analyst > verify (one failing JUnit case sends it back once) > examiner > landing; the briefs speak the profile's own words (read, no denylist)
+    const log = read(join(dir, 'dev-log')).split('\n').filter(Boolean), by = x => subs.filter(s => new RegExp(`${x} brief`).test(s.brief))
+    const an = by('Analyst'), ex = by('Examiner'), sc = by('Scout'), n = x => x.length
+    Object.assign(stats, { devLog: log, scouts: n(sc), analysts: n(an), examiners: n(ex), analystPrompts: an[0]?.texts.length ?? 0 })
+    if (!n(sc) || n(an) !== 1 || !n(ex)) fail(o, `scout ${n(sc)}x, analyst ${n(an)}x, examiner ${n(ex)}x (want 1 analyst run, sent back once, and the others)`)
+    else if (an[0].texts.length !== 2) fail(o, `the analyst was given ${an[0].texts.length} prompts (want 2: the task, then once back after the failing case)`)
+    if (!/A1: the summary names what the data shows/.test(an[0]?.brief ?? '')) fail(o, "the analyst's brief lacks the task's own acceptance item")
+    if (!/method, evidence, completeness/.test(ex[0]?.brief ?? '')) fail(o, "the examiner's brief lacks the profile's rubric")
+    if (by('Tester').length + by('Worker').length + by('Reviewer').length) fail(o, 'an agent of the default profile ran under the analysis profile')
+    if (!log.some(l => /^analysis(\(|:)/.test(l))) fail(o, `no analysis commit on dev: ${log.join(' | ') || 'dev has none'}`)
+    if (/analys/i.test(read(join(dir, 'dev-changelog')))) fail(o, 'the changelog has an entry for an analysis task (this profile has no changelog)')
   }
   if (o === 'profile-invalid') {   // a refused repo profile: cadre is dormant for the repo: the refusal line is shown, /cadre profile says it stays off, Doctor reports a failing row, no agent ran
     const screens = panes.map(p => left(p.text).replace(/\s+/g, ' ')), shown = screens.filter(x => /repo profile: colour: unknown key/.test(x)).length

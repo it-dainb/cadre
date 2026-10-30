@@ -6,6 +6,7 @@ import { modelData, modelText } from './say'
 import type { Host, Secret } from '../types'
 import type { Config } from '../config/index'
 import { cfgOf } from './dispatch'
+import { active } from './pipeline'
 
 export const DIMS = ['outcome', 'scope', 'acceptance', 'constraints'] as const
 type P = Config['planning']
@@ -41,7 +42,7 @@ export function askRefusal(n: number, p: P, g: G): string | null {
 // the goal guide for this goal: its clarify step when clarify is on, replaced by guides/deep.md for `/cadre deep`; the numbers from the settings
 export function guideOf(g: string, p: P, deep: string | null = null): string {
   const t = deep !== null || !p.clarify.enabled ? g.replace(/## Before step 2: clarify\n[\s\S]*?(?=## )/, deep ? `${deep.trim()}\n\n` : '') : g
-  return t.replaceAll('{maxQuestions}', String(p.clarify.maxQuestions)).replaceAll('{maxRounds}', String(p.deep.maxRounds))
+  return t.replaceAll('{types}', Object.keys(active().types).join('|')).replaceAll('{maxQuestions}', String(p.clarify.maxQuestions)).replaceAll('{maxRounds}', String(p.deep.maxRounds))
 }
 
 // one judgement per question call: tool.check and tool.call both see it (in either order, live), the first one judges and counts it
