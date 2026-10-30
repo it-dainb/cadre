@@ -14,7 +14,7 @@ import { runOf, step } from '../core/lifecycle'
 import { canon, fnv1a64, patchBinding } from '../core/board'
 
 // Paths the guards need, written to $.store `cadre:<repoKey>:policy` by init/session.start/tdd (absolute, realpath'd). Absent keys disable the rule they feed.
-export interface Policy { repo?: string; wtRoot?: string; home?: string; mcpAllow?: string[]; locks?: Record<string, string[]>; core?: Record<string, string[]>; protect?: string[]; effectCheck?: string; epicPrefix?: string; changelog?: string }
+export interface Policy { repo?: string; wtRoot?: string; home?: string; mcpAllow?: string[]; locks?: Record<string, string[]>; core?: Record<string, string[]>; protect?: string[]; effectCheck?: string; epicPrefix?: string; guarded?: string[] }   // guarded: the profile's `protected` paths (plain names; a glob is checked at close)
 export const policyKey = async (h: Host) => `cadre:${repoKeyOf(await h.cwd())}:policy`   // per repo (13.5): two repos never share one
 export const policyOf = async (h: Host): Promise<Policy> => ((await h.store.get(await policyKey(h))) as Policy | undefined) ?? {}
 export const setPolicy = async (h: Host, patch: Policy) => h.store.set(await policyKey(h), { ...(await policyOf(h)), ...patch })
@@ -24,9 +24,9 @@ const MOD_DIRS = PROTECTED.filter(p => p.endsWith('/')).map(p => p.slice(0, -1))
 const under = (p: string, root?: string) => !!root && (p === root || p.startsWith(root.replace(/\/$/, '') + '/'))
 const rel = (real: string, root: string) => real.slice(root.replace(/\/$/, '').length + 1)
 const join = (cwd: string, p: string) => (p.startsWith('/') ? p : `${cwd.replace(/\/$/, '')}/${p}`)
-const modOwned = (real: string, home?: string, changelog?: string) => {
+const modOwned = (real: string, home?: string, guarded: string[] = []) => {
   const seg = real.split('/')
-  return (!!changelog && (real === changelog || real.endsWith(`/${changelog}`))) || seg.some(s => MOD_DIRS.includes(s)) || MOD_FILES.includes(seg[seg.length - 1]) || (!!home && /^cadre\.json$|^settings.*\.json$/.test(seg[seg.length - 1]) && under(real, home + '/.claude')) || (!!home && real === `${home}/.claude.json`)   // the engine's own file: its project mcpServers/allowedTools widen what runs
+  return guarded.some(g => real === g || real.endsWith(`/${g}`)) || seg.some(s => MOD_DIRS.includes(s)) || MOD_FILES.includes(seg[seg.length - 1]) || (!!home && /^cadre\.json$|^settings.*\.json$/.test(seg[seg.length - 1]) && under(real, home + '/.claude')) || (!!home && real === `${home}/.claude.json`)   // the engine's own file: its project mcpServers/allowedTools widen what runs
 }
 
 // Step 0 of the fence: the path a file tool will touch, per tool (input fields). Glob with an absolute pattern: its non-glob base dir.
@@ -75,7 +75,7 @@ export const leaseOf = async (h: Host) => { const r = (await h.secret.read()).ru
 // The maintenance lease: while a human-started setup/init runs, main may Write/Edit only these, plus Read the guide's folder. Never source files, never a settings file
 // (permissions, hooks, sandbox) and never ~/.claude/cadre.json (it holds security keys): cadre writes those after the human confirms a card.
 // .cadre/config.json only in an init run (ADR 0019): init re-validates it against the settings after every write; a setup run never needs it
-const leased = (real: string, pol: Policy, kind?: string) => !!pol.repo && ((under(real, `${pol.repo}/.cadre`) && (kind === 'init' || real !== `${pol.repo}/.cadre/config.json`)) || ['.git/info/exclude', pol.changelog || 'CHANGELOG.md'].some(f => real === `${pol.repo}/${f}`))
+const leased = (real: string, pol: Policy, kind?: string) => !!pol.repo && ((under(real, `${pol.repo}/.cadre`) && (kind === 'init' || real !== `${pol.repo}/.cadre/config.json`)) || ['.git/info/exclude', ...(pol.guarded ?? [])].some(f => real === `${pol.repo}/${f}`))
 // Claude Code settings files: no agent edits them, lease or not, cadre on or off during a run
 const SETTINGS = /(^|\/)\.claude\/settings[^/]*\.json$/, SETTINGS_DENY = 'these settings are applied for you after the human confirms them in the dialog'
 
@@ -90,7 +90,7 @@ export async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: s
   const real = p === undefined ? undefined : await placed(h, join(cwd, p))
   if (FENCED.includes(tool) && (SETTINGS.test(p ?? '') || SETTINGS.test(real ?? ''))) return SETTINGS_DENY
   if (real === undefined) return 'that path cannot be used; give a plain path inside your working directory'
-  if (w.spec) return under(real, pol.repo) && writes({ write: w.spec.write ?? [] } as any, rel(real, pol.repo!)) && !modOwned(real, pol.home, pol.changelog) ? 'allow' : 'write only the files your role allows, inside the project folder'   // the same writes() the built-in roles use
+  if (w.spec) return under(real, pol.repo) && writes({ write: w.spec.write ?? [] } as any, rel(real, pol.repo!)) && !modOwned(real, pol.home, pol.guarded) ? 'allow' : 'write only the files your role allows, inside the project folder'   // the same writes() the built-in roles use
   if (tester) return under(real, w.b!.worktree) && can(real) ? 'allow' : 'write only inside your working directory'
   if (w.main && guide !== undefined && (tool === 'Read' ? under(real, guide.slice(0, guide.lastIndexOf('/'))) : leased(real, pol, kind))) return 'allow'
   if (w.main && FENCED.includes(tool) && pol.repo && real === `${pol.repo}/.cadre/config.json`) return 'the project settings are changed by the user in the cadre pane (Settings, key 9); do not edit that file'
@@ -98,7 +98,7 @@ export async function fence(h: Host, w: Awaited<ReturnType<typeof who>>, tool: s
   if (!w.main && w.b && w.task?.state === 'blocked' && FENCED.includes(tool) && under(real, w.b.worktree)) return 'your task waits for a decision; stop now: you are resumed with the answer'   // live 0.9.0: "write only inside your working directory" sent a worker that had just reported spec_change looking for another place to write
   if (!w.main && !own) return under(real, (await h.env()).TMPDIR || '/tmp') ? 'tmp' : 'write only inside your working directory (or $TMPDIR)'   // positive jail: file tools are not OS-sandboxed (ADR 0006)
   if (!own && (under(real, pol.repo) || under(real, pol.wtRoot))) return 'project files are edited by a task agent only; plan the change with plan and task, or spawn the agent of a planned task'
-  if (modOwned(real, pol.home, pol.changelog)) return 'that path is managed for you and cannot be edited; leave it alone'
+  if (modOwned(real, pol.home, pol.guarded)) return 'that path is managed for you and cannot be edited; leave it alone'
   if (w.owner && (pol.core?.[w.b!.taskId] ?? []).some(l => real === l)) return 'this file belongs to the shared core that already landed: do not edit it; report outcome "blocked" with the change you need in it'   // ADR 0014 G
   if (w.owner && locksAt(w.task?.step ?? '')?.enforce === 'in' && (pol.locks?.[w.b!.taskId] ?? []).some(l => real === l || under(real, l))) return 'locked spec test: do not edit it; if it is wrong, report outcome "spec_change"'
 }

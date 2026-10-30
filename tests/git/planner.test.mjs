@@ -18,7 +18,7 @@ const { handleWith } = await import('../../tools/index.ts')
 const { mirror } = await import('../../core/dispatch.ts')
 const { arm } = await import('../../core/drive.ts')
 const { spawnStep } = await import('../../core/spawner.ts')
-const { skeleton } = await import('../../core/changelog.ts')
+const { skeleton } = await import('../../modules/changelog.mjs')
 
 const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: o.cwd }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()

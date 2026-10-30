@@ -4,6 +4,7 @@ import { defaults } from '../config/index'
 import { ROUTES, dispatch, snapOf } from '../core/dispatch'
 import { parse, route, run } from '../commands/cadre'
 import { RevertRefusal, planOf } from '../core/revert'
+import { active, setProfile } from '../core/pipeline'
 
 const S1 = 'a'.repeat(40), M1 = 'b'.repeat(40)
 // a scripted git: `has` = the refs that exist; every call is recorded; diff/log answer for the commit being reverted
@@ -97,8 +98,8 @@ describe('H9 revert flow (core/revert; git in tests/git/revert.test.mjs)', () =>
     expect(((await h.board.read()).decisions ?? []).map(d => d.id)).toEqual([`revert:${t1.id}`])
   })
   test('refused with a code: a pull-request landing mode, a target still running, and a landing that was never recorded', async () => {
-    const a = await world(), cfg = await (a.h as any).config(); cfg.landing.mode = 'pr'
-    expect(await planOf(a.h, a.epic).then(() => 'ok', (e: RevertRefusal) => e.code)).toBe('pr-mode'); expect((await a.press(a.epic)).text).toContain('not yet supported')
+    const a = await world(), keep = active(); setProfile({ ...keep, landing: { ...keep.landing, provider: '/m/landing-gh.mjs' } })   // a module landing provider
+    try { expect(await planOf(a.h, a.epic).then(() => 'ok', (e: RevertRefusal) => e.code)).toBe('pr-mode'); expect((await a.press(a.epic)).text).toContain('not yet supported') } finally { setProfile(keep) }
     const b = await world(); await b.store.setMeta(b.epic, { 'cadre.landed': '' }, 'cadre'); await b.store.setMeta(b.t1.id, { 'cadre.rec.close': '' }, 'cadre')
     await b.store.close(b.t1.id, { outcome: 'done' }); expect((await b.press(b.t1.id)).text).toMatch(/not-landed.*no recorded landing/)
     const c = await world(); await c.store.setMeta(c.epic, { 'cadre.landed': '' }, 'cadre'); await c.h.board.update(x => ({ ...x, plan: { id: c.epic, slug: 'a', state: 'integrating', epicBranch: 'epic/p1-auth' } as any }))

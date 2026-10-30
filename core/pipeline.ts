@@ -5,7 +5,7 @@ import type { OnFail, Profile, Step, TypeSpec } from '../types/profile'
 import { profile as DEFAULT } from '../profiles/default'
 import { setFlags } from './flags'
 import { setRoles } from './roles'
-import { SANDBOX } from './git'
+import { SANDBOX, UNION } from './git'
 
 let P: Profile = DEFAULT
 export const setProfile = (p: Profile): void => { P = p; setFlags(p.flags); setRoles(p.roles) }
@@ -41,3 +41,4 @@ export const spent = (step: string, n: number): boolean => { const f = onFail(st
 export const fill = (s: string, v: Record<string, string>): string => s.split('${').map((x, i) => { const e = x.indexOf('}'); return i && e >= 0 ? (v[x.slice(0, e)] ?? '') + x.slice(e + 1) : i ? `\${${x}` : x }).join('')
 export const sandboxEnv = (v: Record<string, string>): Record<string, string> => Object.fromEntries(Object.entries(P.sandbox.env).map(([k, s]) => [k, fill(s, v)]))
 SANDBOX.env = sandboxEnv
+UNION.paths = () => P.landing.union ?? []

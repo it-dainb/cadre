@@ -107,7 +107,7 @@ async function saveUnit(h: any, key: string, raw: string, no: (why: string) => P
   const [, i, f] = key.match(UNIT)!, v = raw.trim(); let u: any, val: unknown = v
   const w = await writeRepoConfig(h, async cur => {
     u = cur?.units?.[Number(i)]; if (!u) return 'there is no such unit in .cadre/config.json'
-    try { if (f === 'setup') val = JSON.parse(v); else if (f === 'concurrency') val = v === '' || v === '0' ? undefined : Number(v) } catch { return 'expected a JSON argument list, e.g. ["npm","ci"]' }
+    val = v === '' || v === '0' ? undefined : Number(v)
     const { [f]: _o, ...rest } = u, next = val === undefined ? rest : { ...rest, [f]: val }, bad = parse([next]); if (typeof bad === 'string') return bad.replace(/^units\[0\]\./, '')
     const units = cur.units.map((x: any, j: number) => (j === Number(i) ? next : x)), gate = modelIssues({ ...resolve(await layersOf(h, await ctx(h))).config, units }); if (gate.length) return gate[0]
     return { ...cur, units }

@@ -308,6 +308,7 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (roles('Tester')) fail(o, `${roles('Tester')} tester run(s) on a docs task`)
     if (!log.some(l => /^docs(\(|:)/.test(l))) fail(o, `no docs commit on dev: ${log.join(' | ') || 'dev has none'}`)
     if (log.some(l => /^(feat|fix|refactor)(\(|:)/.test(l))) fail(o, `a code commit on dev: ${log.find(l => /^(feat|fix|refactor)(\(|:)/.test(l))}`)
+    if (log.some(l => /^docs\(changelog\)/.test(l))) fail(o, 'a changelog commit is on dev (this profile wires no delivery hook)')
     if (/usage/i.test(read(join(dir, 'dev-changelog')))) fail(o, 'the changelog has an entry for a docs task (its changelog decision is none)')
     if (runs(snaps.at(-1)?.s ?? {}) && Object.values(Object.assign({}, ...snaps.map(x => runs(x.s)), ...hist.map(runs))).some(r => r.role === 'tester')) fail(o, 'a tester run record exists')
   }
@@ -456,14 +457,6 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     else if (!(reqs[0].max_tokens >= 800 && reqs[0].max_tokens <= 800 + 2048) ||   // the engine adds a 2048-token thinking allowance to the 800 asked (measured: 2848)
        !/haiku/.test(reqs[0].model ?? '')) fail(o, `the request was ${reqs[0].model} max_tokens ${reqs[0].max_tokens} (want haiku, 800 + the engine's 2048)`)
     else if (!after.length || after.some(x => !LESSON.test(x.brief))) fail(o, `${after.length} brief(s) after the pass, ${carry.length} carry the lesson (want every one)`)
-  }
-  if (o === 'submodule') {   // the task landed in lib's own dev, and the parent's dev records that commit
-    const d = existsSync(join(dir, 'submodule.json')) ? JSON.parse(read(join(dir, 'submodule.json'))) : null
-    if (!d) fail(o, 'no submodule.json (the scenario never got past the landing)')
-    else { stats.submodule = d
-      if (!d.has) fail(o, `lib's dev (${d.dev?.slice(0, 7)}) has no src/titleCase.mjs`)
-      if (d.ptr !== d.dev) fail(o, `the parent's dev records lib at ${d.ptr?.slice(0, 7) || 'nothing'}, lib's dev is ${d.dev?.slice(0, 7)}`) }
-    if (!subs.some(x => /Worker brief/.test(x.brief))) fail(o, 'no worker ran')
   }
 }
 stats.usd = +debug.map(ls => Math.max(0, ...ls.map(l => +(l.match(/cost=\$([\d.]+)/)?.[1] ?? 0)))).reduce((a, b) => a + b, 0).toFixed(2)

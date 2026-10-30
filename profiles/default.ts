@@ -36,8 +36,8 @@ export const flags: Record<string, FlagSpec> = {
   rework: { ...SAME, holds: true },
   red: { why: RED_WHY, holds: true, yolo: 'human', options: [{ key: 'r', label: 'Retry', effect: RED }, { key: 'h', label: 'Already holds', needs: 'ids', effect: [{ do: 'amend' }, ...RED] }, CANCEL] },
   'gate-error': { why: RED_WHY, holds: true, yolo: 'human', options: [{ key: 'r', label: 'Retry', effect: RED }, CANCEL] },
-  // hook-failed is raised from S6 on (its Retry then reruns the hook)
-  'hook-failed': { why: 'a delivery hook failed. Retry runs it again, Skip goes on without it, Cancel task ends the task.', holds: true, yolo: 'human', options: [{ key: 'r', label: 'Retry', effect: [{ do: 'clear' }] }, { key: 's', label: 'Skip', effect: [{ do: 'clear' }] }, CANCEL] },
+  // hook-failed (core/hooks): Retry clears the flag and the next tick runs the hooks again; Skip also drops them (dropNeed)
+  'hook-failed': { why: 'a delivery hook failed. Retry runs it again, Skip goes on without it, Cancel task ends the task.', holds: true, yolo: 'human', options: [{ key: 'r', label: 'Retry', effect: [{ do: 'clear' }] }, { key: 's', label: 'Skip', effect: [{ do: 'clear' }, { do: 'dropNeed' }] }, CANCEL] },
   spec_change: { why: 'the worker asks to change the locked spec. Accept: the tester amends it and a new red follows. Reject: it conforms to the locked tests.', holds: false, yolo: 'main', options: [
     { key: 'a', label: 'Accept', effect: SPEC('accept') }, { key: 'x', label: 'Reject', effect: SPEC('reject') }, { key: 'c', label: 'Cancel task', needs: 'keys', effect: [{ do: 'cancel' }] }] },
   blocked: { why: 'blocked: the worker asks a question. Type your answer in the chat: it goes to the worker. Keep leaves it waiting for that answer; Cancel task ends it.', holds: false, yolo: 'main', options: [{ key: 'k', label: 'Keep', effect: [{ do: 'wait' }] }, CANCEL] },
@@ -94,11 +94,13 @@ export const steps: Record<string, Step> = {
   explorer: { role: 'explorer', workspace: 'none', brief: ['question'] },
   report: { gate: 'report', expect: 'pass', on: 'explorer' },
 }
-// S6 adds the hook entries with the modules; CHANGELOG.md joins `protected` then. Only PATH moves here (the folder's own virtualenv comes first, as node_modules/.bin does for npm scripts).
+// The delivery hooks (plan 2.7): the closed task's changelog entry goes on its epic branch, a release cuts the changelog; CHANGELOG.md is theirs, so no task agent edits it.
+// `${MODULES}` is the plugin's modules folder (core/profile expands it). PATH: the folder's own virtualenv comes first, as node_modules/.bin does for npm scripts.
 export const profile: Profile = {
-  schema: 2, types, steps, roles, checks, flags, hooks: {},
-  landing: { provider: 'direct', onEpicDone: 'propose', prepare: 'setup', baseline: 'tolerate' },
-  protected: [],
+  schema: 2, types, steps, roles, checks, flags,
+  hooks: { 'task.closed': [{ run: ['node', '${MODULES}/changelog.mjs', 'entry'], commit: 'docs(changelog): ${id}' }], release: [{ run: ['node', '${MODULES}/release.mjs'], commit: 'chore(release): v${version}' }] },
+  landing: { provider: 'direct', onEpicDone: 'propose', prepare: 'setup', baseline: 'tolerate', union: ['CHANGELOG.md'] },
+  protected: ['CHANGELOG.md'],
   sandbox: { env: { PATH: '${WT}/.venv/bin:${PATH}' } },
   fields: [{ name: 'scope', store: 'meta', required: false }, { name: 'breaking', store: 'meta', required: false, kind: 'bool' }, { name: 'package', store: 'meta', required: false }, { name: 'changelog', store: 'meta', required: ['feature', 'bug', 'refactor'] }, { name: 'holds', store: 'meta', required: false, kind: 'ids' }, { name: 'lane', store: 'meta', required: false, kind: { enum: ['ask', 'lite', 'full', 'milestone'] } },
     { name: 'risk', store: 'meta', required: false, kind: { enum: ['light', 'standard', 'thorough', 'core'] } }],

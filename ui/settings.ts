@@ -12,9 +12,8 @@ export const actOf = (r: Row): string => r.src === 'fixed' ? 'refresh' : r.kind 
 
 // Workspace units rows (config/route.saveUnit writes them): each existing unit's scalar fields, keyed `units.<i>.<field>`; add and remove stay in init
 
-export const UNIT = /^units\.(\d+)\.(concurrency|setup)$/
+export const UNIT = /^units\.(\d+)\.(concurrency)$/
 export const unitRows = (us: Pkg[]): Row[] => us.flatMap((u, i): Row[] => {
   const r = (f: string, kind: Row['kind'], value: unknown, def: unknown, desc: string, opts?: string[]): Row => ({ key: `units.${i}.${f}`, cat: 'Workspace units', cls: 'O', desc: `${u.root}: ${desc}`, safety: false, value, def, src: 'repo', kind, ...(opts ? { opts } : {}) })
-  return [r('concurrency', 'number', u.concurrency ?? 0, 0, 'tasks of this unit at once (0 = no unit cap)'),
-    r('setup', 'text', JSON.stringify(u.setup ?? []), JSON.stringify([]), 'the setup command as a JSON argument list')]
+  return [r('concurrency', 'number', u.concurrency ?? 0, 0, 'tasks of this unit at once (0 = no unit cap)')]
 })

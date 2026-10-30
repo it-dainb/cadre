@@ -9,8 +9,8 @@ export async function identity(run: Run, env: Record<string, string | undefined>
   return { ok: (await run(['git', 'var', 'GIT_COMMITTER_IDENT']).catch(() => ({ exitCode: 1 }))).exitCode === 0 && (await run(['git', 'var', 'GIT_AUTHOR_IDENT']).catch(() => ({ exitCode: 1 }))).exitCode === 0, name: (await get('user.name')) || env.GIT_AUTHOR_NAME || '', email: (await get('user.email')) || env.GIT_AUTHOR_EMAIL || '' }
 }
 // paths the mod owns in a repo: agents never change them (close refuses, guards fence, the brief names them)
-export const PROTECTED = ['.git/', '.cadre/', '.claude/', '.mcp.json', 'CHANGELOG.md']
-export const isProt = (p: string, changelog?: string) => [...PROTECTED, ...(changelog ? [changelog] : [])].some(x => (x.endsWith('/') ? p.startsWith(x) : p === x))   // changelog: the configured changelog.path (repo-relative)
+export const PROTECTED = ['.git/', '.cadre/', '.claude/', '.mcp.json']   // the profile's `protected` globs come on top (core/specview.isProtected)
+export const isProt = (p: string) => PROTECTED.some(x => (x.endsWith('/') ? p.startsWith(x) : p === x))
 
 // git -C <cwd> <args>: stdout trimmed; a non-zero exit throws with git's own stderr (P6: facts only, never parsed for decisions).
 export async function git(run: Run, cwd: string, args: readonly string[]): Promise<string> {
@@ -41,7 +41,20 @@ export const guardedRun = (run: Run, root: () => Promise<string>): Run => {
 }
 
 // git.op: CAS busy=true -> fn -> epoch++ -> busy=false (effect.ts re-baselines on an epoch change). A busy repo refuses; callers retry at the next hook.
+// Paths the profile lists as `landing.union` merge with git's union driver in every cadre merge: each epic or task appends to them (a changelog), so two sides never conflict.
+// Written once per repository and process into the common git dir's info/attributes (every worktree and merge-tree read it); the file's other lines stay.
+export const UNION: { paths: () => string[] } = { paths: () => [] }
+const seen = new Set<string>()
+export async function unionAttrs(h: Host): Promise<void> {
+  const want = UNION.paths(); if (!want.length) return
+  const root = await h.cwd(), key = `${root}\0${want.join('\0')}`; if (seen.has(key)) return
+  const file = `${await git(h.run, root, ['rev-parse', '--path-format=absolute', '--git-common-dir'])}/info/attributes`, have = (await h.readText(file)) ?? '', lines = have.split('\n')
+  const add = want.map(p => `${p} merge=union`).filter(l => !lines.includes(l))
+  if (add.length) await h.write(file, `${have}${have === '' || have.endsWith('\n') ? '' : '\n'}${add.join('\n')}\n`)
+  seen.add(key)
+}
 export async function op<T>(h: Host, fn: () => Promise<T>): Promise<T> {
+  await unionAttrs(h).catch(() => undefined)   // not a repository yet, or no write: the merge goes on as plain git
   let got = false
   await h.git.update(g => { got = !g.busy; return g.busy ? g : { ...g, busy: true } })
   if (!got) throw new Error('git busy')

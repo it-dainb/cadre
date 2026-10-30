@@ -75,4 +75,4 @@ After a plan lands, a short side-model pass (`lessons.model`, at most `lessons.p
 
 ## Your project config
 
-`.cadre/config.json` (setup writes it): `units` (the parts that build and test on their own, each with `root`, `setup`, `runner`, `checks`) and `landing.mode`: `direct` (default) lands a finished plan on `dev` locally; `pr` pushes and opens one pull request into `dev` (needs `gh`, signed in).
+`.cadre/config.json` (setup writes it): `units` (the parts that build and test on their own, each with `root` and `checks`; the `setup` check runs before the others) and the profile's `landing.provider`: `direct` (default) lands a finished plan on `dev` locally; a module such as `landing-gh.mjs` pushes and opens one pull request into `dev` (needs `gh`, signed in).

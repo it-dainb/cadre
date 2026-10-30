@@ -4,7 +4,7 @@ import { askOf, askStopped } from './asks'
 import { roleSpec } from './roles'
 import type { Binding, Hook, Host, SnapTask } from '../types'
 import type { Task } from '../task-management/store'
-import { catOf, covers, gateAt, hasField, next, onFail, pipeOf, producer, roleAt, spent, typeOf, verdictAt, workspaceAt } from './pipeline'
+import { active, catOf, covers, gateAt, hasField, next, onFail, pipeOf, producer, roleAt, spent, typeOf, verdictAt, workspaceAt } from './pipeline'
 import { LIFECYCLE, holdsAmend } from './plantools'
 import { ROUTES, resolveEpic } from './dispatch'
 import { flagDecision, kindOf, pick, specOf } from './flags'
@@ -19,8 +19,9 @@ import { card, comment, spawnIt, commitMessage, noReportCard, startNew, type Rec
 import { checkpoint, resolveGit, sweep } from './effect'
 import { policyOf } from '../policy/guards'
 import { integrateEpic } from './integrate'
+import { deliver, dropHooks } from './hooks'
 import { green as tddGreen, lockedViolations, verifyOf, redOf, resolveSpec, specChange, testerDone } from './tdd'
-import { inRepo, modeOf, pkgOf, unitsOfTask } from './specview'
+import { inRepo, isProtected, modeOf, pkgOf, unitsOfTask } from './specview'
 import * as G from './git'
 import { decided, hardStop, limited, stop } from './drive'
 import { queueBrief } from './lanes'
@@ -105,7 +106,7 @@ async function numstat(h: Host, wt: string, range: string) {
 async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any): Promise<string> {
   const task = await d.store.get(t.id), wt = b.worktree, base = task.meta['cadre.base'], pol = await policyOf(h)
   const dirty = (await G.git(h.run, wt, ['status', '--porcelain'])).split('\n').filter(Boolean).flatMap(l => l.slice(3).split(' -> ')), changed = new Set([...dirty, ...(await G.git(h.run, wt, ['diff', '--name-only', `${task.meta['cadre.specCommit'] ?? base}..HEAD`])).split('\n').filter(Boolean)])   // since the red commit: the spec files it added are the worker's baseline, not its edits
-  const theirs = await ours(h, wt, task.meta['cadre.resolve']), locked = pol.locks?.[t.id] ?? [], bad = [...changed].filter(p => (G.isProt(p, d.cfg.changelog.path) && !theirs(p)) || locked.includes(`${wt}/${p}`))
+  const theirs = await ours(h, wt, task.meta['cadre.resolve']), locked = pol.locks?.[t.id] ?? [], bad = [...changed].filter(p => (isProtected(p) && !theirs(p)) || locked.includes(`${wt}/${p}`))
   if (bad.length) throw new Error(`protected or locked paths changed: ${bad.join(', ')}. Restore them (git checkout ${sha7(base)} -- <path>) and report again`)
   const core = pol.core?.[t.id] ?? [], mine = [...dirty, ...(await G.git(h.run, wt, ['diff', '--name-only', `${base}..HEAD`])).split('\n')].filter(p => core.includes(`${wt}/${p}`))   // since the last plan tip merged in: the core's own landing is not this task's edit
   if (mine.length) throw new Error(`shared core files changed: ${mine.join(', ')}. Restore them (git checkout ${sha7(base)} -- <path>); report outcome "blocked" with the change you need in the core`)
@@ -340,7 +341,7 @@ export async function closeTask(h: Host, d: Deps, id: string, actor: 'main' | 'm
   if (await G.git(h.run, wt, ['status', '--porcelain'])) return `${id}: the worktree has uncommitted changes`
   if (!task.meta['cadre.changelog'] && hasField('changelog')) return `${id}: no changelog decision`
   const files = (await G.git(h.run, wt, ['diff', '--name-only', `${base}..${C}`])).split('\n').filter(Boolean), spc = task.meta['cadre.specCommit']
-  const theirs = await ours(h, wt, task.meta['cadre.resolve'], C), bad = [...files.filter(p => G.isProt(p, d.cfg.changelog.path) && !theirs(p)), ...(spc ? await lockedViolations(h.run, wt, spc, JSON.parse(task.meta['cadre.locked'] ?? '[]'), C) : [])]; if (bad.length) return `${id}: protected or locked paths differ: ${bad.join(', ')}`
+  const theirs = await ours(h, wt, task.meta['cadre.resolve'], C), bad = [...files.filter(p => isProtected(p) && !theirs(p)), ...(spc ? await lockedViolations(h.run, wt, spc, JSON.parse(task.meta['cadre.locked'] ?? '[]'), C) : [])]; if (bad.length) return `${id}: protected or locked paths differ: ${bad.join(', ')}`
   const rep = reportOf(task.meta['cadre.report']).summary
   const msg = commitMessage({ type: spec.commit ?? 'chore', scope: task.meta['cadre.scope'] || undefined, breaking: task.meta['cadre.breaking'] === 'true', description: t.title, summary: rep, id, reviewSha: C, checks: task.meta['cadre.checks'] ? [task.meta['cadre.checks']] : [] })
   let sha = '', fail = ''
@@ -375,7 +376,9 @@ export async function closeTask(h: Host, d: Deps, id: string, actor: 'main' | 'm
   await landed(h, d.cfg, id).catch(e => h.log(`metrics for ${id}: ${e}`))   // before cleanup prunes the Budget
   await cleanup(h, d, id, task)
   if (task.meta['cadre.core'] === 'true') await coreLanded(h, d, files, task.design).catch(e => h.log(`core lock: ${e}`))   // its files are locked for the other tasks of the plan
-  if (!d.top) await refresh(h, d, sha, id).catch(e => h.log(`refresh after ${id}: ${e}`))   // running siblings get the new tip now (core/rebase); a submodule's tip is not the plan's
+  const fields = Object.fromEntries(active().fields.filter(f => f.store === 'meta' && task.meta[`cadre.${f.name}`]).map(f => [f.name, task.meta[`cadre.${f.name}`]]))   // the closed task's data for its delivery hooks
+  await deliver(h, d, 'task.closed', { id, base: br, input: { id, title: t.title, type: t.type, branch: br, fields }, vars: { id, title: t.title } }).catch(e => h.log(`task.closed hooks for ${id}: ${e}`))   // on the epic branch, before the siblings take its tip
+  if (!d.top) await refresh(h, d, await G.tip(h.run, d.root, br), id).catch(e => h.log(`refresh after ${id}: ${e}`))   // running siblings get the new tip now (core/rebase); a submodule's tip is not the plan's
   return null
 }
 
@@ -486,7 +489,7 @@ const EFF: Record<EffDo, (c: Ctx, e: Eff) => Promise<string | void>> = {
   },
   restore: async c => refs(c, 'restore'),
   recut: async c => (await resolveEpic(c.h, c.id, 'recut')).text,
-  dropNeed: async () => {},   // the installs it dropped are gone (B5); the table keeps the effect name
+  dropNeed: async c => dropHooks(c.h, c.id),   // Skip on hook-failed: the failed delivery is given up (core/hooks). The installs the name once dropped are gone (B5)
   endAgent: async c => { for (const x of agentsOf(await c.h.bind.read(), c.id)) await end(c.h, x, 'retry', 'retry') },   // the tester that waited on it is done: a new one writes the tests
   rework: async (c, e) => {   // one more round by the same worker, from the task branch's tip now
     const s = await c.h.board.read(), t = s.tasks.find(x => x.id === c.id)!, task = await c.d.store.get(c.id), tip = await G.tip(c.h.run, c.d.root, branchOf(s, t))

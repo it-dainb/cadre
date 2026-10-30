@@ -205,10 +205,6 @@ async function project(h: Host, cfg: Config): Promise<Row[]> {
   try { const s = await storeOf(h), p = await s.probe(); rows.push(!p.ok ? ['crit', `task store: ${p.detail.slice(0, 100)}`, 'cadre stays off here: put the project on a disk with hard links'] : p.journal ? ['ok', 'task store in .cadre/state, journal on'] : ['warn', 'task store journal off', '/cadre init']); if (p.ok) tasks = await s.list({}) }
   catch (e) { rows.push(['crit', `task store unreachable: ${(e as Error).message.slice(0, 100)}`, 'cadre stays off here: put the project on a disk with hard links']) }
   if (await oldState(h, tasks)) rows.push(['warn', 'finish or cancel plans from the previous version before upgrading', 'its run state is not read: finish or cancel those plans with the previous version'])
-  if (cfg.landing.mode === 'pr') {   // H6: plans land as pull requests; without gh (or signed out) nothing is pushed and the plan waits
-    const v = await h.run(['gh', '--version'], { timeoutMs: 5000 }).catch(() => undefined), a = v && !v.exitCode ? await h.run(['gh', 'auth', 'status'], { timeoutMs: 5000 }).catch(() => undefined) : undefined
-    rows.push(!v || v.exitCode ? ['crit', 'landing.mode is pr but gh is not installed', 'install the GitHub CLI (gh), or set landing.mode direct'] : !a || a.exitCode ? ['crit', 'landing.mode is pr but gh is not signed in', 'gh auth login'] : ['ok', 'gh ready: plans land as pull requests'])
-  }
   for (const b of [cfg.branches.main, cfg.branches.dev]) rows.push(b && await exists(h.run, root, b) ? ['ok', `branch ${b} exists`] : ['crit', `branch ${b || '(main unset)'} missing`, '/cadre init'])
   const now = await h.now(), stale = tasks.filter(t => t.assignee && ['active', 'review', 'blocked'].includes(t.category) && !leaseLive(t, now)).map(t => t.id), bound = Object.keys(await h.bind.read()).filter(k => !k.startsWith('~')).length
   rows.push(stale.length ? ['warn', `expired leases: ${stale.join(', ')}`, 'main spawns them again; they rebind'] : ['ok', `no stale leases; ${bound} agent(s) bound`])

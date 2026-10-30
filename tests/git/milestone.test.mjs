@@ -12,7 +12,9 @@ const { fakeHost } = await import('../support.ts')
 const { defaults } = await import('../../config/index.ts')
 const { integrateEpic, releaseDev } = await import('../../core/integrate.ts')
 const { mirror } = await import('../../core/dispatch.ts')
-const { skeleton } = await import('../../core/changelog.ts')
+const { insert, normalise, skeleton } = await import('../../modules/changelog.mjs')
+const { deliver } = await import('../../core/hooks.ts')
+const PL = await import('../../core/pipeline.ts'), { sessionProfile } = await import('../dev/register.mjs')
 const { MemoryStore } = await import('../../task-management/adapters/memory/store.ts')
 const { types: dt } = await import('../../profiles/default.ts'), types = () => dt
 const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: o.cwd }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
@@ -21,6 +23,7 @@ const commit = (d, f, body, msg) => { writeFileSync(join(d, f), body); sh(d, 'ad
 
 // dev + milestone/<m>-accounts + two epic branches (a.txt, b.txt), each epic with one done task; the board holds the approved milestone
 async function world(check = ['true'], drive = false) {
+  PL.setProfile(sessionProfile)
   const d = mkdtempSync(join(tmpdir(), 'cadre-ms-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
   commit(d, 'CHANGELOG.md', skeleton(), 'chore: init'); sh(d, 'branch', 'dev')
   const store = new MemoryStore(() => 1000); await store.init({ types: types(), journal: false })
@@ -32,7 +35,7 @@ async function world(check = ['true'], drive = false) {
     const t = (await store.createDraft({ title: `do ${name}`, description: 'x', type: 'feature', parent: e, meta: { 'cadre.changelog': JSON.stringify({ category: 'Added', entry: name }) } })).id
     await store.approve([t]); await store.claim(t, 'a'); await store.close(t, { outcome: 'done' }); ep.push(e)
   }
-  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.units = [{ root: '.', setup: ['true'], checks: { test: check } }]; cfg.jail = 'off'
+  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.units = [{ root: '.', checks: { setup: ['true'], test: check } }]; cfg.jail = 'off'
   const h = fakeHost()
   Object.assign(h, { cwd: async () => d, home: async () => d, run, config: async () => cfg, taskStore: async () => store, readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } }, write: async (p, t) => writeFileSync(p, t) })
   await h.board.update(b => ({ ...b, epic: m, plan: { id: m, slug: 'accounts', state: 'approved', epicBranch: ms, lane: 'milestone', mode: 'auto' }, ...(drive ? { drive: { ...b.drive, on: true, mode: 'auto', epicId: m } } : {}) }))
@@ -47,7 +50,7 @@ test('an epic lands on the milestone branch: merged result checked, --no-ff with
   assert.equal(await integrateEpic(h, ep[0]), null)
   const tipMs = sh(d, 'rev-parse', ms); assert.equal(sh(d, 'rev-list', '--parents', '-n1', tipMs).split(' ').length, 3)
   assert.match(sh(d, 'log', '-1', '--format=%B', ms), new RegExp(`merge epic/signup \\(${ep[0]}\\)\\n\\nMilestone: ${m} accounts`))
-  assert.match(sh(d, 'show', `${ms}:CHANGELOG.md`), /- signup \(m-\d+\)/)
+  assert.equal(sh(d, 'show', `${ms}:CHANGELOG.md`), skeleton().trim())   // the entries are the task.closed hook's commits on the epic branch, not part of the merge (B6)
   assert.equal(sh(d, 'branch', '--list', 'epic/signup'), ''); assert.equal(sh(d, 'rev-parse', 'dev'), dev)
   assert.equal((await store.get(ep[0])).category, 'done'); assert.deepEqual(await states(h), ['landed', 'running'])
   const b = await h.board.read(); assert.equal(b.plan.state, 'approved'); assert.equal(b.plan.landed, undefined)
@@ -64,7 +67,8 @@ test('the milestone takes dev\'s news after a landing; the last epic lands the m
   assert.match(sh(d, 'log', '-1', '--format=%s', 'dev'), new RegExp(`merge ${ms.replace('/', '\\/')} \\(${m}\\)`))
   assert.equal(sh(d, 'rev-list', '--parents', '-n1', 'dev').split(' ').length, 3); assert.equal(sh(d, 'branch', '--list', ms), '')
   assert.deepEqual((b.decisions ?? []).map(x => x.kind), ['release'])
-  assert.match(await releaseDev(h), /Released v0\.1\.0/); assert.equal(sh(d, 'log', '-1', '--format=%s', 'dev'), `chore(release): v0.1.0 — milestone ${m} accounts`)
+  sh(d, 'checkout', '-q', 'dev'); commit(d, 'CHANGELOG.md', insert(skeleton(), 'Added', 'signup', 'm-1'), 'docs(changelog): m-1'); sh(d, 'checkout', '-q', '--detach')   // what the epics' hook commits leave
+  assert.match(await releaseDev(h), /Released v0\.1\.0/); assert.equal(sh(d, 'log', '-1', '--format=%s', 'dev'), 'chore(release): v0.1.0')   // the commit message is the hook's static template: no milestone suffix any more
 })
 test('one landing at a time: a second epic waits while one integrates', async () => {
   const { h, ep } = await world()
@@ -99,4 +103,18 @@ test('after an epic lands, the other running epic takes the new milestone tip', 
   assert.equal(sh(d, 'merge-base', '--is-ancestor', ms, 'epic/signup'), ''); assert.equal(sh(d, 'show', 'epic/signup:b.txt'), 'login')
   const b = await h.board.read(); assert.equal(b.plan.landed, undefined); assert.equal(b.plan.state, 'approved'); assert.notEqual(sh(d, 'rev-parse', 'dev'), sh(d, 'rev-parse', ms))   // one epic of two: the milestone is NOT landed (no early "landed on dev")
   const ev = Object.values((await h.events.read()).epics).flat().filter(e => e.type === 'plan.landed'); assert.deepEqual(ev.map(e => [e.data.planId, e.data.on]), [[ep[1], ms]])
+})
+// B6 in a milestone: each epic branch carries its own docs(changelog) hook commit, so two epics edit the same hunk of CHANGELOG.md. The profile's landing.union makes git merge it with
+// the union driver (core/git.unionAttrs, info/attributes), and the changelog module's next normalisation turns the concatenation into one clean Unreleased block.
+test('two epics each close a task with the real changelog hook: both merge into the milestone without a conflict, and both entries survive the normalisation', async () => {
+  const { d, h, m, ms, ep } = await world(), dirs = { root: d, wtRoot: `${d}-wt`, key: 'k' }
+  for (const [name, category, entry, id] of [['signup', 'Added', 'signup form', 't-1'], ['login', 'Added', 'login page', 't-2']]) {
+    await deliver(h, dirs, 'task.closed', { id, base: `epic/${name}`, input: { id, title: name, type: 'feature', branch: `epic/${name}`, fields: { changelog: JSON.stringify({ category, entry }) } }, vars: { id, title: name } })
+    assert.equal(sh(d, 'log', '-1', '--format=%s', `epic/${name}`), `docs(changelog): ${id}`)
+  }
+  assert.equal(await integrateEpic(h, ep[0]), null); assert.equal(await integrateEpic(h, ep[1]), null)   // the second merge does not conflict
+  assert.equal((await h.board.read()).plan.state, 'done-on-dev')
+  const text = normalise(sh(d, 'show', 'dev:CHANGELOG.md') + '\n')
+  assert.ok(text.includes('- signup form (t-1)') && text.includes('- login page (t-2)')); assert.equal(text.split('### Added').length, 2); assert.equal(text.split('signup form').length, 2)
+  assert.equal(sh(d, 'config', '--get', 'core.bare'), 'false'); assert.match(execFileSync('cat', [join(d, '.git/info/attributes')], { encoding: 'utf8' }), /^CHANGELOG\.md merge=union$/m)
 })

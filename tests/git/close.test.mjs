@@ -17,7 +17,7 @@ const { handleWith } = await import('../../tools/index.ts')
 const { ROUTES } = await import('../../core/dispatch.ts')
 const { setPolicy } = await import('../../policy/guards.ts')
 const { nextAction } = await import('../../core/render.ts')
-const PL = await import('../../core/pipeline.ts'), { profile: DEFAULT } = await import('../../profiles/default.ts')
+const PL = await import('../../core/pipeline.ts'), { sessionProfile: DEFAULT } = await import('../dev/register.mjs')   // the default as a session loads it
 
 const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: o.cwd }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()

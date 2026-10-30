@@ -163,7 +163,7 @@ export async function resolveTask(h: Host, d: Deps, epicId: string, from: string
   const title = `Resolve the merge conflict with ${onto}`, landed = (s.plan?.epics ?? []).filter(x => x.state === 'landed').map(x => `- ${x.id} ${x.title}`)
   const t = await d.store.createDraft({ title, type: 'refactor', parent: epicId, meta: { 'cadre.lane': 'lite', 'cadre.resolve': other, 'cadre.changelog': JSON.stringify({ none: true, reason: 'merge resolution' }) },
     description: [`Your working tree holds an unfinished merge of ${onto} into this branch${files.length ? `; the conflicts are marked in ${files.join(', ')}` : ''}. Resolve it so that both sides keep working, and keep every test green.`, `This side: ${e.title}\n${e.description.slice(0, 600)}`, ...(landed.length ? [`The other side (already on ${onto}):\n${landed.join('\n')}`] : [])].join('\n\n') })
-  const wt = wtPath(d.wtRoot, d.key, t.id), br = taskBranch(typeOf('refactor')?.commit ?? 'refactor', t.id, title), base = await G.tip(h.run, d.root, from)
+  const wt = wtPath(d.wtRoot, d.key, t.id), br = taskBranch(typeOf('refactor')?.branch ?? 'refactor/', t.id, title), base = await G.tip(h.run, d.root, from)
   await G.op(h, async () => { await G.worktreeAdd(h.run, d.root, wt, br, base); await h.run(['git', '-C', wt, 'merge', '--no-ff', '--no-edit', other]) })   // the conflict is left in its tree
   await setup(h, d, t, wt).catch(x => h.log(`resolve setup: ${x}`))
   await d.store.setMeta(t.id, { 'cadre.worktree': wt, 'cadre.branch': br, 'cadre.base': base }, d.actor); await d.store.setMeta(epicId, { 'cadre.resolves': String(n) }, d.actor)

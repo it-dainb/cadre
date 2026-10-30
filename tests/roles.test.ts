@@ -34,7 +34,7 @@ describe('roles as data: zero behaviour change', () => {
     const h = await host(); let n = 0
     for (const locks of [undefined, { 'bd-a1': ['/x/bd-a1/src/a.ts'] }]) for (const core of [undefined, { 'bd-a1': ['/x/bd-a1/src/b.ts'] }]) for (const home of [undefined, '/hm/u'])
       for (const state of ['active', 'blocked', 'review']) for (const step of ['worker', 'tester', 'green']) for (const kind of [undefined, 'init', 'setup']) for (const guide of [undefined, '/x/repo/.cadre/guide.md']) {
-        const pol = { repo: '/x/repo', wtRoot: '/x', home, locks, core, changelog: 'CHANGELOG.md' }, t = task('bd-a1', { state: state as any, step })
+        const pol = { repo: '/x/repo', wtRoot: '/x', home, locks, core, changelog: 'CHANGELOG.md', guarded: ['CHANGELOG.md'] }, t = task('bd-a1', { state: state as any, step })
         const who = (role: Role | 'main', wt: string) => role === 'main' ? { b: undefined, task: undefined, main: true, role: 'explorer' as const, owner: false } : { b: bind(role, wt), task: t, main: false, role, owner: state === 'active' }
         for (const role of ['main', ...ROLES] as const) for (const tool of TOOLS_ALL) {
           if (role !== 'main' && !allowlist(role as Role, ['mcp__a__b']).includes(tool)) continue   // L1 refuses it before the fence: unreachable

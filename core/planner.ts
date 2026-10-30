@@ -26,7 +26,7 @@ export async function plannerBrief(h: Host, d: Deps, s: Snapshot, ep: MEpic): Pr
   const seen = new Set<string>(), walk = (id: string): void => { for (const x of epicOf(s, id)?.deps ?? []) if (!seen.has(x)) { seen.add(x); walk(x) } }; walk(ep.id)
   const landed = await Promise.all(es.filter(e => seen.has(e.id) && e.state === 'landed').map(async e => [`- ${e.id} ${e.title}`, ...(await d.store.list({ parent: e.id })).filter(t => t.category === 'done').map(t => `  - ${t.title}: files ${pathsOf(t).join(', ') || 'not declared'}${syms(t)}`)].join('\n')))
   const locked = pathsOf({ meta: { 'cadre.paths': ms?.meta['cadre.corePaths'] ?? '' } }), n = sliceNotes(notesOf(ms?.meta['cadre.notes']), mine, d.cfg.notes.slice)
-  return [planBlock({ mission: s.mission ?? undefined, protectedPaths: protectedOf(d), core: ms?.meta['cadre.coreContract'] || undefined, shared: n.shared }), `# Roadmap of milestone ${s.plan?.id}`, ...road,
+  return [planBlock({ mission: s.mission ?? undefined, protectedPaths: protectedOf(), core: ms?.meta['cadre.coreContract'] || undefined, shared: n.shared }), `# Roadmap of milestone ${s.plan?.id}`, ...road,
     `# PLAN-${ep.id} ${ep.title}`, `Goal: ${me.description.trim()}`, `Size: about ${ep.size ?? 'a few'} tasks${mine.length ? ` · files ${mine.join(', ')}` : ''}${ep.core ? ' · the core epic: the epics after it share its code, so keep it thin' : ''}`,
     landed.length ? `## Already landed (build on it)\n${landed.join('\n')}` : '', locked.length ? `## Locked files (shared code that landed; never plan a change to them)\n${locked.map(p => `- ${p}`).join('\n')}` : '',
     n.slice ? `## Notes for these files\n${n.slice}` : '', `## Task types\n${Object.entries(active().types).map(([t, x]) => `${t} ${x.pipeline.join('>')}`).join('; ')}`,

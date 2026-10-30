@@ -22,8 +22,8 @@ async function life(s) {
   const files = {}   // s.junit: the test check the tester names fails and writes this report where core reads it (the fake runner answers every argv)
   const w = await world({ ...s.world, git: a => (s.junit && a[0] === 'find' ? { stdout: './test/a.test.js\0' } : s.junit && a[0] === 'stat' && files[a[3]] !== undefined ? { stdout: `regular file ${files[a[3]].length}\n` } : s.junit && a.some(x => x.endsWith('/junit-test.xml')) ? (files[a.find(x => x.endsWith('/junit-test.xml'))] = s.junit, { exitCode: 1 }) : gm !== 'moved' ? undefined : a.includes('merge-tree') ? { exitCode: 1, stdout: 'tree\nsrc/a.ts\n' } : a.join(' ').includes('epic/p1-service^{commit}') ? { stdout: `${tip}\n` } : undefined) })
   for (const [p, v] of Object.entries(s.cfg ?? {})) setPath(w.cfg, p, v)
-  const PL = await import('../../core/pipeline.ts'), { profile: DP } = await import('../../profiles/default.ts')
-  PL.setProfile({ ...DP, steps: Object.fromEntries(Object.entries(DP.steps).map(([k, st]) => [k, s.retry?.[k] === undefined ? st : { ...st, onFail: { ...st.onFail, retry: s.retry[k] } }])) })   // s.retry: a step's onFail.retry for this script ({red: 1}); the default profile otherwise
+  const PL = await import('../../core/pipeline.ts'), DP = await sessionProfile()
+  PL.setProfile({ ...DP, hooks: {}, steps: Object.fromEntries(Object.entries(DP.steps).map(([k, st]) => [k, s.retry?.[k] === undefined ? st : { ...st, onFail: { ...st.onFail, retry: s.retry[k] } }])) })   // s.retry: a step's onFail.retry for this script ({red: 1}); the default profile otherwise
   w.h.readText = async p => files[p] ?? null
   if (s.acceptance) await w.store.update(w.ids[0], { acceptance: s.acceptance }, w.dep.actor)
   const out = [], seen = new Set()
@@ -88,17 +88,19 @@ async function native(s) {
 }
 
 // ---- landing: real git (a `main` checkout, `dev`, one approved epic whose branch adds c.txt), as tests/git/{devmoved,revert}.test.mjs build it ----
-const run = argv => new Promise(res => execFile(argv[0], argv.slice(1), (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
+const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: o.cwd }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()
 const shOk = (cwd, ...a) => { try { execFileSync('git', ['-C', cwd, ...a], { stdio: 'ignore' }); return true } catch { return false } }
+const sessionProfile = async () => (await import('./register.mjs')).sessionProfile
 async function landing(s) {
+  (await import('../../core/pipeline.ts')).setProfile(await sessionProfile())   // real git: the delivery hooks run for real
   const { fakeHost } = await import('../support.ts'), { defaults } = await import('../../config/index.ts'), { integrateEpic } = await import('../../core/integrate.ts')
-  const { ROUTES } = await import('../../core/dispatch.ts'), { pendingRef } = await import('../../core/branches.ts'), { skeleton } = await import('../../core/changelog.ts')
+  const { ROUTES } = await import('../../core/dispatch.ts'), { pendingRef } = await import('../../core/branches.ts'), { skeleton } = await import('../../modules/changelog.mjs')
   await import('../../core/revert.ts')
   const d = mkdtempSync(join(tmpdir(), 'cadre-char-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
   const commit = (f, body, msg) => { writeFileSync(join(d, f), body); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', msg); return sh(d, 'rev-parse', 'HEAD') }
   commit('CHANGELOG.md', skeleton(), 'chore: init'); sh(d, 'branch', 'dev')
-  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.units = [{ root: '.', setup: ['true'], checks: { test: ['true'] } }]; cfg.jail = 'off'
+  const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.units = [{ root: '.', checks: { setup: ['true'], test: ['true'] } }]; cfg.jail = 'off'
   const h = fakeHost(); Object.assign(h, { cwd: async () => d, home: async () => d, run, config: async () => cfg, stat: async p => (existsSync(p) ? { kind: 'dir', realPath: p } : undefined), readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } }, write: async (p, t) => writeFileSync(p, t) })
   await h.secret.update(x => ({ ...x, session: 's1' }))
   const store = await h.taskStore(), epic = await store.createEpic('auth', 'goal'), br = `epic/${epic}-auth`

@@ -11,7 +11,7 @@ import { diff as jdiff } from '../policy/settings'
 import { assess } from '../policy/containment'
 import { StoreError } from '../task-management/store'
 import type { TaskStore } from '../task-management/store'
-import { validate as kac } from '../core/changelog'
+import { active } from '../core/pipeline'
 import { spec } from '../agents'
 import * as D from '../core/discover'
 import { probeOf, runSlot } from '../core/gate'
@@ -67,18 +67,18 @@ async function mission(c: Ctx): Promise<Item> {
 async function packages(c: Ctx): Promise<string | null> {
   const k = 'units'; if (!c.cfg.units.length) return 'no units in .cadre/config.json'
   const r = D.parse(c.cfg.units); if (typeof r === 'string') return r
-  const subs = (await git(c, 'submodule', 'status')).stdout.split('\n').map(l => l.trim().split(/\s+/)[1]).filter(Boolean), i = r.findIndex(u => subs.includes(u.root) && !u.ownGit)
-  return i < 0 ? null : `${k}[${i}].ownGit: ${r[i].root} is a git submodule (its own repository); set "ownGit": true`
+  const subs = (await git(c, 'submodule', 'status')).stdout.split('\n').map(l => l.trim().split(/\s+/)[1]).filter(Boolean), i = r.findIndex(u => subs.includes(u.root))
+  return i < 0 ? null : `${k}[${i}]: ${r[i].root} is a git submodule (its own repository), which is not supported; leave it out of units`
 }
 // the mod-run validation: every package's setup and checks in a clean offline copy at HEAD, once per package list (cached in $.store)
 type Red = { root: string; n: string }
 async function audit(c: Ctx): Promise<{ why: string | null; caches: string[]; red: Red[] }> {
-  const pkgs = D.unitsOf(c.cfg) as (D.Pkg & { knownRed?: string[] })[], sig = fnv1a64(canon(pkgs)), key = `init.audit:${c.rk}`
+  const prep = active().landing.prepare ?? '', pkgs = D.unitsOf(c.cfg) as (D.Pkg & { knownRed?: string[] })[], sig = fnv1a64(canon(pkgs)), key = `init.audit:${c.rk}`
   let a = (await c.h.store.get(key)) as { sig: string; runs: D.Run[] } | undefined
-  if (a?.sig !== sig) { a = { sig, runs: [] }; for (const p of pkgs) { const r = await D.exec(c.h, c.root, c.home, { ...p, setup: p.setup ?? [] }, { audit: true, knownRed: p.knownRed, probe: runSlot }); a.runs.push(r); if (r.junit != null && p.checks.test) await c.h.store.set(await scoped(c.h, `junit:${p.root}`), { ok: r.junit, argv: p.checks.test }) }   // the probe: a machine-local fact, per unit, read by Doctor and never run from there
+  if (a?.sig !== sig) { a = { sig, runs: [] }; for (const p of pkgs) { const r = await D.exec(c.h, c.root, c.home, p, { audit: true, knownRed: p.knownRed, probe: runSlot }); a.runs.push(r); if (r.junit != null && p.checks.test) await c.h.store.set(await scoped(c.h, `junit:${p.root}`), { ok: r.junit, argv: p.checks.test }) }   // the probe: a machine-local fact, per unit, read by Doctor and never run from there
     await c.h.store.set(key, a) }
   const goal = !!(await c.h.secret.read()).run?.goal, red: Red[] = []   // a goal run (ADR 0014): a check red before the goal is often the goal's own bug; it becomes known red on the safety card, never skipped or weakened
-  const bad = pkgs.flatMap((p, i) => !a!.runs[i].setupOk ? [`${p.root}: setup ${(p.setup ?? []).join(' ')} fails in a clean copy`]
+  const bad = pkgs.flatMap((p, i) => !a!.runs[i].setupOk ? [`${p.root}: ${prep} ${(p.checks[prep] ?? []).join(' ')} fails in a clean copy`]
     : Object.entries(a!.runs[i].results).flatMap(([n, v]) => v === 'red' && goal ? (red.push({ root: p.root, n }), []) : v === 'red' ? [`${p.root}: ${n} fails on a clean checkout (fix the command or leave it out)`] : v === 'net' ? [`${p.root}: ${n} needs the network at test time (leave it out)`] : []))
   return { why: bad.length ? bad.join('; ') : null, caches: [...new Set(a.runs.flatMap(r => r.caches))], red }
 }
@@ -91,8 +91,11 @@ function workflow(c: Ctx): string | null {
   for (const r of ['worker', 'tester', 'reviewer', 'explorer'] as const) if (!spec(r, { roles: c.cfg.roles as any, mcpAllow: c.cfg.mcpAllow }).prompt) errs.push(`roles.${r} does not render`)
   return errs.length ? errs.join('; ') : null
 }
+// the files the profile protects (CHANGELOG.md in the default profile) are written by its delivery hooks and must exist and be committed; their format is the hook's to check
+const plain = () => active().protected.filter(f => !f.includes('*') && !f.endsWith('/'))
 async function changelog(c: Ctx): Promise<string | null> {
-  const t = await c.h.readText(`${c.root}/${c.cfg.changelog.path}`); return t === null ? `${c.cfg.changelog.path} is missing` : kac(t) && `${c.cfg.changelog.path} ${kac(t)}`
+  for (const f of plain()) if ((await c.h.readText(`${c.root}/${f}`)) === null) return `${f} is missing`
+  return null
 }
 
 // ---- containment and the task-tool gate: cadre writes them, after the human confirms the diff on its card ----
@@ -145,7 +148,7 @@ export async function confirm(h: Host): Promise<string> {
 // safety confirm, under git.op (its own ref move is not a flag); the other branch of main/dev follows when it is an ancestor (a fresh repo), else it is left alone.
 export async function commitSetup(c: Pick<Ctx, 'h' | 'root' | 'cfg'>): Promise<string | null> {
   const ex = await excludeFile(c.h, c.root); if (!ex.have.includes('.cadre/tmp/')) await c.h.write(ex.path, `${ex.have.join('\n').replace(/\n*$/, '\n')}.cadre/tmp/\n`.replace(/^\n/, ''))   // cadre's logs and scratch (core/close): never a change to commit
-  const files = (await git(c as Ctx, 'status', '--porcelain', '--', '.cadre/config.json', c.cfg.changelog.path)).stdout.split('\n').filter(Boolean).map(l => l.slice(3))
+  const files = (await git(c as Ctx, 'status', '--porcelain', '--', '.cadre/config.json', ...plain())).stdout.split('\n').filter(Boolean).map(l => l.slice(3))
   if (!files.length) return null
   const cur = (await git(c as Ctx, 'symbolic-ref', '--short', '-q', 'HEAD')).stdout.trim(), { main, dev } = c.cfg.branches, other = cur === main ? dev : cur === dev ? main : ''
   if (!other) return null

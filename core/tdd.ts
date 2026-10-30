@@ -3,7 +3,7 @@
 import { modOn, spawnIt } from './render'
 import type { Host } from '../types'
 import type { Task } from '../task-management/store'
-import { covers, pipeOf } from './pipeline'
+import { active, covers, pipeOf } from './pipeline'
 import { resolveDeps, type Deps } from './admission'
 import { apply } from './machine'
 import { emit } from './events'
@@ -24,7 +24,7 @@ export interface Gate { ok: boolean; why?: string; card: string; tests?: Declare
 export interface Sym { name: string; status: string }
 export const symbolsOf = (design?: string): Sym[] => { try { return (JSON.parse(design ?? '{}').symbols ?? []) as Sym[] } catch { return [] } }
 
-export const verifyOf = (p: Pkg) => (p.verify?.length ? p.verify : [p.checks.test ? 'test' : Object.keys(p.checks)[0]])
+export const verifyOf = (p: Pkg) => (p.verify?.length ? p.verify : [p.checks.test ? 'test' : Object.keys(p.checks).find(k => k !== active().landing.prepare)!])
 export const redOf = (p: Pkg) => p.tdd?.check ?? (verifyOf(p).includes('test') ? 'test' : verifyOf(p)[0])
 const secs = (ms: number) => `${(ms / 1000).toFixed(1)}s`
 const names = (xs: string[]) => xs.slice(0, 5).join(', ')
@@ -67,7 +67,7 @@ async function baseline(h: Host, d: Deps, pkg: Pkg, name: string): Promise<Base 
   await h.run(['git', '-C', d.root, 'worktree', 'add', '-f', '--detach', tmp, start]); await h.run(['mkdir', '-p', `${tmp}-s`])
   const sub = await G.subInit(h.run, d.root, tmp); if (sub) { h.log(`baseline: ${sub}`); await h.run(['git', '-C', d.root, 'worktree', 'remove', '--force', tmp]); return null }   // no baseline: every red is the task's
   try {
-    if (pkg.setup?.length) await h.run(d.cfg.jail === 'off' ? pkg.setup : G.writableJail({ wt: tmp, scratch: `${tmp}-s`, pkgRoot: root, argv: pkg.setup, writable: d.cfg.jailWritable }), { cwd: root })
+    const su = pkg.checks[active().landing.prepare ?? '']; if (su?.length) await h.run(d.cfg.jail === 'off' ? su : G.writableJail({ wt: tmp, scratch: `${tmp}-s`, pkgRoot: root, argv: su, writable: d.cfg.jailWritable }), { cwd: root })
     const { r } = await runGate(h, d, { task: { id: 'baseline' }, wt: tmp, pkg, slot: name, argv: pkg.checks[name], expect: 'pass' }); all[key] = { exit: r.exit, ...(r.results ? { fails: failing(r.results) } : {}) }
   } finally { await h.run(['git', '-C', d.root, 'worktree', 'remove', '--force', tmp]); await h.run(['rm', '-rf', `${tmp}-s`]) }
   await d.store.setMeta(s.epic, { 'cadre.baseline': JSON.stringify(all) }, d.actor)

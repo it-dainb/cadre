@@ -9,7 +9,7 @@ import { guard, policyOf, setPolicy, settingsOnly, LIMIT } from '../policy/guard
 import { wake, warm } from '../core/session'
 import { fakeHost } from './support'
 import { MemoryStore } from '../task-management/adapters/memory/store'
-import { skeleton } from '../core/changelog'
+const skeleton = () => `# Changelog\n\nAll notable changes to this project will be documented in this file.\n\nThe format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),\nand this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).\n\n## [Unreleased]\n`   // the skeleton guides/init.md gives (the changelog hook checks the format)
 import { BUDGET } from './fixtures/budget.generated'
 import type { Host } from '../types'
 import { banned } from './fixtures/wording'
@@ -19,7 +19,7 @@ import { goal as goalBrief, sendBrief } from '../core/lanes'
 
 type R = { exitCode: number; stdout?: string; stderr?: string }
 const ROOT = '/repo', HOME = '/hm/u', RK = repoKeyOf(ROOT), PLUG = '/plug', CFG = `${ROOT}/.cadre/config.json`
-const PKG = { root: '.', setup: ['npm', 'ci'], checks: { test: ['npm', 'test'] }, tdd: { paths: ['test/**'] } }
+const PKG = { root: '.', checks: { setup: ['npm', 'ci'], test: ['npm', 'test'] }, tdd: { paths: ['test/**'] } }
 const READY = { [CFG]: JSON.stringify({ branches: { main: 'main', dev: 'dev' }, units: [PKG] }), [`${ROOT}/.git/info/exclude`]: '.cadre/state/\n.claude/settings.local.json\n', [`${ROOT}/CHANGELOG.md`]: skeleton() }
 // bwrap answers by inner argv: `npm ci` setup, `npm test` passes, anything else is red; find lists the caches setup wrote
 const jailed = (red: string[] = []) => (argv: string[]): R | undefined => {
@@ -405,7 +405,7 @@ describe('maintenance lease (ADR 0010): main during a human-started run', () => 
     const { h, tick } = mk({ files: READY }); const EX = ['/', '/repo', '/repo/.cadre', '/repo/src', '/hm', '/hm/u', '/hm/u/.claude', `${HOME}/.claude/plugins/store/cadre/guides`, '/repo/.git', '/repo/.git/info', '/repo/.claude']
     h.stat = async (p: string, o?: { resolve?: boolean }) => (EX.includes(p) || EX.includes(p.slice(0, p.lastIndexOf('/'))) ? { kind: 'file', realPath: o?.resolve ? p : undefined } : undefined)
     Object.assign(h, { root: async () => `${HOME}/.claude/plugins/store/cadre` })
-    await setPolicy(h, { repo: ROOT, home: HOME, changelog: 'CHANGELOG.md' })
+    await setPolicy(h, { repo: ROOT, home: HOME, guarded: ['CHANGELOG.md'] })
     const call = async (tool: string, file_path?: string) => ((await guard(h, { tool, file_path, input: { file_path } }, () => 'ok')) as any)?.deny ?? 'ok'
     return { h, tick, call }
   }
@@ -663,7 +663,7 @@ describe('the project settings file during init', () => {
   const lease = async () => {
     const { h, tick, files } = mk({ files: READY }); const EX = ['/', '/repo', '/repo/.cadre', '/hm', '/hm/u', '/hm/u/.claude', `${HOME}/.claude/plugins/store/cadre/guides`]
     h.stat = async (p: string, o?: { resolve?: boolean }) => (EX.includes(p) || EX.includes(p.slice(0, p.lastIndexOf('/'))) ? { kind: 'file', realPath: o?.resolve ? p : undefined } : undefined)
-    Object.assign(h, { root: async () => `${HOME}/.claude/plugins/store/cadre` }); await setPolicy(h, { repo: ROOT, home: HOME, changelog: 'CHANGELOG.md' })
+    Object.assign(h, { root: async () => `${HOME}/.claude/plugins/store/cadre` }); await setPolicy(h, { repo: ROOT, home: HOME, guarded: ['CHANGELOG.md'] })
     const call = async (tool: string, file_path?: string) => ((await guard(h, { tool, file_path, input: { file_path } }, () => 'ok')) as any)?.deny ?? 'ok'
     return { h, tick, call, files }
   }

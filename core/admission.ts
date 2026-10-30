@@ -5,7 +5,7 @@ import type { Binding, Hook, Host, Role, Snapshot, SnapTask } from '../types'
 import type { Config } from '../config/defaults'
 import { forcedOf } from '../config/index'
 import { StoreError, type Task, type TaskStore } from '../task-management/store'
-import { catOf, covers, kindOf, pipeOf, roleAt, typeOf, verdictAt } from './pipeline'
+import { active, catOf, covers, kindOf, pipeOf, roleAt, typeOf, verdictAt } from './pipeline'
 import { repoKeyOf } from '../commands/init'
 import { cfgOf, ctlGet, ctlSet, storeOf } from './dispatch'
 import { agentsOf, commit, leaseLive, safe, sessionOf } from './board'
@@ -140,12 +140,12 @@ const spawnRole = async (h: Host, d: Deps, e: any, next: (e: any) => any, s: Sna
   launch(h, d, e, next, t, agentOf(d, role), brief(role, briefOf(s, t, task, e, d, role, { ...(await plan(h, d, s, t, task)), ...extra })), cwd, step, wt, undo, verdictAt(step) ? riskOf(task) : undefined, task)
 const viewed = (d: Deps, role: Role) => role === 'tester' && !!d.view && d.cfg.roles.testerView !== 'full' && d.cfg.roles.tdd.author !== 'same'   // testerView:full or author:same (3.5): the tester step works in the worktree
 const agentOf = (d: Deps, role: Role): Role => (role === 'tester' && d.cfg.roles.tdd.author === 'same' ? 'worker' : role)   // author:same: the worker agent, tester brief (3.5)
-export const protectedOf = (d: Deps): string[] => [...G.PROTECTED, ...(d.cfg.changelog.path !== 'CHANGELOG.md' ? [d.cfg.changelog.path] : [])]
+export const protectedOf = (): string[] => [...G.PROTECTED, ...active().protected]
 // the spawn prompt as the brief's Notes: main's own words only. The spawner's prompt is the bare TASK-<id> (core/spawner), which said nothing in a "## Notes" section
 const noteOf = (said: unknown, id: string): string | undefined => String(said ?? '').trim().replace(new RegExp(`^(?:TASK-)?${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w.-])[\\s:.,;-]*`), '').trim() || undefined
 const briefOf = (s: Snapshot, t: SnapTask, task: Task, e: any, d: Deps, role: Role, extra: Partial<BriefIn> = {}): BriefIn => ({
   paths: pathsOf(task), testPaths: role === 'tester' ? pkgOf(d, task)?.tdd?.paths : undefined, runAsk: role === 'tester', locked: task.meta['cadre.locked'] ? JSON.parse(task.meta['cadre.locked']) : undefined, redCard: task.meta['cadre.red'],
-  holds: holdsOf(task), id: t.id, title: t.title, type: t.type, description: task.description, scenarios: task.acceptance, contract: task.design, notes: noteOf(e.prompt, t.id), protectedPaths: protectedOf(d),
+  holds: holdsOf(task), id: t.id, title: t.title, type: t.type, description: task.description, scenarios: task.acceptance, contract: task.design, notes: noteOf(e.prompt, t.id), protectedPaths: protectedOf(),
   how: role === 'worker' ? task.meta['cadre.how'] : undefined, deps: t.deps.filter(x => x.type !== 'conditional-blocks').map(x => ({ id: x.id, title: s.tasks.find(y => y.id === x.id)?.title ?? '' })), ...extra })
 
 // what the plan shares with every task brief (ADR 0014 G, 0022): the plan block (mission, the landed core's interface, the notes without paths) is the same
@@ -159,7 +159,8 @@ async function plan(h: Host, d: Deps, s: Snapshot, t: SnapTask, task: Task): Pro
 export async function setup(h: Host, d: Deps, task: Task, wt: string) {   // `setup` runs in the writable jail (network on)
   const pkg = pkgOf(d, task) as any
   const pkgRoot = !rootOf(pkg) ? wt : `${wt}/${pkg.root}`, scratch = `${d.wtRoot}/${d.key}.scratch/${task.id}`
-  for (const argv of pkg?.setup?.length ? [pkg.setup as string[]] : []) {   // Pkg.setup is one argv (discover.ts)
+  const argv = pkg?.checks?.[active().landing.prepare ?? ''] as string[] | undefined   // the unit's setup is one argv (discover.ts)
+  if (argv?.length) {
     await h.run(['mkdir', '-p', scratch])
     const r = d.cfg.jail === 'off' ? await h.run(argv, { cwd: pkgRoot }) : await h.run(G.writableJail({ wt, scratch, pkgRoot, argv, writable: d.cfg.jailWritable }))
     if (r.exitCode) throw new Error(`setup failed: ${argv.join(' ')}: ${r.stderr.slice(-300)}`)
@@ -194,7 +195,7 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
   const res = await apply(h, { kind: 'claim', id: t.id, at: await h.now(), actor: 'mod', owner: d.actor }, pipe)   // the CAS reserve: one winner (S2)
   if (!res.ok) return deny(res.error)
   const step = res.board.tasks.find(x => x.id === t.id)!.step, role = ROLE(step)!, wt = wtPath(d.wtRoot, d.key, t.id)
-  let claimed = false, created = false, branch = taskBranch(spec.commit ?? 'wip', t.id, t.title)
+  let claimed = false, created = false, branch = taskBranch(spec.branch ?? 'wip/', t.id, t.title)
   const undo = async () => {
     if (created) await G.op(h, () => G.worktreeRemove(h.run, d.root, wt, branch)).catch(() => {})
     if (claimed) await d.store.release(t.id, d.actor, 'spawn failed').catch(() => {})

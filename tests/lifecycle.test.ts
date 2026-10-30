@@ -9,6 +9,7 @@ import { oldState } from '../commands/doctor'
 import { start } from '../core/session'
 import { PASS, world, type World } from './fixtures/replay/world'
 import { arm } from '../core/drive'
+import { active, setProfile } from '../core/pipeline'
 
 const run = (state: RunState | null): Run => ({ taskId: 't1', role: 'worker', step: 'worker', state, epoch: 1, log: [] })
 const S = {
@@ -144,10 +145,11 @@ describe('invariant 3: every end, and an idle-bound run, yields exactly one next
     expect(await steps(w, w.turn)).toBe(1)
   })
   test('idle-bound after the worker\'s report: one reviewer; idle-bound after a pass: one landing (ended done)', async () => {
-    const w = await world(); await arm(w.h, 'auto'); await w.turn(); w.spawned.length = 0
+    const w = await world(), keep = active(); await arm(w.h, 'auto'); await w.turn(); w.spawned.length = 0
     await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' }); expect((await runOf(w.h, 'ag1'))?.state).toEqual({ state: 'idle-bound' })
     expect(await steps(w, w.turn)).toBe(1); expect(w.spawned.map(x => x[2])).toEqual(['cadre:reviewer'])
-    await w.rep('ag2', PASS); expect(await steps(w, w.turn)).toBe(1); expect((await w.h.board.read()).tasks[0].state).toBe('done')
+    setProfile({ ...keep, hooks: {} })   // the scripted git here cannot run a delivery hook
+    try { await w.rep('ag2', PASS); expect(await steps(w, w.turn)).toBe(1); expect((await w.h.board.read()).tasks[0].state).toBe('done') } finally { setProfile(keep) }
   })
 })
 

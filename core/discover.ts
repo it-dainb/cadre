@@ -1,9 +1,10 @@
 // Init discovery checks (DESIGN 10.2, ADR 0010): the package list's shape (parse) and the jailed runs that validate it. Pure helpers + h.run; no language logic.
 import type { Host } from '../types'
 import * as G from './git'
+import { active } from './pipeline'
 
 export interface Pkg {
-  root: string; setup: string[]; checks: Record<string, string[]>; fetches?: string[]
+  root: string; checks: Record<string, string[]>; fetches?: string[]   // checks.<landing.prepare> (default `setup`) is the unit's setup argv, run before its checks; it is not itself a check
   tdd?: { check?: string; paths: string[]; stubs?: string[]; skeleton?: string[] }; viewInclude?: string[]
   kind?: Kind; ownGit?: boolean; concurrency?: number; routing?: Record<string, { model: string; effort?: string }>   // a workspace unit (H7); its adopted test command is checks.test (core/gate.adopt)
 }
@@ -16,15 +17,16 @@ export const ownerOf = <T extends { root: string }>(us: T[], f: string): T | und
 export type Verdict = 'pass' | 'red' | 'net' | 'knownRed'
 export interface Run { setupOk: boolean; caches: string[]; results: Record<string, Verdict>; junit?: boolean | null }   // junit: the `test` check wrote valid JUnit at $CADRE_JUNIT (null = no test check)
 
-const UNIT_KEYS = ['root', 'setup', 'checks', 'verify', 'knownRed', 'tdd', 'fetches', 'kind', 'ownGit', 'concurrency', 'routing', 'viewInclude', 'testBy'], TDD_KEYS = ['check', 'paths', 'stubs', 'skeleton']
+const UNIT_KEYS = ['root', 'checks', 'verify', 'knownRed', 'tdd', 'fetches', 'kind', 'ownGit', 'concurrency', 'routing', 'viewInclude', 'testBy'], TDD_KEYS = ['check', 'paths', 'stubs', 'skeleton']
 const isArgv = (v: unknown): v is string[] => Array.isArray(v) && v.length > 0 && v.every(x => typeof x === 'string' && x !== '')
 // the `units` list of .cadre/config.json (written by Claude during init): shape check, with an example in every refusal
 export function parse(ps: any, key = 'units'): Pkg[] | string {
-  if (!Array.isArray(ps) || !ps.length) return `${key}: expected [{root, setup, checks, tdd}], e.g. {"root":".","setup":["npm","ci"],"checks":{"test":["npm","test"]},"tdd":{"paths":["test/**"]}}`
+  if (!Array.isArray(ps) || !ps.length) return `${key}: expected [{root, checks, tdd}], e.g. {"root":".","checks":{"setup":["npm","ci"],"test":["npm","test"]},"tdd":{"paths":["test/**"]}}`
   for (const [i, p] of ps.entries()) {
     const at = `${key}[${i}]`
     if (typeof p?.root !== 'string' || p.root.startsWith('/') || p.root.split('/').includes('..')) return `${at}.root: expected a repo-relative path like "." or "packages/api"`
-    if (p.setup !== undefined && !(Array.isArray(p.setup) && !p.setup.length) && !isArgv(p.setup)) return `${at}.setup: expected an argv array like ["npm","ci"], or [] when the repo has no setup step`
+    if (p.setup !== undefined) return `${at}.setup: moved into checks: "checks":{"setup":["npm","ci"],"test":["npm","test"]}`
+    if (p.ownGit || p.kind === 'submodule') return `${at}: a unit that is its own repository (a git submodule) is not supported; leave it out of units`
     const cs = Object.entries(p.checks ?? {}); if (!cs.length || cs.some(([, a]) => !isArgv(a))) return `${at}.checks: expected {"test":["npm","test"]}`
     const k1 = Object.keys(p).find(k => !UNIT_KEYS.includes(k)), k2 = Object.keys(p.tdd ?? {}).find(k => !TDD_KEYS.includes(k)), bad = k1 ?? (k2 && `tdd.${k2}`)
     if (bad) return `${at}.${bad}: unknown key (allowed: ${UNIT_KEYS.join(', ')}; tdd: ${TDD_KEYS.join(', ')})`   // closed: core allocates $CADRE_JUNIT per run, so a unit names no report path
@@ -34,7 +36,7 @@ export function parse(ps: any, key = 'units'): Pkg[] | string {
     if (p.concurrency !== undefined && !(Number.isInteger(p.concurrency) && p.concurrency > 0)) return `${at}.concurrency: expected a whole number above 0 (tasks of this unit at once)`
     if (p.routing !== undefined && (typeof p.routing !== 'object' || Object.values(p.routing).some((c: any) => typeof c?.model !== 'string'))) return `${at}.routing: expected {"worker":{"model":"opus","effort":"high"}}`
   }
-  return ps.map(p => ({ ...p, setup: p.setup ?? [] }))
+  return ps
 }
 
 // Depth <= 2 entries written under $HOME, parents dropped when a child is listed, build/target dirs never proposed.
@@ -52,10 +54,11 @@ export async function exec(h: Host, root: string, home: string, pkg: Pkg, o: { a
   const wt = `${scratch}/wt`, pkgRoot = pkg.root === '.' ? wt : `${wt}/${pkg.root}`, sh0 = `${scratch}/home`
   const out: Run = { setupOk: false, caches: [], results: {} }
   const mode = await G.jailMode(h.run), writable = (o.caches ?? []).map(c => `${home}/${c}`), J = (argv: string[]) => ({ wt, scratch, pkgRoot, argv, writable })
+  const prep = active().landing.prepare ?? '', su = pkg.checks[prep] ?? []
   const setup = (): Promise<{ exitCode: number }> => {
-    if (!pkg.setup.length) return Promise.resolve({ exitCode: 0 })   // no setup step
-    if (mode === 'none') return sh(h, pkg.setup, pkgRoot)
-    const j = J(pkg.setup)
+    if (!su.length) return Promise.resolve({ exitCode: 0 })   // no setup step
+    if (mode === 'none') return sh(h, su, pkgRoot)
+    const j = J(su)
     return sh(h, !o.audit ? G.writableJail(j) : mode === 'overlay' ? G.homeJail({ ...j, home }) : G.homeScratchJail({ ...j, scratchHome: sh0 }))
   }
   try {
@@ -63,7 +66,7 @@ export async function exec(h: Host, root: string, home: string, pkg: Pkg, o: { a
     const add = await sh(h, ['git', 'worktree', 'add', '--detach', wt, 'HEAD'], root); if (add.exitCode) return out
     out.setupOk = (await setup()).exitCode === 0
     if (o.audit && mode !== 'none' && out.setupOk) out.caches = caches((await sh(h, ['find', '.', '-mindepth', '1', '-maxdepth', '2', '-type', 'd'], mode === 'overlay' ? `${scratch}/home-up` : sh0)).stdout)
-    if (out.setupOk) for (const [n, argv] of Object.entries(pkg.checks)) {
+    if (out.setupOk) for (const [n, argv] of Object.entries(pkg.checks).filter(([k]) => k !== prep)) {
       if (o.knownRed?.includes(n)) { out.results[n] = 'knownRed'; continue }
       const x = n === 'test' ? await o.probe?.(h, { mode, wt, scratch, pkgRoot, argv, slot: n, writable }) : undefined   // the JUnit probe (D15): the gate path, once; a failing suite with valid JUnit is still a yes
       if (x) out.junit = !!x.results

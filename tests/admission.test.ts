@@ -138,7 +138,7 @@ describe('claim (3.4)', () => {
   })
   test('the setup argv of the package runs in the writable jail; a failing setup releases the claim', async () => {
     const w = world(), { h, d } = await w.mk('a'), { epic, ids } = await w.plan({}); await w.board(h, epic, ids)
-    d.cfg.units = [{ root: '.', setup: ['npm', 'ci'] }] as any
+    d.cfg.units = [{ root: '.', checks: { setup: ['npm', 'ci'] } }] as any
     await admitWith(h, d, spawn(ids[0]), ok().next); const j = w.calls.find(c => c[0] === 'bwrap')!
     expect(j).toContain('--bind'); expect(j.slice(j.indexOf('--') + 1)).toEqual(['npm', 'ci']); expect(j).not.toContain('--unshare-net')
   })

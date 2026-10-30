@@ -7,7 +7,7 @@ import { roles as base } from './default'
 const R = 'mcp__cadre__report', I = 'mcp__cadre__inspect'
 export const profile: ProfileLayer = {
   schema: 2,
-  types: { analysis: { pipeline: ['explore', 'work', 'verify', 'review', 'land'], acceptance: { format: 'what the result must show', cover: 'none' }, contract: 'none', rubric: 'method, evidence, completeness', commit: 'analysis' } },
+  types: { analysis: { pipeline: ['explore', 'work', 'verify', 'review', 'land'], acceptance: { format: 'what the result must show', cover: 'none' }, contract: 'none', rubric: 'method, evidence, completeness', branch: 'analysis/', commit: 'analysis' } },
   steps: {
     explore: { role: 'scout', workspace: 'none', brief: ['description', 'acceptance'] },
     work: { role: 'analyst', workspace: 'worktree', brief: ['description', 'acceptance', 'handoff', 'findings', 'notes'] },

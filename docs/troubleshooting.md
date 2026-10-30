@@ -52,8 +52,6 @@ cadre never runs root commands for you. `/cadre setup` writes each sudo fix to `
 | `.cadre/store`: a task store from an older version | `finish its plans with that version, then delete .cadre/store` |
 | run and sync state from an older version is not read | `finish those plans with that version; sync starts over from a full compare` |
 | finish or cancel plans from the previous version before upgrading | `its run state is not read: finish or cancel those plans with the previous version` |
-| landing.mode is pr but gh is not installed | `install the GitHub CLI (gh), or set landing.mode direct` |
-| landing.mode is pr but gh is not signed in | `gh auth login` |
 | cadre is not set up here, but its task-tool settings remain | `press 1: remove them in the dialog` |
 | user settings carry env CLAUDE_CODE_ENABLE_TODO_TOOLS from an older cadre | `press 1: remove it in the dialog` (Confirm writes a `.bak` first; Keep it if the flag is yours) |
 | user settings unreadable | `fix ~/.claude/settings.json by hand` |

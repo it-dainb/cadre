@@ -24,14 +24,19 @@ export function junit(xml: string): Result[] {
   return out
 }
 
-// `file` is the host path core allocated (${scratch}/cadre/junit-<gate>.xml); `scratch` anchors the confinement. {} = no file.
-export async function readJunit(h: Host, file: string, scratch: string): Promise<{ results?: Result[]; bad?: string }> {
+// One capped regular file under `scratch` (core's own read of what a child process wrote): `{}` = no file, `{bad}` = a link, over 1 MB or outside the folder, else its text.
+// `what` names it in the refusal ("the JUnit file"). Shared with core/modrun (a module's result file).
+export async function capped(h: Host, file: string, scratch: string, what: string): Promise<{ text?: string; bad?: string }> {
   const st = await h.run(['stat', '-c', '%F %s', file]).catch(() => undefined); if (!st || st.exitCode || !st.stdout.trim()) return {}   // lstat (no -L): a symlink is not a regular file; no answer = no file
   const parts = st.stdout.trim().split(' '), size = Number(parts.pop())
-  if (parts.join(' ') !== 'regular file') return { bad: 'the JUnit file is not a regular file' }
-  if (!(size <= LIMIT)) return { bad: 'the JUnit file is over 1 MB' }
+  if (parts.join(' ') !== 'regular file') return { bad: `${what} is not a regular file` }
+  if (!(size <= LIMIT)) return { bad: `${what} is over 1 MB` }
   const real = (await h.stat(file, { resolve: true }))?.realPath, root = (await h.stat(scratch, { resolve: true }))?.realPath ?? scratch
-  if (file.split('/').includes('..') || !real?.startsWith(`${root}/`)) return { bad: 'the JUnit file lies outside its folder' }
-  const text = await h.readText(file); if (text === null) return {}
-  try { return { results: junit(text) } } catch (e) { return { bad: `the JUnit file is not valid: ${(e as Error).message.split('\n')[0].slice(0, 120)}` } }
+  if (file.split('/').includes('..') || !real?.startsWith(`${root}/`)) return { bad: `${what} lies outside its folder` }
+  const text = await h.readText(file); return text === null ? {} : { text }
+}
+// `file` is the host path core allocated (${scratch}/cadre/junit-<gate>.xml); `scratch` anchors the confinement. {} = no file.
+export async function readJunit(h: Host, file: string, scratch: string): Promise<{ results?: Result[]; bad?: string }> {
+  const c = await capped(h, file, scratch, 'the JUnit file'); if (c.text === undefined) return c.bad ? { bad: c.bad } : {}
+  try { return { results: junit(c.text) } } catch (e) { return { bad: `the JUnit file is not valid: ${(e as Error).message.split('\n')[0].slice(0, 120)}` } }
 }

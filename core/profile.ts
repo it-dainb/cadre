@@ -1,6 +1,7 @@
 // The profile loader (plan 2.1, 2.1a): built-in -> user (`profile` in ~/.claude/cadre.json, a built-in name or an inline profile) -> repo (.cadre/profile.json, as is, the repo wins).
 // Every layer goes through one closed schema and the cross-checks below; a refusal is one line with an example. An invalid repo profile makes cadre dormant for that repo (no fallback).
 // The refusal lines name profile keys the model-text lint bans (hooks, sandbox): they are for the person (load, Doctor, /cadre profile), not for an agent.
+import { unionAttrs } from './git'
 import type { Host } from '../types'
 import type { Profile, ProfileLayer } from '../types/profile'
 import { cfgOf } from '../config/index'
@@ -54,7 +55,7 @@ const SCHEMA: Record<string, Sh> = {
   types: { '*': { pipeline: ['s'], 'lite?': ['s'], acceptance: { format: 's', cover: '=results|report|none' }, contract: CONTRACT, 'rubric?': 's', 'branch?': 's', 'commit?': 's' } },
   checks: { '*': { 'network?': 'b', 'failExit?': ['i'], 'timeoutS?': 'i' } },
   flags: { '*': { why: 's', options: [OPTION], holds: 'b', 'blocks?': 'b', yolo: '=main|human', 'tab?': '=epic', 'target?': '=task|plan|epic|ref' } },
-  landing: { provider: 's', onEpicDone: '=propose|auto|off', 'prepare?': 's', 'suites?': ['s'], baseline: '=tolerate|strict', 'args?': { '*': 'a' }, 'envPass?': ['s'] },
+  landing: { provider: 's', onEpicDone: '=propose|auto|off', 'prepare?': 's', 'suites?': ['s'], baseline: '=tolerate|strict', 'args?': { '*': 'a' }, 'envPass?': ['s'], 'union?': ['s'] },
   limits: Object.fromEntries(['reportRetries', 'shapeRetries', 'nudges', 'stagnantNudges', 'silentRuns', 'startFails', 'limitWaitMinutes', 'rebaseRounds', 'specAccepts'].map(k => [`${k}?`, 'i'])),
 }
 // one line of the shape each section expects, appended to a refusal of that section
@@ -64,9 +65,12 @@ const EX: Record<string, string> = {
   roles: '"roles": {"writer": {"description": "...", "prompt": "...", "tools": ["Read", "mcp__cadre__report"], "network": "off", "write": [], "ttl": "5m", "onSilent": "nudge", "report": {"outcomes": ["done"], "fields": {"summary": "text"}, "required": ["summary"]}}}',
   checks: '"checks": {"test": {"failExit": [1], "network": false}}', hooks: '"hooks": {"task.closed": [{"run": ["node", "${MODULES}/note.mjs"], "commit": "docs: ${id}"}]}',
   flags: '"flags": {"blocked": {"why": "...", "holds": false, "yolo": "human", "options": [{"key": "k", "label": "Keep", "effect": [{"do": "clear"}]}]}}',
-  landing: '"landing": {"provider": "direct", "onEpicDone": "propose", "baseline": "tolerate"}', protected: '"protected": ["docs/generated/**"]', sandbox: '"sandbox": {"env": {"PATH": "${WT}/bin:${PATH}"}}',
+  landing: '"landing": {"provider": "direct", "onEpicDone": "propose", "baseline": "tolerate", "union": ["CHANGELOG.md"]}', protected: '"protected": ["docs/generated/**"]', sandbox: '"sandbox": {"env": {"PATH": "${WT}/bin:${PATH}"}}',
   fields: '"fields": [{"name": "scope", "store": "meta", "required": false}]', limits: '"limits": {"rebaseRounds": 2}',
 }
+const alnum = (c: string) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+const envName = (s: string) => !!s && !(s[0] >= '0' && s[0] <= '9') && [...s].every(c => alnum(c) || c === '_')
+const plainPath = (s: string) => !!s && !s.startsWith('/') && !s.split('/').includes('..') && ![...s].some(c => ' *?[]#!\\\t'.includes(c))
 const unknownNames = (s: string): string | null => { for (const [i, x] of s.split('${').entries()) { if (!i) continue; const e = x.indexOf('}'); if (e < 0 || !NAMES.includes(x.slice(0, e))) return x.slice(0, e < 0 ? 12 : e) } return null }
 const strings = (v: unknown): string[] => (typeof v === 'string' ? [v] : Array.isArray(v) ? v.flatMap(strings) : obj(v) ? Object.values(v).flatMap(strings) : [])
 
@@ -95,6 +99,9 @@ export function cross(p: Profile, own?: ProfileLayer): string | null {
   }
   for (const [ev, hs] of Object.entries(p.hooks)) for (const h of hs) if ('role' in h ? !p.roles[h.role] : !h.run.length || !h.run[0]) return `hooks.${ev}: ${'role' in h ? `no role "${h.role}"` : 'a hook runs an argument list: ["node", "${MODULES}/x.mjs"], not an empty one'}`
   for (const k of [p.landing.prepare, ...(p.landing.suites ?? [])]) if (k !== undefined && !(k in p.checks)) return `landing: no check "${k}" in checks`
+  const names = [...(p.landing.envPass ?? []), ...Object.values(p.hooks).flat().flatMap(x => ('envPass' in x ? x.envPass ?? [] : []))]
+  for (const n of names) if (!envName(n)) return `envPass: "${n}" is not an environment variable name (letters, digits and _, not starting with a digit)`
+  for (const u of p.landing.union ?? []) if (!plainPath(u)) return `landing.union: "${u}" is not a plain repo-relative path (no spaces, no * ? [ ] # !, no .. , not absolute)`
   for (const f of p.fields) if (Array.isArray(f.required) && f.required.find(t => !(t in T))) return `fields.${f.name}.required: no type "${f.required.find(t => !(t in T))}"`
   for (const [n, r] of Object.entries(p.roles)) { const why = n in DEFAULT.roles ? (own?.roles && n in own.roles ? 'a built-in role cannot be redefined; give yours another name' : null) : customIssue(n, r); if (why) return `roles.${n}: ${why}` }
   for (const k of ['sandbox', 'hooks', 'landing'] as const) { const u = strings(p[k]).map(unknownNames).find(x => x !== null); if (u !== undefined) return `${k}: no \${${u}} (${NAMES.join(', ')})` }
@@ -132,6 +139,7 @@ export async function loadProfile(h: Host): Promise<Loaded> {
   const out: Loaded = { profile: DEFAULT, name, owner: {} }
   const base = BUILTIN[name]; if (!base) out.name = 'default'
   let p = { ...DEFAULT, ...(base ?? DEFAULT), flags: { ...DEFAULT.flags, ...(base ?? DEFAULT).flags } } as Profile   // a built-in profile replaces the sections it names; its flag rows go over the default's
+  if (plugin) p = expand(p, plugin) as Profile   // the built-in hooks run the plugin's modules
   const own = (l: ProfileLayer, who: string) => { for (const k of ['types', 'steps', 'roles', 'checks', 'flags']) for (const x of Object.keys((l as any)[k] ?? {})) out.owner[`${k}.${x}`] = who }
   own(base ?? DEFAULT, out.name)
   const layer = async (who: string, l: unknown, dir: string, repo: boolean): Promise<string | null> => {
@@ -154,7 +162,7 @@ export async function loadProfile(h: Host): Promise<Loaded> {
   return out
 }
 // at session start (hooks/register): the profile is loaded once and fixed for the session; the engine reads it through core/pipeline (and core/flags, core/roles)
-export async function bootProfile(h: Host): Promise<Loaded> { LOADED = await loadProfile(h); setProfile(LOADED.profile); return LOADED }
+export async function bootProfile(h: Host): Promise<Loaded> { LOADED = await loadProfile(h); setProfile(LOADED.profile); await unionAttrs(h).catch(() => undefined); return LOADED }
 export const resetProfile = (): void => { LOADED = undefined }
 // `/cadre profile` (read-only): the active profile, which layer each entry came from, what cannot run, and the refusals of a layer that was not taken
 export async function describe(h: Host): Promise<string> {

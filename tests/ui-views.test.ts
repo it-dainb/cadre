@@ -53,18 +53,18 @@ describe('v2 views', () => {
 })
 
 describe('units rows (Settings, Workspace units)', () => {
-  const REPO = '/repo/.cadre/config.json', U = [{ root: '.', setup: ['npm', 'ci'], checks: { test: ['npm', 'test'] } }, { root: 'api', checks: { test: ['go', 'test'] } }]
+  const REPO = '/repo/.cadre/config.json', U = [{ root: '.', checks: { setup: ['npm', 'ci'], test: ['npm', 'test'] } }, { root: 'api', checks: { test: ['go', 'test'] } }]
   test('one edit writes .cadre/config.json once, with the .bak; a bad value or an unknown model writes nothing', async () => {
     const files: Record<string, string> = { [REPO]: JSON.stringify({ units: U }) }, h = fakeHost({ files }), writes: string[] = [], w = h.write
     h.write = async (p: string, t: string) => { writes.push(p); return w(p, t) }
     await refreshSettings(h)
-    expect(((await h.ui.read())['settings.rows'] as any[]).filter(r => r.key.startsWith('units.')).map(r => r.key)).toHaveLength(4)
+    expect(((await h.ui.read())['settings.rows'] as any[]).filter(r => r.key.startsWith('units.')).map(r => r.key)).toHaveLength(2)
     expect((await configPress(h, 'set units.1.concurrency 3')).text).toBe('api concurrency = 3 · saved to the repo')
     expect(writes).toEqual([`${REPO}.bak`, REPO]); expect(JSON.parse(files[REPO]).units[1]).toEqual({ ...U[1], concurrency: 3 }); expect(files[`${REPO}.bak`]).toBe(JSON.stringify({ units: U }))
-    await configPress(h, 'set units.0.concurrency 2'); await configPress(h, 'set units.0.setup ["make","deps"]')
-    expect(JSON.parse(files[REPO]).units[0]).toMatchObject({ concurrency: 2, setup: ['make', 'deps'] })
+    await configPress(h, 'set units.0.concurrency 2')
+    expect(JSON.parse(files[REPO]).units[0]).toMatchObject({ concurrency: 2 })
     writes.length = 0
-    for (const bad of ['set units.0.runner xml', 'set units.0.concurrency -1', 'set units.0.setup nope', 'set units.9.concurrency 2']) expect((await configPress(h, bad)).text).toMatch(/^refused: /)
+    for (const bad of ['set units.0.runner xml', 'set units.0.concurrency -1', 'set units.0.setup ["make"]', 'set units.9.concurrency 2']) expect((await configPress(h, bad)).text).toMatch(/^refused: /)
     expect(writes).toEqual([])
   })
 })
