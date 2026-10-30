@@ -104,8 +104,15 @@ export async function diffPatch(run: Run, wt: string, range: string, cap = 3072)
 type J = { wt: string; scratch: string; pkgRoot: string; argv: readonly string[]; writable?: readonly string[]; env?: Record<string, string> }
 // --clearenv: the session's environment (credentials included) never reaches a check or a setup command; --unshare-pid --as-pid-1: /proc is the jail's own and the command is its pid 1 (bwrap's own init would keep the original environment readable in /proc/1/environ)
 // `bare` (the offline jails, where task data argv such as a tester's `run` executes): an empty tmpfs over $HOME right after the root bind, so ~/.claude, ~/.ssh and the rest of the home are not there to read. Put back, read-only,
-// only what the command needs to start: each PATH entry under $HOME with its parent folder (a toolchain such as ~/.nvm/versions/node/v22/bin), which `--ro-bind-try` skips when absent. The worktree, the scratch and the cache binds come after and land inside the empty home.
-const toolchains = (j: J): string[] => { const home = j.env?.HOME ?? ''; return !home ? [] : [...new Set((j.env?.PATH ?? '').split(':').filter(d => d.startsWith(`${home}/`)).flatMap(d => [d, d.slice(0, d.lastIndexOf('/'))]).filter(d => d.length > home.length))].flatMap(d => ['--ro-bind-try', d, d]) }
+// only what the command needs to start, read-only: each PATH entry under $HOME that is a `bin` folder (normalised: `//`, `.` and `..` resolved) and, for a versioned toolchain's `<tool>/<version>/bin`, that version folder (its lib), never a folder
+// right under $HOME (`~/.local`, `~/.cargo`, `~/.claude` stay out; only their `bin` comes back). `--ro-bind-try` skips what is absent. The worktree, the scratch and the cache binds come after and land inside the empty home.
+const norm = (p: string): string => '/' + p.split('/').reduce<string[]>((a, x) => (x === '' || x === '.' ? a : x === '..' ? a.slice(0, -1) : [...a, x]), []).join('/')
+const up = (p: string) => p.slice(0, p.lastIndexOf('/')) || '/'
+const toolchains = (j: J): string[] => {
+  const home = j.env?.HOME ? norm(j.env.HOME) : ''; if (!home || home === '/') return []
+  const dirs = (j.env?.PATH ?? '').split(':').filter(Boolean).map(norm).filter(d => d.startsWith(`${home}/`) && d.endsWith('/bin'))   // a toolchain's bin folder only: a PATH entry naming any other home folder is not put back
+  return [...new Set(dirs.flatMap(d => (d.endsWith('/bin') && up(up(d)) !== home && up(d) !== home ? [d, up(d)] : [d])))].flatMap(d => ['--ro-bind-try', d, d])
+}
 const bareHome = (j: J, bare: boolean): string[] => (bare && j.env?.HOME ? ['--tmpfs', j.env.HOME, ...toolchains(j)] : [])
 const RO = (j: J, bare = false) => ['--clearenv', '--unshare-pid', '--as-pid-1', '--ro-bind', '/', '/', ...bareHome(j, bare), '--dev', '/dev', '--proc', '/proc', '--bind', j.scratch, '/tmp']
 // what a jail keeps of the host environment: PATH, HOME and LANG (callers merge it into `env`; the jail adds TMPDIR, and the caller's own names such as CADRE_JUNIT and sandbox.env)

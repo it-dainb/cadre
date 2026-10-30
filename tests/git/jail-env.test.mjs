@@ -36,6 +36,12 @@ test('N1: an offline check cannot read the home (credentials, keys); its worktre
   assert.ok(!r.stdout.includes('home-secret') && !r.stderr.includes('home-secret'), 'the home was readable'); assert.match(r.stderr, /credentials\.json: No such file/); assert.match(r.stderr, /\.ssh/)
   assert.match(r.stdout, /---\nworktree-filetoolchain-ok/)
 })
+test('N1: no PATH spelling puts the home back: //, .., a bin right under $HOME or under ~/.claude, $HOME itself', async () => {
+  const mode = await G.jailMode(run), d = dirs(), env = await G.jailEnv(run)
+  env.PATH = [`${HOME}//bin`, `${HOME}/.local/../.claude`, `${HOME}/.claude/bin`, `${HOME}/.local/bin`, HOME, `${HOME}/`, env.PATH].join(':')
+  const r = await G.checkRun(run, mode, { ...d, argv: ['/bin/sh', '-c', 'cat "$HOME/.claude/.credentials.json"; cat "$HOME/.ssh/id"; true'], env: { CADRE_JUNIT: '/tmp/cadre/junit-test.xml', ...env } })
+  assert.ok(!r.stdout.includes('home-secret') && !r.stderr.includes('home-secret'), `the home was readable: ${r.stdout}`)
+})
 test('N1: a real node --test file that writes JUnit to $CADRE_JUNIT still gives per-test results in the jail', async () => {
   const mode = await G.jailMode(run), d = dirs(); mkdirSync(join(d.scratch, 'cadre'), { recursive: true })
   writeFileSync(join(d.wt, 'a.test.mjs'), "import { test } from 'node:test'; import assert from 'node:assert'\ntest('adds', () => assert.equal(1 + 1, 2))\ntest('fails on purpose', () => assert.equal(1, 2))\n")
