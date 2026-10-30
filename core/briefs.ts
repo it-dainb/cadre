@@ -4,7 +4,7 @@ import { modelText } from './say'
 import type { Hook, Host, Role } from '../types'
 import { scoped } from '../commands/init'
 import { idleOf, modelView, viewHash } from './board'
-import { contextLine } from './render'
+import { contextLine, renderContract } from './render'
 import { active } from './pipeline'
 import { roleSpec } from './roles'
 
@@ -34,15 +34,6 @@ export interface BriefIn {
   paths?: string[]; testPaths?: string[]; locked?: string[]; redCard?: string; greenCard?: string; deps?: { id: string; title: string; out?: string }[]
   findings?: string[]; decisions?: string[]; holds?: string[]; handoff?: string; others?: string[]; protectedPaths?: string[]; shared?: string; lessons?: string; mission?: string; core?: string; slice?: string; uncovered?: string[]   // uncovered: set when the type's acceptance is covered (cover is not none); the scenario ids no locked test name carries
   how?: string; runAsk?: boolean; sourceCommit?: string; diffStat?: string; diff?: string; audit?: string; report?: string; changelog?: string; flags?: string[]; question?: string; focus?: string
-}
-// contract JSON ({symbols:[{name,kind,params,returns,errors?,doc?,status}]} | {none,reason}) -> compact lines
-export function renderContract(design?: string): string {
-  if (!design) return ''
-  try {
-    const c = JSON.parse(design)
-    if (c.none) return `none: ${c.reason ?? ''}`
-    return (c.symbols ?? []).map((s: any) => `- [${s.status}] ${s.kind} ${s.name}(${[].concat(s.params ?? '').join(', ')}) -> ${s.returns ?? ''}${s.errors ? ` throws ${[].concat(s.errors).join(', ')}` : ''}${s.doc ? ` // ${s.doc}` : ''}`).join('\n')
-  } catch { return cap(design, 1000) }
 }
 const sec = (title: string, body?: string | string[]) => { const b = Array.isArray(body) ? body.join('\n') : body; return b?.trim() ? `## ${title}\n${b.trim()}` : '' }
 const join = (xs: string[]) => xs.filter(Boolean).join('\n\n')

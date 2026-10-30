@@ -2,7 +2,7 @@
 // units is cross-unit (core/close runs every one's verify checks on its squash). tests/git/units.test.mjs runs the real squash.
 import { describe, expect, test } from 'claude-code/testing'
 import { ownerOf, parse, unitsOf } from '../core/discover'
-import { pkgOf, repoSplit, unitsOfTask } from '../core/specview'
+import { pkgOf, unitsOfTask } from '../core/specview'
 import { missingList, missingOf } from '../core/validate'
 import { resolve } from '../config/index'
 import * as D from '../core/discover'
@@ -11,13 +11,8 @@ const U = [{ root: '.', kind: 'app', checks: { test: ['npm', 'test'] } }, { root
 const task = (paths: string[], pkg?: string) => ({ meta: { 'cadre.paths': JSON.stringify(paths), ...(pkg ? { 'cadre.package': pkg } : {}) } })
 
 describe('units', () => {
-  test('a task across a submodule and the main repository is refused: one task per repository', () => {
-    const cfg = { units: [U[0], { root: 'lib', kind: 'submodule', ownGit: true, checks: {} }] }
-    expect(repoSplit(cfg, ['lib/x.c', 'src/a.ts'])).toBe('metadata.paths: lib and the main repository are separate repositories; split this into one task per repository')
-    expect([repoSplit(cfg, ['lib/x.c', 'lib/y.c']), repoSplit(cfg, ['src/a.ts']), repoSplit(cfg, undefined)]).toEqual([null, null, null])
-  })
   test('parse: every refusal names units[i].field; unknown keys and concurrency are checked', () => {
-    expect(parse([{ ...U[1], kind: 'lib' }], 'units')).toBe('units[0].kind: one of package, service, submodule, app')
+    expect(parse([{ ...U[1], kind: 'lib' }], 'units')).toBe('units[0].kind: one of package, service, app')
     expect(parse([{ ...U[1], ownGit: 'yes' }], 'units')).toMatch(/^units\[0\]: a unit that is its own repository/)
     expect(parse([{ ...U[1], routing: { worker: { effort: 'high' } } }], 'units')).toMatch(/^units\[0\]\.routing: /)
     expect(parse([{ root: '../x', checks: { t: ['x'] } }], 'units')).toMatch(/^units\[0\]\.root: /)

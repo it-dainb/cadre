@@ -4,6 +4,7 @@ import { catOf, gateAt, roleAt, verdictAt } from './pipeline'
 import type { Snapshot, SnapTask } from '../types'
 import type { Task } from '../task-management/store'
 import { yoloMain } from './flags'
+import { itemsOf } from './validate'
 
 export interface Rec { schemaVersion: 1; kind: string; taskId: string; at: number; actor: string; computed: Record<string, unknown>; claimed: Record<string, unknown> }
 const val = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v))
@@ -46,12 +47,19 @@ export const tag = (t: Pick<SnapTask, 'state' | 'step'>): string => (t.state ===
 export const subject = (t: SnapTask): string => `[${tag(t)}] ${t.title}`
 
 // TaskGet text: description + scenarios + contract + changelog + records (meta cadre.rec.<kind> = the stored record, rendered by `comment`'s facts)
+// one contract item {name, ...free keys}: its name, then every other key as "key: value" (a list joins with ", ")
+export const itemSig = (x: { name: string; [k: string]: unknown }): string => { const rest = Object.entries(x).filter(([k]) => k !== 'name').map(([k, v]) => `${k}: ${[v].flat().join(', ')}`); return `${x.name}${rest.length ? ` (${rest.join('; ')})` : ''}` }
+// the contract JSON ({items:[{name, ...}]} | {none, reason}) as compact lines
+export function renderContract(design?: string): string {
+  if (!design) return ''
+  try { const c = JSON.parse(design); return c.none ? `none: ${c.reason ?? ''}` : itemsOf(design).map(x => `- ${itemSig(x)}`).join('\n') } catch { return design.length > 1000 ? `${design.slice(0, 999)}…` : design }
+}
 export function taskText(t: Task, st?: SnapTask): string {
   const out = [t.description.trim()]
   if (t.acceptance?.trim()) out.push('Scenarios:', ...t.acceptance.trim().split('\n').map(l => `- ${l}`))
   if (t.design) {
     const d = JSON.parse(t.design)
-    out.push(d.none ? `Contract: none (${d.reason})` : 'Contract:', ...(d.symbols ?? []).map((s: any) => `- [${s.status}] ${s.name} (${s.kind}) (${(s.params ?? []).join(', ')}) -> ${s.returns}${s.errors?.length ? ` throws ${s.errors.join(', ')}` : ''}${s.doc ? `: ${s.doc}` : ''}`))
+    out.push(d.none ? `Contract: none (${d.reason})` : 'Contract:', ...itemsOf(t.design).map(x => `- ${itemSig(x)}`))
   }
   const cl = t.meta['cadre.changelog'] && JSON.parse(t.meta['cadre.changelog'])
   if (cl) out.push(cl.none ? `Changelog: none (${cl.reason})` : `Changelog: ${cl.category}: ${cl.entry}`)

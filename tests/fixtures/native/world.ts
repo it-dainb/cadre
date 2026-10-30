@@ -6,9 +6,9 @@ import { fakeHost } from '../../support'
 import { dispatch, storeOf } from '../../../core/dispatch'
 import { viaEngine } from '../engine'
 
-export const SCEN = ['S1: Given a user When they log in Then a session exists']
-export const CONTRACT = { symbols: [{ name: 'login', kind: 'function', params: ['email: string'], returns: 'Session', status: 'new' }] }
-export const FULL = { type: 'feature', package: '.', scenarios: SCEN, changelog: { category: 'Added', entry: 'Login' }, interface: CONTRACT, paths: ['src/login.ts'] }
+export const SCEN = [{ id: 'S1', text: 'Given a user When they log in Then a session exists' }]
+export const CONTRACT = { items: [{ name: 'login', kind: 'function', params: ['email: string'], returns: 'Session', status: 'new' }] }
+export const FULL = { type: 'feature', package: '.', acceptance: SCEN, changelog: { category: 'Added', entry: 'Login' }, contract: CONTRACT, paths: ['src/login.ts'] }
 
 export async function world(o: { env?: Record<string, string>; config?: unknown } = {}) {
   const store = new MemoryStore(() => 1_700_000_000_000); await store.init({ types: defaults(), journal: false })

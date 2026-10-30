@@ -6,9 +6,9 @@ import { active } from './pipeline'
 export interface Pkg {
   root: string; checks: Record<string, string[]>; fetches?: string[]   // checks.<landing.prepare> (default `setup`) is the unit's setup argv, run before its checks; it is not itself a check
   tdd?: { check?: string; paths: string[]; stubs?: string[]; skeleton?: string[] }; viewInclude?: string[]
-  kind?: Kind; ownGit?: boolean; concurrency?: number; routing?: Record<string, { model: string; effort?: string }>   // a workspace unit (H7); its adopted test command is checks.test (core/gate.adopt)
+  kind?: Kind; concurrency?: number; routing?: Record<string, { model: string; effort?: string }>   // a workspace unit (H7); its adopted test command is checks.test (core/gate.adopt)
 }
-export const KINDS = ['package', 'service', 'submodule', 'app'] as const
+export const KINDS = ['package', 'service', 'app'] as const
 type Kind = typeof KINDS[number]
 // the workspace units (no kind = package). The config's own objects: core/gate.adopt updates one in place
 export const unitsOf = (cfg: { units?: unknown[] }): Pkg[] => (cfg.units ?? []) as Pkg[]
@@ -17,7 +17,7 @@ export const ownerOf = <T extends { root: string }>(us: T[], f: string): T | und
 export type Verdict = 'pass' | 'red' | 'net' | 'knownRed'
 export interface Run { setupOk: boolean; caches: string[]; results: Record<string, Verdict>; junit?: boolean | null }   // junit: the `test` check wrote valid JUnit at $CADRE_JUNIT (null = no test check)
 
-const UNIT_KEYS = ['root', 'checks', 'verify', 'knownRed', 'tdd', 'fetches', 'kind', 'ownGit', 'concurrency', 'routing', 'viewInclude', 'testBy'], TDD_KEYS = ['check', 'paths', 'stubs', 'skeleton']
+const UNIT_KEYS = ['root', 'checks', 'verify', 'knownRed', 'tdd', 'fetches', 'kind', 'concurrency', 'routing', 'viewInclude', 'testBy'], TDD_KEYS = ['check', 'paths', 'stubs', 'skeleton']
 const isArgv = (v: unknown): v is string[] => Array.isArray(v) && v.length > 0 && v.every(x => typeof x === 'string' && x !== '')
 // the `units` list of .cadre/config.json (written by Claude during init): shape check, with an example in every refusal
 export function parse(ps: any, key = 'units'): Pkg[] | string {
@@ -32,7 +32,6 @@ export function parse(ps: any, key = 'units'): Pkg[] | string {
     if (bad) return `${at}.${bad}: unknown key (allowed: ${UNIT_KEYS.join(', ')}; tdd: ${TDD_KEYS.join(', ')})`   // closed: core allocates $CADRE_JUNIT per run, so a unit names no report path
     if (p.fetches && p.fetches.some((f: string) => !(f in p.checks))) return `${at}.fetches: must name checks`
     if (p.kind !== undefined && !KINDS.includes(p.kind)) return `${at}.kind: one of ${KINDS.join(', ')}`
-    if (p.ownGit !== undefined && typeof p.ownGit !== 'boolean') return `${at}.ownGit: true when the unit is its own git repository (a submodule), else false`
     if (p.concurrency !== undefined && !(Number.isInteger(p.concurrency) && p.concurrency > 0)) return `${at}.concurrency: expected a whole number above 0 (tasks of this unit at once)`
     if (p.routing !== undefined && (typeof p.routing !== 'object' || Object.values(p.routing).some((c: any) => typeof c?.model !== 'string'))) return `${at}.routing: expected {"worker":{"model":"opus","effort":"high"}}`
   }

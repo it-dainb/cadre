@@ -26,7 +26,7 @@ const rel = (real: string, root: string) => real.slice(root.replace(/\/$/, '').l
 const join = (cwd: string, p: string) => (p.startsWith('/') ? p : `${cwd.replace(/\/$/, '')}/${p}`)
 const modOwned = (real: string, home?: string, guarded: string[] = []) => {
   const seg = real.split('/')
-  return guarded.some(g => real === g || real.endsWith(`/${g}`)) || seg.some(s => MOD_DIRS.includes(s)) || MOD_FILES.includes(seg[seg.length - 1]) || (!!home && /^cadre\.json$|^settings.*\.json$/.test(seg[seg.length - 1]) && under(real, home + '/.claude')) || (!!home && real === `${home}/.claude.json`)   // the engine's own file: its project mcpServers/allowedTools widen what runs
+  return guarded.some(g => real === g || real.endsWith(`/${g}`)) || seg.some(s => MOD_DIRS.includes(s)) || MOD_FILES.includes(seg[seg.length - 1]) || (!!home && ((f: string) => f === 'cadre.json' || (f.startsWith('settings') && f.endsWith('.json')))(seg[seg.length - 1]) && under(real, home + '/.claude')) || (!!home && real === `${home}/.claude.json`)   // the engine's own file: its project mcpServers/allowedTools widen what runs
 }
 
 // Step 0 of the fence: the path a file tool will touch, per tool (input fields). Glob with an absolute pattern: its non-glob base dir.

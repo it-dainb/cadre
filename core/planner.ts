@@ -8,16 +8,16 @@ import type { Task, TaskStore } from '../task-management/store'
 import { protectedOf, type Deps } from './admission'
 import { planBlock } from './briefs'
 import { runOf, step } from './lifecycle'
-import { cfgOf, draftsOf } from './dispatch'
+import { draftsOf } from './dispatch'
 import { active } from './pipeline'
-import { repoSplit } from './specview'
 import { retouch } from './lanes'
 import { epicOf, planEpic, stopEpic } from './milestone'
-import { holdsGap, notesOf, pathsOf, sliceNotes, validateFields } from './validate'
-import { fieldsOf, twinOf } from './plantools'
+import { itemSig } from './render'
+import { holdsGap, itemsOf, notesOf, pathsOf, sliceNotes, validateFields } from './validate'
+import { fieldsOf } from './plantools'
 import { limited } from './drive'
 
-const syms = (t: Task) => { try { const s = (JSON.parse(t.design || '{}').symbols ?? []).filter((x: any) => x.status !== 'unchanged'); return s.length ? ` · interface ${s.map((x: any) => `${x.name}(${(x.params ?? []).join(', ')}) -> ${x.returns}`).join('; ')}` : '' } catch { return '' } }
+const syms = (t: Task) => { const s = itemsOf(t.design).filter(x => x.status !== 'unchanged'); return s.length ? ` · contract ${s.map(itemSig).join('; ')}` : '' }
 // the brief, in cache order: the plan block (the task agents' own: mission, protected paths, the landed core's interface, the notes without paths), the roadmap
 // (the same bytes for every planner of the milestone), then this epic, what landed before it, the locked files, the notes on its files, the task types
 export async function plannerBrief(h: Host, d: Deps, s: Snapshot, ep: MEpic): Promise<string> {
@@ -67,8 +67,8 @@ async function draft(h: Host, store: TaskStore, id: string, tasks: unknown): Pro
     if (typeof t?.subject !== 'string' || !t.subject.trim() || typeof t.description !== 'string') return no(`${at}: needs a subject and a description (strings)`)
     if (typeof m !== 'object' || Array.isArray(m)) return no(`${at}: metadata: expected an object`)
     const { epic, ...meta } = m; if (epic !== undefined && epic !== id) return no(`${at}: metadata.epic: omit it (every task is of ${id})`)
-    const err = validateFields(meta) ?? repoSplit(await cfgOf(h), meta.paths) ?? (meta.holds ? holdsGap(meta.holds, (meta.scenarios as string[] | undefined)?.join('\n')) : null) ?? (meta.kind !== undefined ? 'metadata.kind: omit it' : null); if (err) return no(`${at}: ${err}`)
-    const f = fieldsOf(meta), tw = await twinOf(store, id, t.subject, t.description, f.meta['cadre.paths']); if (tw) return no(`${at} repeats ${tw.id} (${tw.why}): make them one task`)
+    const err = validateFields(meta) ?? (meta.holds ? holdsGap(meta.holds, fieldsOf(meta).patch.acceptance) : null) ?? (meta.kind !== undefined ? 'metadata.kind: omit it' : null); if (err) return no(`${at}: ${err}`)
+    const f = fieldsOf(meta)
     made.push((await store.createDraft({ title: t.subject, description: t.description, acceptance: f.patch.acceptance, design: f.patch.design, type: meta.type ?? 'feature', parent: id, meta: f.meta })).id)
   }
   for (const [i, t] of tasks.entries()) {

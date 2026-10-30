@@ -52,16 +52,16 @@ describe('the typed surface (ADR 0011): five forms only', () => {
 })
 
 describe('override (pure)', () => {
-  const pub = JSON.stringify({ symbols: [{ name: 'login', kind: 'function', params: [], returns: 'S', status: 'new' }] })
+  const pub = JSON.stringify({ items: [{ name: 'login', kind: 'function', params: [], returns: 'S', status: 'new' }] })
   const table: [string, 'ask' | 'lite' | 'full', Task[], string, string?][] = [
     ['lite, one small task', 'lite', [T()], 'lite'],
     ['breaking', 'lite', [T({ meta: { 'cadre.breaking': 'true' } })], 'full', 'a task is breaking'],
     ['security label', 'lite', [T({ labels: ['security'] })], 'full', 'a task touches security'],
     ['security scope', 'lite', [T({ meta: { 'cadre.scope': 'security' } })], 'full', 'a task touches security'],
     ['public contract new', 'lite', [T({ design: pub })], 'full', 'a public contract is new or changed'],
-    ['contract unchanged', 'lite', [T({ design: JSON.stringify({ symbols: [{ name: 'x', status: 'unchanged' }] }) })], 'lite'],
+    ['contract unchanged', 'lite', [T({ design: JSON.stringify({ items: [{ name: 'x', status: 'unchanged' }] }) })], 'lite'],
     ['contract none', 'lite', [T({ design: JSON.stringify({ none: true, reason: 'internal' }) })], 'lite'],
-    ['3 tasks', 'lite', [T(), T({ id: 'b' }), T({ id: 'c' })], 'full', '3 tasks'],
+    ['B11: many tasks change nothing (no count)', 'full', Array.from({ length: 9 }, (_, i) => T({ id: `t${i}` })), 'full'],
     ['lite is one task', 'lite', [T(), T({ id: 'b' })], 'full', 'lite is one task'],
     ['ask with a code task', 'ask', [T()], 'lite', 'it changes code'],
     ['ask with two code tasks', 'ask', [T(), T({ id: 'b' })], 'full', 'it changes code'],
@@ -89,7 +89,7 @@ describe('lite pipeline and completeness (registry, machine)', () => {
     expect(missingOf(T({ meta: { 'cadre.lane': 'lite' } }))).toEqual(['changelog'])
     expect(missingOf(T({ description: ' ', meta: { 'cadre.lane': 'lite', 'cadre.changelog': '{"none":true}' } }))).toEqual(['description'])
     expect(missingOf(T({ meta: { 'cadre.lane': 'lite', 'cadre.changelog': '{"none":true}' } }))).toEqual([])
-    expect(missingOf(T())).toEqual(['scenarios', 'changelog', 'interface', 'package'])
+    expect(missingOf(T())).toEqual(['acceptance', 'changelog', 'contract', 'package'])
   })
 })
 
@@ -132,7 +132,7 @@ describe('the card: lane line + [l] Lane (core/lanes)', () => {
     const w = await world(); await w.call('TaskCreate', { subject: 'Fix paging', description: 'off-by-one', metadata: LITE }); const id = (await w.h.board.read()).plan!.id
     expect(await changeLane(w.h, w.store, id)).toBe(`${id}: lane full`)
     const s = await w.h.board.read(), [t] = await w.store.list({ parent: id })
-    expect(s.plan).toMatchObject({ lane: 'full', laneReason: 'changed by you', state: 'draft' }); expect(t.meta['cadre.lane']).toBe(''); expect(s.approval.missing[0]).toContain('scenarios')
+    expect(s.plan).toMatchObject({ lane: 'full', laneReason: 'changed by you', state: 'draft' }); expect(t.meta['cadre.lane']).toBe(''); expect(s.approval.missing[0]).toContain('acceptance')
     expect((await w.h.ui.read()).goal).toContain('full lane')
     expect(await changeLane(w.h, w.store, id)).toContain('ask lane')
     expect((await w.h.board.read()).plan).toBeNull(); expect(await w.store.list({ parent: id })).toEqual([]); expect((await w.h.ui.read()).goal).toContain('Call explore with this question')

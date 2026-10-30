@@ -98,7 +98,7 @@ export const REG: Record<string, Meta> = {
   'worktrees.root': m(G, "task worktrees ('' = ~/.cache/cadre/wt)", { cls: 'U' }),
   'roles.testerView': m(C, 'view: the tester sees only the interface; full: the whole tree', { cls: 'S', opts: ['full', 'view'], tighten: 'enum' }),
   'roles.tdd.author': m(C, 'separate: a tester agent writes the tests; same: the worker does', { opts: ['separate', 'same'] }),
-  units: m(C, 'workspace units {root, kind, ownGit, concurrency, checks, routing} (set by init)', { open: true }),
+  units: m(C, 'workspace units {root, kind, concurrency, checks, routing} (set by init)', { open: true }),
   strictness: m(SF, 'strict: guards refuse; advisory: guards warn', { cls: 'S', opts: ['advisory', 'strict'], tighten: 'enum' }),
   mcpAllow: m(SF, 'MCP tools task agents may call', { cls: 'S', tighten: 'list', ok: strs }), jail: m(SF, 'checks run in a sandbox: off, auto (when available), on', { cls: 'S', opts: ['off', 'auto', 'on'], tighten: 'enum' }),
   jailWritable: m(SF, 'extra paths the sandbox may write', { cls: 'S', tighten: 'list', ok: strs }), effectCheck: m(SF, 'audit git effects of tool calls: off, auto, always', { cls: 'S', opts: ['off', 'auto', 'always'], tighten: 'enum' }),

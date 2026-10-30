@@ -68,7 +68,7 @@ function main(rows: Row[]): Act {
   }
   if (script === 'full' || script === 'holds' || script === 'gate-results') {
     if (!used('plan')) return { tool: T('plan'), input: { title: 'Add titleCase(s) to the library', description: 'A new public function titleCase(s) with node:test tests.', lane: 'full', reason: 'a new public function', ...mission } }
-    if (!used('task')) return { tool: T('task'), input: script !== 'full' ? { ...TASKS[0], scenarios: [...TASKS[0].scenarios, "S2: Given ' Hello World ' When slug is called Then it returns 'hello-world'"], holds: ['S2'] } : TASKS[0] }
+    if (!used('task')) return { tool: T('task'), input: script !== 'full' ? { ...TASKS[0], acceptance: [...TASKS[0].acceptance, { id: 'S2', text: "Given ' Hello World ' When slug is called Then it returns 'hello-world'" }], holds: ['S2'] } : TASKS[0] }
     return { text: 'The plan is drafted: approve it in the dialog (key 1 opens it).' }
   }
   if (!used('plan') && script === 'profile-docs') return { tool: T('plan'), input: { title: 'Document the library in docs/usage.md', description: 'Add docs/usage.md: one section that says what the library is for and how to import it.', lane: 'lite', reason: 'one small document', type: 'doc', ...mission } }
@@ -98,8 +98,8 @@ EOF
 test -f test/${f.name}.test.mjs || cat > test/${f.name}.test.mjs <<'EOF'
 ${TEST(f)}EOF`
 const TASKS = FNS.map(f => ({ title: `${f.name}(s) with node:test tests`, description: `Create src/${f.name}.mjs exporting ${f.name}: ${f.what}.`, type: 'feature', package: '.',
-  paths: [`src/${f.name}.mjs`, `test/${f.name}.test.mjs`], scenarios: [`S1: Given '${f.input}' When ${f.name} is called Then it returns '${f.out}'`],
-  changelog: { category: 'Added', entry: `${f.name}(s): ${f.what}` }, interface: { symbols: [{ name: f.name, kind: 'function', params: ['s: string'], returns: 'string', status: 'new' }] } }))
+  paths: [`src/${f.name}.mjs`, `test/${f.name}.test.mjs`], acceptance: [{ id: 'S1', text: `Given '${f.input}' When ${f.name} is called Then it returns '${f.out}'` }],
+  changelog: { category: 'Added', entry: `${f.name}(s): ${f.what}` }, contract: { items: [{ name: f.name, kind: 'function', params: ['s: string'], returns: 'string', status: 'new' }] } }))
 const taskOf = (brief: string) => brief.match(/TASK-([a-z][\w-]*\w)/)?.[1]   // ids are c-6-1, m-2: a letter first, a word char last
 const JUNIT = ['node', '--test', '--test-reporter=junit', '--test-reporter-destination=$CADRE_JUNIT']   // the runner writes the report core reads (a gate with declared tests and no report is an error)
 const WAIT = { tool: 'Bash', input: { command: 'node -e "setTimeout(() => {}, 12000)"', description: 'Wait' } }

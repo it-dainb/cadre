@@ -65,9 +65,9 @@ describe("the planner's report: main's draft checks, rounds, auto-approval", () 
   test('a refused plan goes back to the same planner with what is missing; a good one is approved, recorded and its tasks start', async () => {
     const w = await ms(), [a] = w.es; await w.turn()
     let r = await w.rep('ag1', { tasks: [{ subject: 'Writer', description: 'd', metadata: { type: 'feature', paths: ['src/export/w.ts'] } }] })
-    expect(r).toContain('error: incomplete, missing: task 1: scenarios, changelog, interface'); expect(r).toContain('(round 1/3)')
+    expect(r).toContain('error: incomplete, missing: task 1: acceptance, changelog, contract'); expect(r).toContain('(round 1/3)')
     expect(await w.store.list({ parent: a })).toEqual([])   // the refused round left no drafts
-    r = await w.rep('ag1', { tasks: [task('Writer', 'src/export/w.ts'), task('Writer', 'src/export/x.ts')] }); expect(r).toContain('task 2 repeats task 1 (the same title): make them one task'); expect(r).toContain('(round 2/3)')
+    r = await w.rep('ag1', { tasks: [{ subject: 'Writer', description: 'd', metadata: { type: 'feature', paths: ['src/export/w.ts'] } }] }); expect(r).toContain('(round 2/3)')   // B10: two tasks of one title are no refusal
     expect(await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' })).toContain('you are the planner')
     r = await w.rep('ag1', { tasks: [task('Writer', 'src/export/w.ts'), task('Command', 'src/export/w.ts', { after: [1] })] }); expect(r).toBe('plan accepted: 2 tasks approved; they start by themselves. Stop.')
     const s = await w.board(), ts = s.tasks.filter(t => t.epic === a)

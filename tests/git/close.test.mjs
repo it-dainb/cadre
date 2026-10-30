@@ -21,7 +21,7 @@ const PL = await import('../../core/pipeline.ts'), { sessionProfile: DEFAULT } =
 
 const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: o.cwd }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()
-const DESIGN = JSON.stringify({ symbols: [{ name: 'f', kind: 'fn', params: [], returns: 'x', status: 'new' }] })
+const DESIGN = JSON.stringify({ items: [{ name: 'f', kind: 'fn', params: [], returns: 'x', status: 'new' }] })
 
 async function world(n = 1) {
   PL.setProfile(DEFAULT)   // every case starts on the default profile

@@ -8,32 +8,33 @@ const v = (m: Record<string, unknown>) => validateFields(m)
 const draft = (o: Record<string, any> = {}) => ({ id: 'a', title: 't', description: '', type: 'feature', category: 'draft' as const, nativeStatus: 'draft', priority: 2 as const, deps: [], labels: [], updatedAt: '', meta: {}, ...o })
 
 describe('validateFields: only malformed PRESENT fields, with an example', () => {
-  test('a complete valid set passes; null clears; absent is fine', () => { expect(v(FULL)).toBeNull(); expect(v({ package: null, scenarios: null })).toBeNull(); expect(v({})).toBeNull() })
+  test('a complete valid set passes; null clears; absent is fine', () => { expect(v(FULL)).toBeNull(); expect(v({ package: null, acceptance: null })).toBeNull(); expect(v({})).toBeNull() })
   test('each field names its path, the expectation and the offender', () => {
-    expect(v({ scenarios: ['S1: Given a When b'] })).toBe('metadata.scenarios[0]: expected "S1: Given <state> When <action> Then <outcome>", got "S1: Given a When b"')
-    expect(v({ scenarios: 'x' })).toContain('metadata.scenarios: expected an array of "S1: Given')
+    expect(v({ acceptance: [{ id: 'A:1', text: 'x' }] })).toBe('metadata.acceptance[0]: expected {"id":"A1","text":"one line"}, ids unique, with no space or ":", got {"id":"A:1","text":"x"}')   // B15: no Gherkin grammar, no S<n> ids
+    expect(v({ acceptance: 'x' })).toBe('metadata.acceptance: expected a non-empty array [{"id":"A1","text":"…"}], got "x"')
+    expect(v({ acceptance: [{ id: 'Z', text: 'x' }, { id: 'Z', text: 'y' }] })).toContain('metadata.acceptance[1]: expected')
+    expect(v({ acceptance: [{ id: 'login-ok', text: 'a user can log in' }, { id: '2', text: 'free text' }] })).toBeNull()   // any id string
     expect(v({ breaking: 'yes' })).toBe('metadata.breaking: expected true or false, got "yes"')
-    expect(v({ interface: { symbols: [{ name: 'f', kind: 'function', params: 'x', returns: 'R', status: 'new' }] } })).toBe('metadata.interface.symbols[0].params: expected an array of strings, got "x"')
-    expect(v({ interface: { symbols: [{ name: 'f', kind: 'function', params: [], returns: 'R', status: 'old' }] } })).toBe('metadata.interface.symbols[0].status: expected new|changed|unchanged, got "old"')
-    expect(v({ interface: { none: true } })).toBe('metadata.interface.reason: expected a reason, got undefined')
-    expect(v({ changelog: { none: true, reason: 'internal' } })).toBeNull(); expect(v({ interface: { none: true, reason: 'no api' } })).toBeNull()
+    expect(v({ contract: { items: [{ name: 'f', returns: 1 }] } })).toBe('metadata.contract.items[0]: expected {"name":"login", …any other keys: text or a list of text}, got {"name":"f","returns":1}')
+    expect(v({ contract: { none: true } })).toBe('metadata.contract.reason: expected a reason, got undefined')
+    expect(v({ changelog: { none: true, reason: 'internal' } })).toBeNull(); expect(v({ contract: { none: true, reason: 'no api' } })).toBeNull(); expect(v({ contract: { items: [{ name: 'f', free: ['a', 'b'], status: 'new' }] } })).toBeNull()
     expect(v({ kind: 'epic' })).toBe('metadata.kind: expected "plan" or "mission", got "epic"'); expect(v({ amend: 'true' })).toBe('metadata.amend: expected true, got "true"')
   })
 })
 
 describe('completeness (enforced at approve) and the missing line', () => {
-  test('missingOf: scenarios, changelog, interface (contract-required types only), package; spikes need nothing', () => {
-    expect(missingOf(draft())).toEqual(['scenarios', 'changelog', 'interface', 'package'])
-    expect(missingOf(draft({ type: 'docs' }))).toEqual(['scenarios', 'changelog', 'package'])
+  test('missingOf: acceptance, changelog, contract (contract-required types only), package; spikes need nothing', () => {
+    expect(missingOf(draft())).toEqual(['acceptance', 'changelog', 'contract', 'package'])
+    expect(missingOf(draft({ type: 'docs' }))).toEqual(['acceptance', 'changelog', 'package'])
     expect(missingOf(draft({ type: 'spike' }))).toEqual([])
     expect(missingOf(draft({ acceptance: 'S1: …', design: '{}', meta: { 'cadre.changelog': '{}', 'cadre.package': '.' } }))).toEqual([])
     expect(missingOf(draft({ type: 'custom' }))).toEqual([])
   })
   test('missingList / missingLine: "id: a, b" joined by "; ", ≤200 chars, empty when approvable', () => {
     expect(missingList([])).toEqual(['tasks'])
-    const l = missingList([draft({ id: 'a1' }), draft({ id: 'a2', type: 'spike' })]); expect(l).toEqual(['a1: scenarios, changelog, interface, package'])
-    expect(missingLine(l)).toBe('missing: a1: scenarios, changelog, interface, package'); expect(missingLine([])).toBe('')
-    expect(missingLine(Array(40).fill('a1: scenarios, changelog')).length).toBe(200)
+    const l = missingList([draft({ id: 'a1' }), draft({ id: 'a2', type: 'spike' })]); expect(l).toEqual(['a1: acceptance, changelog, contract, package'])
+    expect(missingLine(l)).toBe('missing: a1: acceptance, changelog, contract, package'); expect(missingLine([])).toBe('')
+    expect(missingLine(Array(40).fill('a1: acceptance, changelog')).length).toBe(200)
   })
 })
 

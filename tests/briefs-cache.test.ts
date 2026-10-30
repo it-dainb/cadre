@@ -29,7 +29,7 @@ describe('notes keyed by path', () => {
 })
 
 describe('brief layout: plan block first, byte-identical for sibling tasks', () => {
-  const plan = { mission: 'Goal: sign in', protectedPaths: ['.git/', '.cadre/'], core: JSON.stringify({ symbols: [{ name: 'Session', kind: 'type', params: [], returns: 'object', status: 'new' }] }), shared: 'tests run with node --test' }
+  const plan = { mission: 'Goal: sign in', protectedPaths: ['.git/', '.cadre/'], core: JSON.stringify({ items: [{ name: 'Session', kind: 'type', params: [], returns: 'object', status: 'new' }] }), shared: 'tests run with node --test' }
   const sib = (id: string, paths: string[]) => ({ ...plan, id, title: `task ${id}`, type: 'feature', scenarios: `S1: Given ${id} When x Then y`, paths, notes: `spawned ${id}`, others: ['- zz: src/x'], ...sliceNotes(NOTES, paths, true) })
   test('two siblings of every role share the plan block byte for byte; ids, paths and notes slices come after it', () => {
     for (const role of ['worker', 'tester', 'reviewer', 'explorer'] as const) {
@@ -41,7 +41,7 @@ describe('brief layout: plan block first, byte-identical for sibling tasks', () 
   })
   test('the plan block carries mission, protected paths, the landed core interface and the shared notes; nothing when there is no plan data', () => {
     const p = planBlock(plan)
-    for (const s of ['## Mission\nGoal: sign in', '## Protected paths (never change them)\n.git/', '- [new] type Session() -> object', '## Shared notes\ntests run with node --test']) expect(p).toContain(s)
+    for (const s of ['## Mission\nGoal: sign in', '## Protected paths (never change them)\n.git/', '- Session (kind: type; params: ; returns: object; status: new)', '## Shared notes\ntests run with node --test']) expect(p).toContain(s)
     expect(planBlock({})).toBe('')
   })
 })
@@ -70,12 +70,12 @@ async function world() {
   }
   return { ids, prompt }
 }
-const plan0 = JSON.stringify({ symbols: [{ name: 'Session', kind: 'type', params: [], returns: 'object', status: 'new' }] })
+const plan0 = JSON.stringify({ items: [{ name: 'Session', kind: 'type', params: [], returns: 'object', status: 'new' }] })
 
 describe('admission builds the briefs from the plan (notes.slice)', () => {
   test('siblings spawned in different sessions share the plan block up to the task block; each gets only its notes', async () => {
     const w = await world(), a = await w.prompt('a', w.ids[0]), b = await w.prompt('b', w.ids[1]), cut = (s: string) => s.slice(0, s.indexOf('Worker brief.'))
-    expect(cut(a)).toBe(cut(b)); expect(cut(a)).toContain('## Mission\nGoal: sign in'); expect(cut(a)).toContain('type Session'); expect(cut(a)).toContain('## Shared notes\ntests run with node --test')
+    expect(cut(a)).toBe(cut(b)); expect(cut(a)).toContain('## Mission\nGoal: sign in'); expect(cut(a)).toContain('Session (kind: type'); expect(cut(a)).toContain('## Shared notes\ntests run with node --test')
     expect(a).toContain('tokens are signed'); expect(a).not.toContain('cents'); expect(b).toContain('cents'); expect(b).not.toContain('tokens are signed')
   })
   test('notes.slice off: every note is in the shared plan block', async () => {

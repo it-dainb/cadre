@@ -34,7 +34,7 @@ test('spec view golden: no source bodies, no symlinks, tdd.paths + viewInclude +
   assert.deepEqual(readdirSync(view).sort(), ['FILES.md', 'INTERFACE.md', 'SCENARIOS.md', 'docs', 'test'])
   assert.equal(existsSync(join(view, 'src')), false); assert.equal(existsSync(join(view, 'test/link.ts')), false)   // symlink skipped, source body absent
   for (const f of ['test/old.json', 'docs/guide.md', 'SCENARIOS.md', 'INTERFACE.md']) assert.ok(lstatSync(join(view, f)).isFile())
-  assert.match(readFileSync(join(view, 'INTERFACE.md'), 'utf8'), /\[new\] function login/)
+  assert.match(readFileSync(join(view, 'INTERFACE.md'), 'utf8'), /login \(kind: function; params: u; returns: bool; status: new\)/)
   const lite = world({ acceptance: '' }), v2 = await V.buildView(lite.h, lite.d, await mkTask(lite), await worktree(lite))   // a lite bug (no scenarios): the bug report is the tester's spec
   assert.match(readFileSync(join(v2, 'SCENARIOS.md'), 'utf8'), /reproduces the bug described below[\s\S]*page 1 skips the first page/)
   const man = JSON.parse(w.meta['cadre.view']); assert.deepEqual(Object.keys(man).sort(), ['FILES.md', 'INTERFACE.md', 'SCENARIOS.md', 'docs/guide.md', 'test/old.json'])
@@ -79,7 +79,7 @@ test('a skipped test is ignored for the verdict and listed in the card (the verd
   assert.ok(res.ok, res.why); assert.match(res.card, /red ✓ 1 failing/); assert.match(res.card, /skipped: s\.b/)
 })
 test('B1: an <error> result is bad ("make it compile and run"), even for an import of a new contract symbol; a skeleton changes nothing', async () => {
-  const d = JSON.stringify({ symbols: [{ name: 'login', status: 'new' }, { name: 'logout', status: 'unchanged' }] })
+  const d = JSON.stringify({ items: [{ name: 'login', status: 'new' }, { name: 'logout', status: 'unchanged' }] })
   for (const [over, text] of [[{ design: d }, 'ReferenceError: login is not defined'], [{ design: d }, 'ReferenceError: logout is not defined'], [{ design: d, pkg: { tdd: { paths: ['test/**'], skeleton: ['true'] } } }, 'SyntaxError: unexpected token']]) {
     const w = world(over), r = (await tester(w, { 'test/s.json': tc('a', 'error', text), 'test/t.json': tc('b', 'failure') }, ['a', 'b'])).res
     assert.equal(r.ok, false); assert.equal(r.setup, undefined); assert.match(r.why, /errored instead of failing: s\.a; make it compile and run/); assert.equal(w.meta['cadre.specCommit'], undefined)   // a tester round, copy-in undone

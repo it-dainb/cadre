@@ -2,16 +2,19 @@
 // completeness (scenarios, changelog decision, contract, package) is checked at approve. Pure: no Host, no store.
 import type { Host } from '../types'
 import type { Task } from '../task-management/store'
-import { active, hasField, kindOf, typeOf } from './pipeline'
+import { active, kindOf, typeOf } from './pipeline'
 import { matches } from './specview'
 import { roleSpec, roleSpecs } from './roles'
 import { RISKS, type Tier } from './routing'
-import type { FieldKind, Outcome, RoleSpec as ProfileRole } from '../types/profile'
+import type { Field, FieldKind, Outcome, RoleSpec as ProfileRole } from '../types/profile'
 
-export const FIELDS = ['kind', 'amend', 'type', 'scope', 'breaking', 'package', 'scenarios', 'changelog', 'interface', 'lane', 'reason', 'mission', 'paths', 'core', 'notes', 'epic', 'size', 'planned', 'critique', 'assumed', 'holds', 'risk'] as const
+// the planner call's own arguments; the task fields the profile declares (`profile.fields`) come on top
+export const ARGS = ['kind', 'amend', 'type', 'acceptance', 'contract', 'lane', 'reason', 'risk', 'mission', 'paths', 'core', 'notes', 'epic', 'size', 'planned', 'critique', 'assumed'] as const   // lane picks the pipeline and risk the model: engine concepts, whatever the profile's fields
+// the task fields the profile declares, and the three the engine reads whatever the profile says (the unit a task builds in, the commit message)
+const CORE: Field[] = [{ name: 'package', store: 'meta', required: false }, { name: 'scope', store: 'meta', required: false }, { name: 'breaking', store: 'meta', required: false, kind: 'bool' }]
+const declared = (): Field[] => [...CORE.filter(c => !active().fields.some(f => f.name === c.name)), ...active().fields]
+export const FIELDS = (): string[] => [...new Set([...ARGS, ...declared().map(f => f.name)])]
 export const CATEGORIES = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security']
-const SCENARIO = /^S\d+: Given .+ When .+ Then .+$/
-const STATUS = ['new', 'changed', 'unchanged']
 const str = (v: unknown): v is string => typeof v === 'string' && v.trim() !== ''
 // a refusal quotes what the agent sent only without a host path in it (a path is the agent's own text; the boundary lint refuses it)
 // only an ABSOLUTE path: at the start or after a space, quote, = ( [ ("src/a/b.ts" and "http://x.io/a/b" stay as they are)
@@ -21,7 +24,7 @@ const bad = (path: string, want: string, got: unknown) => `${path}: expected ${w
 
 // first malformed present task field (the plan tools, a planner's task metadata), else null. null values clear a field and are fine.
 export function validateFields(m: Record<string, unknown>): string | null {
-  for (const k of Object.keys(m)) if (!(FIELDS as readonly string[]).includes(k)) return `metadata.${k}: unknown field (allowed: ${FIELDS.join(', ')})`
+  for (const k of Object.keys(m)) if (!FIELDS().includes(k)) return `metadata.${k}: unknown field (allowed: ${FIELDS().join(', ')})`
   const f = (k: string) => (m[k] === null ? undefined : m[k])
   if (f('kind') !== undefined && f('kind') !== 'plan' && f('kind') !== 'mission') return bad('metadata.kind', '"plan" or "mission"', m.kind)
   if (f('amend') !== undefined && typeof m.amend !== 'boolean') return bad('metadata.amend', 'true', m.amend)
@@ -30,7 +33,6 @@ export function validateFields(m: Record<string, unknown>): string | null {
   if (f('reason') !== undefined && !str(m.reason)) return bad('metadata.reason', 'one line, e.g. "one small fix in src/a.ts"', m.reason)
   if (f('mission') !== undefined && (m.kind !== 'plan' || typeof m.mission !== 'string' || !m.mission.trim() || m.mission.length > 1000)) return bad('metadata.mission', 'on the plan call, one string "Goal: …\\nConstraints: …\\nNon-goals: …"', m.mission)   // ADR 0014: approved with the plan
   if (f('paths') !== undefined && (m.kind !== undefined || !Array.isArray(m.paths) || !m.paths.length || m.paths.length > 20 || m.paths.some((p: unknown) => !str(p) || (p as string).length > 200))) return bad('metadata.paths', 'on a task, the files or folders it will change, e.g. ["src/auth/login.ts", "test/auth/**"]', m.paths)
-  if (f('holds') !== undefined && (m.kind !== undefined || !Array.isArray(m.holds) || m.holds.length > 10 || m.holds.some(x => typeof x !== 'string' || !/^S\d+$/.test(x)))) return bad('metadata.holds', 'on a task, the ids of the scenarios whose behaviour already exists, e.g. ["S2"]', m.holds)
   if (f('risk') !== undefined && (m.kind !== undefined || !RISKS.includes(m.risk as Tier))) return bad('metadata.risk', `on a task, how closely it is reviewed: ${RISKS.join('|')}`, m.risk)   // B9: the planner's call, never scored from the diff
   if (f('core') !== undefined && (m.kind !== undefined || typeof m.core !== 'boolean')) return bad('metadata.core', 'true on the one task with the code other tasks share', m.core)
   if (f('assumed') !== undefined && (m.kind !== 'plan' || !Array.isArray(m.assumed) || !m.assumed.length || m.assumed.length > 5 || !m.assumed.every(x => str(x) && (x as string).length <= 200))) return bad('metadata.assumed', 'on the plan call, a list of 1-5 lines "<point>: what you assumed"', m.assumed)   // yolo clarify (ADR 0020): shown in the approval dialog
@@ -39,45 +41,46 @@ export function validateFields(m: Record<string, unknown>): string | null {
   if (f('size') !== undefined && (m.kind !== undefined || !Number.isInteger(m.size) || (m.size as number) < 1 || (m.size as number) > 7)) return bad('metadata.size', 'on an epic, how many tasks it needs, 1 to 7', m.size)
   if (f('critique') !== undefined && (m.kind !== undefined || !str(m.critique) || (m.critique as string).length > 1500)) return bad('metadata.critique', 'on the milestone, what the critic found and what you changed (at most 1500 characters)', m.critique)
   if (f('type') !== undefined && !(str(m.type) && typeOf(m.type))) return bad('metadata.type', `one of ${Object.keys(active().types).join('|')}`, m.type)
-  if (f('scope') !== undefined && !str(m.scope)) return bad('metadata.scope', '"auth"', m.scope)
-  if (f('breaking') !== undefined && typeof m.breaking !== 'boolean') return bad('metadata.breaking', 'true or false', m.breaking)
-  if (f('package') !== undefined && !str(m.package)) return bad('metadata.package', 'a package root, e.g. "." or "packages/api"', m.package)
-  const sc = f('scenarios')
+  for (const fd of declared()) {   // the profile's task fields, each by its kind (a value of null clears it and is fine)
+    const v = f(fd.name); if (v === undefined || fd.name === 'changelog' || (ARGS as readonly string[]).includes(fd.name)) continue
+    const k = fd.kind ?? 'text', ok = k === 'text' ? str(v) : k === 'bool' ? typeof v === 'boolean' : k === 'ids' ? Array.isArray(v) && v.length <= 10 && v.every(x => str(x) && x.length <= 16) : typeof k === 'object' && k.enum.includes(v as string)
+    if (!ok || (k === 'ids' && m.kind !== undefined)) return bad(`metadata.${fd.name}`, fd.want ?? (k === 'text' ? 'a non-empty string' : k === 'bool' ? 'true or false' : k === 'ids' ? 'on a task, a list of ids of acceptance items, e.g. ["A2"]' : `one of ${(k as { enum: string[] }).enum.join('|')}`), v)
+  }
+  const sc = f('acceptance')
   if (sc !== undefined) {
-    if (!Array.isArray(sc)) return bad('metadata.scenarios', 'an array of "S1: Given <state> When <action> Then <outcome>"', sc)
-    for (const [i, s] of sc.entries()) if (typeof s !== 'string' || !SCENARIO.test(s)) return bad(`metadata.scenarios[${i}]`, `"S${i + 1}: Given <state> When <action> Then <outcome>"`, s)
+    const eg = '[{"id":"A1","text":"…"}]'
+    if (!Array.isArray(sc) || !sc.length) return bad('metadata.acceptance', `a non-empty array ${eg}`, sc)
+    for (const [i, a] of sc.entries()) if (!str(a?.id) || a.id.length > 16 || /* ids carry no ':' or line break */ [':', '\n', ' '].some(c => a.id.includes(c)) || !str(a.text) || a.text.includes('\n') || sc.findIndex((x: any) => x?.id === a.id) !== i) return bad(`metadata.acceptance[${i}]`, `{"id":"A1","text":"one line"}, ids unique, with no space or ":"`, a)
   }
   const c = f('changelog') as any
   if (c !== undefined) {
     const ok = c && typeof c === 'object' && (c.none === true ? str(c.reason) : CATEGORIES.includes(c.category) && str(c.entry))
     if (!ok) return bad('metadata.changelog', `{"category":"Added","entry":"Login with email"} or {"none":true,"reason":"internal"}; category in ${CATEGORIES.join('|')}`, c)
   }
-  const i = f('interface') as any
+  const i = f('contract') as any
   if (i !== undefined) {
-    if (!i || typeof i !== 'object') return bad('metadata.interface', '{"symbols":[{"name":"login","kind":"function","params":["email: string"],"returns":"Session","status":"new"}]} or {"none":true,"reason":"…"}', i)
-    if (i.none === true) { if (!str(i.reason)) return bad('metadata.interface.reason', 'a reason', i.reason) }
+    const eg = '{"items":[{"name":"login","returns":"Session"}]} or {"none":true,"reason":"…"}'
+    if (!i || typeof i !== 'object') return bad('metadata.contract', eg, i)
+    if (i.none === true) { if (!str(i.reason)) return bad('metadata.contract.reason', 'a reason', i.reason) }
     else {
-      if (!Array.isArray(i.symbols) || !i.symbols.length) return bad('metadata.interface.symbols', 'a non-empty array', i.symbols)
-      for (const [n, s] of i.symbols.entries()) {
-        const p = `metadata.interface.symbols[${n}]`
-        if (!str(s?.name) || !str(s?.kind) || !str(s?.returns)) return bad(p, '{"name","kind","params","returns","status"}', s)
-        if (!Array.isArray(s.params) || s.params.some((x: unknown) => typeof x !== 'string')) return bad(`${p}.params`, 'an array of strings', s.params)
-        if (!STATUS.includes(s.status)) return bad(`${p}.status`, 'new|changed|unchanged', s.status)
-      }
+      if (!Array.isArray(i.items) || !i.items.length) return bad('metadata.contract.items', 'a non-empty array', i.items)
+      for (const [n, x] of i.items.entries()) if (!str(x?.name) || Object.values(x).some(v => !(typeof v === 'string' || (Array.isArray(v) && v.every(y => typeof y === 'string'))))) return bad(`metadata.contract.items[${n}]`, '{"name":"login", …any other keys: text or a list of text}', x)
     }
   }
   return null
 }
 
+// the task fields the profile requires of this task's type (`required`: true = every type, or a list of types) that it has no value for
+export const lacks = (t: Pick<Task, 'type' | 'meta'>): string[] => active().fields.filter(f => f.store === 'meta' && (f.required === true || (Array.isArray(f.required) && f.required.includes(t.type))) && !t.meta[`cadre.${f.name}`]).map(f => f.name)
 // What a draft still lacks, from its stored form (acceptance = scenarios, design = contract, meta changelog/package). Spikes need nothing.
 export function missingOf(t: Task): string[] {
   if (t.type === 'epic') return [...(t.description.trim() ? [] : ['goal']), ...(t.meta['cadre.size'] ? [] : ['size']), ...(t.meta['cadre.core'] === 'true' && Number(t.meta['cadre.size']) > 2 ? ['a core epic has at most 2 tasks'] : [])]   // a roadmap epic (ADR 0015)
   const spec = typeOf(t.type); if (!spec || kindOf(t.type) === 'spike') return []
   const out: string[] = []
-  if (t.meta['cadre.lane'] === 'lite') return [...(t.description.trim() ? [] : ['description']), ...(t.meta['cadre.changelog'] || !hasField('changelog') ? [] : ['changelog'])]   // lite (ADR 0011): title, description, changelog decision
-  if (!t.acceptance?.trim()) out.push('scenarios')
-  if (!t.meta['cadre.changelog'] && hasField('changelog')) out.push('changelog')
-  if (spec.contract === 'required' && !t.design) out.push('interface')
+  if (t.meta['cadre.lane'] === 'lite') return [...(t.description.trim() ? [] : ['description']), ...lacks(t)]   // lite (ADR 0011): title, description and the fields the profile requires
+  if (!t.acceptance?.trim()) out.push('acceptance')
+  out.push(...lacks(t))
+  if (spec.contract === 'required' && !t.design) out.push('contract')
   if (!t.meta['cadre.package'] && !pathsOf(t).length) out.push('package')   // its declared paths name its unit (H7)
   return out
 }
@@ -106,25 +109,30 @@ export function sliceNotes(notes: Note[], paths: string[], slice: boolean): { sh
   const txt = (ns: Note[]) => ns.map(n => n.text.trim()).join('\n'), pathed = (n: Note) => slice && !!n.paths?.length
   return { shared: txt(notes.filter(n => !pathed(n))), slice: txt(notes.filter(n => pathed(n) && (!paths.length || n.paths!.some(p => paths.some(q => overlap(p, q)))))) }
 }
-// review coverage (ADR 0022): the scenario ids (S1, S2…) of the acceptance that no locked spec test name carries ("test_s3_login" carries S3, "S30" does not)
 // the one-line scenario a worker's spec_change proposes: checked when it reports, and again before cadre writes it into the spec
-// [id, text] of one line "S<n>: …", else null (no regex: the id is S and digits, the text is not empty)
-export const specScenario = (s: string): [string, string] | null => { const i = s.indexOf(':'), id = s.slice(0, i).trim(), t = s.slice(i + 1).trim(); return i > 0 && !s.includes('\n') && id.length > 1 && id[0] === 'S' && [...id.slice(1)].every(c => c >= '0' && c <= '9') && t ? [id, t] : null }
+// [id, text] of one line "<id>: <text>" (an acceptance item), else null: the id is non-empty and has no space, the text is not empty
+export const specScenario = (s: string): [string, string] | null => { const i = s.indexOf(':'), id = s.slice(0, i).trim(), t = s.slice(i + 1).trim(); return i > 0 && !s.includes('\n') && id && !id.includes(' ') && t ? [id, t] : null }
+// the id of one stored acceptance line "<id>: <text>" (ids carry no ':')
+export const idOf = (l: string): string => l.slice(0, l.includes(':') ? l.indexOf(':') : undefined).trim()
+// the contract's items (`{items:[{name, ...}]}`; `{none}` and a missing one have none)
+export const itemsOf = (design?: string): { name: string; [k: string]: unknown }[] => { try { return JSON.parse(design || '{}').items ?? [] } catch { return [] } }
 // `holds`: scenario ids whose behaviour already exists (the planner's call, kept in meta cadre.holds). Each must be a scenario of the task
 export const holdsOf = (t?: Pick<Task, 'meta'>): string[] => { try { const v = JSON.parse(t?.meta['cadre.holds'] || '[]'); return Array.isArray(v) ? v.map(String) : [] } catch { return [] } }
 export const holdsGap = (holds: unknown, acceptance?: string): string | null => {
   const ids = Array.isArray(holds) ? holds.map(String) : [], have = new Set(scenarioIds(acceptance)), bad = ids.filter(x => !have.has(x))
   return bad.length ? `metadata.holds: ${bad.join(', ')} ${bad.length === 1 ? 'is' : 'are'} not ${bad.length === 1 ? 'a scenario' : 'scenarios'} of this task (its scenarios: ${[...have].join(', ') || 'none yet'}); fix holds or the scenarios` : null
 }
-export const scenarioIds = (acceptance?: string): string[] => (acceptance ?? '').split('\n').map(l => /^S\d+/.exec(l.trim())?.[0]).filter(Boolean) as string[]
+export const scenarioIds = (acceptance?: string): string[] => (acceptance ?? '').split('\n').filter(l => l.includes(':')).map(idOf)
 // the tester's declared tests {name, ids}: null = the task has no locked spec tests (no tester step), nothing to check
 export const specTestsOf = (t: Pick<Task, 'meta'>): { name: string; ids: string[] }[] | null => { try { const v = JSON.parse(t.meta['cadre.specTests'] ?? 'null'); return Array.isArray(v) ? v.map(x => ({ name: String(x.name), ids: Array.isArray(x.ids) ? x.ids.map(String) : [] })) : null } catch { return null } }
 // the scenario ids of the acceptance that no declared test lists in its ids
 export const untested = (acceptance: string | undefined, dec: { ids: string[] }[] | null): string[] => !dec ? [] : scenarioIds(acceptance).filter(id => !dec.some(t => t.ids.includes(id)))
+// a reviewer's coverage entry names its item as the id, or "<id>: …" (the id of the acceptance it covers), else as it wrote it
+export const coverKey = (acceptance?: string) => { const ids = scenarioIds(acceptance); return (s: unknown): string => { const v = String(s).trim(); return ids.find(i => v === i || v.startsWith(`${i}:`) || v.startsWith(`${i} `)) ?? v } }
 // what blocks a pass: untested scenarios, and coverage entries the reviewer did not mark ok:true (missing or weak). Off: nothing.
 export function coverageGaps(enforce: boolean, acceptance: string | undefined, names: { ids: string[] }[] | null, coverage: unknown): string[] {
   if (!enforce) return []
-  const key = (s: unknown) => /^S\d+/.exec(String(s))?.[0] ?? String(s), cov = Array.isArray(coverage) ? coverage : []
+  const key = coverKey(acceptance), cov = Array.isArray(coverage) ? coverage : []
   const weak = cov.filter((c: any) => c?.ok !== true).map((c: any) => `scenario ${key(c?.scenario)} is not covered by a test that checks it`)
   return [...untested(acceptance, names).map(id => `scenario ${id} has no test`), ...weak]
 }

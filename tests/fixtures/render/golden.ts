@@ -5,6 +5,6 @@ export const GOLD = {
   commit: 'feat(auth): add login\n\nAdds email login.\n\nRefs: bd-a1\nCadre-Review: pass@1a2b3c4\nCadre-Checks: test ✓, lint ✓',
   breaking: 'fix!: drop v1 api\n\nBREAKING CHANGE: v1 endpoints are gone\nRefs: bd-b2',
   comment: '[cadre:check v1] bd-a1 @1700 by mod\nname: test\nexit: 0\nsecs: 41\nclaimed:\n  note: ok',
-  get: ['Email login.', 'Scenarios:', '- S1: Given a When b Then c', '- S2: Given d When e Then f', 'Contract:', '- [changed] login (function) (e: string) -> Session throws AuthError: logs in',
+  get: ['Email login.', 'Scenarios:', '- S1: Given a When b Then c', '- S2: Given d When e Then f', 'Contract:', '- login (kind: function; params: e: string; returns: Session; errors: AuthError; doc: logs in; status: changed)',
     'Changelog: none (internal)', 'type feature · package . · breaking · step reviewer · owner ag3 · flags edited:pm:title', '[check] lint ✓', '[green] green ✓ test 41s'].join('\n'),
 }

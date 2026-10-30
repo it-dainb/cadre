@@ -4,14 +4,14 @@ import { askOf, askStopped } from './asks'
 import { roleSpec } from './roles'
 import type { Binding, Hook, Host, SnapTask } from '../types'
 import type { Task } from '../task-management/store'
-import { active, catOf, covers, gateAt, hasField, next, onFail, pipeOf, producer, roleAt, spent, typeOf, verdictAt, workspaceAt } from './pipeline'
+import { active, catOf, covers, gateAt, next, onFail, pipeOf, producer, roleAt, spent, typeOf, verdictAt, workspaceAt } from './pipeline'
 import { LIFECYCLE, holdsAmend } from './plantools'
 import { ROUTES, resolveEpic } from './dispatch'
 import { flagDecision, kindOf, pick, specOf } from './flags'
 import type { Eff, EffDo, Option } from '../types/profile'
 import { modelText } from './say'
 import { resolveDeps, type Deps } from './admission'
-import { Refusal, specScenario, coverageGaps, overlap, pathsOf, specTestsOf } from './validate'
+import { Refusal, specScenario, coverKey, coverageGaps, itemsOf, lacks, overlap, pathsOf, scenarioIds, specTestsOf } from './validate'
 import { agentsOf, fnv1a64, patchBinding } from './board'
 import { apply, transition } from './machine'
 import { emit } from './events'
@@ -21,7 +21,7 @@ import { policyOf } from '../policy/guards'
 import { integrateEpic } from './integrate'
 import { deliver, dropHooks } from './hooks'
 import { green as tddGreen, lockedViolations, verifyOf, redOf, resolveSpec, specChange, testerDone } from './tdd'
-import { inRepo, isProtected, modeOf, pkgOf, unitsOfTask } from './specview'
+import { isProtected, modeOf, pkgOf, unitsOfTask } from './specview'
 import * as G from './git'
 import { decided, hardStop, limited, stop } from './drive'
 import { queueBrief } from './lanes'
@@ -70,7 +70,7 @@ export async function runCheck(h: Host, d: Deps, task: Task, wt: string, name: s
   const pkgRoot = !pkg.root || pkg.root === '.' ? wt : `${wt}/${pkg.root}`, scratch = `${d.wtRoot}/${d.key}.scratch/${task.id}`, t0 = await h.now()
   await h.run(['mkdir', '-p', scratch])
   const r = await G.checkRun(h.run, await modeOf(h, d), { wt, scratch, pkgRoot, argv, writable: d.cfg.jailWritable })
-  const secs = Math.round(((await h.now()) - t0) / 1000), out = r.stdout + r.stderr, cut = out.length > 16384, path = `${d.top ?? d.root}/.cadre/tmp/logs/${task.id}-${name}-${t0}.log`
+  const secs = Math.round(((await h.now()) - t0) / 1000), out = r.stdout + r.stderr, cut = out.length > 16384, path = `${d.root}/.cadre/tmp/logs/${task.id}-${name}-${t0}.log`
   await h.write(path, out).catch(() => {})
   await emit(h, 'check.ran', { taskId: task.id, name, ok: r.exitCode === 0, secs, ...(task.meta['cadre.step'] ? { phase: task.meta['cadre.step'] } : {}) }, { taskId: task.id })
   if (r.exitCode || task.meta['cadre.lastCheck']) await d.store.setMeta(task.id, { 'cadre.lastCheck': r.exitCode ? `${name} failed (exit ${r.exitCode}):\n${out.slice(-1200).replaceAll(`${wt}/`, '')}` : '' }, d.actor).catch(() => {})   // the failing tests a respawned agent starts from (admission's handoff)
@@ -88,13 +88,12 @@ async function semantic(h: Host, task: Task, wt: string, r: any, enforce: boolea
   }
   if (r.verdict === 'changes' && !fs.some(f => f.severity === 'blocker' || f.severity === 'major')) return 'verdict changes needs at least one blocker or major finding; minor/nit alone is a pass'
   if (r.verdict === 'pass' && fs.some(f => f.severity === 'blocker')) return 'verdict pass is refused while a blocker finding is listed'
-  const key = (s: unknown) => /^S\d+/.exec(String(s))?.[0] ?? String(s)
-  const want = (task.acceptance ?? '').split('\n').map(l => /^S\d+/.exec(l)?.[0]).filter(Boolean) as string[], got = cov.map((c: any) => key((c as any)?.scenario))
+  const want = scenarioIds(task.acceptance), got = cov.map((c: any) => coverKey(task.acceptance)(c?.scenario))
   if ('coverage' in fields && want.some(s => !got.includes(s))) return `coverage must name every scenario; missing ${want.filter(s => !got.includes(s)).join(', ')} (e.g. {"scenario":"S1","test":"path","ok":true})`
   const gaps = r.verdict === 'pass' ? coverageGaps(enforce, task.acceptance, specTestsOf(task), r.coverage) : []   // ADR 0022: coverage is a hard check
   if (gaps.length) return `coverage: verdict pass is refused: ${gaps.join('; ')}. Report verdict changes with a major finding for each (or give the test that really checks it, ok:true)`
-  const syms: string[] = (task.design ? JSON.parse(task.design).symbols ?? [] : []).map((s: any) => s.name), have = cs.map((c: any) => c?.name)
-  if (syms.some(s => !have.includes(s))) return `contractStatus must name every contract symbol; missing ${syms.filter(s => !have.includes(s)).join(', ')} (e.g. {"name":"login","ok":true})`
+  const syms: string[] = itemsOf(task.design).map(s => s.name), have = cs.map((c: any) => c?.name)
+  if (syms.some(s => !have.includes(s))) return `contractStatus must name every contract item; missing ${syms.filter(s => !have.includes(s)).join(', ')} (e.g. {"name":"login","ok":true})`
   return null
 }
 
@@ -235,7 +234,7 @@ export async function report(h: Host, d: Deps, agentId: string | undefined, r: a
   if (verdictAt(b.step)) { const err = o.lax ? null : await semantic(h, await d.store.get(t.id), b.worktree, r, covers(t.type)); if (err) throw new Refusal(err, 'semantic'); return verdict(h, d, t, b, agentId!, r) }
   if (r.outcome === 'done') return workerDone(h, d, t, b, r)
   const spec = r.outcome === 'spec_change', why = String(r.reason ?? r.summary ?? '').slice(0, 400)
-  if (spec && r.scenario !== undefined && r.scenario !== '' && !specScenario(String(r.scenario))) throw new Error('scenario: expected one line "S<n>: Given … When … Then …"')   // before anything is written: the worker fixes it at once
+  if (spec && r.scenario !== undefined && r.scenario !== '' && !specScenario(String(r.scenario))) throw new Error('scenario: expected one line "<id>: <text>"')   // before anything is written: the worker fixes it at once
   if (spec) { await specChange(h, d, t.id, why, String(r.scenario ?? '')); await record(h, d, t.id, 'blocked', t.step, { why }, { summary: r.summary, reason: r.reason }); await raise(h, t.id, 'spec_change') }
   else { await d.store.setMeta(t.id, { 'cadre.question': why }, d.actor); await blockTask(h, d, t, why, 'blocked', { summary: r.summary, reason: r.reason, questions: r.questions }) }   // yolo: main answers it from this (core/drive)
   return spec ? 'spec change recorded; it is decided for you. Stop and wait.' : 'blocked recorded; you are resumed with the answer. Stop and wait.'
@@ -320,7 +319,7 @@ export const observe: Hook = async (h, e, next) => observeWith(h, await resolveD
 async function cleanup(h: Host, d: Deps, id: string, task: Task, keep?: string) {
   const gone = agentsOf(await h.bind.read(), id); for (const a of gone) await end(h, a, 'answer', keep ? 'cancelled' : 'done')
   await prune(h, id, gone)   // the ended records and the budget of a closed task go
-  const wt = task.meta['cadre.worktree'], br = task.meta['cadre.branch']; d = inRepo(d, pkgOf(d, task))
+  const wt = task.meta['cadre.worktree'], br = task.meta['cadre.branch']
   if (keep && br && (await G.exists(h.run, d.root, br))) await G.git(h.run, d.root, ['update-ref', keep, await G.tip(h.run, d.root, br)])
   if (wt) await G.op(h, () => G.worktreeRemove(h.run, d.root, wt, br))
   await h.run(['rm', '-rf', `${d.wtRoot}/${d.key}.views/${id}`])
@@ -333,13 +332,12 @@ export async function closeTask(h: Host, d: Deps, id: string, actor: 'main' | 'm
   if (!(t.state === 'review' && gateAt(t.step) === 'integrate')) return `${id} is ${t.state}${t.step ? `·${t.step}` : ''}: only a review-passed task (review✓) can be completed`
   await sweep(h).catch(() => {})
   const gf = Object.keys((await h.git.read()).flags ?? {}).find(f => f.startsWith('git:')); if (gf) return `merges are refused while git flag ${gf} is open; ask the human to keep or restore it (they answer it in the cadre dialog)`
-  d = inRepo(d, pkgOf(d, await d.store.get(id)))   // a submodule unit's task squashes into that repository's epic branch (H7)
   const task = await d.store.get(id), C = task.meta['cadre.sourceCommit'], wt = task.meta['cadre.worktree'], base = task.meta['cadre.base'], spec = typeOf(t.type)!, plan = (await h.board.read()).plan, br = branchOf({ plan }, t)   // a milestone task squashes into its epic's branch (ADR 0015)
   if (!plan || !C || !wt) return `${id} has no reviewed commit`
   if (task.meta['cadre.review'] !== `pass@${C}`) return `${id} has no pass@${sha7(C)} review`
   if ((await G.tip(h.run, wt, 'HEAD')) !== C) return `${id}: the worktree moved past the reviewed commit ${sha7(C)}`
   if (await G.git(h.run, wt, ['status', '--porcelain'])) return `${id}: the worktree has uncommitted changes`
-  if (!task.meta['cadre.changelog'] && hasField('changelog')) return `${id}: no changelog decision`
+  const lack = lacks(task); if (lack.length) return `${id}: ${lack.join(', ')} not set`
   const files = (await G.git(h.run, wt, ['diff', '--name-only', `${base}..${C}`])).split('\n').filter(Boolean), spc = task.meta['cadre.specCommit']
   const theirs = await ours(h, wt, task.meta['cadre.resolve'], C), bad = [...files.filter(p => isProtected(p) && !theirs(p)), ...(spc ? await lockedViolations(h.run, wt, spc, JSON.parse(task.meta['cadre.locked'] ?? '[]'), C) : [])]; if (bad.length) return `${id}: protected or locked paths differ: ${bad.join(', ')}`
   const rep = reportOf(task.meta['cadre.report']).summary
@@ -378,7 +376,7 @@ export async function closeTask(h: Host, d: Deps, id: string, actor: 'main' | 'm
   if (task.meta['cadre.core'] === 'true') await coreLanded(h, d, files, task.design).catch(e => h.log(`core lock: ${e}`))   // its files are locked for the other tasks of the plan
   const fields = Object.fromEntries(active().fields.filter(f => f.store === 'meta' && task.meta[`cadre.${f.name}`]).map(f => [f.name, task.meta[`cadre.${f.name}`]]))   // the closed task's data for its delivery hooks
   await deliver(h, d, 'task.closed', { id, base: br, input: { id, title: t.title, type: t.type, branch: br, fields }, vars: { id, title: t.title } }).catch(e => h.log(`task.closed hooks for ${id}: ${e}`))   // on the epic branch, before the siblings take its tip
-  if (!d.top) await refresh(h, d, await G.tip(h.run, d.root, br), id).catch(e => h.log(`refresh after ${id}: ${e}`))   // running siblings get the new tip now (core/rebase); a submodule's tip is not the plan's
+  await refresh(h, d, await G.tip(h.run, d.root, br), id).catch(e => h.log(`refresh after ${id}: ${e}`))   // running siblings get the new tip now (core/rebase); a submodule's tip is not the plan's
   return null
 }
 

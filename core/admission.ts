@@ -21,7 +21,7 @@ import { taskBranch, wtPath, wtRootOf } from './branches'
 import * as G from './git'
 import { checkpoint } from './effect'
 import { warm } from './session'
-import { buildView, inRepo, pkgOf, rootOf } from './specview'
+import { buildView, pkgOf, rootOf } from './specview'
 import { realRoot } from '../policy/guards'
 import { lockCore, watch } from './rebase'
 import { feed } from './lessons'
@@ -31,11 +31,10 @@ import { plannerBrief } from './planner'
 import { modelRefusal, inSlot, tasksFull } from './queue'
 import { specMark, specNeeded } from './specifier'
 import { budgetOf, intentOf, reserve, runOf, step as lifeStep, unreserve } from './lifecycle'
-import { ROLES_DEFAULT, roleSpec } from './roles'
+import { ROLES_DEFAULT, WORD, cadreRole, roleSpec } from './roles'
 
 export interface Deps {
   store: TaskStore; cfg: Config; root: string; home: string; wtRoot: string; key: string; actor: string; session: string
-  top?: string   // set by specview.inRepo: root is a submodule's repository, top the parent's
   view?: (h: Host, d: Deps, t: Task, wt: string) => Promise<string>   // spec view builder (core/specview, M5); absent = tester/red are skipped (3.1)
 }
 const ROLE = (step: string): Role | undefined => roleAt(step) as Role | undefined   // the role a step runs; a gate (red, green, the landing) is mod-run or main's close
@@ -79,7 +78,7 @@ export async function admitWith(h: Host, d: Deps, e: any, next: ((e: any) => any
   if (it && it.role !== 'planner' && !s.tasks.some(x => x.id === it.taskId)) return deny(`${it.taskId} is no longer on the board`)
   if (it?.role === 'planner') return epicOf(s, it.taskId) ? planner(h, d, e, next, s, it.taskId) : deny(`${it.taskId} has no plan to draft now`)   // a ready epic's planner (ADR 0021)
   if (it) e = { ...e, prompt: modelText('agent-brief', '') }   // the brief's notes are main's words only
-  const cr = !it && /^cadre:([\w-]+)$/.exec(String(e.subagentType ?? ''))?.[1]; if (cr && !(cr in ROLES_DEFAULT)) return custom(h, e, next, cr)   // main's call of a role of the profile's own
+  const cr = !it && cadreRole(e.subagentType); if (cr && !(cr in ROLES_DEFAULT)) return custom(h, e, next, cr)   // main's call of a role of the profile's own
   const ids = it ? [it.taskId] : idsIn(e.prompt ?? '', s.tasks.map(t => t.id))
   if (ids.length > 1) return deny(`one agent takes one task, but the prompt names ${ids.join(', ')}; spawn one agent per task`)
   if (ids.length && s.drive.on && !s.drive.stopped && s.drive.spawn === 'mod' && next.origin?.plugin !== 'cadre') return deny(`${ids[0]} starts by itself; do not spawn agents for the plan's tasks. An Agent without a task id (to explore or ask) is fine`)   // mod mode (ADR 0018): only the spawner's own call, never main's
@@ -142,7 +141,11 @@ const viewed = (d: Deps, role: Role) => role === 'tester' && !!d.view && d.cfg.r
 const agentOf = (d: Deps, role: Role): Role => (role === 'tester' && d.cfg.roles.tdd.author === 'same' ? 'worker' : role)   // author:same: the worker agent, tester brief (3.5)
 export const protectedOf = (): string[] => [...G.PROTECTED, ...active().protected]
 // the spawn prompt as the brief's Notes: main's own words only. The spawner's prompt is the bare TASK-<id> (core/spawner), which said nothing in a "## Notes" section
-const noteOf = (said: unknown, id: string): string | undefined => String(said ?? '').trim().replace(new RegExp(`^(?:TASK-)?${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w.-])[\\s:.,;-]*`), '').trim() || undefined
+const noteOf = (said: unknown, id: string): string | undefined => {
+  const t = String(said ?? '').trim(), at = [`TASK-${id}`, id].find(p => t.startsWith(p) && !(t[p.length] !== undefined && (WORD.includes(t[p.length]!) || '.-'.includes(t[p.length]!))))
+  let r = at === undefined ? t : t.slice(at.length); while (at !== undefined && r && ' \t\n\r\f\v:.,;-'.includes(r[0]!)) r = r.slice(1)
+  return r.trim() || undefined
+}
 const briefOf = (s: Snapshot, t: SnapTask, task: Task, e: any, d: Deps, role: Role, extra: Partial<BriefIn> = {}): BriefIn => ({
   paths: pathsOf(task), testPaths: role === 'tester' ? pkgOf(d, task)?.tdd?.paths : undefined, runAsk: role === 'tester', locked: task.meta['cadre.locked'] ? JSON.parse(task.meta['cadre.locked']) : undefined, redCard: task.meta['cadre.red'],
   holds: holdsOf(task), id: t.id, title: t.title, type: t.type, description: task.description, scenarios: task.acceptance, contract: task.design, notes: noteOf(e.prompt, t.id), protectedPaths: protectedOf(),
@@ -190,8 +193,8 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
   const ep = epicOf(s, t.epic); if (ep && ep.state !== 'running') return deny(`${t.id}: its epic ${ep.id} is ${ep.state}${ep.why ? ` (${ep.why})` : ''}; go on with the other epics`)   // milestone (ADR 0015)
   if (!(await d.store.ready(t.epic ?? s.epic)).includes(t.id)) return deny(`${t.id} is not ready (waiting on a dependency or gate); spawn a task that status shows ready`)
   if (tasksFull(d.cfg, s)) return deny(`${s.tasks.filter(inSlot).length} agents already running (limit ${d.cfg.concurrency.default}); wait for one to finish`)
-  const spike = kindOf(t.type) === 'spike', top = d; d = inRepo(d, pkgOf(d, await d.store.get(t.id)))
-  if (!spike && !(await G.exists(h.run, d.root, branchOf(s, t)))) { if (d === top) return lostEpic(h, s, t); await G.git(h.run, d.root, ['branch', branchOf(s, t), (await G.exists(h.run, d.root, d.cfg.branches.dev)) ? d.cfg.branches.dev : 'HEAD']) }   // a submodule's epic branch: cut from its dev on first use
+  const spike = kindOf(t.type) === 'spike'
+  if (!spike && !(await G.exists(h.run, d.root, branchOf(s, t)))) return lostEpic(h, s, t)
   const res = await apply(h, { kind: 'claim', id: t.id, at: await h.now(), actor: 'mod', owner: d.actor }, pipe)   // the CAS reserve: one winner (S2)
   if (!res.ok) return deny(res.error)
   const step = res.board.tasks.find(x => x.id === t.id)!.step, role = ROLE(step)!, wt = wtPath(d.wtRoot, d.key, t.id)
@@ -222,7 +225,7 @@ async function claim(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapsho
 
 // ---- active|blocked: next step (new role) or rebind (stale lease). Same claim actor, same worktree, computed handoff. ----
 async function rebind(h: Host, d: Deps, e: any, next: (e: any) => any, s: Snapshot, t: SnapTask) {
-  const task = await d.store.get(t.id), role = ROLE(t.step)!, now = await h.now(), bind = await h.bind.read(), mine = agentsOf(bind, t.id); d = inRepo(d, pkgOf(d, task))
+  const task = await d.store.get(t.id), role = ROLE(t.step)!, now = await h.now(), bind = await h.bind.read(), mine = agentsOf(bind, t.id)
   if (!role || (role === 'tester' && !d.view)) return deny(`${t.id}: step ${t.step || '?'} runs without an agent; wait and call status`)
   if (mine.some(a => a.startsWith('~') && bind[a].role === role)) return deny(`${t.id} is already being spawned; wait`)   // another step's start may run beside it
   if (role === 'worker' && stepsOf(d)(t.type, t.lane).includes('red') && !task.meta['cadre.specCommit']) return deny(`${t.id}: its spec tests are not recorded yet; the tester step must finish first`)
