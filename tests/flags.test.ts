@@ -3,8 +3,9 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { flags } from '../profiles/default'
 import { FLAGS_GOLDEN, NO_DECISION } from './fixtures/flags-golden'
-import { flagDecision, holds, kindOf, pick, specOf, yoloMain } from '../core/flags'
+import { blocks, flagDecision, holds, kindOf, pick, specOf, yoloMain } from '../core/flags'
 import { resolveFlag } from '../core/close'
+import { releaseDev } from '../core/integrate'
 import { world } from './fixtures/replay/world'
 
 const eff = (kind: string, key: string) => specOf(kind)!.options.find(o => o.key === key)!.effect
@@ -44,6 +45,23 @@ describe('the table', () => {
   test('holds and yolo: the rows drive holds on, and the two main decides', async () => {
     expect(Object.entries(flags).filter(([, s]) => s.holds).map(([k]) => k).sort()).toEqual(['conflict', 'drift', 'external', 'gate-error', 'git', 'hook-failed', 'integration-failed', 'lost-epic', 'lost-wip', 'quarantine', 'red', 'rework'])
     expect(Object.entries(flags).filter(([, s]) => s.yolo === 'main').map(([k]) => k).sort()).toEqual(['blocked', 'spec_change']); expect(yoloMain('spec_change')).toBe(true); expect(yoloMain('red')).toBe(false)
+  })
+  test('blocks: the claim and release set is 1.0.1\'s BLOCKING (git:, external, drift, conflict, lost-*, integration-failed); red, rework, gate-error and hook-failed hold drive only', async () => {
+    expect(Object.entries(flags).filter(([, s]) => s.blocks).map(([k]) => k).sort()).toEqual(['conflict', 'drift', 'external', 'git', 'integration-failed', 'lost-epic', 'lost-wip'])
+    for (const f of ['git:dev:agent', 'external', 'drift', 'conflict', 'lost-epic', 'lost-wip', 'integration-failed']) expect(blocks(f)).toBe(true)
+    for (const f of ['red', 'rework:4/3', 'gate-error', 'hook-failed', 'quarantine:x', 'spec_change', 'shape', 'nope']) expect(blocks(f)).toBe(false)
+    for (const f of ['red', 'rework:4/3', 'gate-error', 'hook-failed']) expect(holds(f)).toBe(true)
+  })
+  test('release refuses on a blocking flag and not on red (1.0.1)', async () => {
+    const w = await world({ type: 'docs' }), [id] = w.ids
+    await flag(w, id, ['external'], 'blocked'); expect(await releaseDev(w.h)).toContain('flag external is open')
+    await flag(w, id, ['red', 'gate-error'], 'blocked'); expect(await releaseDev(w.h)).not.toContain('is open')
+  })
+  test('rows 15 and 16 (plan 2.5): hook-failed offers Retry, Skip, Cancel task; gate-error Retry, Cancel task; both hold', async () => {
+    expect(flagDecision('a2', 'hook-failed')!.options.map(o => [o.key, o.label])).toEqual([['r', 'Retry'], ['s', 'Skip'], ['x', 'Cancel task']])
+    expect(flagDecision('a2', 'gate-error')!.options.map(o => [o.key, o.label])).toEqual([['r', 'Retry'], ['x', 'Cancel task']])
+    expect([flags['hook-failed'].holds, flags['gate-error'].holds, flags['hook-failed'].yolo, flags['gate-error'].yolo]).toEqual([true, true, 'human', 'human'])
+    expect(Object.keys(flags).length).toBeGreaterThanOrEqual(16)
   })
   test('needs ids: the option is absent without ids; needs keys: only when named', async () => {
     expect(flagDecision('a2', 'red')!.options.map(o => o.key)).toEqual(['r', 'x']); expect(flagDecision('a2', 'red', undefined, { ids: ['S1'] })!.options.map(o => o.key)).toEqual(['r', 'h', 'x'])

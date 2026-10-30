@@ -68,7 +68,7 @@
   "commits": []
  },
  {
-  "op": "red-gate-has-no-test-check",
+  "op": "red: S2 passes at red",
   "res": "refused",
   "tasks": [
    {
@@ -76,16 +76,17 @@
     "state": "blocked",
     "step": "tester",
     "flags": [
-     "gate-error"
+     "red"
     ],
     "owned": true
    }
   ],
   "decisions": [
    {
-    "id": "flag:m-2:gate-error",
+    "id": "flag:m-2:red",
     "optionKeys": [
      "r",
+     "h",
      "x"
     ]
    }
@@ -119,7 +120,9 @@
     "red": 1
    }
   },
-  "commits": []
+  "commits": [
+   "wip"
+  ]
  },
  {
   "op": "main-turn-end",
@@ -129,16 +132,17 @@
     "state": "blocked",
     "step": "tester",
     "flags": [
-     "gate-error"
+     "red"
     ],
     "owned": true
    }
   ],
   "decisions": [
    {
-    "id": "flag:m-2:gate-error",
+    "id": "flag:m-2:red",
     "optionKeys": [
      "r",
+     "h",
      "x"
     ]
    }
@@ -172,7 +176,9 @@
     "red": 1
    }
   },
-  "commits": []
+  "commits": [
+   "wip"
+  ]
  },
  {
   "op": "Retry",
@@ -212,7 +218,9 @@
    ]
   },
   "budget": {},
-  "commits": []
+  "commits": [
+   "wip"
+  ]
  },
  {
   "op": "tester-restarts",
@@ -257,7 +265,9 @@
    ]
   },
   "budget": {},
-  "commits": []
+  "commits": [
+   "wip"
+  ]
  },
  {
   "op": "red-again",
@@ -268,16 +278,17 @@
     "state": "blocked",
     "step": "tester",
     "flags": [
-     "gate-error"
+     "red"
     ],
     "owned": true
    }
   ],
   "decisions": [
    {
-    "id": "flag:m-2:gate-error",
+    "id": "flag:m-2:red",
     "optionKeys": [
      "r",
+     "h",
      "x"
     ]
    }
@@ -317,10 +328,13 @@
     "red": 1
    }
   },
-  "commits": []
+  "commits": [
+   "wip",
+   "wip"
+  ]
  },
  {
-  "op": "Retry again",
+  "op": "Already holds (amend S2, then Retry)",
   "res": "ok",
   "tasks": [
    {
@@ -349,11 +363,13 @@
   },
   "metaKeys": {
    "m-2": [
+    "cadre.amendments",
     "cadre.base",
     "cadre.blocked",
     "cadre.branch",
     "cadre.changelog",
     "cadre.checkpoint",
+    "cadre.holds",
     "cadre.package",
     "cadre.rec.blocked",
     "cadre.runs",
@@ -363,6 +379,9 @@
    ]
   },
   "budget": {},
-  "commits": []
+  "commits": [
+   "wip",
+   "wip"
+  ]
  }
 ]

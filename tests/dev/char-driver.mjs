@@ -19,8 +19,11 @@ async function life(s) {
   const { world } = await import('../fixtures/replay/world.ts'), { arm } = await import('../../core/drive.ts'), { ROUTES } = await import('../../core/dispatch.ts')
   const { handleWith } = await import('../../tools/index.ts'), { exitStep, runOf, budgetOf } = await import('../../core/lifecycle.ts')
   let gm = 'plain', tip = 'e0e0e01'
-  const w = await world({ ...s.world, git: a => (gm !== 'moved' ? undefined : a.includes('merge-tree') ? { exitCode: 1, stdout: 'tree\nsrc/a.ts\n' } : a.join(' ').includes('epic/p1-service^{commit}') ? { stdout: `${tip}\n` } : undefined) })
+  const files = {}   // s.junit: the test check the tester names fails and writes this report where core reads it (the fake runner answers every argv)
+  const w = await world({ ...s.world, git: a => (s.junit && a[0] === 'find' ? { stdout: './test/a.test.js\0' } : s.junit && a[0] === 'stat' && files[a[3]] !== undefined ? { stdout: `regular file ${files[a[3]].length}\n` } : s.junit && a.some(x => x.endsWith('/junit-test.xml')) ? (files[a.find(x => x.endsWith('/junit-test.xml'))] = s.junit, { exitCode: 1 }) : gm !== 'moved' ? undefined : a.includes('merge-tree') ? { exitCode: 1, stdout: 'tree\nsrc/a.ts\n' } : a.join(' ').includes('epic/p1-service^{commit}') ? { stdout: `${tip}\n` } : undefined) })
   for (const [p, v] of Object.entries(s.cfg ?? {})) setPath(w.cfg, p, v)
+  w.h.readText = async p => files[p] ?? null
+  if (s.acceptance) await w.store.update(w.ids[0], { acceptance: s.acceptance }, w.dep.actor)
   const out = [], seen = new Set()
   const project = async (op, res) => {
     const b = await w.h.board.read(), ctl = {}
