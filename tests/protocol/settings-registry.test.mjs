@@ -40,8 +40,8 @@ test('every config key read in the code is registered', () => {
 // ponytail: a name match, not a data-flow proof; the kit's behaviour table (tests/settings-registry.test.ts) is the proof per key.
 test('every registered key is read somewhere', () => {
   const text = SRC.map(([, l]) => l.join('\n')).join('\n')
-  // sections read through a computed name or handed over whole (cfg.roles[role].byRisk[risk] in core/admission -> core/risk.route; review -> core/risk.riskOf(c); drive -> core/drive.boundOf(dc);
-  // review.tiers -> core/risk.reviewTier(c); lanes -> core/lanes.laneOf(lim)): the leaf is enough there; elsewhere `.parent.leaf`
+  // sections read through a computed name or handed over whole (cfg.roles[role].byRisk[risk] in core/admission -> core/routing.route; drive -> core/drive.boundOf(dc);
+  // lanes -> core/lanes.laneOf(lim)): the leaf is enough there; elsewhere `.parent.leaf`
   const DYN = /^(roles\.(worker|tester|reviewer|explorer|planner|specifier)|drive|review|lanes)\./
   const unread = keys.filter(k => { const s = k.split('.'), leaf = s.pop(), par = s.pop(); return !new RegExp(par && !DYN.test(k) ? `\\.${par}\\.${leaf}\\b|\\.${par}\\?\\.${leaf}\\b` : `[.'"]${leaf}\\b|\\b${leaf}[,:} ]`).test(text) })
   assert.deepEqual(unread, [])

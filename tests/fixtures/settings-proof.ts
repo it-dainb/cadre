@@ -4,7 +4,7 @@ export const ELSEWHERE: Record<string, [string, string]> = {
   'drive.mode': ['tests/drive.test.ts', "c.drive.mode = 'yolo'"], 'drive.spawn': ['tests/git/spawn.test.mjs', "c.drive.spawn = 'mod'"],
   'limits.nudges': ['tests/git/close.test.mjs', 'settings: limits.nudges 0'], 'limits.silentRuns': ['tests/git/close.test.mjs', 'limits.silentRuns 1 blocks'], 'limits.startFails': ['tests/budget-task.test.ts', 'settings: limits.startFails 2'], 'limits.limitWaitMinutes': ['tests/stop.test.ts', 'settings: limits.limitWaitMinutes 1'],
   'limits.reportRetries': ['tests/git/close.test.mjs', 'settings: limits.reportRetries 1'], 'limits.shapeRetries': ['tests/report-meta.test.ts', 'the 6th shape refusal blocks the task'], 'limits.rebaseRounds': ['tests/git/close.test.mjs', 'settings: limits.rebaseRounds 1'], 'limits.testerRounds': ['tests/git/tdd-red.test.mjs', 'settings: limits.testerRounds 2'],
-  'review.maxRework': ['tests/git/close.test.mjs', 'settings: review.maxRework 1'], 'review.deepLabels': ['tests/admission.test.ts', 'settings: review.deepLabels'],
+  'review.maxRework': ['tests/git/close.test.mjs', 'settings: review.maxRework 1'],
   'release.onEpicDone': ['tests/git/integrate.test.mjs', 'settings: release.onEpicDone off'], 'suites.integration': ['tests/git/integrate.test.mjs', 'c.suites.integration = ['],
   'concurrency.models': ['tests/concurrency.test.ts', 'settings: concurrency.models'], 'concurrency.providers': ['tests/concurrency.test.ts', 'settings: concurrency.providers'], 'models.allow': ['tests/config.test.ts', 'settings: models.allow'],
   'concurrency.default': ['tests/admission.test.ts', 'd.cfg.concurrency.default = 2'], 'milestone.maxEpics': ['tests/milestone.test.ts', 'cfg.milestone.maxEpics = maxEpics'],

@@ -88,7 +88,7 @@ export async function* meter(h: Host, e: any, next: (e: any) => any): AsyncGener
   // trailing request on medium where the settings say high)
   const b = e.agentId && (await h.bind.read())[e.agentId], old = e.agentId ? ran.get(e.agentId) : undefined, eff = b?.effort ?? old?.effort
   if (b && e.agentId) { if (!old && ran.size >= 500) ran.delete(ran.keys().next().value!); ran.set(e.agentId, { task: b.taskId, effort: b.effort ?? old?.effort }) }   // FIFO: the oldest goes first
-  const r = yield* next(eff && eff !== 'default' ? { ...e, effort: eff } : e)   // TM-03: the effort admission routed for this run (core/risk.route: roles.<role>.byRisk.<risk>, recorded on the binding); none = the agent file's
+  const r = yield* next(eff && eff !== 'default' ? { ...e, effort: eff } : e)   // TM-03: the effort admission routed for this run (core/routing.route: roles.<role>.byRisk.<risk>, recorded on the binding); none = the agent file's
   if (r?.usage) await safe(h, 'cost', async () => {
     const tid = b?.taskId ?? old?.task, key = tid ? await taskKey(h, tid) : ck(e.agentId ?? 'main'), now = await h.now()   // a bound agent's usage goes to its task's total at once, and so does its last step after the binding ended: the ledger folds a per-agent key only while a binding exists (H12)
     const prev = (await h.store.get(key)) as (U & { t0?: number }) | undefined; await h.store.set(key, { ...add(prev ?? zero(), r.usage), ...(tid ? { t0: prev?.t0 ?? now } : {}) }); const ak = await scoped(h, 'cost:all'); await h.store.set(ak, add(((await h.store.get(ak)) as U) ?? zero(), r.usage))

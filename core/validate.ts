@@ -6,9 +6,10 @@ import { kindOf } from '../task-management/registry'
 import type { TypeRegistry } from '../task-management/registry'
 import { matches } from './specview'
 import { roleSpec, roleSpecs } from './roles'
+import { RISKS, type Tier } from './routing'
 import type { FieldKind, Outcome, RoleSpec as ProfileRole } from '../types/profile'
 
-export const FIELDS = ['kind', 'amend', 'type', 'scope', 'breaking', 'package', 'scenarios', 'changelog', 'interface', 'lane', 'reason', 'repro', 'mission', 'paths', 'core', 'notes', 'epic', 'size', 'planned', 'critique', 'assumed', 'holds'] as const
+export const FIELDS = ['kind', 'amend', 'type', 'scope', 'breaking', 'package', 'scenarios', 'changelog', 'interface', 'lane', 'reason', 'repro', 'mission', 'paths', 'core', 'notes', 'epic', 'size', 'planned', 'critique', 'assumed', 'holds', 'risk'] as const
 export const CATEGORIES = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security']
 const SCENARIO = /^S\d+: Given .+ When .+ Then .+$/
 const STATUS = ['new', 'changed', 'unchanged']
@@ -31,6 +32,7 @@ export function validateFields(m: Record<string, unknown>, reg: TypeRegistry): s
   if (f('mission') !== undefined && (m.kind !== 'plan' || typeof m.mission !== 'string' || !m.mission.trim() || m.mission.length > 1000)) return bad('metadata.mission', 'on the plan call, one string "Goal: …\\nConstraints: …\\nNon-goals: …"', m.mission)   // ADR 0014: approved with the plan
   if (f('paths') !== undefined && (m.kind !== undefined || !Array.isArray(m.paths) || !m.paths.length || m.paths.length > 20 || m.paths.some((p: unknown) => !str(p) || (p as string).length > 200))) return bad('metadata.paths', 'on a task, the files or folders it will change, e.g. ["src/auth/login.ts", "test/auth/**"]', m.paths)
   if (f('holds') !== undefined && (m.kind !== undefined || !Array.isArray(m.holds) || m.holds.length > 10 || m.holds.some(x => typeof x !== 'string' || !/^S\d+$/.test(x)))) return bad('metadata.holds', 'on a task, the ids of the scenarios whose behaviour already exists, e.g. ["S2"]', m.holds)
+  if (f('risk') !== undefined && (m.kind !== undefined || !RISKS.includes(m.risk as Tier))) return bad('metadata.risk', `on a task, how closely it is reviewed: ${RISKS.join('|')}`, m.risk)   // B9: the planner's call, never scored from the diff
   if (f('core') !== undefined && (m.kind !== undefined || typeof m.core !== 'boolean')) return bad('metadata.core', 'true on the one task with the code other tasks share', m.core)
   if (f('assumed') !== undefined && (m.kind !== 'plan' || !Array.isArray(m.assumed) || !m.assumed.length || m.assumed.length > 5 || !m.assumed.every(x => str(x) && (x as string).length <= 200))) return bad('metadata.assumed', 'on the plan call, a list of 1-5 lines "<point>: what you assumed"', m.assumed)   // yolo clarify (ADR 0020): shown in the approval dialog
   if (f('notes') !== undefined && (m.kind !== 'plan' || !(str(m.notes) ? m.notes.length <= 1500 : noteList(m.notes) && noteShape(m.notes)))) return bad('metadata.notes', 'on the plan call, what an explorer found, keyed by the paths it concerns: [{"paths":["src/auth/"],"text":"…"}] (no paths = every task; at most 3000 characters in all)', m.notes)

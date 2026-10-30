@@ -55,7 +55,7 @@ export function fieldsOf(m: Record<string, any>): { patch: Parameters<TaskStore[
   const patch: Parameters<TaskStore['update']>[1] = {}, meta: Record<string, string> = {}, has = (k: string) => m[k] !== undefined
   if (has('scenarios')) patch.acceptance = m.scenarios === null ? '' : m.scenarios.join('\n')
   if (has('interface')) patch.design = m.interface === null ? '' : canon(m.interface)
-  for (const k of ['package', 'scope', 'critique']) if (has(k)) meta[`cadre.${k}`] = m[k] ?? ''
+  for (const k of ['package', 'scope', 'critique', 'risk']) if (has(k)) meta[`cadre.${k}`] = m[k] ?? ''
   if (has('breaking')) meta['cadre.breaking'] = String(m.breaking ?? false)
   if (has('changelog')) meta['cadre.changelog'] = m.changelog === null ? '' : canon(m.changelog)
   for (const k of ['repro', 'core']) if (has(k)) meta[`cadre.${k}`] = m[k] ? 'true' : ''
