@@ -11,6 +11,7 @@
 //   shape: lite, the worker sends four reports with an over-long summary (a shape refusal each, never the run's tries), then the valid one (shape-refusal-budget);
 //   pair: full lane, two independent tasks (concurrency-fifo, with concurrency.default 1 in the repo's config);
 //   multi: full lane, two tasks (kebabCase after titleCase), an amend on a stale revision refused then retried (plan-tools-full);
+//   flag-structured: lite under yolo, the worker asks for a spec change, main decides it with status {id, choice:"x", reason:"accept: …"} (the choice rules; the reason is never read), the worker conforms (flag-structured);
 //   sub: lite, the task in the `lib` submodule unit (submodule-unit); cont: lite, the reviewer waits 14 s first (continue-after-quit-s kills before or during it).
 import type { Register } from 'claude-code'
 
@@ -43,6 +44,8 @@ function main(rows: Row[]): Act {
   const T = (n: string) => `mcp__cadre__${n}`, used = (n: string) => has(c => c.tool === T(n))   // main plans only through cadre's tools: plan, task, explore, ask
   const ai = after.findIndex(r => r.role === 'assistant' && r.toolUses?.some(c => c.tool === T('explore')))
   const answered = ai >= 0 && after.slice(ai + 1).some(r => isText(r) && /Result of ask-|its answer was already given/.test(r.text))   // the explorer's answer comes back as a message of its own
+  const sp = rows.map(r => isText(r) && /asks to change its locked spec/.test(r.text)).lastIndexOf(true)   // flag-structured: yolo hands main the spec change; it answers with a choice key and a reason that reads like the other choice
+  if (script === 'flag-structured' && sp > g) return after.some(r => r.role === 'assistant' && r.toolUses?.some(c => c.tool === 'mcp__cadre__status')) ? { text: END } : { tool: 'mcp__cadre__status', input: { id: rows[sp].text.match(/Task (\S+) asks/)?.[1], choice: 'x', reason: 'accept: the locked tests are right' } }
   if (after.filter(r => r.role === 'assistant').length > (script === 'multi' ? 12 : script === 'pair' ? 12 : 8)) return { text: 'Stopping: approve the plan in the dialog.' }
   if (ai < 0) return { tool: T('explore'), input: { question: 'What in the project does adding titleCase(s) touch: where string helpers live, how they are exported, where the tests are?' } }
   if (!answered) return { text: 'Waiting for the explorer.' }
@@ -104,6 +107,7 @@ const ROLES: Record<string, (k: number, brief: string, cwd: string, rows: Row[])
   worker: (k, b, _c, rows) => { if (script === 'docs') return [{ tool: 'Bash', input: { command: "mkdir -p docs && printf '# Usage\\n\\nImport the helpers from src/ and call them.\\n' > docs/usage.md", description: 'Write docs/usage.md' } }, { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: 'Added docs/usage.md.', risks: [] } }][k] ?? { text: END }
     const f = fnOf(b), w = { tool: 'Bash', input: { command: FILES(f), description: `Write ${f.name} and its test` } }
     const BAD = { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: 'x'.repeat(801) } }
+    if (script === 'flag-structured' && !rows.some(r => isText(r) && /spec change was rejected/.test(r.text))) return [{ tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'spec_change', summary: 'The spec as locked does not fit.', reason: 'the locked spec expects another shape of the result' } }][k] ?? { text: END }   // resumed after the rejection: the normal work below
     if (script === 'shape') return [w, BAD, BAD, BAD, BAD, { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } }, { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: `Added ${f.name}(s) in src/${f.name}.mjs with a node:test test; npm test passes.`, risks: [] } }][k] ?? { text: END }
     return script === 'silent' ? [w][k] ?? { text: END } : script === 'loop' ? { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } } : (script === 'slow' ? [WAIT] : []).concat([w, { tool: 'mcp__cadre__run_check', input: { name: 'test', task: taskOf(b) } },
     { tool: 'mcp__cadre__report', input: { schemaVersion: 1, role: 'worker', outcome: 'done', summary: `Added ${f.name}(s) in src/${f.name}.mjs with a node:test test; npm test passes.`, risks: [] } }])[k] ?? { text: END } },
