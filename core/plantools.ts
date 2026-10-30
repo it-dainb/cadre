@@ -7,7 +7,7 @@ import { askById, askTask } from './asks'
 import type { Host, Snapshot } from '../types'
 import type { Task, TaskStore } from '../task-management/store'
 import { StoreError } from '../task-management/store'
-import { active } from './pipeline'
+import { active, firstType } from './pipeline'
 import { cadreRole } from './roles'
 import { canon, modelView } from './board'
 import { apply } from './machine'
@@ -97,7 +97,7 @@ async function create(h: Host, store: TaskStore, title: string, description: str
     else if (m.lane || m.mission || m.notes || m.assumed) await store.setMeta(id, { ...(m.assumed ? { 'cadre.assumed': JSON.stringify(m.assumed) } : {}), ...(m.lane ? { 'cadre.lane': m.lane } : {}), ...(m.reason ? { 'cadre.laneReason': m.reason } : {}), ...(m.mission ? { 'cadre.mission': m.mission.trim() } : {}), ...(m.notes ? { 'cadre.notes': typeof m.notes === 'string' ? m.notes.trim() : JSON.stringify(m.notes) } : {}) }, 'main')   // lanes (ADR 0011), a mission drafted with the plan (ADR 0014)
     await h.board.update(b => ({ ...b, epic: id, tasks: [], plan: { id, slug: name, state: 'draft', epicBranch: mission ? '' : epicBranch(prefix, id, title) }, approval: { planId: id, missing: [] } }))
     const lite = !mission && m.lane === 'lite', f = fieldsOf(m)   // a lite plan is one call: the plan and its one task
-    if (lite) await store.createDraft({ title, description, acceptance: f.patch.acceptance, design: f.patch.design, type: m.type ?? 'feature', parent: id, meta: f.meta })
+    if (lite) await store.createDraft({ title, description, acceptance: f.patch.acceptance, design: f.patch.design, type: m.type ?? firstType(), parent: id, meta: f.meta })
     const missing = await retouch(h, store)
     return { id, context: ctx(was ? `The unfinished draft ${s.plan!.id} was discarded: the human never saw it.` : '', mission || lite ? '' : m.lane === 'milestone' ? roadmapRules(id) : planRules(), missingLine(missing)) }
   }
@@ -113,7 +113,7 @@ async function create(h: Host, store: TaskStore, title: string, description: str
   if (ms && !road && !['ready', 'planning'].includes(ep?.state ?? '')) return { error: `name the epic these tasks plan in epic; ready to plan: ${(s.plan.epics ?? []).filter(x => x.state === 'ready' || x.state === 'planning').map(x => x.id).join(', ') || 'none (wait for the next: line)'}` }
   if (!ms && m.epic !== undefined) return { error: 'epic: only in a milestone; omit it' }
   const pe = road ? protectedOnly(m.paths) : protectedIn(m.paths); if (pe) return { error: await refuse(h, key, pe) }   // an epic only of protected paths; a task with any
-  const t = await store.createDraft({ title, description, acceptance: f.patch.acceptance, design: f.patch.design, type: road ? 'epic' : m.type ?? 'feature', parent: ep?.id ?? s.epic, meta: f.meta })
+  const t = await store.createDraft({ title, description, acceptance: f.patch.acceptance, design: f.patch.design, type: road ? 'epic' : m.type ?? firstType(), parent: ep?.id ?? s.epic, meta: f.meta })
   return { id: t.id, context: ctx(ep?.state === 'ready' ? planRules() : '', missingLine(await retouch(h, store))) }
 }
 // an edit: title, description, task fields, after (more ids to wait for); an approved task returns to draft (amend)
