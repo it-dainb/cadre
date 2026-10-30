@@ -3,7 +3,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { plan, world, FULL } from './fixtures/native/world'
 import { validateFields, missingList, overlap } from '../core/validate'
-import { defaults as typeDefaults } from '../task-management/registry'
 import { guard, policyOf, setPolicy } from '../policy/guards'
 import { brief } from '../core/briefs'
 import { planRules } from '../core/plantools'
@@ -11,12 +10,11 @@ import { task } from './support'
 import type { Binding } from '../types'
 import { lockCore } from '../core/rebase'
 
-const reg = typeDefaults()
 describe('declared paths and the overlap check', () => {
   test('paths, core and notes: malformed values are refused with an example', () => {
-    expect(validateFields({ paths: ['src/a.ts'], core: true }, reg)).toBeNull(); expect(validateFields({ kind: 'plan', notes: 'auth lives in src/auth' }, reg)).toBeNull()
-    expect(validateFields({ paths: 'src/a.ts' }, reg)).toContain('metadata.paths'); expect(validateFields({ kind: 'plan', paths: ['x'] }, reg)).toContain('metadata.paths')
-    expect(validateFields({ core: 'yes' }, reg)).toContain('metadata.core'); expect(validateFields({ notes: 'x' }, reg)).toContain('metadata.notes')
+    expect(validateFields({ paths: ['src/a.ts'], core: true })).toBeNull(); expect(validateFields({ kind: 'plan', notes: 'auth lives in src/auth' })).toBeNull()
+    expect(validateFields({ paths: 'src/a.ts' })).toContain('metadata.paths'); expect(validateFields({ kind: 'plan', paths: ['x'] })).toContain('metadata.paths')
+    expect(validateFields({ core: 'yes' })).toContain('metadata.core'); expect(validateFields({ notes: 'x' })).toContain('metadata.notes')
   })
   test('overlap: same file, a folder of it, a glob that matches it; different files do not', () => {
     expect(overlap('src/a.ts', 'src/a.ts')).toBe(true); expect(overlap('src/auth', 'src/auth/login.ts')).toBe(true); expect(overlap('src/**', 'src/x/y.ts')).toBe(true); expect(overlap('test/*.ts', 'test/a.ts')).toBe(true)
@@ -33,7 +31,7 @@ describe('declared paths and the overlap check', () => {
   })
   test('one code task (and a spike) needs no paths', () => {
     const t = (id: string, type: string, meta: Record<string, string> = {}) => ({ id, title: id, description: 'd', type, deps: [], labels: [], meta: { 'cadre.lane': 'lite', 'cadre.changelog': '{}', ...meta } }) as any
-    expect(missingList([t('a', 'bug'), t('s', 'spike')], reg)).toEqual([])
+    expect(missingList([t('a', 'bug'), t('s', 'spike')])).toEqual([])
   })
 })
 
@@ -58,7 +56,7 @@ describe('briefs and planner rules', () => {
     expect(t).toContain('## Shared notes\nsessions live in src/session.ts'); expect(t).toContain('## Paths of other active tasks\n- a1: src/login.ts')
   })
   test('the plan rules ask for paths, a thin core first, vertical slices and one shared exploration; still within 1.5 KB', () => {
-    const r = planRules(reg)
+    const r = planRules()
     for (const s of ['paths per task', 'ONE thin core task first', 'vertical slice', 'smoke assertion', 'plan\'s notes']) expect(r).toContain(s)
     expect(new TextEncoder().encode(r).length).toBeLessThanOrEqual(1536)
   })

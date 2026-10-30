@@ -8,9 +8,9 @@ import type { Task } from '../task-management/store'
 import type { Deps } from './admission'
 import { agentsOf } from './board'
 import { apply } from './machine'
-import { pipeOf } from '../task-management/registry'
 import { idsIn, pushDelta } from './briefs'
 import { mirror } from './dispatch'
+import { typeOf } from './pipeline'
 import { setup } from './admission'
 import { baseOf, taskBranch, wtPath } from './branches'
 import { decided } from './drive'
@@ -50,8 +50,8 @@ export async function rework(h: Host, d: Deps, t: SnapTask, task: Task, tip: str
     for (const p of c.filter(p => locked.includes(p))) { await G.git(h.run, wt, ['checkout', '--ours', '--', p]); await G.git(h.run, wt, ['add', '--', p]) }   // a locked spec test keeps this task's version
     return c.filter(p => !locked.includes(p))
   })
-  const by = await landed(h, d.root, base, tip, conf), p = pipeOf(d.reg), at = await h.now()
-  const m = await apply(h, { kind: 'rewind', id: t.id, at, actor: 'mod', on: 'worker' }, p); if (!m.ok) throw new Error(m.error)
+  const by = await landed(h, d.root, base, tip, conf), at = await h.now()
+  const m = await apply(h, { kind: 'rewind', id: t.id, at, actor: 'mod', on: 'worker' }); if (!m.ok) throw new Error(m.error)
   await d.store.resume(t.id, d.actor)
   await charge(h, t.id, 'rebase'); await d.store.setMeta(t.id, { 'cadre.base': tip, 'cadre.review': '', 'cadre.step': 'worker' }, d.actor)
   const text = modelText('nudge', [`The plan moved on while ${t.id} waited to merge${by.length ? `: ${by.join(', ')} landed` : ''}. Your branch now has the new plan tip merged in (round ${n}/${ROUNDS}).`,
@@ -94,7 +94,7 @@ export async function refresh(h: Host, d: Deps, tip: string, from: string, only?
     // the scenarios the plan said already hold are re-run on the moved tree: one that no longer passes blocks the task with a decision, it is never demoted to an unmarked scenario
     const red = await holdsRed(h, d, await d.store.get(x.id), wt).catch((e: Error) => { h.log(`${x.id}: its held tests could not be re-run: ${e.message}`); return ['(the check could not run)'] })   // fail closed: no answer is no pass
     if (red.length) {
-      await apply(h, { kind: 'block', id: x.id, at: await h.now(), actor: 'mod' }, pipeOf(d.reg)); await d.store.move(x.id, 'blocked', d.actor); await d.store.setMeta(x.id, { 'cadre.blocked': 'holds' }, d.actor)
+      await apply(h, { kind: 'block', id: x.id, at: await h.now(), actor: 'mod' }); await d.store.move(x.id, 'blocked', d.actor); await d.store.setMeta(x.id, { 'cadre.blocked': 'holds' }, d.actor)
       await h.board.update(b => ({ ...b, tasks: b.tasks.map(t => (t.id === x.id && !t.flags.includes('holds') ? { ...t, flags: [...t.flags, 'holds'] } : t)) })); await emit(h, 'flag.raised', { taskId: x.id, flag: 'holds' }, { taskId: x.id })
       await decided(h, 'rebase', `${x.id}: after ${from} landed, the scenarios the plan says already hold could not be confirmed (${red.slice(0, 3).join(', ')}); the plan's author decides`, x.id); continue
     }
@@ -163,11 +163,11 @@ export async function resolveTask(h: Host, d: Deps, epicId: string, from: string
   const title = `Resolve the merge conflict with ${onto}`, landed = (s.plan?.epics ?? []).filter(x => x.state === 'landed').map(x => `- ${x.id} ${x.title}`)
   const t = await d.store.createDraft({ title, type: 'refactor', parent: epicId, meta: { 'cadre.lane': 'lite', 'cadre.resolve': other, 'cadre.changelog': JSON.stringify({ none: true, reason: 'merge resolution' }) },
     description: [`Your working tree holds an unfinished merge of ${onto} into this branch${files.length ? `; the conflicts are marked in ${files.join(', ')}` : ''}. Resolve it so that both sides keep working, and keep every test green.`, `This side: ${e.title}\n${e.description.slice(0, 600)}`, ...(landed.length ? [`The other side (already on ${onto}):\n${landed.join('\n')}`] : [])].join('\n\n') })
-  const wt = wtPath(d.wtRoot, d.key, t.id), br = taskBranch(d.reg.refactor?.commit ?? 'refactor', t.id, title), base = await G.tip(h.run, d.root, from)
+  const wt = wtPath(d.wtRoot, d.key, t.id), br = taskBranch(typeOf('refactor')?.commit ?? 'refactor', t.id, title), base = await G.tip(h.run, d.root, from)
   await G.op(h, async () => { await G.worktreeAdd(h.run, d.root, wt, br, base); await h.run(['git', '-C', wt, 'merge', '--no-ff', '--no-edit', other]) })   // the conflict is left in its tree
   await setup(h, d, t, wt).catch(x => h.log(`resolve setup: ${x}`))
   await d.store.setMeta(t.id, { 'cadre.worktree': wt, 'cadre.branch': br, 'cadre.base': base }, d.actor); await d.store.setMeta(epicId, { 'cadre.resolves': String(n) }, d.actor)
-  await d.store.approve([t.id]); await mirror(h, d.store, d.reg); await apply(h, { kind: 'approve', id: t.id, at: await h.now(), actor: 'mod' }, pipeOf(d.reg))
+  await d.store.approve([t.id]); await mirror(h, d.store); await apply(h, { kind: 'approve', id: t.id, at: await h.now(), actor: 'mod' })
   await decided(h, 'resolve', `${epicId}: merge with ${onto} conflicts${files.length ? ` on ${files.slice(0, 4).join(', ')}` : ''}; resolve task ${t.id} (attempt ${n}/${ROUNDS})`, t.id)
   return `${from} does not merge into ${onto}${files.length ? ` (conflicts in ${files.join(', ')})` : ''}. Resolve task ${t.id} was added to ${epicId} (attempt ${n}/${ROUNDS})${spawnIt(await h.board.read(), `spawn TASK-${t.id}`)}; when it is done, complete ${epicId} again.`
 }

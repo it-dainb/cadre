@@ -4,9 +4,9 @@ import { commit, stamp, withConditions } from './board'
 import { emit } from './events'
 import { storeOf } from './dispatch'
 import { strictOf } from '../config/index'
+import { catOf, gateAt, pipeOf, producer, verdictAt } from './pipeline'
 
-// A pipeline step lives in one store task; its step decides the category. reviewer/merge = `review` (merge = review pass, awaiting close).
-export const STEP_CAT: Record<string, Category> = { tester: 'active', red: 'active', worker: 'active', green: 'active', explorer: 'active', report: 'active', reviewer: 'review', merge: 'review' }
+// A pipeline step lives in one store task; its step decides the category (core/pipeline.catOf: a verdict step and the integrate gate = `review`, the gate is a review pass awaiting close).
 export type Pipe = (type: string, lane?: string) => readonly string[]
 
 export type MKind = 'approve' | 'amend' | 'claim' | 'advance' | 'verdict' | 'close' | 'block' | 'unblock' | 'rewind' | 'release' | 'cancel' | 'skip'
@@ -20,9 +20,7 @@ const FROM: Record<MKind, Category[]> = {   // legal-from table
   cancel: ['draft', 'todo', 'active', 'review', 'blocked'],
 }
 
-const producer = (p: readonly string[], i: number) => [...p.slice(0, i)].reverse().find(x => x === 'worker' || x === 'tester') ?? p[0]   // the step that produced what review judges
-
-export function transition(s: Snapshot, m: MEvent, pipe: Pipe): Result {
+export function transition(s: Snapshot, m: MEvent, pipe: Pipe = pipeOf): Result {
   const t = s.tasks.find(x => x.id === m.id)
   if (!t) return { ok: false, error: `unknown task ${m.id}` }
   const bad = (why: string): Result => ({ ok: false, error: `${m.id}: ${m.kind} is illegal from ${t.state}${t.step ? `·${t.step}` : ''}${why ? ` (${why})` : ''}` })
@@ -33,17 +31,17 @@ export function transition(s: Snapshot, m: MEvent, pipe: Pipe): Result {
     case 'approve': state = 'todo'; break
     case 'amend': state = 'draft'; break
     case 'claim': if (!p.length) return bad('type has no pipeline'); state = 'active'; step = t.step || p[0]; owner = m.owner; break
-    case 'advance': { const n = p[i + 1]; if (i < 0 || !n) return bad('no next step'); state = STEP_CAT[n] ?? 'active'; step = n; break }
+    case 'advance': { const n = p[i + 1]; if (i < 0 || !n) return bad('no next step'); state = catOf(n); step = n; break }
     case 'verdict':
-      if (t.step !== 'reviewer') return bad('not under review')
-      if (m.verdict === 'pass') { if (p[i + 1] !== 'merge') return bad('no merge step'); step = 'merge' }
+      if (!verdictAt(t.step)) return bad('not under review')
+      if (m.verdict === 'pass') { if (gateAt(p[i + 1]) !== 'integrate') return bad('no merge step'); step = p[i + 1] }
       else { state = 'active'; step = producer(p, i) }   // rework: the producing step
       break
-    case 'close': if (!((t.state === 'review' && t.step === 'merge') || (t.state === 'active' && t.step === 'report'))) return bad('not review-passed'); state = 'done'; break
+    case 'close': if (!((t.state === 'review' && gateAt(t.step) === 'integrate') || (t.state === 'active' && gateAt(t.step) === 'report'))) return bad('not review-passed'); state = 'done'; break
     case 'block': state = 'blocked'; break
-    case 'unblock': state = STEP_CAT[t.step] ?? 'active'; break
-    case 'rewind': if (!m.on || !p.includes(m.on)) return bad('no such step'); step = m.on; state = STEP_CAT[step] ?? 'active'; break
-    case 'release': state = 'todo'; owner = undefined; if (STEP_CAT[t.step] === 'review') step = producer(p, i); break   // a review step is not claimable: back to the producing step
+    case 'unblock': state = catOf(t.step); break
+    case 'rewind': if (!m.on || !p.includes(m.on)) return bad('no such step'); step = m.on; state = catOf(step); break
+    case 'release': state = 'todo'; owner = undefined; if (catOf(t.step) === 'review') step = producer(p, i); break   // a review step is not claimable: back to the producing step
     case 'cancel': case 'skip': state = 'cancelled'; break
   }
   const next: SnapTask = { ...t, state, step, owner, phaseSince: step !== t.step ? m.at : t.phaseSince }
@@ -58,7 +56,7 @@ export const pendingSkips = (s: Snapshot): { id: string; on: string }[] =>
   s.tasks.flatMap(t => (t.state === 'todo' && t.condition?.state === 'not-met' ? [{ id: t.id, on: t.condition.on }] : []))
 
 // Commit one transition (CAS; recomputed on conflict) then emit its events and sync board.seq. The only write path for task state.
-export async function apply(h: Host, m: MEvent, pipe: Pipe): Promise<Result> {
+export async function apply(h: Host, m: MEvent, pipe: Pipe = pipeOf): Promise<Result> {
   let res!: Result
   const t0 = (await h.board.read()).tasks.find(x => x.id === m.id), fl = t0?.flags.find(f => f === 'external' || f === 'drift')   // sync flags (11.4): strict refuses the next transition until /cadre resolve
   if (fl && !['release', 'cancel', 'block'].includes(m.kind) && (await strictOf(h)) !== 'advisory') return { ok: false, error: `${m.id} has flag ${fl}; ask the human to resolve it (they answer it in the cadre dialog)` }

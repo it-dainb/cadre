@@ -12,7 +12,6 @@ import { assess } from '../policy/containment'
 import { StoreError } from '../task-management/store'
 import type { TaskStore } from '../task-management/store'
 import { validate as kac } from '../core/changelog'
-import { validate as regErrors } from '../task-management/registry'
 import { spec } from '../agents'
 import * as D from '../core/discover'
 import { probeOf, runSlot } from '../core/gate'
@@ -88,7 +87,7 @@ const probed = async (c: Ctx): Promise<Item[]> => (await Promise.all(D.unitsOf(c
   : s === 'no' ? [{ name: `unit ${r}: test check writes JUnit`, st: 'warn', why: modelText('tool-result', `unit ${r}: the test check wrote no valid JUnit at $CADRE_JUNIT, so red is exit-code only; change its test argv to write JUnit (install a reporter if needed), then rerun /cadre init`) }]
   : s === 'none' ? [{ name: `unit ${r}: test check`, st: 'ok', why: modelText('tool-result', 'no test check yet: the first test-driven task sets one up, or use a pipeline that has no tests') }] : [])
 function workflow(c: Ctx): string | null {
-  const errs = regErrors(c.cfg.types as any)
+  const errs: string[] = []
   for (const r of ['worker', 'tester', 'reviewer', 'explorer'] as const) if (!spec(r, { roles: c.cfg.roles as any, mcpAllow: c.cfg.mcpAllow }).prompt) errs.push(`roles.${r} does not render`)
   return errs.length ? errs.join('; ') : null
 }

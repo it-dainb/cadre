@@ -3,8 +3,7 @@
 // each epic branch is cut from the milestone branch and lands back on it (core/integrate); the milestone branch lands on dev once, at the end.
 import type { Host, MEpic, Plan, Snapshot } from '../types'
 import type { Task, TaskStore } from '../task-management/store'
-import { pipeOf, type TypeRegistry } from '../task-management/registry'
-import { DRIVE, draftsOf, mirror, registryOf, storeOf } from './dispatch'
+import { DRIVE, draftsOf, mirror, storeOf } from './dispatch'
 import { missingList } from './validate'
 import { apply } from './machine'
 import { ask } from './decide'
@@ -38,15 +37,15 @@ export async function roadmap(store: TaskStore, ms: string, max: number, prefix:
 
 // `TaskUpdate <epic> metadata.planned true`: main finished drafting a ready epic's tasks. Complete → approved automatically and recorded (the roadmap was the human's
 // approval), the epic branch cut from the milestone tip (a child builds only on what landed on its parent). Returns the refusal, or null.
-export async function planEpic(h: Host, store: TaskStore, reg: TypeRegistry, id: string, by?: string): Promise<string | null> {   // by: who drafted it, when not main (core/planner)
+export async function planEpic(h: Host, store: TaskStore, id: string, by?: string): Promise<string | null> {   // by: who drafted it, when not main (core/planner)
   const s = await h.board.read(), p = s.plan, e = epicOf(s, id)
   if (!p || !e || p.state !== 'approved') return `${id} is not an epic of the running milestone`
   if (e.state !== 'planning') return e.state === 'ready' ? `${id} has no tasks yet: add them with task, epic "${id}", first` : `${id} is ${e.state}; plan an epic when the next: line names it`
-  const drafts = await draftsOf(store, id), miss = missingList(drafts, reg); if (miss.length) return `incomplete, missing: ${miss.join('; ')}`
+  const drafts = await draftsOf(store, id), miss = missingList(drafts); if (miss.length) return `incomplete, missing: ${miss.join('; ')}`
   const root = await h.cwd()
   await op(h, async () => { if (!(await exists(h.run, root, e.branch))) await git(h.run, root, ['branch', e.branch, p.epicBranch]) })
-  await store.setMeta(id, { 'cadre.branch': e.branch }, 'cadre'); await store.approve(drafts.map(t => t.id)); await mirror(h, store, reg)
-  const at = await h.now(); for (const t of drafts) await apply(h, { kind: 'approve', id: t.id, at, actor: 'mod' }, pipeOf(reg))
+  await store.setMeta(id, { 'cadre.branch': e.branch }, 'cadre'); await store.approve(drafts.map(t => t.id)); await mirror(h, store)
+  const at = await h.now(); for (const t of drafts) await apply(h, { kind: 'approve', id: t.id, at, actor: 'mod' })
   await DRIVE.decided?.(h, 'plan', `plan ${id} approved automatically for milestone ${p.id}${by ? ` · drafted by ${by}` : ''}`)   // through dispatch: core/drive imports this module
   return null
 }
@@ -54,11 +53,11 @@ export async function planEpic(h: Host, store: TaskStore, reg: TypeRegistry, id:
 // an epic that cannot go on (its landing failed again, no progress): its dependants stop with it, independent epics continue (core/drive.gate: auto pauses for the human)
 export async function stopEpic(h: Host, id: string, why: string): Promise<void> {
   const store = await storeOf(h), s = await h.board.read(), e = epicOf(s, id); if (!e || e.state === 'stopped' || e.state === 'landed') return
-  await store.setMeta(id, { 'cadre.stopped': why.slice(0, 300) }, 'cadre'); await mirror(h, store, await registryOf(h))
+  await store.setMeta(id, { 'cadre.stopped': why.slice(0, 300) }, 'cadre'); await mirror(h, store)
   await ask(h, flagDecision(id, 'stopped', undefined, { title: `epic ${id} stopped`, short: `${id} stopped`, hash: `stopped:${why.slice(0, 60)}`, lines: [e.title, why.slice(0, 160), 'Retry: the epic goes on. The epics that wait on it start after it lands.'] })!)
   await emit(h, 'flag.raised', { taskId: id, flag: 'stopped' }, { taskId: id })
 }
-export async function goOn(h: Host, id: string): Promise<void> { await DRIVE.forget?.(h, id); const store = await storeOf(h); await store.setMeta(id, { 'cadre.stopped': '', 'cadre.planRounds': '' }, 'cadre'); await mirror(h, store, await registryOf(h)) }
+export async function goOn(h: Host, id: string): Promise<void> { await DRIVE.forget?.(h, id); const store = await storeOf(h); await store.setMeta(id, { 'cadre.stopped': '', 'cadre.planRounds': '' }, 'cadre'); await mirror(h, store) }
 
 // after an epic landed: the milestone branch takes what dev gained meanwhile (a throwaway worktree, CAS). A conflict leaves it as it is: the final landing on dev shows it.
 export async function freshen(h: Host, root: string, ms: string, dev: string, tmp: string): Promise<void> {

@@ -14,7 +14,7 @@ describe('routing: the planner declares the risk (B9), the cells pick model and 
   test('the risk is a task field: one of the four on a task, refused on a plan or with another value; the old thresholds are not settings', () => {
     expect(validateFields({ risk: 'thorough' }, { feature: {} } as any)).toBeNull(); expect(validateFields({ risk: null }, {} as any)).toBeNull()
     expect(validateFields({ risk: 'huge' }, {} as any)).toContain('metadata.risk: expected on a task, how closely it is reviewed: light|standard|thorough|core'); expect(validateFields({ kind: 'plan', risk: 'light' }, {} as any)).toContain('metadata.risk')
-    expect(resolve([{ name: 'u', trust: 'user', value: { review: { tiers: { light: { files: 9 } }, deepLabels: ['x'], coreTask: 'core', coreDiff: 'core' } } }]).diagnostics).toEqual(['u: review.tiers: unknown key', 'u: review.deepLabels: unknown key', 'u: review.coreTask: unknown key', 'u: review.coreDiff: unknown key'])
+    expect(resolve([{ name: 'u', trust: 'user', value: { review: { tiers: { light: { files: 9 } }, deepLabels: ['x'], coreTask: 'core', coreDiff: 'core' } } }]).diagnostics).toEqual(['u: review: unknown key'])   // the review section went with the profile (B16)
   })
   test('the default cells are the profile routing (one source), the escalation is the setting\'s own', () => {
     const c = defaults().roles

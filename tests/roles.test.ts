@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import { MAIN_TOOLS, ROLES, TOOLS, TTL, allowlist, file, spec } from '../agents/index'
-import { REG, defaults, resolve } from '../config/index'
+import { defaults, resolve } from '../config/index'
 import { fixedRules, ROLES_DEFAULT, EXIT, PROMPT_CAP, agentSpec, customIssue, exitIssue, writes } from '../core/roles'
 import { routeOf } from '../core/admission'
 import { REPORTS, reportRefusal } from '../core/validate'
@@ -8,6 +8,8 @@ import { cachePrefix, fence, guard, setPolicy, shelled } from '../policy/guards'
 import { fence as frozen } from './fixtures/fence-v0.15.0'
 import GOLD from './fixtures/roles-golden'
 import { fakeHost, task } from './support'
+import { roles as PROFILE_ROLES } from '../profiles/default'
+import { check } from '../core/profile'
 import { SPECS } from '../tools/index'
 import type { Role } from '../types'
 
@@ -57,13 +59,13 @@ describe('roles as data: zero behaviour change', () => {
     for (const r of ROLES) for (const t of ['light', 'standard', 'thorough', 'core'] as const) for (const n of [0, 1, 2]) for (const unit of [undefined, { root: 'u', routing: { [r]: { model: 'opus' } } }])
       expect(JSON.parse(JSON.stringify(routeOf(d, r, t, n, unit)))).toEqual(GOLD.routes[`${r}/${t}/${n}/${unit ? 'unit' : '-'}`])
   })
-  test('golden: fixture configs resolve unchanged (roles.custom is the one new key)', async () => {
+  test('golden: fixture configs resolve unchanged (B16: the profile took types, tdd, review, lanes, roles.custom and limits.testerRounds; profile and limits.specAccepts are new)', async () => {
     const L = (name: string, trust: 'user' | 'repo', value: unknown) => ({ name, trust, value })
     const sets: Record<string, any[]> = { none: [], user: [L('u', 'user', { mcpAllow: ['mcp__a__b'], concurrency: { default: 2 }, roles: { worker: { byRisk: { light: { model: 'sonnet' } } } } })],
       both: [L('u', 'user', { mcpAllow: ['mcp__a__b'], units: [{ root: 'a', knownRed: ['x', 'y'] }] }), L('r', 'repo', { strictness: 'strict', roles: { tester: { byRisk: { core: { effort: 'low' } } } }, units: [{ root: 'a', knownRed: ['x', 'z'] }], bogus: 1 })] }
     for (const [n, s] of Object.entries(sets)) {
-      const r = resolve(s), { custom, ...roles } = r.config.roles, { lessons, ...rest } = r.config
-      expect(custom).toEqual({}); expect(lessons.passesPerDay).toBe(4); expect(JSON.parse(JSON.stringify({ config: { ...rest, roles }, diagnostics: r.diagnostics }))).toEqual(GOLD.resolved[n])
+      const r = resolve(s), { roles, lessons, ...rest } = r.config
+      expect(lessons.passesPerDay).toBe(4); expect(JSON.parse(JSON.stringify({ config: { ...rest, roles }, diagnostics: r.diagnostics }))).toEqual(GOLD.resolved[n])
     }
   })
   test('write scope: globs under the tree; built-ins are ** or none', async () => {
@@ -75,6 +77,7 @@ describe('roles as data: zero behaviour change', () => {
 })
 
 const AUD = { description: 'checks a change for risks', prompt: 'Read the files named and list the risks you see.', tools: ['Read', 'mcp__cadre__inspect', 'mcp__cadre__report'] }
+const AUDR = { ...AUD, network: 'off', write: [], ttl: '5m', onSilent: 'block', report: { outcomes: [], fields: { answer: { text: 2000 }, citations: { list: 30 } }, required: ['answer'] } }   // the same role as a profile role (the user layer's inline profile)
 describe('exit rule 6: no spec can drop an exit tool', () => {
   test('every built-in passes; naming an exit tool in disallowedTools is refused for each built-in and a custom shape', async () => {
     for (const r of ROLES) { expect(exitIssue(ROLES_DEFAULT[r])).toBeNull(); for (const t of EXIT) expect(exitIssue({ ...ROLES_DEFAULT[r], disallowedTools: [t] })).toContain(t) }
@@ -83,51 +86,32 @@ describe('exit rule 6: no spec can drop an exit tool', () => {
   test('a tools list that names some exit tools must name all; one that names none is fine (they are added)', async () => {
     expect(exitIssue({ tools: ['Read', 'SubagentHandback'] })).toContain('StructuredOutput'); expect(exitIssue({ tools: ['Read', ...EXIT] })).toBeNull(); expect(exitIssue({ tools: ['Read'] })).toBeNull()
   })
-  test('refused at load: roles.custom with a bad spec is dropped with a diagnostic; a good one loads', async () => {
-    const L = (v: unknown) => [{ name: 'u', trust: 'user' as const, value: { roles: { custom: v } } }]
-    const bad = resolve(L({ x: { ...AUD, disallowedTools: ['SubagentHandback'] } })); expect(bad.config.roles.custom).toEqual({}); expect(bad.diagnostics.join()).toContain('SubagentHandback')
-    expect(resolve(L({ auditor: AUD })).config.roles.custom).toEqual({ auditor: AUD })
-    for (const v of [{ x: null }, { x: { tools: {} } }, { x: { disallowedTools: 'Bash' } }, { x: [] }, []]) { const r = resolve(L(v)); expect(r.config.roles.custom).toEqual({}); expect(r.diagnostics.join()).toContain('roles.custom') }
-    expect(resolve([{ name: 'r', trust: 'repo', value: { roles: { custom: { auditor: AUD } } } }]).config.roles.custom).toEqual({ auditor: AUD })   // read-only: the repo file may add it
-  })
-  test('fixed rows: the exit tools and the write scopes; REG has roles.custom', async () => {
-    expect(fixedRules().map(r => r[0])).toEqual(['fixed.exitTools', 'fixed.writeScope']); expect(fixedRules()[1][1]).toBe('worker **, tester **, reviewer none, explorer none, planner none, specifier none'); expect(REG['roles.custom'].open).toBe(true)
+  test('fixed rows: the exit tools and the write scopes', async () => {
+    expect(fixedRules().map(r => r[0])).toEqual(['fixed.exitTools', 'fixed.writeScope']); expect(fixedRules()[1][1]).toBe('worker **, tester **, reviewer none, explorer none, planner none, specifier none')
   })
 })
 
-// ---- custom roles (slice 5) ----
-describe('custom roles: the load checks', () => {
-  const U = (c: Record<string, unknown>) => resolve([{ name: 'u', trust: 'user', value: { roles: { custom: { x: c } } } }]), R = (c: Record<string, unknown>) => resolve([{ name: 'r', trust: 'repo', value: { roles: { custom: { x: c } } } }])
-  test('only whitelisted fields: permissionMode, hooks, mcpServers, isolation, memory, skills, background are refused at load', async () => {
-    for (const k of ['permissionMode', 'hooks', 'mcpServers', 'isolation', 'memory', 'skills', 'background']) { const r = U({ ...AUD, [k]: 'x' }); expect(r.config.roles.custom).toEqual({}); expect(r.diagnostics.join()).toContain(`${k}: not a role field`) }
+// ---- roles of a profile's own: the load checks (core/roles.customIssue; the closed key set and the layers are tests/profile.test.ts) ----
+describe('roles of a profile\'s own: the load checks', () => {
+  test('known tools, globs, limits, no built-in name; a good spec passes', async () => {
+    expect(customIssue('x', { ...AUD, tools: [...AUD.tools, 'Write'], write: ['src/**'], model: 'sonnet', effort: 'low', maxTurns: 5 })).toBeNull()
+    for (const c of [{ tools: [...AUD.tools, 'Nope'] }, { tools: ['Read'] }, { write: ['/etc/*'] }, { write: ['../x'] }, { maxTurns: 0 }, { effort: 'max2' }, { network: 'maybe' }, { tools: [...AUD.tools, 'WebFetch'] }]) expect(customIssue('x', { ...AUD, ...c })).not.toBeNull()
+    for (const n of ['worker', 'reviewer', 'explorer']) expect(customIssue(n, AUD)).toContain('built-in')
+    expect(customIssue('x', { ...AUD, disallowedTools: ['StructuredOutput'] })).toContain('StructuredOutput'); expect(customIssue('x', { ...AUD, tools: [...AUD.tools, 'SubagentHandback'] })).toContain('StructuredOutput')
     expect(Object.keys(agentSpec('x', { ...AUD, permissionMode: 'bypass' })).sort()).toEqual(['description', 'name', 'prompt', 'tools'])   // the AgentSpec is picked, never spread
     expect(agentSpec('x', AUD).tools).toContain('mcp__cadre__report')
   })
-  test('user layer: known tools, globs, limits, no built-in name, a gated model; a good spec loads', async () => {
-    expect(U({ ...AUD, tools: [...AUD.tools, 'Write'], write: ['src/**'], model: 'sonnet', effort: 'low', maxTurns: 5 }).diagnostics).toEqual([])
-    for (const c of [{ tools: [...AUD.tools, 'Nope'] }, { tools: ['Read'] }, { write: ['/etc/*'] }, { write: ['../x'] }, { maxTurns: 0 }, { effort: 'max2' }, { model: 'gpt-9' }, { network: 'maybe' }, { tools: [...AUD.tools, 'WebFetch'] }]) expect(U({ ...AUD, ...c }).config.roles.custom).toEqual(c.model ? { x: { ...AUD, ...c } } : {})
-    expect(U({ ...AUD, model: 'gpt-9' }).diagnostics.join()).toContain('roles.custom.x.model')   // modelIssues: refused at load, the drive does not start
-    for (const n of ['worker', 'reviewer', 'explorer']) expect(customIssue(n, AUD)).toContain('built-in')
-    expect(customIssue('x', { ...AUD, disallowedTools: ['StructuredOutput'] })).toContain('StructuredOutput'); expect(customIssue('x', { ...AUD, tools: [...AUD.tools, 'SubagentHandback'] })).toContain('StructuredOutput')
-  })
   test('a description over 300 bytes is refused; Bash needs network on and write **', async () => {
-    expect(U({ ...AUD, description: 'd'.repeat(301) }).diagnostics.join()).toContain('description is over 300 bytes'); expect(U({ ...AUD, description: 'd'.repeat(300) }).diagnostics).toEqual([])
+    expect(customIssue('x', { ...AUD, description: 'd'.repeat(301) })).toContain('description is over 300 bytes'); expect(customIssue('x', { ...AUD, description: 'd'.repeat(300) })).toBeNull()
     const B = { ...AUD, tools: [...AUD.tools, 'Bash'] }
-    for (const c of [{}, { network: 'on' }, { network: 'on', write: ['src/**'] }, { write: ['**'] }]) expect(U({ ...B, ...c }).diagnostics.join()).toContain('Bash can reach the network and write anywhere')
-    expect(U({ ...B, network: 'on', write: ['**'] }).diagnostics).toEqual([])
+    for (const c of [{}, { network: 'on' }, { network: 'on', write: ['src/**'] }, { write: ['**'] }]) expect(customIssue('x', { ...B, ...c })).toContain('Bash can reach the network and write anywhere')
+    expect(customIssue('x', { ...B, network: 'on', write: ['**'] })).toBeNull()
   })
-  test('repo layer: Write, Bash, network, a write glob or a leaky prompt is refused; read-only passes', async () => {
-    for (const c of [{ tools: [...AUD.tools, 'Write'] }, { tools: [...AUD.tools, 'Bash'] }, { network: 'on' }, { write: ['src/**'] }, { prompt: 'Run the hook and report.' }]) { const r = R({ ...AUD, ...c }); expect(r.config.roles.custom).toEqual({}); expect(r.diagnostics.join()).toContain('roles.custom.x') }
-    expect(R({ ...AUD, write: [], network: 'off' }).diagnostics).toEqual([])
-    const both = resolve([{ name: 'u', trust: 'user', value: { roles: { custom: { x: { ...AUD, tools: [...AUD.tools, 'Write'], write: ['**'] } } } } }, { name: 'r', trust: 'repo', value: { roles: { custom: { x: AUD, y: AUD } } } }])
-    expect(Object.keys(both.config.roles.custom)).toEqual(['y', 'x']); expect((both.config.roles.custom.x as any).write).toEqual(['**'])   // a name the user layer has stays the user's
-  })
-  test('the prompt: 2 KB passes, 2 KB + 1 byte is refused at load (both layers); a leaky one is refused; the leak list is the model-text one', async () => {
+  test('the prompt: 2 KB passes, 2 KB + 1 byte is refused; a leaky one is refused; the leak list is the model-text one', async () => {
     const at = (n: number) => 'a'.repeat(n)
-    expect(U({ ...AUD, prompt: at(PROMPT_CAP) }).diagnostics).toEqual([]); expect(R({ ...AUD, prompt: at(PROMPT_CAP) }).diagnostics).toEqual([])
-    for (const x of [U, R]) { const r = x({ ...AUD, prompt: at(PROMPT_CAP + 1) }); expect(r.config.roles.custom).toEqual({}); expect(r.diagnostics.join()).toContain('over 2048 bytes') }
-    expect(U({ ...AUD, prompt: 'é'.repeat(1025) }).diagnostics.join()).toContain('over 2048 bytes')   // bytes, not characters
-    expect(U({ ...AUD, prompt: 'See core/say.ts for ADR 0024.' }).diagnostics.join()).toContain('not how the tool works')
+    expect(customIssue('x', { ...AUD, prompt: at(PROMPT_CAP) })).toBeNull(); expect(customIssue('x', { ...AUD, prompt: at(PROMPT_CAP + 1) })).toContain('over 2048 bytes')
+    expect(customIssue('x', { ...AUD, prompt: 'é'.repeat(1025) })).toContain('over 2048 bytes')   // bytes, not characters
+    expect(customIssue('x', { ...AUD, prompt: 'See core/say.ts for ADR 0024.' })).toContain('not how the tool works')
   })
 })
 
@@ -137,7 +121,7 @@ async function boot($: any, on: any, reject: number) {
   const regs: any[] = [], spawned: any[] = []; let n = 0
   on('session.start', () => ({ cwd: '/work' })); on('session.cwd', () => ({ value: '/work' })); on('session.root', () => ({ value: '/work' })); on('store.set', () => ({ value: undefined }))
   on('env.get', ($: any, e: any) => ({ value: e.name === 'CADRE_STORE' ? 'memory' : undefined })); on('session.version', () => ({ value: { version: '2.1.299' } })); on('store.get', ($: any, e: any) => ({ value: e.key === 'cadre:setup' ? { cc: '2.1.299' } : undefined }))
-  on('fs.read', ($: any, e: any) => ({ value: String(e.path).endsWith('.claude/cadre.json') ? JSON.stringify({ roles: { custom: { auditor: AUD } } }) : '{}' })); on('fs.stat', () => ({ value: undefined })); on('command.register', () => ({ value: undefined })); on('env.set', () => ({ value: undefined }))
+  on('fs.read', ($: any, e: any) => ({ value: String(e.path).endsWith('.claude/cadre.json') ? JSON.stringify({ profile: { schema: 2, roles: { auditor: AUDR } } }) : '{}' })); on('fs.stat', () => ({ value: undefined })); on('command.register', () => ({ value: undefined })); on('env.set', () => ({ value: undefined }))
   on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } })); on('fs.write', () => ({ value: undefined })); on('ui.log', () => ({ value: undefined })); on('ui.toast', () => ({ value: undefined })); on('tool.register', () => ({ value: undefined })); on('tool.list', () => ({ value: [] }))
   on('agent.register', ($: any, e: any) => { regs.push(e); if (n++ < reject) throw new Error('not bound yet'); return { value: undefined } })
   on('agent.spawn', ($: any, e: any) => { spawned.push(e); return { model: 'haiku' } }); on('turn.start', ($: any, e: any) => e); mock.clock(on)
@@ -145,7 +129,7 @@ async function boot($: any, on: any, reject: number) {
   const spawn = async () => $.agent.spawn({ prompt: 'check the diff', subagentType: 'cadre:auditor' }) as Promise<any>
   return { regs, spawned, spawn }
 }
-describe('custom roles: registration and spawn', () => {
+describe('roles of a profile\'s own: registration and spawn', () => {
   test('registered at session start with the whitelisted fields; a same-turn spawn is denied, one from a later turn is started as cadre:auditor', ENGINE, async ($, on) => {
     const { regs, spawned, spawn } = await boot($, on, 0)
     expect(regs.length).toBe(1); expect(regs[0]).toMatchObject({ name: 'auditor', tools: AUD.tools }); expect(Object.keys(regs[0]).sort()).toEqual(['description', 'name', 'prompt', 'tools'])
@@ -173,13 +157,13 @@ describe('custom roles: registration and spawn', () => {
 })
 
 // ---- a spawned custom role runs under its own spec: its tools are the allowlist, its write globs go through writes() ----
-describe('custom roles: the guard enforces the role\'s own spec', () => {
+describe('profile roles: the guard enforces the role\'s own spec', () => {
   const EDITOR = { description: 'edits the sources', prompt: 'Fix what the request names, inside src.', tools: ['Read', 'Edit', 'mcp__cadre__report'], write: ['src/**'] }
   const WEB = { ...AUD, tools: [...AUD.tools, 'WebFetch'], network: 'on' }
   async function mk(spec: any) {
     const h: any = fakeHost(), E = ['/', '/x', '/x/repo', '/x/repo/src', '/x/repo/docs', '/x/repo/src/a.ts', '/x/repo/docs/a.md', '/x/repo/.git']
     h.stat = async (p: string, o: any) => (E.includes(norm(p)) ? { kind: 'file', realPath: o?.resolve ? norm(p) : undefined } : undefined)
-    h.config = async () => ({ strictness: 'strict', roles: { custom: { r: spec } } })
+    setRoles({ ...PROFILE_ROLES, r: spec })   // the profile's own role (each test below puts the table back)
     await setPolicy(h, { repo: '/x/repo', wtRoot: '/x', home: '/hm/u' }); await h.ui.update((u: any) => ({ ...u, asks: { ag: { id: 'ask-1', role: 'r', q: 'q', k: 0 } } }))
     return (e: any) => guard(h, { agentId: 'ag', ...e }, (x: any) => ({ ok: x.tool })) as Promise<any>
   }
@@ -190,12 +174,12 @@ describe('custom roles: the guard enforces the role\'s own spec', () => {
     expect((await call({ tool: 'Edit', file_path: '/x/repo/.git/x' })).deny).toBeDefined()
     expect((await call({ tool: 'Bash', command: 'ls' })).deny).toContain('not available')
     expect(await call({ tool: 'mcp__cadre__report' })).toEqual({ ok: 'mcp__cadre__report' })
-    expect((await call({ tool: 'Write', file_path: '/x/repo/src/a.ts' })).deny).toContain('not available')
+    expect((await call({ tool: 'Write', file_path: '/x/repo/src/a.ts' })).deny).toContain('not available'); setRoles(PROFILE_ROLES)
   })
   test('a read-only role is refused Write; network off refuses WebFetch, network on allows it', async () => {
     const ro = await mk(AUD); expect((await ro({ tool: 'Write', file_path: '/x/repo/src/a.ts' })).deny).toContain('not available'); expect((await ro({ tool: 'WebFetch' })).deny).toContain('not available')
     expect(await (await mk(WEB))({ tool: 'WebFetch' })).toEqual({ ok: 'WebFetch' })
-    expect((await (await mk({ ...WEB, network: 'off' }))({ tool: 'WebFetch' })).deny).toContain('not available')   // a spec that slipped past load is still refused
+    expect((await (await mk({ ...WEB, network: 'off' }))({ tool: 'WebFetch' })).deny).toContain('not available'); setRoles(PROFILE_ROLES)   // a spec that slipped past load is still refused
   })
 })
 
@@ -222,7 +206,7 @@ describe('B5: an agent that needs something it cannot get reports blocked; nobod
       expect(reportRefusal({ schemaVersion: 1, ...r })).toMatchObject({ code: 'shape' })
     expect(reportRefusal({ schemaVersion: 1, role: 'worker', outcome: 'blocked', summary: 'x', reason: 'needs a package' })).toBeNull()
     for (const r of Object.values(ROLES_DEFAULT)) expect(r).not.toHaveProperty('canRequest')
-    expect(customIssue('x', { ...AUD, canRequest: ['explore'] })).toContain('not a role field')
+    expect(check({ roles: { x: { ...AUDR, canRequest: ['explore'] } } })).toContain('canRequest: unknown key')
     const rep = SPECS.find(t => t.name === 'report')!   // the tool schema the model sees offers no request either
     expect((rep.inputSchema as any).properties.outcome.enum).toEqual(['done', 'blocked', 'spec_change'])
     expect((rep.inputSchema as any).properties).not.toHaveProperty('request')
@@ -230,7 +214,6 @@ describe('B5: an agent that needs something it cannot get reports blocked; nobod
 })
 
 // ---- S4: the work roles are the profile's data; one table feeds the agent files, the report form, the exit rule and the main-agent guard ----
-import { roles as PROFILE_ROLES } from '../profiles/default'
 import { roleSpecs, setRoles } from '../core/roles'
 import { mainAgent } from '../core/plantools'
 import { PROMPTS } from '../agents/prompts'

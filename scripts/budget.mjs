@@ -57,7 +57,7 @@ const exitsIn = fs => fs.flatMap(f => (existsSync(f) ? readFileSync(f, 'utf8') :
 const modelExits = exitsIn([...Object.keys(modules), ...Object.keys(profiles)].filter(f => !/^core\/say\.ts$|^types\//.test(f)))
 
 // ---- boundary lint (plan 7): an explicit file list, no name heuristic. (a) no .stdout/.stderr read outside a modelData(/log( call; (b) no RegExp literal and no new RegExp( ----
-const NO_REGEX = ['core/gate.ts', 'core/junit.ts', 'core/tdd.ts', 'core/flags.ts', 'core/decide.ts', 'core/close.ts', ...Object.keys(profiles)], NO_STDIO = ['core/gate.ts', 'core/tdd.ts']
+const NO_REGEX = ['core/gate.ts', 'core/junit.ts', 'core/tdd.ts', 'core/flags.ts', 'core/decide.ts', 'core/close.ts', 'core/pipeline.ts', 'core/profile.ts', 'core/machine.ts', ...Object.keys(profiles)], NO_STDIO = ['core/gate.ts', 'core/tdd.ts']
 const blank = l => l.replace(/\/\/ .*$/, '').replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g, '""')   // strings out: a "/" inside one is no regex
 const lines = f => (existsSync(f) ? readFileSync(f, 'utf8') : readFileSync(join(root, f), 'utf8')).split('\n').map((l, i) => [`${f}:${i + 1}`, l])
 const rxIn = fs => fs.flatMap(f => lines(f).filter(([, l]) => /(?:[=(,:!&|?]|\.test\(|\.replace\(|\breturn)\s*\/[^/*\s]|new RegExp\(/.test(blank(l))).map(([w, l]) => `${w}: ${l.trim().slice(0, 100)}`)), regexHits = rxIn(NO_REGEX)

@@ -1,7 +1,7 @@
 // Test world for native/dispatch tests: fakeHost + MemoryStore + a recording git `run` + a counter for rand (fakeHost's is constant).
 import type { Host } from '../../../types'
 import { MemoryStore } from '../../../task-management/adapters/memory/store'
-import { defaults } from '../../../task-management/registry'
+import { types as defaults } from '../../support'
 import { fakeHost } from '../../support'
 import { dispatch, storeOf } from '../../../core/dispatch'
 import { viaEngine } from '../engine'

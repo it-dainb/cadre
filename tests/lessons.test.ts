@@ -28,7 +28,7 @@ async function lab(o: { files?: Record<string, string>; cwd?: string; store?: Wo
 describe('lessons: inputs', () => {
   test('each new event yields an input with a durable key; a secret is scrubbed; a leak word is refused', async () => {
     const { h } = await lab()
-    await emit(h, 'decision.answered', { choice: 'accept', id: 'plan:1' }); await emit(h, 'config.changed', { key: 'review.maxRework', from: 3, to: 5 }); await emit(h, 'task.retried', { taskId: 't1' })
+    await emit(h, 'decision.answered', { choice: 'accept', id: 'plan:1' }); await emit(h, 'config.changed', { key: 'limits.rebaseRounds', from: 3, to: 5 }); await emit(h, 'task.retried', { taskId: 't1' })
     await emit(h, 'task.cancelled', { taskId: 't2' }); await emit(h, 'amend.recorded', { taskId: 't3', reason: 'wrong path' }); await emit(h, 'flag.raised', { taskId: 't1', flag: 'blocked' })
     const d = await read(h)
     expect(d.inbox.map(i => i.k.split(':')[0]).sort()).toEqual(['amend', 'answer', 'cancel', 'config', 'flag', 'retry'])

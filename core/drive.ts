@@ -4,8 +4,7 @@
 // branch, containment broke, a settings file changed, a bound. `paused` = waiting on a gate (lifts by itself); `stopped` = needs `drive resume`.
 import type { Hook, Host, Snapshot, StopCause } from '../types'
 import { StoreError, type TaskStore } from '../task-management/store'
-import { pipeOf } from '../task-management/registry'
-import { DRIVE, ROUTES, cfgOf, mirror, registryOf, storeOf } from './dispatch'
+import { DRIVE, ROUTES, cfgOf, mirror, storeOf } from './dispatch'
 import { fnv1a64, idleOf, modelView, safe, sessionOf } from './board'
 import { emit, subscribe } from './events'
 import { RUNS, modOn, nextAction, spawnable } from './render'
@@ -269,10 +268,10 @@ export async function redFix(h: Host, epicId: string, why: string): Promise<bool
   const s = await h.board.read(); if (!s.drive.on || s.drive.stopped) return false
   const store = await storeOf(h), epic = await store.get(epicId)
   if (epic.meta['cadre.redFix']) { if (s.drive.mode === 'yolo') await stop(h, 'integration failed twice'); return false }
-  const reg = await registryOf(h), t = await store.createDraft({ title: 'Fix the failing integration checks', description: `Merging the plan into dev failed its checks. Make them pass without changing what the plan delivers.\n${why.slice(0, 1200)}`, type: 'bug', parent: epicId,
+  const t = await store.createDraft({ title: 'Fix the failing integration checks', description: `Merging the plan into dev failed its checks. Make them pass without changing what the plan delivers.\n${why.slice(0, 1200)}`, type: 'bug', parent: epicId,
     meta: { 'cadre.lane': 'lite', 'cadre.changelog': JSON.stringify({ none: true, reason: 'fixes the integration of this plan' }) } })
   await store.approve([t.id]); await store.setMeta(epicId, { 'cadre.redFix': t.id }, 'cadre')
-  await mirror(h, store, reg); await apply(h, { kind: 'approve', id: t.id, at: await h.now(), actor: 'mod' }, pipeOf(reg))
+  await mirror(h, store); await apply(h, { kind: 'approve', id: t.id, at: await h.now(), actor: 'mod' })
   await decided(h, 'integration', `integration failed; fix task ${t.id} added: ${why.split('\n')[0].slice(0, 160)}`, t.id); return true
 }
 

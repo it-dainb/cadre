@@ -4,6 +4,7 @@
 import type { Host } from '../types'
 import type { Config } from '../config/defaults'
 import type { Run } from './lifecycle'
+import { roleSpecs } from './roles'
 
 export interface Want { id: string; role: string; model?: string; unit?: string; head?: boolean }   // role 'claim' = a new task
 const held = new Map<string, Want>()   // picks the spawner has taken and not yet started: they count like running ones
@@ -21,7 +22,7 @@ export function modelIssues(c: Config): string[] {
     for (const [k, x] of Object.entries(v?.byRisk ?? {}) as [string, any][]) cells.push([`roles.${r}.byRisk.${k}.model`, x.model], [`roles.${r}.byRisk.${k}.escalate.model`, x.escalate?.model])
   }
   cells.push(['lessons.model', c.lessons?.model])
-  for (const [n, s] of Object.entries(c.roles.custom) as [string, any][]) cells.push([`roles.custom.${n}.model`, s?.model])   // a custom role's model is gated like any other
+  for (const [n, s] of Object.entries(roleSpecs())) cells.push([`profile roles.${n}.model`, s.model])   // a role of the profile names its own model: gated like any other
   for (const u of c.units ?? [] as any[]) for (const [r, x] of Object.entries(u?.routing ?? {}) as [string, any][]) cells.push([`units ${u.root}: routing.${r}.model`, x?.model])
   return cells.filter(([, m]) => typeof m === 'string' && !MODEL_OK.test(m) && !c.models.allow.includes(m)).map(([k, m]) => unknownModel(k, String(m)))
 }

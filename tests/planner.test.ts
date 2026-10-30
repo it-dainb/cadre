@@ -23,7 +23,7 @@ async function ms(o: { planner?: 'agent' | 'main'; maxRounds?: number } = {}) {
   if (o.maxRounds) cfg.planner.maxRounds = 2
   const w = await world({ config: cfg }), submitted: string[] = [], spawned: any[] = []
   Object.assign(w.h, { submit: async (t: string) => { submitted.push(t) }, usage: async () => ({ cost: { usd: 1 } }) })
-  const d: Deps = { store: w.store, cfg, reg: cfg.types as any, root: '/repo', home: '/hm/u', wtRoot: '/wt', key: 'repo-1', actor: 'cadre/u/a', session: 's-1' }
+  const d: Deps = { store: w.store, cfg, root: '/repo', home: '/hm/u', wtRoot: '/wt', key: 'repo-1', actor: 'cadre/u/a', session: 's-1' }
   let k = 0
   const engine = Object.assign(async (e: any) => (spawned.push(e), { agentId: `ag${++k}`, model: 'claude-sonnet-x' }), { origin: { plugin: 'cadre' } })
   const main = Object.assign(async (e: any) => (spawned.push(e), { agentId: `ag${++k}` }), { origin: { plugin: 'engine' } })

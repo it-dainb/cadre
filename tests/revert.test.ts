@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { fakeHost } from './support'
 import { defaults } from '../config/index'
-import { ROUTES, dispatch, registryOf, snapOf } from '../core/dispatch'
+import { ROUTES, dispatch, snapOf } from '../core/dispatch'
 import { parse, route, run } from '../commands/cadre'
 import { RevertRefusal, planOf } from '../core/revert'
 
@@ -63,7 +63,7 @@ describe('H9 revert flow (core/revert; git in tests/git/revert.test.mjs)', () =>
     const { h, epic, t1, press, ask, store } = await world()
     await press(epic); await ask(`revert:${epic}`, 'c'); await ask(`revert-sure:${epic}`, 'y')
     expect(await planOf(h, t1.id).then(() => 'ok', (e: RevertRefusal) => e.code)).toBe('already-reverted'); expect((await store.get(t1.id)).meta['cadre.reverted']).toBeTruthy()
-    expect(snapOf(await store.get(t1.id), await registryOf(h)).flags).toEqual(['reverted'])   // the board derives the flag from the store, so a rebuild keeps it
+    expect(snapOf(await store.get(t1.id)).flags).toEqual(['reverted'])   // the board derives the flag from the store, so a rebuild keeps it
   })
   test('a throw after the revert landed (the offer) cannot leave the target revertable again', async () => {
     const { h, t1, press, ask, store } = await world(), run = h.run; let landed = false

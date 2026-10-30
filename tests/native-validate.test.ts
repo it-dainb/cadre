@@ -1,11 +1,10 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { defaults } from '../task-management/registry'
 import { capped, clearRetries, missingLine, missingList, missingOf, refuse, validateFields, reportRefusal } from '../core/validate'
 const validateReport = (r: any): string | null => reportRefusal(r)?.msg ?? null
 import { FULL } from './fixtures/native/world'
 import { fakeHost } from './support'
 
-const reg = defaults(), v = (m: Record<string, unknown>) => validateFields(m, reg)
+const v = (m: Record<string, unknown>) => validateFields(m)
 const draft = (o: Record<string, any> = {}) => ({ id: 'a', title: 't', description: '', type: 'feature', category: 'draft' as const, nativeStatus: 'draft', priority: 2 as const, deps: [], labels: [], updatedAt: '', meta: {}, ...o })
 
 describe('validateFields: only malformed PRESENT fields, with an example', () => {
@@ -24,15 +23,15 @@ describe('validateFields: only malformed PRESENT fields, with an example', () =>
 
 describe('completeness (enforced at approve) and the missing line', () => {
   test('missingOf: scenarios, changelog, interface (contract-required types only), package; spikes need nothing', () => {
-    expect(missingOf(draft(), reg)).toEqual(['scenarios', 'changelog', 'interface', 'package'])
-    expect(missingOf(draft({ type: 'docs' }), reg)).toEqual(['scenarios', 'changelog', 'package'])
-    expect(missingOf(draft({ type: 'spike' }), reg)).toEqual([])
-    expect(missingOf(draft({ acceptance: 'S1: …', design: '{}', meta: { 'cadre.changelog': '{}', 'cadre.package': '.' } }), reg)).toEqual([])
-    expect(missingOf(draft({ type: 'custom' }), reg)).toEqual([])
+    expect(missingOf(draft())).toEqual(['scenarios', 'changelog', 'interface', 'package'])
+    expect(missingOf(draft({ type: 'docs' }))).toEqual(['scenarios', 'changelog', 'package'])
+    expect(missingOf(draft({ type: 'spike' }))).toEqual([])
+    expect(missingOf(draft({ acceptance: 'S1: …', design: '{}', meta: { 'cadre.changelog': '{}', 'cadre.package': '.' } }))).toEqual([])
+    expect(missingOf(draft({ type: 'custom' }))).toEqual([])
   })
   test('missingList / missingLine: "id: a, b" joined by "; ", ≤200 chars, empty when approvable', () => {
-    expect(missingList([], reg)).toEqual(['tasks'])
-    const l = missingList([draft({ id: 'a1' }), draft({ id: 'a2', type: 'spike' })], reg); expect(l).toEqual(['a1: scenarios, changelog, interface, package'])
+    expect(missingList([])).toEqual(['tasks'])
+    const l = missingList([draft({ id: 'a1' }), draft({ id: 'a2', type: 'spike' })]); expect(l).toEqual(['a1: scenarios, changelog, interface, package'])
     expect(missingLine(l)).toBe('missing: a1: scenarios, changelog, interface, package'); expect(missingLine([])).toBe('')
     expect(missingLine(Array(40).fill('a1: scenarios, changelog')).length).toBe(200)
   })

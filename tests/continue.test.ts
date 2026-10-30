@@ -13,7 +13,7 @@ import { txt } from '../ui/model'
 import { resumeBanner } from '../ui/index'
 import { defaults } from '../config/index'
 import { MemoryStore } from '../task-management/adapters/memory/store'
-import { defaults as types } from '../task-management/registry'
+import { types } from './support'
 import { repoKeyOf } from '../commands/init'
 import { fakeHost, task } from './support'
 

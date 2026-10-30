@@ -19,6 +19,8 @@ let TABLE: Record<string, ProfileRole> = defaultRoles
 export const setRoles = (r: Record<string, ProfileRole>): void => { TABLE = r }
 export const roleSpec = (role: string): ProfileRole | undefined => TABLE[role]
 export const roleSpecs = (): Record<string, ProfileRole> => TABLE
+// the roles of the profile that are not the default profile's: registered with the engine at session start (hooks/register), spawned by their step (or asked by main)
+export const extraRoles = (): [string, ProfileRole][] => Object.entries(TABLE).filter(([n]) => !(n in defaultRoles))
 // Exit rule 1 and 6: the engine's exit tools are never refused; no spec may disallow them or list some of them and not all (an allowlist that drops one)
 export const EXIT = ['SubagentHandback', 'StructuredOutput']
 export const exitIssue = (s: { tools?: readonly string[]; disallowedTools?: readonly string[] }): string | null => {
@@ -31,18 +33,16 @@ export const writes = (spec: Pick<RoleSpec, 'write'>, rel: string): boolean => s
 export const fixedRules = (): [string, string, string][] => [['fixed.exitTools', EXIT.join(', '), 'tools every agent can always call to end: no role may drop them'],
   ['fixed.writeScope', (Object.keys(ROLES_DEFAULT) as Role[]).map(r => `${r} ${ROLES_DEFAULT[r].write.join(' ') || 'none'}`).join(', '), 'where each agent role may write (inside its own working directory, never the protected paths)']]
 
-// ---- custom roles (roles.custom): a spec is checked at load; the user layer may name any known tool, the repo layer only read-only ones ----
+// ---- roles of a profile's own: a spec is checked at load (core/profile); any layer may name any known tool ----
 export const PROMPT_CAP = 2048, DESC_CAP = 300   // bytes (A2), both layers
-const FIELDS = ['description', 'prompt', 'tools', 'disallowedTools', 'model', 'effort', 'maxTurns', 'write', 'network']   // never permissionMode, hooks, mcpServers, isolation, memory, skills, background
 const KNOWN = ['Read', 'Write', 'Edit', 'NotebookEdit', 'Grep', 'Glob', 'Bash', 'PowerShell', 'Monitor', 'TodoWrite', 'WebFetch', 'WebSearch', R, C, I]
 const strs = (v: unknown) => v === undefined || (Array.isArray(v) && v.every(x => typeof x === 'string'))
-// null = fine, else why. `repo`: the spec comes from the repo file
-export function customIssue(name: string, s: any, repo?: object): string | null {
-  const bad = Object.keys(s && typeof s === 'object' ? s : {}).find(k => !FIELDS.includes(k)), t: string[] = s?.tools ?? []
+// null = fine, else why. The closed key set is the profile schema's (core/profile): never permissionMode, hooks, mcpServers, isolation, memory, skills, background
+export function customIssue(name: string, s: any): string | null {
+  const t: string[] = s?.tools ?? []
   if (!/^[a-z][a-z0-9-]{0,30}$/.test(name)) return 'name: lower-case letters, digits and -'
   if (name in ROLES_DEFAULT) return 'name: a built-in role has it'
   if (!s || typeof s !== 'object' || Array.isArray(s)) return 'expected a role spec object'
-  if (bad) return `${bad}: not a role field`
   if (!s.description || typeof s.description !== 'string' || !s.prompt || typeof s.prompt !== 'string') return 'a role needs a description and a prompt, both text'
   if (!strs(s.tools) || !strs(s.disallowedTools) || !strs(s.write)) return 'tools, disallowedTools and write: expected lists of text'
   if (new TextEncoder().encode(s.description).length > DESC_CAP) return `the description is over ${DESC_CAP} bytes`
@@ -58,10 +58,9 @@ export function customIssue(name: string, s: any, repo?: object): string | null 
   if (s.model !== undefined && typeof s.model !== 'string') return 'model: expected text'
   if (t.includes('Bash') && (s.network !== 'on' || !s.write?.includes('**'))) return 'Bash can reach the network and write anywhere: drop Bash, or set network on and write ["**"]'
   if (s.network !== 'on' && t.some(x => x === 'WebFetch' || x === 'WebSearch')) return 'tools: the web tools need network "on"'
-  if (repo && (s.write?.length || s.network === 'on' || t.some(x => ![ 'Read', I, R].includes(x)))) return 'the repo file may only define read-only roles: write [], network off, tools Read, inspect, report'
   return exitIssue(s)
 }
-// the AgentSpec handed to the engine: the whitelisted fields only, and the report format for a role that answers like an explorer
+// the AgentSpec handed to the engine: the whitelisted fields only, and the report format for a role that answers like an explorer (no outcomes)
 const FOOT = 'Finish by calling report once: {"schemaVersion":1,"role":"explorer","answer":"<your answer>","citations":[{"path":"src/a.ts","line":1}]}'
-export const agentSpec = (name: string, s: any) => ({ name, description: modelText('agent-file', s.description), prompt: modelText('agent-file', `${s.prompt}\n\n${FOOT}`), tools: [...s.tools] as string[],
+export const agentSpec = (name: string, s: any) => ({ name, description: modelText('agent-file', s.description), prompt: modelText('agent-file', s.report?.outcomes?.length ? s.prompt : `${s.prompt}\n\n${FOOT}`), tools: [...s.tools] as string[],
   ...(s.disallowedTools?.length ? { disallowedTools: [...s.disallowedTools] as string[] } : {}), ...(s.model ? { model: s.model as string } : {}), ...(s.effort ? { effort: s.effort as string } : {}), ...(s.maxTurns ? { maxTurns: s.maxTurns as number } : {}) })

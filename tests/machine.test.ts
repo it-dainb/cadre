@@ -1,15 +1,13 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { apply, epicNext, pendingSkips, transition } from '../core/machine'
 import type { MEvent, MKind } from '../core/machine'
-import { defaults, pipeOf } from '../task-management/registry'
 import { emptySnapshot } from '../core/board'
 import { fakeHost, task } from './support'
 import type { Category, Snapshot } from '../types'
 
-const pipe = pipeOf(defaults())
 const board = (...tasks: ReturnType<typeof task>[]): Snapshot => ({ ...emptySnapshot('r'), tasks })
 const step = (s: Snapshot, id: string, kind: MKind, o: Partial<MEvent> = {}) => {
-  const r = transition(s, { kind, id, at: 5, ...o }, pipe)
+  const r = transition(s, { kind, id, at: 5, ...o })
   if (!r.ok) throw new Error(r.error)
   return r
 }
@@ -60,19 +58,19 @@ describe('legal-from table', () => {
   for (const kind of Object.keys(FROM) as MKind[]) {
     test(`${kind}: refused from every state outside its legal-from set`, async () => {
       for (const from of ALL.filter(c => !FROM[kind].includes(c))) {
-        const r = transition(board(task('a', { state: from, step: 'worker' })), { kind, id: 'a', at: 1, verdict: 'pass' }, pipe)
+        const r = transition(board(task('a', { state: from, step: 'worker' })), { kind, id: 'a', at: 1, verdict: 'pass' })
         expect(r.ok).toBe(false)
       }
     })
   }
   test('close needs review pass (or a spike report); verdict needs the reviewer step', async () => {
-    expect(transition(board(task('a', { state: 'review', step: 'reviewer' })), { kind: 'close', id: 'a', at: 1 }, pipe).ok).toBe(false)
-    expect(transition(board(task('a', { state: 'active', step: 'worker' })), { kind: 'close', id: 'a', at: 1 }, pipe).ok).toBe(false)
-    expect(transition(board(task('a', { state: 'review', step: 'merge' })), { kind: 'verdict', id: 'a', at: 1, verdict: 'pass' }, pipe).ok).toBe(false)
+    expect(transition(board(task('a', { state: 'review', step: 'reviewer' })), { kind: 'close', id: 'a', at: 1 }).ok).toBe(false)
+    expect(transition(board(task('a', { state: 'active', step: 'worker' })), { kind: 'close', id: 'a', at: 1 }).ok).toBe(false)
+    expect(transition(board(task('a', { state: 'review', step: 'merge' })), { kind: 'verdict', id: 'a', at: 1, verdict: 'pass' }).ok).toBe(false)
   })
   test('unknown task and an empty pipeline refuse with a reason', async () => {
-    expect(transition(board(), { kind: 'approve', id: 'zz', at: 1 }, pipe)).toEqual({ ok: false, error: 'unknown task zz' })
-    const r = transition(board(task('a', { type: 'nope' })), { kind: 'claim', id: 'a', at: 1 }, pipe)
+    expect(transition(board(), { kind: 'approve', id: 'zz', at: 1 })).toEqual({ ok: false, error: 'unknown task zz' })
+    const r = transition(board(task('a', { type: 'nope' })), { kind: 'claim', id: 'a', at: 1 })
     expect(r.ok === false && r.error).toContain('no pipeline')
   })
 })
@@ -108,7 +106,7 @@ describe('apply (commit + emit + stamp seq)', () => {
   test('commits the board, emits events into the ring, syncs board.seq', async () => {
     const h = fakeHost()
     await h.board.update(s => ({ ...s, epic: 'e1', tasks: [task('a', { state: 'draft' })] }))
-    const r = await apply(h, { kind: 'approve', id: 'a', at: 1, actor: 'human' }, pipe)
+    const r = await apply(h, { kind: 'approve', id: 'a', at: 1, actor: 'human' })
     expect(r.ok).toBe(true)
     const b = await h.board.read(), ring = await h.events.read()
     expect(b.tasks[0].state).toBe('todo')
@@ -119,7 +117,7 @@ describe('apply (commit + emit + stamp seq)', () => {
   test('H6: closing a conditional-blocks upstream done skips its dependant (board cancelled + task.skipped)', async () => {
     const h = fakeHost()
     await h.board.update(s => ({ ...s, epic: 'e1', tasks: [task('up', { state: 'review', step: 'merge' }), task('fix', { deps: [{ id: 'up', type: 'conditional-blocks' }] })] }))
-    expect((await apply(h, { kind: 'close', id: 'up', at: 1, actor: 'mod' }, pipe)).ok).toBe(true)
+    expect((await apply(h, { kind: 'close', id: 'up', at: 1, actor: 'mod' })).ok).toBe(true)
     expect((await h.board.read()).tasks.map(t => t.state)).toEqual(['done', 'cancelled'])
     expect((await h.events.read()).epics['e1'].some(e => e.type === 'task.skipped' && e.taskId === 'fix')).toBe(true)
   })
@@ -133,7 +131,7 @@ describe('apply (commit + emit + stamp seq)', () => {
   test('an illegal transition changes nothing and emits nothing', async () => {
     const h = fakeHost()
     await h.board.update(s => ({ ...s, tasks: [task('a', { state: 'done' })] }))
-    const r = await apply(h, { kind: 'claim', id: 'a', at: 1 }, pipe)
+    const r = await apply(h, { kind: 'claim', id: 'a', at: 1 })
     expect(r.ok).toBe(false)
     expect((await h.events.read()).seq).toBe(0); expect((await h.board.read()).seq).toBe(0)
   })

@@ -5,6 +5,7 @@
 // S1 exception, edited by hand: the worker, tester and planner prompts, the report schemas (no `request` outcome or field) and the resolved config (no `deps`, no `limits.helpers`) change with B5; nothing else differs
 // S4 exception, edited by hand (B9): the resolved config loses review.deepLabels, review.coreTask, review.coreDiff and review.tiers (the planner declares the risk); nothing else differs
 // S2 exception, edited by hand: the tester report's tests[] items are {path,name,ids} (B2: ids replace the scenario string; the schema now names the item fields) and the resolved config loses tdd.collectErrors (B14); nothing else differs
+// S5 exception, edited by hand: the config keys the profile took over (types, tdd, review, lanes, roles.custom, limits.testerRounds) are gone from the resolved config; `profile` and `limits.specAccepts` are new (B16)
 export default {
  "spec": {
   "base/worker": {
@@ -1168,91 +1169,9 @@ export default {
      "compactPct": 60
     },
     "sync": {},
-    "types": {
-     "feature": {
-      "commit": "feat",
-      "changelog": "Added",
-      "pipeline": [
-       "tester",
-       "red",
-       "worker",
-       "green",
-       "reviewer",
-       "merge"
-      ],
-      "contract": "required",
-      "tdd": true
-     },
-     "bug": {
-      "commit": "fix",
-      "changelog": "Fixed",
-      "pipeline": [
-       "tester",
-       "red",
-       "worker",
-       "green",
-       "reviewer",
-       "merge"
-      ],
-      "contract": "required",
-      "tdd": true
-     },
-     "refactor": {
-      "commit": "refactor",
-      "changelog": null,
-      "pipeline": [
-       "worker",
-       "green",
-       "reviewer",
-       "merge"
-      ],
-      "contract": "required"
-     },
-     "docs": {
-      "commit": "docs",
-      "changelog": null,
-      "pipeline": [
-       "worker",
-       "reviewer",
-       "merge"
-      ],
-      "contract": "none"
-     },
-     "test": {
-      "commit": "test",
-      "changelog": null,
-      "pipeline": [
-       "tester",
-       "reviewer",
-       "merge"
-      ],
-      "contract": "none"
-     },
-     "spike": {
-      "commit": null,
-      "changelog": null,
-      "pipeline": [
-       "explorer",
-       "report"
-      ],
-      "contract": "none"
-     }
-    },
     "units": [],
     "suites": {
      "integration": "all"
-    },
-    "tdd": {
-     "testerCommand": {
-      "use": true,
-      "adopt": true
-     }
-    },
-    "review": {
-     "coverage": {
-      "enforce": true
-     },
-     "maxRework": 3,
     },
     "limits": {
      "reportRetries": 3,
@@ -1263,16 +1182,12 @@ export default {
      "startFails": 3,
      "limitWaitMinutes": 15,
      "rebaseRounds": 2,
-     "testerRounds": 3
+     "specAccepts": 2
     },
     "lifecycle": {
      "firstOutputSec": 240,
      "staleMin": 45,
      "goneSec": 60
-    },
-    "lanes": {
-     "fullAt": 3,
-     "milestoneAt": 8
     },
     "planning": {
      "clarify": {
@@ -1326,7 +1241,8 @@ export default {
      "maxContextPct": 60,
      "cacheTtlMs": 3600000
     },
-    "disable": false
+    "disable": false,
+    "profile": "default"
    },
    "diagnostics": []
   },
@@ -1502,91 +1418,9 @@ export default {
      "compactPct": 60
     },
     "sync": {},
-    "types": {
-     "feature": {
-      "commit": "feat",
-      "changelog": "Added",
-      "pipeline": [
-       "tester",
-       "red",
-       "worker",
-       "green",
-       "reviewer",
-       "merge"
-      ],
-      "contract": "required",
-      "tdd": true
-     },
-     "bug": {
-      "commit": "fix",
-      "changelog": "Fixed",
-      "pipeline": [
-       "tester",
-       "red",
-       "worker",
-       "green",
-       "reviewer",
-       "merge"
-      ],
-      "contract": "required",
-      "tdd": true
-     },
-     "refactor": {
-      "commit": "refactor",
-      "changelog": null,
-      "pipeline": [
-       "worker",
-       "green",
-       "reviewer",
-       "merge"
-      ],
-      "contract": "required"
-     },
-     "docs": {
-      "commit": "docs",
-      "changelog": null,
-      "pipeline": [
-       "worker",
-       "reviewer",
-       "merge"
-      ],
-      "contract": "none"
-     },
-     "test": {
-      "commit": "test",
-      "changelog": null,
-      "pipeline": [
-       "tester",
-       "reviewer",
-       "merge"
-      ],
-      "contract": "none"
-     },
-     "spike": {
-      "commit": null,
-      "changelog": null,
-      "pipeline": [
-       "explorer",
-       "report"
-      ],
-      "contract": "none"
-     }
-    },
     "units": [],
     "suites": {
      "integration": "all"
-    },
-    "tdd": {
-     "testerCommand": {
-      "use": true,
-      "adopt": true
-     }
-    },
-    "review": {
-     "coverage": {
-      "enforce": true
-     },
-     "maxRework": 3,
     },
     "limits": {
      "reportRetries": 3,
@@ -1597,16 +1431,12 @@ export default {
      "startFails": 3,
      "limitWaitMinutes": 15,
      "rebaseRounds": 2,
-     "testerRounds": 3
+     "specAccepts": 2
     },
     "lifecycle": {
      "firstOutputSec": 240,
      "staleMin": 45,
      "goneSec": 60
-    },
-    "lanes": {
-     "fullAt": 3,
-     "milestoneAt": 8
     },
     "planning": {
      "clarify": {
@@ -1660,7 +1490,8 @@ export default {
      "maxContextPct": 60,
      "cacheTtlMs": 3600000
     },
-    "disable": false
+    "disable": false,
+    "profile": "default"
    },
    "diagnostics": []
   },
@@ -1836,76 +1667,6 @@ export default {
      "compactPct": 60
     },
     "sync": {},
-    "types": {
-     "feature": {
-      "commit": "feat",
-      "changelog": "Added",
-      "pipeline": [
-       "tester",
-       "red",
-       "worker",
-       "green",
-       "reviewer",
-       "merge"
-      ],
-      "contract": "required",
-      "tdd": true
-     },
-     "bug": {
-      "commit": "fix",
-      "changelog": "Fixed",
-      "pipeline": [
-       "tester",
-       "red",
-       "worker",
-       "green",
-       "reviewer",
-       "merge"
-      ],
-      "contract": "required",
-      "tdd": true
-     },
-     "refactor": {
-      "commit": "refactor",
-      "changelog": null,
-      "pipeline": [
-       "worker",
-       "green",
-       "reviewer",
-       "merge"
-      ],
-      "contract": "required"
-     },
-     "docs": {
-      "commit": "docs",
-      "changelog": null,
-      "pipeline": [
-       "worker",
-       "reviewer",
-       "merge"
-      ],
-      "contract": "none"
-     },
-     "test": {
-      "commit": "test",
-      "changelog": null,
-      "pipeline": [
-       "tester",
-       "reviewer",
-       "merge"
-      ],
-      "contract": "none"
-     },
-     "spike": {
-      "commit": null,
-      "changelog": null,
-      "pipeline": [
-       "explorer",
-       "report"
-      ],
-      "contract": "none"
-     }
-    },
     "units": [
      {
       "root": "a",
@@ -1917,18 +1678,6 @@ export default {
     "suites": {
      "integration": "all"
     },
-    "tdd": {
-     "testerCommand": {
-      "use": true,
-      "adopt": true
-     }
-    },
-    "review": {
-     "coverage": {
-      "enforce": true
-     },
-     "maxRework": 3,
-    },
     "limits": {
      "reportRetries": 3,
      "shapeRetries": 6,
@@ -1938,16 +1687,12 @@ export default {
      "startFails": 3,
      "limitWaitMinutes": 15,
      "rebaseRounds": 2,
-     "testerRounds": 3
+     "specAccepts": 2
     },
     "lifecycle": {
      "firstOutputSec": 240,
      "staleMin": 45,
      "goneSec": 60
-    },
-    "lanes": {
-     "fullAt": 3,
-     "milestoneAt": 8
     },
     "planning": {
      "clarify": {
@@ -2001,7 +1746,8 @@ export default {
      "maxContextPct": 60,
      "cacheTtlMs": 3600000
     },
-    "disable": false
+    "disable": false,
+    "profile": "default"
    },
    "diagnostics": [
     "r: bogus: unknown key"

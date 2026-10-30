@@ -14,7 +14,7 @@ const { integrateEpic, releaseDev } = await import('../../core/integrate.ts')
 const { mirror } = await import('../../core/dispatch.ts')
 const { skeleton } = await import('../../core/changelog.ts')
 const { MemoryStore } = await import('../../task-management/adapters/memory/store.ts')
-const { defaults: types } = await import('../../task-management/registry.ts')
+const { types: dt } = await import('../../profiles/default.ts'), types = () => dt
 const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: o.cwd }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()
 const commit = (d, f, body, msg) => { writeFileSync(join(d, f), body); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', msg) }
@@ -36,7 +36,7 @@ async function world(check = ['true'], drive = false) {
   const h = fakeHost()
   Object.assign(h, { cwd: async () => d, home: async () => d, run, config: async () => cfg, taskStore: async () => store, readText: async p => { try { return readFileSync(p, 'utf8') } catch { return null } }, write: async (p, t) => writeFileSync(p, t) })
   await h.board.update(b => ({ ...b, epic: m, plan: { id: m, slug: 'accounts', state: 'approved', epicBranch: ms, lane: 'milestone', mode: 'auto' }, ...(drive ? { drive: { ...b.drive, on: true, mode: 'auto', epicId: m } } : {}) }))
-  await mirror(h, store, types())
+  await mirror(h, store)
   return { d, h, store, m, ms, ep }
 }
 const states = async h => (await h.board.read()).plan.epics.map(e => e.state)

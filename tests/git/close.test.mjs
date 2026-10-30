@@ -17,12 +17,14 @@ const { handleWith } = await import('../../tools/index.ts')
 const { ROUTES } = await import('../../core/dispatch.ts')
 const { setPolicy } = await import('../../policy/guards.ts')
 const { nextAction } = await import('../../core/render.ts')
+const PL = await import('../../core/pipeline.ts'), { profile: DEFAULT } = await import('../../profiles/default.ts')
 
 const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { cwd: o.cwd }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))
 const sh = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' }).trim()
 const DESIGN = JSON.stringify({ symbols: [{ name: 'f', kind: 'fn', params: [], returns: 'x', status: 'new' }] })
 
 async function world(n = 1) {
+  PL.setProfile(DEFAULT)   // every case starts on the default profile
   const d = mkdtempSync(join(tmpdir(), 'cadre-close-')); execFileSync('git', ['init', '-q', '-b', 'main', d]); sh(d, 'config', 'user.name', 't'); sh(d, 'config', 'user.email', 't@t')
   writeFileSync(join(d, 'a.txt'), 'a\n'); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'init'); sh(d, 'branch', 'dev'); sh(d, 'branch', 'epic/p1-x', 'dev')
   const cfg = defaults(); cfg.worktrees.root = `${d}-wt`; cfg.jail = 'off'; cfg.units = [{ root: '.', verify: ['verify'], checks: { verify: ['true'], test: ['sh', '-c', 'echo ran; exit 3'] } }]
@@ -32,7 +34,7 @@ async function world(n = 1) {
   await store.approve([epic, ...ids])
   const h = fakeHost(); let tick = 0
   Object.assign(h, { cwd: async () => d, home: async () => d, run, now: async () => (tick += 1000), stat: async p => (existsSync(p) ? { kind: 'dir' } : undefined), write: async (p, t) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) }, readText: async p => (existsSync(p) ? readFileSync(p, 'utf8') : null) })
-  const dep = { store, cfg, reg: cfg.types, root: d, home: d, wtRoot: `${d}-wt`, key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' }
+  const dep = { store, cfg, root: d, home: d, wtRoot: `${d}-wt`, key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' }
   await h.secret.update(x => ({ ...x, session: 's1' })); h.taskStore = async () => store; h.config = async () => cfg
   const ts = await Promise.all(ids.map(async id => { const t = await store.get(id); return task(id, { title: t.title, type: t.type }) }))
   await h.board.update(s => ({ ...s, seq: 1, epic, plan: { id: 'p1', slug: 'x', state: 'approved', epicBranch: 'epic/p1-x' }, tasks: ts }))
@@ -82,7 +84,7 @@ test('retry flagging: 3 failed semantic reports, the 4th is accepted unvalidated
   assert.match(await w.rep('ag2', bad), /verdict accepted/); assert.ok((await w.h.board.read()).tasks[0].flags.includes('report-unvalidated'))
 })
 
-test('review.coverage.enforce: a pass with an untested or weak scenario is refused; past the retries it lands as changes, never pass; off: the reviewer decides', async () => {
+test('acceptance.cover \'report\': a pass with an untested or weak scenario is refused; past the retries it lands as changes, never pass; cover \'none\': the reviewer decides', async () => {
   const review = async (w, id) => { await w.spawn(id); edit((await w.store.get(id)).meta['cadre.worktree']); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }); await w.spawn(id) }
   let w = await world(), id = w.ids[0]; await review(w, id)
   await w.store.setMeta(id, { 'cadre.specTests': JSON.stringify([{ name: 'login works', ids: [] }]) }, 'x')
@@ -91,7 +93,7 @@ test('review.coverage.enforce: a pass with an untested or weak scenario is refus
   const weak = { ...w.pass, coverage: [{ scenario: 'S1', test: 'S1 login works', ok: false }] }
   assert.match(await w.rep('ag2', weak), /scenario S1 is not covered by a test that checks it/); assert.match(await w.rep('ag2', weak), /attempt 3\/3/)
   assert.match(await w.rep('ag2', weak), /verdict accepted: changes \(1\/3\)/); assert.equal((await w.store.get(id)).meta['cadre.review'], '')
-  w = await world(); id = w.ids[0]; w.dep.cfg.review.coverage.enforce = false; await review(w, id); await w.store.setMeta(id, { 'cadre.specTests': JSON.stringify([{ name: 'login works', ids: [] }]) }, 'x')
+  w = await world(); id = w.ids[0]; PL.setProfile({ ...DEFAULT, types: { ...DEFAULT.types, refactor: { ...DEFAULT.types.refactor, acceptance: { ...DEFAULT.types.refactor.acceptance, cover: 'none' } } } }); await review(w, id); await w.store.setMeta(id, { 'cadre.specTests': JSON.stringify([{ name: 'login works', ids: [] }]) }, 'x')
   assert.match(await w.rep('ag2', { ...w.pass, coverage: [{ scenario: 'S1', ok: false }] }), /verdict accepted: pass/)
 })
 
@@ -255,8 +257,8 @@ test('settings: limits.rebaseRounds 1 blocks a conflicting task after one rework
   const w = await movedEpic('b.txt', 'theirs\n'), { h, store, id } = w; w.dep.cfg.limits.rebaseRounds = 1; await L.charge(h, id, 'rebase')
   assert.match(String(await C.closeTask(h, w.dep, id)), /still conflicts on the plan after 1 reworks/); assert.equal((await h.board.read()).tasks[0].state, 'blocked')
 })
-test('settings: review.maxRework 1 flags non-progress after the 2nd changes verdict', async () => {
-  const w = await world(), id = w.ids[0], { h, store } = w; w.dep.cfg.review.maxRework = 1; await w.spawn(id); const wt = (await store.get(id)).meta['cadre.worktree']
+test('onFail.retry 1 on the reviewer step flags non-progress after the 2nd changes verdict', async () => {
+  const w = await world(), id = w.ids[0], { h, store } = w; PL.setProfile({ ...DEFAULT, steps: { ...DEFAULT.steps, reviewer: { ...DEFAULT.steps.reviewer, onFail: { retry: 1, then: { back: 'worker' } } } } }); await w.spawn(id); const wt = (await store.get(id)).meta['cadre.worktree']
   edit(wt); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }); await w.spawn(id)
   const ch = { ...w.pass, verdict: 'changes', summary: 'fix it', findings: [{ severity: 'major', file: 'b.txt', line: 1, issue: 'wrong', fix: 'right' }] }
   assert.match(await w.rep('ag2', ch), /changes \(1\/1\)/); edit(wt, 'b.txt', 'b1\n'); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'r1' })
@@ -277,4 +279,12 @@ test('refresh: a landed commit that breaks a held test blocks the running task w
     if (what === 'harmless') { assert.equal(t.state, 'active'); assert.deepEqual(t.flags, []); assert.equal(existsSync(join(wt, 'other.txt')), true) }
     else { assert.equal(t.state, 'blocked', what); assert.ok(t.flags.includes('holds'), what); assert.equal(m['cadre.blocked'], 'holds') }
   }
+})
+
+test('TypeSpec.commit (G5): the landed task commit carries the prefix its type declares, and that prefix is the type\'s own', async () => {
+  const w = await world(), id = w.ids[0], { store, d } = w
+  PL.setProfile({ ...DEFAULT, types: { ...DEFAULT.types, refactor: { ...DEFAULT.types.refactor, commit: 'perf' } } })
+  await w.spawn(id); const wt = (await store.get(id)).meta['cadre.worktree']; edit(wt); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 'did it' })
+  await w.spawn(id); await w.rep('ag2', w.pass); assert.equal(await C.closeTask(w.h, w.dep, id), null)
+  assert.match(sh(d, 'log', '-1', '--format=%s', 'epic/p1-x'), /^perf: task 0/)
 })

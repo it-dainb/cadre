@@ -141,8 +141,9 @@ test('a package with no test check: red would run only "compile" and call it gre
   assert.equal(s.decisions.length, 1); assert.equal(s.decisions[0].id, 'flag:m-1:gate-error'); assert.match(s.decisions[0].lines.join('\n'), /no test check[\s\S]*compile/)
 })
 
-test('settings: limits.testerRounds 2: the 2nd refused red blocks the task with one dialog naming the check; Retry sends it back to the tester with fresh rounds', async () => {
-  const w = world(); w.d.cfg.limits.testerRounds = 2
+test('onFail.retry 2 on the red step: the 2nd refused red blocks the task with one dialog naming the check; Retry sends it back to the tester with fresh rounds', async () => {
+  const w = world(), P = await import('../../core/pipeline.ts'), D = await import('../../profiles/default.ts')
+  P.setProfile({ ...P.active(), steps: { ...D.profile.steps, red: { ...D.profile.steps.red, onFail: { retry: 2, then: 'human' } } } })
   const { wt, view } = await tester(w, { 'test/s.json': tc('a', 'passed') }, ['a']); await bindTester(w, wt, view)
   await assert.rejects(CL.report(w.h, w.d, 'ag1', rep), /red gate refused: the tests pass at the spec commit/)
   assert.equal((await w.h.board.read()).tasks[0].state, 'active')
@@ -209,15 +210,4 @@ test('B1/B3: an import failure with JUnit is "not run" (a tester round, copy-in 
   assert.equal(nj.ok, false); assert.equal(nj.setup, true)   // exit 1 with declared tests and no results: the check is broken, not the work
   const p = noCheck(), r = (await testerRun(p, { 'test/login.test.mjs': NT('assert.ok(true)') }, JUNIT)).res
   assert.equal(r.ok, false); assert.match(r.why, /pass at the spec commit/); assert.equal(existsSync(join(p.root, '.cadre/config.json')), false)   // nothing adopted from a refused red
-})
-
-test('settings: tdd.testerCommand.use off: the command is ignored; with no test check the task blocks with the setup dialog', async () => {
-  const w = noCheck(); w.d.cfg.tdd = { ...w.d.cfg.tdd, testerCommand: { use: false, adopt: true } }
-  const r = (await testerRun(w, { 'test/login.test.mjs': LOGIN }, JUNIT)).res
-  assert.equal(r.ok, false); assert.equal(r.setup, true); assert.match(r.why, /no test check/)
-})
-
-test('settings: tdd.testerCommand.adopt off: red runs the command, nothing is written or recorded', async () => {
-  const w = noCheck(); recorded(w); w.d.cfg.tdd = { ...w.d.cfg.tdd, testerCommand: { use: true, adopt: false } }
-  assert.ok((await testerRun(w, { 'test/login.test.mjs': LOGIN }, JUNIT)).res.ok); assert.equal(w.records.length, 0); assert.equal(existsSync(join(w.root, '.cadre/config.json')), false)
 })

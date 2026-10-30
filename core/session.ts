@@ -4,7 +4,7 @@ import type { TaskStore } from '../task-management/store'
 import { StoreError } from '../task-management/store'
 import { resetDelivery } from '../task-management/sync-engine/loop'
 import { repoKeyOf, scoped } from '../commands/init'
-import { cfgOf, ctlGet, ctlSet, gateDraw, mirror, missionOf, redraw, registryOf, storeOf } from './dispatch'
+import { cfgOf, ctlGet, ctlSet, gateDraw, mirror, missionOf, redraw, storeOf } from './dispatch'
 import { ask } from './decide'
 import { flagDecision, holds } from './flags'
 import { specAsk } from './tdd'
@@ -98,7 +98,7 @@ async function epicName(h: Host, prefix: string, e: { id: string; title: string 
 async function reask(h: Host, store: TaskStore, plan: Snapshot['plan'] & {}) {
   const kids = await store.list({ parent: plan.id }).catch(() => []), gate = kids.find(t => t.type === 'gate' && !['done', 'cancelled'].includes(t.category))
   if (gate) await gateDraw(h, gate)   // a gate and a plan share the one approval slot: the gate blocks the work, so it goes first
-  else if (plan.state === 'draft' || kids.some(t => t.category === 'draft' && t.type !== 'gate')) await redraw(h, store, await registryOf(h))
+  else if (plan.state === 'draft' || kids.some(t => t.category === 'draft' && t.type !== 'gate')) await redraw(h, store)
   const r = await casDrive(h, store, () => undefined).catch(() => undefined), y = !!r?.on && r.epicId === plan.id && !r.stopped && r.mode === 'yolo'   // yolo: main decides spec changes, release is the human's later
   for (const t of kids) {   // a blocked task gets its flag back (the mirror rebuilds tasks without flags: drive would wait on it for good); yolo asks only what drive holds on
     const f = t.meta['cadre.blocked'] === 'spec_change' ? 'spec_change' : t.category === 'blocked' ? t.meta['cadre.blocked'] || (t.meta['cadre.question'] ? 'blocked' : '') : ''
@@ -129,7 +129,7 @@ async function hydrate(h: Host): Promise<boolean> {
   const there = await recordOf(h, p.epic); if (there === 'gone') await ctlSet(h, { board: undefined }); if (there !== 'ok') return false   // a pointer to an epic the store does not have (another store, a deleted draft): a phantom draft on the board blocked every new plan with no dialog to answer, live 0.9.1
   const store = await storeOf(h), now = await h.now(), me = await sessionOf(h), same = !!p.proc && p.proc === procOf(h)   // this process's pointer (a /clear): its agents and drive go on. Another process's: they stopped with it; /cadre continue picks them up
   await h.board.update(s => ({ ...s, mission: p.mission, epic: p.epic, plan: p.plan, drive: { ...p.drive, on: false, paused: undefined, ...(same ? {} : { stopped: undefined }) } }))
-  await mirror(h, store, await registryOf(h))
+  await mirror(h, store)
   await safe(h, 'decisions', () => reask(h, store, p.plan))
   await safe(h, 'ring rebuild', async () => { if (await ring(h, store, p.epic)) await resetDelivery(h) })
   const rec = same ? await casDrive(h, store, r => (r?.on && r.epicId === p.epic && r.lease.session === p.session ? { ...r, lease: { session: me, until: now + LEASE } } : undefined)) : undefined   // our own lease moves to the new session id
@@ -233,9 +233,9 @@ export async function prune(h: Host): Promise<void> {
 
 // Per-repo opt-in: cadre acts only where `<repo>/.cadre/config.json` exists (init stage 1 writes it). Active is cached in the session secret; dormant re-checks (one read), so `/cadre init` takes effect without a restart.
 // read-only: is the repo already on? ui.render may only read (a state write there is denied), so it asks this and never wake()
-export const awake = async (h: Host): Promise<boolean> => { const sec = await h.secret.read(); return !!sec.active && !sec.old && !sec.storeOff && !sec.platform }
+export const awake = async (h: Host): Promise<boolean> => { const sec = await h.secret.read(); return !!sec.active && !sec.old && !sec.storeOff && !sec.platform && !sec.profileBad }
 export async function wake(h: Host): Promise<boolean> {
-  const sec = await h.secret.read(); if (sec.old || sec.storeOff || sec.platform) return false   // Claude Code older than cadre needs (hooks/register.ts session.start): off, never half on
+  const sec = await h.secret.read(); if (sec.old || sec.storeOff || sec.platform || sec.profileBad) return false   // Claude Code older than cadre needs (hooks/register.ts session.start): off, never half on; a repo profile that is refused (core/profile): dormant for this repo, no fallback
   if (sec.active) return true
   if (!(await h.readText(`${await h.cwd()}/.cadre/config.json`)) || (await cfgOf(h)).disable) return false   // `disable`: dormant from the next session (active is cached)
   await h.secret.update(s => ({ ...s, active: true }))

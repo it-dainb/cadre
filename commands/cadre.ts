@@ -1,9 +1,10 @@
 // /cadre <sub> (DESIGN 5.3): parse text into a dispatcher command (core/dispatch is the only entry). Queue/state-by-CAS only: never submits or spawns (P4, G6).
 import type { Hook, Host } from '../types'
 import type { Command, Out } from '../core/dispatch'
-import { ROUTES, answer, cfgOf, dispatch, isHuman, registryOf, restore, storeOf } from '../core/dispatch'
+import { ROUTES, answer, cfgOf, dispatch, isHuman, restore, storeOf } from '../core/dispatch'
 import { changeLane, dropGoal, goal } from '../core/lanes'
 import { unfinished, wake, warm } from '../core/session'
+import { describe } from '../core/profile'
 import { ask } from '../core/decide'
 import { fnv1a64 } from '../core/board'
 import { modelText } from '../core/say'
@@ -22,7 +23,7 @@ export async function route(h: Host, c: Command): Promise<Out> {   // every disp
   const [a] = c.args
   if ((c.cmd === 'goal' || c.cmd === 'yolo') && c.origin.kind === 'composer' && (await settingUp(h))) return later(h, a ?? '', c.cmd === 'yolo')
   if ((c.cmd === 'goal' || c.cmd === 'yolo') && c.origin.kind === 'composer' && (await halted(h))?.kind === 'init') return { text: await start(h, 'init', { text: a ?? '', mode: c.cmd === 'yolo' || (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto' }) }   // an interrupted project setup picks up, then this goal
-  if (!['setup', 'doctor', 'init', 'open'].includes(c.cmd) && !(await wake(h))) return (c.cmd === 'goal' || c.cmd === 'yolo') && c.origin.kind === 'composer' ? onboard(h, a ?? '', c.cmd === 'yolo') : { text: await status(h) }   // per-repo opt-in: typing a goal here is the opt-in (ADR 0014)
+  if (!['setup', 'doctor', 'init', 'open', 'profile'].includes(c.cmd) && !(await wake(h))) return (c.cmd === 'goal' || c.cmd === 'yolo') && c.origin.kind === 'composer' ? onboard(h, a ?? '', c.cmd === 'yolo') : { text: await status(h) }   // per-repo opt-in: typing a goal here is the opt-in (ADR 0014)
   switch (c.cmd) {
     case 'open': await openPane(h, a ?? 'epic'); return { text: `Opened the cadre pane (${a ?? 'epic'}).` }
     case 'restore': return restore(h, a)
@@ -38,13 +39,14 @@ export async function route(h: Host, c: Command): Promise<Out> {   // every disp
       return { text }
     }
     case 'doctor': return { text: await doctor(h) }
+    case 'profile': return { text: await describe(h) }   // read-only: no editing UI in 2.0; it works in a repo whose profile is refused
     case 'timeline': {   // H12: the per-repo metrics as text, the records exported under the project (never a host path in the reply)
       const p = '.cadre/tmp/timeline.json'; if (!['composer', 'press', 'dialog'].includes(c.origin.kind)) return { text: `refused: origin ${c.origin.kind} cannot export the timeline; type /cadre timeline in the prompt` }   // the human's own command, like init/setup
       const rs = await metricsOf(h); await h.write(`${await h.cwd()}/${p}`, JSON.stringify(rs, null, 1)); return { text: modelText('context', `${metricsText(rs)} · exported to ${p}`) }
     }
     case 'deep': return { text: c.origin.kind === 'composer' ? await goal(h, a ?? '', (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto', true) : `refused: origin ${c.origin.kind} cannot start a goal; type it in the prompt` }   // ADR 0020: questions before the plan, even when drive.mode is yolo (the mode applies after approval)
     case 'goal': case 'yolo': return { text: c.cmd === 'goal' && a === 'drop' && !isHuman(c.origin) ? await dropGoal(h) : c.origin.kind === 'composer' ? await goal(h, a ?? '', c.cmd === 'yolo' || (await cfgOf(h)).drive.mode === 'yolo' ? 'yolo' : 'auto') : `refused: origin ${c.origin.kind} cannot start or drop a goal; type it in the prompt` }   // the human's own words only; `goal drop`: the held goal's dialog (core/lanes.sendBrief), a press only
-    case 'lane': { const why = isHuman(c.origin); return { text: why ? `refused: ${why}` : await changeLane(h, await storeOf(h), await registryOf(h), a ?? '') } }
+    case 'lane': { const why = isHuman(c.origin); return { text: why ? `refused: ${why}` : await changeLane(h, await storeOf(h), a ?? '') } }
     case 'config': if (!a || a === 'show') return { text: configText(await cfgOf(h), c.args[1]) }
   }
   const r = ROUTES[c.cmd]

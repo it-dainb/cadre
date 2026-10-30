@@ -10,7 +10,7 @@ import { dirname } from 'node:path'
 const root = new URL('..', import.meta.url).pathname
 await import(`${root}tests/dev/register.mjs`)   // extensionless TS imports, as the kit resolves them
 const { FileStore } = await import(`${root}task-management/adapters/file/store.ts`)
-const { defaults } = await import(`${root}task-management/registry.ts`)
+const { types: dt } = await import(`${root}profiles/default.ts`), defaults = () => dt
 const { epicBranch } = await import(`${root}core/branches.ts`)
 
 const run = (argv, o = {}) => new Promise(res => execFile(argv[0], argv.slice(1), { timeout: o.timeoutMs }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })))

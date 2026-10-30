@@ -17,7 +17,7 @@ const PROSE = `I looked around the repository. ${'The parser lives in src/parse.
 async function mk() {
   const h = fakeHost() as any, store = new MemoryStore(() => 1000), sent: [string, string][] = [], submitted: string[] = []
   await store.init({ types: defaults().types as any, journal: false })
-  const cfg = defaults(), d = { store, cfg, reg: cfg.types as any, root: '/repo', home: '/hm/u', wtRoot: '/wt', key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' }
+  const cfg = defaults(), d = { store, cfg, root: '/repo', home: '/hm/u', wtRoot: '/wt', key: 'k', actor: 'cadre/u/aaaaaa', session: 's1' }
   Object.assign(h, { taskStore: async () => store, config: async () => cfg, sendTo: async (id: string, text: string) => { sent.push([id, text]); return { isDelivered: true } }, submit: async (t: string) => { submitted.push(t) }, usage: async () => ({}) })
   await h.secret.update((s: any) => ({ ...s, session: 'S1' }))
   await admitWith(h, d as any, { prompt: 'where is the parser?', tool_use_id: 'tu1' }, async () => ({ agentId: 'agent-x1y2z3', model: 'haiku' }))

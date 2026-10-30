@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path'
 const { call, AdapterError } = await import('../../task-management/protocol.ts')
 const L = await import('../../task-management/sync-engine/loop.ts')
 const { FileStore } = await import('../../task-management/adapters/file/store.ts')
-const { defaults } = await import('../../task-management/registry.ts')
+const { types: dt } = await import('../../profiles/default.ts'), defaults = () => dt
 const { fakeHost } = await import('../support.ts')
 const { emit } = await import('../../core/events.ts')
 const { defaults: cfgDefaults } = await import('../../config/index.ts')

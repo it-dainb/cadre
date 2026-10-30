@@ -4,6 +4,7 @@ import { emptySnapshot } from '../core/board'
 import { emptyRing } from '../core/events'
 import { SAY, leaks } from '../core/say'
 import { MemoryStore } from '../task-management/adapters/memory/store'
+import { types as defaultTypes } from '../profiles/default'
 
 // boundary lint: every text that reaches a model goes through core/say.modelText; a leak there fails the test that produced it
 SAY.check = (kind, text) => { const l = leaks(kind, text); if (l.length) throw new Error(`model-visible leak (${kind}): ${l[0].slice(0, 200)}`) }
@@ -13,6 +14,7 @@ const cell = <T>(v: T) => ({ read: async () => v, update: async (fn: (x: T) => T
 const SEEN = new Map<string, string>()
 const note = (k: string, en: string) => { const was = SEEN.get(k); if (was !== undefined && was !== en) throw new Error(`translation key ${k}: "${was}" and "${en}"`); SEEN.set(k, en) }
 const board = () => { const c = cell(emptySnapshot('repo')); return { read: c.read, update: async (fn: (x: ReturnType<typeof emptySnapshot>) => ReturnType<typeof emptySnapshot>) => { const b = await c.update(fn); for (const d of b.decisions ?? []) { for (const o of d.options) note(`${d.key}.${o.key}`, o.label); for (const f of d.fields ?? []) note(`${d.key}.${f.key}`, f.label) } return b } } }
+export const types = () => defaultTypes   // the default profile's task types (a store's init takes them)
 export function fakeHost(o: { t0?: number; files?: Record<string, string>; env?: Record<string, string>; options?: Host['options'] } = {}): Host & { logs: string[]; toasts: string[]; clock: { set(ms: number): void; advance(ms: number): void } } {
   let t = o.t0 ?? 1_000
   const kv = new Map<string, unknown>(), logs: string[] = [], toasts: string[] = [], mem = new MemoryStore(), ready = mem.init({ types: {} as any, journal: false })

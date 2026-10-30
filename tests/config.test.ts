@@ -12,9 +12,9 @@ describe('defaults (DESIGN 12)', () => {
     const d = defaults()
     expect([d.strictness, d.mcpAllow, d.jail, d.effectCheck, d.roles.testerView, d.roles.tdd.author]).toEqual(['strict', [], 'auto', 'auto', 'view', 'separate'])
     expect([d.store.kind, d.drive, d.cost.clearHintPct, d.cost.compactPct]).toEqual(['file', { mode: 'auto', spawn: 'mod', maxTurns: 100, maxCostUsd: 20, maxWallMinutes: 240, noProgressTurns: 3 }, 40, 60])
-    expect([d.concurrency.default, d.review.maxRework, d.reuse, d.review, d.limits.reportRetries, d.roles.reviewer.byRisk.thorough, d.ui.glyphs, d.branches.dev, d.branches.epicPrefix, d.release.onEpicDone, d.changelog.path])
-      .toEqual([3, 3, { maxContextPct: 60, cacheTtlMs: 3_600_000 }, { ...d.review }, 3, { model: 'opus', effort: 'high', escalate: { after: 0, model: 'opus', effort: 'high' } }, 'unicode', 'dev', 'epic/', 'propose', 'CHANGELOG.md'])
-    expect(Object.keys((d.types as object))).toEqual(['feature', 'bug', 'refactor', 'docs', 'test', 'spike'])
+    expect([d.concurrency.default, d.reuse, d.limits.reportRetries, d.roles.reviewer.byRisk.thorough, d.ui.glyphs, d.branches.dev, d.branches.epicPrefix, d.release.onEpicDone, d.changelog.path])
+      .toEqual([3, { maxContextPct: 60, cacheTtlMs: 3_600_000 }, 3, { model: 'opus', effort: 'high', escalate: { after: 0, model: 'opus', effort: 'high' } }, 'unicode', 'dev', 'epic/', 'propose', 'CHANGELOG.md'])
+    expect([d.profile, d.limits.specAccepts, d.limits.rebaseRounds, 'types' in d, 'review' in d, 'tdd' in d, 'lanes' in d, 'custom' in d.roles, 'testerRounds' in d.limits]).toEqual(['default', 2, 2, false, false, false, false, false, false])   // B16: the profile owns them
     expect(d.roles.explorer).toEqual({ model: 'haiku', effort: 'low' })
   })
   test('limits.shapeRetries: a row beside limits.reportRetries, default 6, whole numbers 1..10', async () => {
@@ -28,7 +28,7 @@ describe('classes', () => {
   test('S / U / O by longest prefix', async () => {
     for (const k of ['strictness', 'mcpAllow', 'jail', 'jailWritable', 'effectCheck', 'roles.testerView']) expect(classOf(k)).toBe('S')
     for (const k of ['adapters.pm.command', 'store.kind', 'worktrees.root', 'drive.maxTurns', 'cost.prices', 'disable']) expect(classOf(k)).toBe('U')
-    for (const k of ['changelog.path', 'cost.clearHintPct', 'types', 'units', 'sync.pm', 'review.maxRework', 'concurrency.default', 'ui.glyphs', 'roles.worker.tier', 'roles.tdd.author', 'models.fast']) expect(classOf(k)).toBe('O')
+    for (const k of ['changelog.path', 'cost.clearHintPct', 'profile', 'units', 'sync.pm', 'limits.specAccepts', 'concurrency.default', 'ui.glyphs', 'roles.worker.tier', 'roles.tdd.author', 'models.fast']) expect(classOf(k)).toBe('O')
   })
   test('tighten: bool takes only the strict value, enum the stricter, list the intersection', async () => {
     expect(tighten('jail', 'auto', 'on')).toBe('on')
@@ -95,10 +95,10 @@ describe('layers', () => {
   test('load() reads home file (+ per-repo section), repo file, env and userConfig through the Host', async () => {
     const h = fakeHost({
       options: { strictness: 'advisory' }, env: { CADRE_STORE: 'memory' },
-      files: { '/hm/u/.claude/cadre.json': JSON.stringify({ concurrency: { default: 4 }, repos: { 'r-1': { concurrency: { default: 5 }, drive: { maxTurns: 7 } }, other: { concurrency: { default: 99 } } } }), '/repo/.cadre/config.json': JSON.stringify({ review: { maxRework: 8 }, strictness: 'advisory' }) },
+      files: { '/hm/u/.claude/cadre.json': JSON.stringify({ concurrency: { default: 4 }, repos: { 'r-1': { concurrency: { default: 5 }, drive: { maxTurns: 7 } }, other: { concurrency: { default: 99 } } } }), '/repo/.cadre/config.json': JSON.stringify({ limits: { rebaseRounds: 8 }, strictness: 'advisory' }) },
     })
     const { config, diagnostics } = await load(h, { home: '/hm/u', root: '/repo', repoKey: 'r-1' })
-    expect([config.concurrency.default, config.drive.maxTurns, config.review.maxRework, config.store.kind]).toEqual([5, 7, 8, 'memory'])
+    expect([config.concurrency.default, config.drive.maxTurns, config.limits.rebaseRounds, config.store.kind]).toEqual([5, 7, 8, 'memory'])
     expect(config.strictness).toBe('advisory'); expect(diagnostics).toEqual([])
     const bad = await load(fakeHost({ files: { '/repo/.cadre/config.json': '{oops' } }), { home: '/h', root: '/repo', repoKey: 'k' })
     expect(bad.diagnostics).toEqual(['.cadre/config.json: not an object, skipped'])
@@ -113,16 +113,3 @@ describe('layers', () => {
   })
 })
 
-import { kindOf, pipeOf, validate } from '../task-management/registry'
-describe('the docs type (H8, 0.17)', () => {
-  test('built-in docs: kind docs, worker > reviewer > merge with no tester or red, not test-first, the lite drop changes nothing', async () => {
-    const t = (resolve([]).config.types as any), d = t.docs
-    expect([kindOf(d), d.pipeline, d.tdd, d.commit, d.changelog, d.contract]).toEqual(['docs', ['worker', 'reviewer', 'merge'], undefined, 'docs', null, 'none'])
-    expect(pipeOf(t)('docs')).toEqual(pipeOf(t)('docs', 'lite')); expect(validate(t)).toEqual([])
-  })
-  test('a user type with the docs commit is a docs type; one that drops the reviewer before merge is refused at load', async () => {
-    const own = { commit: 'docs', changelog: null, pipeline: ['worker', 'reviewer', 'merge'], contract: 'none' }
-    expect(kindOf(((resolve([user({ types: { notes: own } })]).config.types as any).notes))).toBe('docs')
-    expect(validate({ notes: { ...own, pipeline: ['worker', 'merge'] } } as any)).toEqual(['types.notes: "merge" must be last and after "reviewer"'])
-  })
-})
