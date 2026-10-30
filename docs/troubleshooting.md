@@ -46,6 +46,7 @@ cadre never runs root commands for you. `/cadre setup` writes each sudo fix to `
 | not inside a git repo | `/cadre init` |
 | init incomplete · containment degraded · task store journal off · branch missing · settings.local lacks the task-tool gate | `/cadre init` (restart Claude Code after its confirm) |
 | task store: ... · task store unreachable | `cadre stays off here: put the project on a disk with hard links` (not exFAT, some network mounts) |
+| test check writes JUnit: no (or not probed on this machine) | `rerun /cadre init` (it runs each unit's test check once and records whether it wrote valid JUnit; until then red checks use the exit code only; change the unit's test argv to write JUnit to `$CADRE_JUNIT`, installing a reporter if the runner needs one). A row `test check writes JUnit: not probed on this machine` means the probe result is stored per machine: a fresh clone, another machine or a cleared store starts unprobed |
 | `.beads`: a task store from an older version | `finish its plans with that version, then delete .beads` |
 | `.cadre/store`: a task store from an older version | `finish its plans with that version, then delete .cadre/store` |
 | run and sync state from an older version is not read | `finish those plans with that version; sync starts over from a full compare` |

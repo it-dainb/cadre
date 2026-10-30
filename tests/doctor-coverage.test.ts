@@ -79,6 +79,14 @@ doctorHost('resumes queued', { repo: true }, async h => { await h.store.set(awai
 doctorHost('drive stopped', { repo: true }, async h => { await h.board.update(b => ({ ...b, drive: { ...b.drive, stopped: 'bound hit' } })) })
 doctorHost('drive paused', { repo: true }, async h => { await h.board.update(b => ({ ...b, drive: { ...b.drive, paused: 'a flag is open' } })) })
 
+// the JUnit probe rows (D15, D16): read from the store, never run from Doctor
+const U = (checks: Record<string, string[]>) => ({ ...defaults() as any, units: [{ root: '.', setup: [], checks, tdd: { paths: ['t/**'] } }] }), JK = async (h: Host) => scoped(h, 'junit:.')
+doctorHost('junit probe: yes', { repo: true }, async h => { const c = U({ test: ['t', '$CADRE_JUNIT'] }); Object.assign(h, { config: async () => c }); await h.store.set(await JK(h), { ok: true, argv: ['t', '$CADRE_JUNIT'] }) })
+doctorHost('junit probe: no', { repo: true }, async h => { const c = U({ test: ['t'] }); Object.assign(h, { config: async () => c }); await h.store.set(await JK(h), { ok: false, argv: ['t'] }) })
+doctorHost('junit probe: stale argv', { repo: true }, async h => { const c = U({ test: ['t', '-x'] }); Object.assign(h, { config: async () => c }); await h.store.set(await JK(h), { ok: true, argv: ['t'] }) })
+doctorHost('junit probe: not probed', { repo: true }, h => { const c = U({ test: ['t'] }); Object.assign(h, { config: async () => c }) })
+doctorHost('no test check', { repo: true }, h => { const c = U({ lint: ['l'] }); Object.assign(h, { config: async () => c }) })
+
 const all = async () => (await Promise.all(hosts.map(async ([n, f]) => (await f()).map(r => [n, r] as const)))).flat()
 // a fix names a path of the host in two rows; the doc carries the text without it
 const stable = (fix: string) => fix.replace(/^! /, '').replace(/ of \/\S+$/, '')
@@ -86,7 +94,7 @@ const stable = (fix: string) => fix.replace(/^! /, '').replace(/ of \/\S+$/, '')
 // non-ok rows that state a fact and carry no fix of their own (changing that would change text the setup checklist hands to Claude); each phrase must still be in the doc
 const INFO: [RegExp, string][] = [
   [/^Claude Code version unreadable$/, 'Claude Code version unreadable'], [/^Claude Code \S+: newer than the tested/, 'newer than the tested'], [/^custom role \S+ is not available/, 'is not available:'], [/^tools Claude Code gave the agents/, 'tools Claude Code gave the agents that cadre does not know'],
-  [/^an agent that is done is ended by cadre itself/, 'an agent that is done is ended by cadre itself'],
+  [/^an agent that is done is ended by cadre itself/, 'an agent that is done is ended by cadre itself'], [/^test check writes JUnit: not probed on this machine/, 'not probed on this machine'],
 ]
 test('every non-ok row over the fixture hosts has fix text, and that text is in docs/troubleshooting.md', async () => {
   const bad = (await all()).filter(([, r]) => r[0] !== 'ok'), doc = BUDGET.docs.troubleshooting
@@ -104,4 +112,12 @@ test('the healthy machine is all ok; the table has fails and warns for tools, ja
 test('the hosts for the less common rows do produce them', async () => {
   const lines = (await all()).map(([, r]) => r[1])
   for (const re of [/^worktree root .* is not writable/, /^Claude Code version unreadable/, /^\.cadre\/store: a task store/, /^sync tracker: /]) expect(lines.some(l => re.test(l))).toBe(true)
+})
+test('D15/D16: Doctor reads the stored probe and probes nothing: rows for yes, no, stale, unprobed and none; no test argv or $CADRE_JUNIT reaches h.run', async () => {
+  const rs = async (n: string) => (await all()).filter(([m, r]) => m === n && /test check/.test(r[1])).map(([, r]) => r)
+  expect(await rs('junit probe: yes')).toEqual([['ok', 'test check writes JUnit: yes', undefined]]); expect(await rs('junit probe: no')).toEqual([['warn', 'test check writes JUnit: no: red checks use the exit code only', 'rerun /cadre init']])
+  expect(await rs('junit probe: stale argv')).toEqual([['warn', 'test check writes JUnit: no: red checks use the exit code only', 'rerun /cadre init']])
+  expect(await rs('junit probe: not probed')).toEqual([['warn', 'test check writes JUnit: not probed on this machine: rerun /cadre init', undefined]]); expect(await rs('no test check')).toEqual([['ok', 'test check: none: the first feature/bug task sets one up', undefined]])
+  const h = mk({ repo: true }), c = U({ test: ['probe-me', '$CADRE_JUNIT'] }), calls: string[][] = [], run = h.run; Object.assign(h, { config: async () => c, run: async (a: string[]) => { calls.push(a); return run(a) } })
+  await doctor(h); expect(calls.some(a => a.join(' ').includes('probe-me') || a.join(' ').includes('CADRE_JUNIT') || a[0] === 'stat')).toBe(false)
 })

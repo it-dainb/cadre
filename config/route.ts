@@ -95,7 +95,7 @@ export async function writeRepoConfig(h: any, mut: (cur: any) => any): Promise<{
   let mine: { session: string; until: number } | undefined
   for (let i = 0; i < 50 && !mine; i++) {
     const cur = (await store.control()).doc.cfgLock as { session: string; until: number } | undefined, now = await h.now()
-    if (cur && cur.until > now && cur.session !== me) { await h.run(['sleep', '0.2']); continue }   // held: wait; a lapsed lock is ours to take
+    if (cur && cur.until > now) { await h.run(['sleep', '0.2']); continue }   // held (by any writer, this session's other callers too): wait; a lapsed lock is ours to take
     try { await store.setControl({ cfgLock: { session: me, until: now + CFG_LOCK_MS } }, { cfgLock: cur }); mine = { session: me, until: now + CFG_LOCK_MS } } catch (e) { if (!(e instanceof StoreError && e.code === 'GuardMismatch')) throw e }
   }
   if (!mine) return { ok: false, why: '.cadre/config.json is being written by another session; try again' }

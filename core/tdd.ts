@@ -104,18 +104,17 @@ export async function green(h: Host, d: Deps, task: Task, wt: string): Promise<G
 // ---- copy-in (4): view files under tdd.paths, only those, by path; skeleton for status:new symbols; one commit = specCommit ----
 export async function copyIn(h: Host, d: Deps, task: Task, wt: string, view: string, pkg: Pkg): Promise<string> {
   const root = rootOf(pkg), scratch = `${d.wtRoot}/${d.key}.scratch/${task.id}-in`, paths = pkg.tdd?.paths ?? []
-  const files = (await h.run(['find', '.', '-type', 'f', '-print0'], { cwd: view })).stdout.split('\0').filter(Boolean).map(p => (p.startsWith('./') ? p.slice(2) : p)).filter(p => matches(paths, p) && p !== 'SCENARIOS.md' && p !== 'INTERFACE.md')
+  const files = (await G.must(h.run, ['find', '.', '-type', 'f', '-print0'], { cwd: view }, 'listing the view failed', '\0')).map(p => (p.startsWith('./') ? p.slice(2) : p)).filter(p => matches(paths, p) && p !== 'SCENARIOS.md' && p !== 'INTERFACE.md')
   if (!files.length) throw new Error('the tester wrote no files under tdd.paths')
   await h.run(['mkdir', '-p', scratch]); const dest = root ? `${wt}/${root}` : wt
   for (const [argv, o] of [[['tar', '-cf', `${scratch}/in.tar`, '-C', view, '-T', '-'], { stdin: files.join('\n') }], [['tar', '-xf', `${scratch}/in.tar`, '-C', dest], {}]] as const) {
-    const r = await h.run(argv, { cwd: view, ...o }); if (r.exitCode) throw new Error(`copy-in failed: ${r.stderr.slice(0, 200)}`)
+    await G.must(h.run, argv, { cwd: view, ...o }, 'copy-in failed')
   }
   await h.run(['rm', '-rf', scratch])
   if (pkg.tdd?.skeleton && symbolsOf(task.design).some(s => s.status === 'new')) {   // signature-only stubs, writable jail, network off is not required (3.10)
     const sc = `${d.wtRoot}/${d.key}.scratch/${task.id}`, env = { CADRE_CONTRACT: `${view}/INTERFACE.md` }, pkgRoot = root ? `${wt}/${pkg.root}` : wt
     await h.run(['mkdir', '-p', sc])
-    const r = d.cfg.jail === 'off' ? await h.run(pkg.tdd.skeleton, { cwd: pkgRoot, env }) : await h.run(G.writableJail({ wt, scratch: sc, pkgRoot, argv: pkg.tdd.skeleton, writable: d.cfg.jailWritable, env }))
-    if (r.exitCode) throw new Error(`skeleton failed: ${r.stderr.slice(-200)}`)
+    await (d.cfg.jail === 'off' ? G.must(h.run, pkg.tdd.skeleton, { cwd: pkgRoot, env }, 'skeleton failed') : G.must(h.run, G.writableJail({ wt, scratch: sc, pkgRoot, argv: pkg.tdd.skeleton, writable: d.cfg.jailWritable, env }), {}, 'skeleton failed'))
   }
   const sha = await G.op(h, () => G.commitAll(h.run, wt, `wip(${task.id}): spec tests`))
   if (!sha) throw new Error('the spec tests are identical to the base; nothing to lock')

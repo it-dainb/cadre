@@ -30,3 +30,9 @@ test('the guide covers the dialogs and the metrics', () => {
   for (const s of ['Keep going', 'Cancel task', 'Already holds', 'Revert', '/cadre timeline']) expect(BUDGET.docs.guide).toContain(s)
 })
 test('every relative link in README and the guide resolves to a file', () => { expect(BUDGET.docLinksBroken).toEqual([]) })
+
+test('S2 (D15, D16): guides/init.md has no `runner` field, tells the agent to write JUnit to $CADRE_JUNIT, and did not grow (4106 B before S2)', async () => {
+  const g = BUDGET.guides.init as string
+  expect(g).not.toContain('runner'); expect(g).toContain('$CADRE_JUNIT'); expect(g).toContain('without `checks.test`'); expect(g).toContain('docs or analysis profile')
+  expect(new TextEncoder().encode(g).length).toBeLessThanOrEqual(4106)
+})

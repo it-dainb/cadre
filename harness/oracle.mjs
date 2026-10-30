@@ -278,6 +278,12 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (!/red ✓ 1 failing/.test(tr)) fail('holds', 'the red card never showed exactly one failing test (S1)')
     if (drv.some(e => e.kind === 'dialog' && /flagged/.test(e.text))) fail('holds', 'a task flag raised a dialog')
   }
+  if (o === 'gate-results') {   // the first try (a script writes the JUnit with an <error>) is refused as a tester round; the real runner's red holds (S1 fails, S2 held passes); nothing blocks
+    const tr = subs.filter(x => /Tester brief/.test(x.brief)).flatMap(x => [...x.results.values()]).join('\n')
+    if (!/errored instead of failing/.test(tr)) fail('gate-results', 'the error result was never refused as "errored instead of failing"')
+    if (!/\(S2 holds\)/.test(tr) || !/red ✓ 1 failing/.test(tr)) fail('gate-results', 'the second try never reached red with S1 failing and the held S2 passing')
+    if (drv.some(e => e.kind === 'dialog' && /flagged/.test(e.text))) fail('gate-results', 'a task flag raised a dialog (a gate error blocks; this cell has none)')
+  }
   if (o === 'shape') {   // four malformed reports of one task: each refused for its form and counted on the task, the task still lands, nothing blocks
     const wk = subs.filter(x => /Worker brief/.test(x.brief)), n = wk.flatMap(x => [...x.results.values()]).filter(t => /malformed report \d+\/\d+/.test(t)).length
     Object.assign(stats, { shapeRefusals: n })
