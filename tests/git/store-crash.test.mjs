@@ -102,3 +102,17 @@ test('a warm store scans incrementally on every write: no full scan after the fi
   for (let i = 0; i < 10; i++) await s.setMeta(e, { [`k${i}`]: '1' }, 's')
   assert.equal(full.filter(f => f === '1').length, 1, `scans (1 = full): ${full.join(' ')}`)
 })
+
+// live 2.0.0 (CC 2.1.310): a 20 KB control doc per entry; the host cuts stdout at 4 MiB, so a 256-entry tail (~10 MB) lost its scan end marker, every cold scan failed, and each fold's scan failed with it.
+test('big docs: the journal stays under the host stdout cap, compaction keeps succeeding, a cold session reads on; a failed fold leaves a log line', async () => {
+  const dir = fresh(), logs = [], cap = 4193619
+  const capped = host({ log: t => logs.push(t), run: (argv, o) => new Promise(res => execFile(argv[0], argv.slice(1), { timeout: o.timeoutMs, maxBuffer: 1 << 28 }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout: stdout.slice(0, cap), stderr }))) })
+  const a = new FileStore(capped, dir, 'A'); await a.init({ types: reg, journal: true })
+  const big = 'x'.repeat(20_000), live = () => readdirSync(join(dir, 'j')).filter(n => /^\d+$/.test(n)).length
+  for (let i = 0; i < 200; i++) { await a.setControl({ [`k${i % 5}`]: big + i }); assert.ok(live() < 120, `journal ${live()} entries at write ${i}`) }
+  assert.deepEqual(logs, [])
+  assert.equal((await new FileStore(capped, dir, 'B').control()).doc.k4.slice(-3), "199")
+  const bad = host({ log: t => logs.push(t), run: (argv, o) => run(argv[2]?.includes('shift 3') ? ['sh', '-c', 'echo boom >&2; exit 1'] : argv, o) })
+  const c = new FileStore(bad, fresh(), 'C'); await c.init({ types: reg, journal: true }); for (let i = 0; i < 300; i++) await c.setControl({ k: String(i) })
+  assert.match(logs[0], /store compaction failed.*boom/)
+})
