@@ -266,3 +266,60 @@ test('the adapter protocol as the module speaks it: a wrong version, a non-JSON 
   const w = await world({ adapters: { fake: say(`process.stdout.write('{"v":1,"ok":false,"error":{"code":"RateLimited","message":"slow","retryAfterMs":7000}}')`) } }); await S.syncTick(w.h); assert.equal((await rt(w.h)).next, w.now() + 7000)
   const g = await world({ adapters: { fake: adapter(['events']) } }); await S.syncTick(g.h); assert.equal(await rt(g.h), undefined, 'a target whose adapter lacks the sync grant starts nothing')
 })
+
+// ---- fix round: import parent, stale confirm, grants, conformance, lost meta, stale rid ----
+const wizard = async (w, ...steps) => { const A = (...a) => S.syncAdd(w.h, 'fake', a); for (const a of steps) { await A(...a); await A('confirm') } return A }
+const upTo4 = [['url=http://trk'], ['project=p1'], [], []]   // step 4 (validate) advances by itself; the 3 confirms below cover steps 1-3
+
+test('(9) import with no plan: three remote tasks become three drafts under exactly one backlog epic', async () => {
+  const w = await world({ sync: {} }); await w.h.board.update(b => ({ ...b, epic: undefined, mission: undefined }))
+  edit(w.file, s => { s.tasks = { r1: { localId: 'x1', fields: { title: 'A' }, etag: '1', seq: 1 }, r2: { localId: 'x2', fields: { title: 'B' }, etag: '1', seq: 2 }, r3: { localId: 'x3', fields: { title: 'C' }, etag: '1', seq: 3 } }; s.seq = 3 })
+  const A = await wizard(w, upTo4[0], upTo4[1], upTo4[2]); const before = (await w.store.list({})).length
+  await A(); await A('direction=import'); assert.match(await A('confirm'), /done/)
+  const all = await w.store.list({}), epics = all.filter(t => t.title === 'backlog'); assert.equal(epics.length, 1); assert.deepEqual(all.filter(t => ['A', 'B', 'C'].includes(t.title)).map(t => t.parent), [epics[0].id, epics[0].id, epics[0].id]); assert.equal(all.length, before + 4)
+})
+
+test('(9) a task edited between the proposal and the confirm refuses the confirm: nothing is written, the step runs again', async () => {
+  const w = await world({ sync: {} }), A = await wizard(w, upTo4[0], upTo4[1], upTo4[2])
+  await A(); assert.match(await A('direction=empty'), /sync cursor init \(empty\)/); await w.store.update(w.ids[0], { title: 'edited meanwhile' }, 'cadre/x')
+  assert.match(await A('confirm'), /changed since the proposal[^]*nothing written/)
+  const skip = async id => (await w.store.get(id)).meta['cadre.sync.fake']; for (const id of w.ids) assert.equal(await skip(id), undefined, 'no skip meta'); assert.equal(JSON.parse(readFileSync(join(w.repo, '.cadre/config.json'), 'utf8')).sync.fake.direction, undefined)
+  assert.match(await A('direction=empty'), /sync cursor init \(empty\)/); assert.match(await A('confirm'), /done/); for (const id of w.ids) assert.ok(JSON.parse(await skip(id)).skip)
+})
+
+test('a stale op does not advance the cursor', async () => {
+  const st = await world(), run1 = st.h.run
+  st.h.run = async (argv, init) => { const r = await run1(argv, init); if (argv.some(x => x.endsWith('sync.mjs'))) await st.store.update(st.ids[0], { title: 'edited while it ran' }, 'cadre/x'); return r }
+  await S.syncTick(st.h); assert.equal((await st.store.control()).doc['sync.trk'].cursor, undefined)
+  // the next cycle (no edit during it) pushes the task again: the upserting adapter keeps one remote task per local task
+  st.h.run = run1; st.advance(40_000); await S.syncTick(st.h); assert.equal(Object.keys(remote(st.file).tasks).length, 2, 'no duplicate remote ids')
+  for (const id of st.ids) assert.ok(JSON.parse(await metaOf(st.store, id)).rid)
+})
+
+test('crash-resume: the per-task meta write fails after the push; the replay creates no duplicate', async () => {
+  const w = await world(), real = w.store.setMeta.bind(w.store); let boom = true
+  w.store.setMeta = async (id, kv, actor, rev) => { if (boom && 'cadre.sync.trk' in kv) throw new Error('crash'); return real(id, kv, actor, rev) }
+  await S.syncTick(w.h); assert.equal(Object.keys(remote(w.file).tasks).length, 2); assert.equal(await state(w.h), 'offline')
+  boom = false; w.advance(400_000); await S.syncTick(w.h)
+  assert.equal(Object.keys(remote(w.file).tasks).length, 2); assert.equal(await state(w.h), 'ok'); assert.ok(JSON.parse(await metaOf(w.store, w.ids[0])).rid)
+})
+
+test('grants are enforced before any process starts: no sync method without the sync grant, deliver without the events grant', () => {
+  const d = mkdtempSync(join(tmpdir(), 'cadre-grant-')), mark = join(d, 'spawned'), spy = ['node', '-e', `require('fs').writeFileSync(${JSON.stringify(mark)}, 'x')`]
+  const go = input => { writeFileSync(join(d, 'in.json'), JSON.stringify(input)); return new Promise((res, rej) => execFile('node', [`${PLUGIN}/modules/sync.mjs`], { cwd: d, env: { CADRE_INPUT: join(d, 'in.json'), CADRE_RESULT: join(d, 'out.json'), PATH: process.env.PATH } }, e => e ? rej(e) : res(JSON.parse(readFileSync(join(d, 'out.json'), 'utf8'))))) }
+  const ad = grants => ({ name: 'x', argv: spy, grants }), add = (step, d2) => ({ unit: 'a', kind: 'target', mode: 'add', now: 1, adapter: ad(['events']), add: { name: 'x', step, d: d2, args: ['direction=empty'] }, types: [], tasks: [], journal: {} })
+  const cycle = direction => ({ unit: 't', kind: 'target', now: 1, adapter: ad(['events']), target: { name: 't', direction }, state: {}, journal: {}, tasks: [{ id: 'a', title: 't', description: '', type: 'feature', category: 'todo', priority: 2, meta: {}, base: 'b' }] })
+  return Promise.all([go(add(2, { url: 'u' })), go(add(3, { url: 'u', project: 'p' })), go(add(4, { url: 'u', project: 'p', mapping: {} })), go(cycle('pull')), go(cycle('push')), go({ unit: 'e', kind: 'events', now: 1, modState: { acked: 0, sub: null }, adapter: ad(['sync']), events: { epic: '', seq: 0, events: [{ seq: 1, type: 'x' }], snapshot: {}, hash: 'h' } })]).then(rs => {
+    for (const r of rs) { assert.equal(r.state, 'offline'); assert.match(r.message ?? r.proposal?.lines?.[0] ?? '', /lacks the (sync|events) grant/) }
+    assert.equal(existsSync(mark), false, 'no process was spawned')
+  })
+})
+
+test('the fake adapter keeps the protocol: describe caps, validateAccess writes nothing, a repeated push changes nothing, a pull since the cursor is empty', async () => {
+  const d = mkdtempSync(join(tmpdir(), 'cadre-fake-')), file = join(d, 'r.json')
+  const c = (method, params = {}) => new Promise((res, rej) => { const p = execFile('node', [FAKE], { env: { PATH: process.env.PATH, FAKE_ADAPTER_STATE: file } }, (e, out) => e ? rej(e) : res(JSON.parse(out).result)); p.stdin.end(JSON.stringify({ protocol: 'cadre-adapter', v: 1, method, params })) })
+  assert.deepEqual((await c('describe')).caps, ['sync', 'events']); await c('validateAccess', { project: 'p1' }); assert.equal(remote(file).writes ?? 0, 0)
+  const tasks = [{ localId: 'm-1', changed: ['title'], fields: { title: 'A' } }], a = await c('push', { tasks }), b = await c('push', { tasks })
+  assert.deepEqual([a.results[0].rid, a.results[0].etag], [b.results[0].rid, b.results[0].etag]); assert.equal(Object.keys(remote(file).tasks).length, 1)
+  const p1 = await c('pull', {}); assert.equal(p1.tasks.length, 1); assert.equal((await c('pull', { since: p1.next })).tasks.length, 0)
+})

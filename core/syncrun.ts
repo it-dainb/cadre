@@ -102,11 +102,13 @@ const raise = async (h: Host, id: string, f: string) => {
   await h.board.update(s => { added = false; const t = s.tasks.find(x => x.id === id); if (!t || t.flags.includes(f)) return s; added = true; return { ...s, tasks: s.tasks.map(x => x.id === id ? { ...x, flags: [...x.flags, f] } : x) } })
   if (added) await emit(h, 'flag.raised', { taskId: id, flag: f }, { taskId: id, actor: 'sync' })
 }
-export async function applySync(h: Host, u: Unit, r: any): Promise<{ stale: number }> {
+// `check`: only validate and compare bases, throwing when a task changed (the wizard's confirm); nothing is written
+export async function applySync(h: Host, u: Unit, r: any, check = false): Promise<{ stale: number }> {
   const why = shape(r, u); if (why) throw new Error(`refused: ${why}`)
   const store = await storeOf(h), ops = (r.ops ?? []) as any[], actor = `cadre/${u.adapter}+sync`, target = u.target ?? '', cur = new Map<string, string>()
   for (const id of new Set(ops.filter(o => o.id).map(o => o.id as string))) { try { cur.set(id, baseOf(await store.get(id), target)) } catch (e) { if (e instanceof StoreError && e.code === 'NotFound') throw new Error(`refused: no task ${id}`); throw e } }
-  let stale = 0, deltas = 0
+  if (check) { if (ops.some(o => o.base !== undefined && o.base !== cur.get(o.id))) throw new Error('refused: a task changed since the proposal was shown; nothing written, run the step again'); return { stale: 0 } }
+  let stale = 0, deltas = 0, parent: string | undefined   // parent: the import's one backlog epic, made once
   for (const o of ops) {
     if (o.base !== undefined && o.base !== cur.get(o.id)) { stale++; continue }   // the task changed while the module ran: dropped, retried next cycle
     if (o.op === 'edit') {
@@ -116,10 +118,10 @@ export async function applySync(h: Host, u: Unit, r: any): Promise<{ stale: numb
     } else if (o.op === 'meta') await store.setMeta(o.id, { [o.key]: o.value }, actor)
     else if (o.op === 'flag') await raise(h, o.id, o.flag)
     else if (o.op === 'ref') await store.setExternalRef(o.id, o.ref, actor)
-    else { const b = await h.board.read(), t = await store.createDraft({ title: o.title, description: o.description, type: Object.keys(active().types)[0], parent: b.mission ?? b.epic ?? await store.createEpic('backlog', `imported from ${u.adapter}`) }); if (o.meta) await store.setMeta(t.id, { [`cadre.sync.${target}`]: o.meta }, actor) }
+    else { const b = await h.board.read(), t = await store.createDraft({ title: o.title, description: o.description, type: Object.keys(active().types)[0], parent: (parent ??= b.mission ?? b.epic ?? await store.createEpic('backlog', `imported from ${u.adapter}`)) }); if (o.meta) await store.setMeta(t.id, { [`cadre.sync.${target}`]: o.meta }, actor) }
   }
   if (r.modState !== undefined) await h.store.set(`mod:sync:${u.id}`, r.modState)
-  if (u.target && r.state === 'ok' && !r.partial && r.lastHeal !== undefined) { const k = `sync.${u.target}`, s = ((await store.control()).doc[k] ?? {}) as Lease; await store.setControl({ [k]: { ...s, cursor: r.cursor ?? undefined, since: r.since, lastHeal: r.lastHeal } }) }   // the cursor moves last, and not on a partial result
+  if (u.target && r.state === 'ok' && !r.partial && !stale && r.lastHeal !== undefined) { const k = `sync.${u.target}`, s = ((await store.control()).doc[k] ?? {}) as Lease; await store.setControl({ [k]: { ...s, cursor: r.cursor ?? undefined, since: r.since, lastHeal: r.lastHeal } }) }   // the cursor moves last, and not on a partial result
   for (const l of r.refused ?? []) h.log(`sync ${u.id}: ${l}`)
   return { stale }
 }
@@ -132,8 +134,8 @@ async function runUnit(h: Host, cfg: any, u: Unit, force: boolean, lim: typeof L
   const input = await inputOf(h, cfg, u, store, s, force)
   if (JSON.stringify(input).length > MAX_IN) return settle(h, u, 'offline', 'snapshot too large')
   const scratch = `${await wtRootOf(h, cfg)}/${repoKeyOf(root)}.scratch/sync-${h.rand(4)}`, plugin = await h.root?.()
-  const res = await modrun(h, { argv: ['node', `${plugin}/modules/sync.mjs`], cwd: root, input: { ...input, limits: { deadlineMs: lim.deadline, batch: lim.batch } }, scratch, envPass: u.a.envPass, credentialEnv: u.a.credentialEnv, timeoutMs: lim.wall })
-  await h.run(['rm', '-rf', scratch])
+  let res: Awaited<ReturnType<typeof modrun>>
+  try { res = await modrun(h, { argv: ['node', `${plugin}/modules/sync.mjs`], cwd: root, input: { ...input, limits: { deadlineMs: lim.deadline, batch: lim.batch } }, scratch, envPass: u.a.envPass, credentialEnv: u.a.credentialEnv, timeoutMs: lim.wall }) } finally { await h.run(['rm', '-rf', scratch]) }
   const clean = !res.exit && !res.timedOut, r = res.result as any
   if (r === undefined || res.bad) return settle(h, u, 'offline', res.bad ?? (res.timedOut ? 'the sync module timed out' : 'the sync module gave no result'))
   if (u.target && !(await lease(store, u.target, me, await h.now(), true))) return settle(h, u, 'offline', 'lease lapsed while the module ran; its result was dropped')
@@ -160,8 +162,10 @@ async function addStep(h: Host, cfg: any, name: string, st: Add, args: string[])
   const u: Unit = { id: `add:${name}`, kind: 'target', adapter: name, a: cfg.adapters[name], target: name }, store = await storeOf(h), root = await h.cwd()
   const input = { unit: u.id, kind: 'target', mode: 'add', now: await h.now(), adapter: await adapterOf(h, u), add: { name, step: st.n, d: st.d, args }, types: Object.keys(active().types),
     tasks: (await store.list({})).filter(t => t.category !== 'draft').map(t => ({ id: t.id, base: baseOf(t, name) })), journal: { head: (await store.events(undefined, 0))?.head } }
+  const file = u.a.repo?.module; if (file && (await moduleBad(h, `${root}/.cadre/modules`, file))) return { message: `adapter ${name}: ${file} is not a module of this repository's .cadre/modules` }
   const scratch = `${await wtRootOf(h, cfg)}/${repoKeyOf(root)}.scratch/add-${h.rand(4)}`
-  const res = await modrun(h, { argv: ['node', `${await h.root?.()}/modules/sync.mjs`], cwd: root, input, scratch, envPass: u.a.envPass, credentialEnv: u.a.credentialEnv, timeoutMs: LIM.wall }); await h.run(['rm', '-rf', scratch])
+  let res: Awaited<ReturnType<typeof modrun>>
+  try { res = await modrun(h, { argv: ['node', `${await h.root?.()}/modules/sync.mjs`], cwd: root, input, scratch, envPass: u.a.envPass, credentialEnv: u.a.credentialEnv, timeoutMs: LIM.wall }) } finally { await h.run(['rm', '-rf', scratch]) }
   return res.result ?? { message: res.bad ?? 'the sync module gave no result' }
 }
 export async function syncAdd(h: Host, name: string, args: string[] = []): Promise<string> {
@@ -173,8 +177,11 @@ export async function syncAdd(h: Host, name: string, args: string[] = []): Promi
       if (!(await initConfirm(h, SYNC_ADD))) return 'sync add: nothing pending; run /cadre sync add again for a new diff'
       const { set = {}, ops = [], cursor, d = {} } = p.proposal
       if (!obj(set) || Object.keys(set).some(x => !SYNC_KEYS.includes(x))) return 'sync add: the proposal names a key outside the sync target; nothing written'
-      await applySync(h, { id: `add:${name}`, kind: 'target', adapter: name, a: cfg.adapters[name], target: name }, { state: 'ok', ops, cursor, lastHeal: 0 })   // refuses before writing; the config is written after, by the one writer
+      // order: check (a task edited since the proposal refuses it, nothing written) -> the config -> the ops. A failed config write leaves nothing imported, so a re-run cannot import twice
+      const res = { state: 'ok', ops, cursor, lastHeal: 0 }, au: Unit = { id: `add:${name}`, kind: 'target', adapter: name, a: cfg.adapters[name], target: name }
+      await applySync(h, au, res, true)
       const w = await writeRepoConfig(h, cur => { cur.sync ??= {}; cur.sync[name] = { adapter: name, ...cur.sync[name], ...set }; return cur }); if (!w.ok) return `sync add: ${w.why}`
+      await applySync(h, au, res)
       st.d = { ...st.d, ...d }; st.n = p.n + 1; delete st.pending; await h.store.set(k, st)
       return st.n > 5 ? (await h.store.del(k), `sync add ${name}: done. Syncing starts on the next tick (/cadre sync now).`) : `sync add ${name}: step ${p.n}/5 done. Next: /cadre sync add ${name}`
     }
