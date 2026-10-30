@@ -112,7 +112,7 @@ async function gate(h: Host, s: Snapshot, mode: Mode): Promise<Gate> {
   if ((await h.ui.read()).loop) return { pause: 'two loop owners: /goal active' }
   return null
 }
-const quote = (t?: string) => (t ?? '').replace(/["\n\r]+/g, ' ').trim().slice(0, 400)   // a worker's words reach main's prompt: one quoted line, never text that reads as main's own instructions
+const quote = (t = ''): string => { let o = '', sep = false; for (const c of t) { const s = '"\n\r'.includes(c); if (!s || !sep) o += s ? ' ' : c; sep = s } return o.trim().slice(0, 400) }   // a worker's words reach main's prompt: one quoted line, never text that reads as main's own instructions
 // yolo: what main decides itself, with the reason the task gave (main reads it here, never in a dialog)
 async function yoloAsks(store: TaskStore, s: Snapshot): Promise<string[]> {
   const out: string[] = []
@@ -130,7 +130,7 @@ export async function ready(h: Host): Promise<DriveRec | null> {
   if (!d.on || d.stopped || !s.epic || !s.plan) return null
   const mode: Mode = d.mode ?? 'auto'
   if (s.plan.landed || s.plan.state === 'done-on-dev' || s.plan.state === 'released') {   // computed done: integration landed it on dev with its changelog (3.9, plan.landed)
-    const store = await storeOf(h), n = (await store.list({}).catch(() => [])).filter(t => t.type === 'decision' && t.meta.link === s.plan!.id && /^(auto|yolo): /.test(t.title)).length   // the store's records outlive the event ring
+    const store = await storeOf(h), n = (await store.list({}).catch(() => [])).filter(t => t.type === 'decision' && t.meta.link === s.plan!.id && ['auto: ', 'yolo: '].some(p => t.title.startsWith(p))).length   // the store's records outlive the event ring
     const took = n ? ` · ${n} decision${n === 1 ? '' : 's'} taken for you (Doctor lists them)` : ''
     await h.board.update(x => ({ ...x, drive: { ...x.drive, on: false, paused: undefined } })); await driveEvent(h, 'finished', `landed on dev${took}${mode === 'yolo' ? '; the release is yours' : ''}`)
     await casDrive(h, store, r => r && { ...r, on: false, lease: { session: '', until: 0 } })
@@ -208,7 +208,7 @@ export async function watchdog(h: Host): Promise<void> {
 export async function limited(h: Host, e: { reason?: string; answer?: string }): Promise<number | null> {
   if (e.reason !== 'error') return null
   const hit = ((await h.usage?.().catch(() => undefined))?.rateLimits ?? []).filter(r => r.percentUsed >= 100), now = await h.now()
-  if (!hit.length && !/usage limit|rate limit|\b429\b/i.test(String(e.answer ?? ''))) return null
+  if (!hit.length && !/usage limit|rate limit|\b429\b/i.test(String(e.answer ?? ''))) return null   // engine-text-exception: turn.complete carries no error code, only the answer text
   const until = Math.max(now + (await cfgOf(h)).limits.limitWaitMinutes * 60_000, ...hit.map(r => Date.parse(r.resetsAt ?? '') || 0))
   await stop(h, `usage limit until ${new Date(until).toISOString().slice(11, 16)} UTC`, { flag: 'limit', resetAt: until }); return until   // lifts by itself at resetAt (the watchdog kicks), or by drive resume
 }
@@ -286,7 +286,7 @@ ROUTES.drive = async (h, c) => {
 }
 // /goal observer (9, S48): command.run {command:'goal'} and prompt.submit text '/goal …'. Never rewritten; pauses drive until /goal clear. (`ui.loop`: `ui.goal` is the queued brief)
 export async function goalSeen(h: Host, args: string) {
-  const on = !/^\s*(clear|off|stop)?\s*$/.test(args)
+  const on = !['', 'clear', 'off', 'stop'].includes(args.trim())
   await h.ui.update(u => ({ ...u, loop: on || undefined }))
   const d = (await h.board.read()).drive
   if (on && d.on) await pause(h, 'two loop owners: /goal active')

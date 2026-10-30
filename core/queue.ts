@@ -4,7 +4,7 @@
 import type { Host } from '../types'
 import type { Config } from '../config/defaults'
 import type { Run } from './lifecycle'
-import { roleSpecs } from './roles'
+import { WORD, roleSpecs } from './roles'
 
 export interface Want { id: string; role: string; model?: string; unit?: string; head?: boolean }   // role 'claim' = a new task
 const held = new Map<string, Want>()   // picks the spawner has taken and not yet started: they count like running ones
@@ -14,7 +14,14 @@ export const hold = (w: Want) => void held.set(k(w.id, w.role), w)
 export const drop = (id: string, role: string) => void held.delete(k(id, role))
 
 // the model gate (static): an alias (optional [1m]), claude-… (optional [1m] or @YYYYMMDD), a Bedrock id, or a models.allow entry. The cells: roles.*, byRisk and units' routing.
-const MODEL_OK = /^(?:(?:haiku|sonnet|opus|fable)(?:\[1m\])?|claude-[\w.-]+(?:\[1m\]|@\d{8})?|[a-z]{2}\.anthropic\.claude-[\w.-]+(?::\d+)?)$/
+const digits = (s = '') => s !== '' && [...s].every(c => c >= '0' && c <= '9')
+const wordy = (s: string) => s !== '' && [...s].every(c => WORD.includes(c) || c === '.' || c === '-')
+const aliasOf = (m: string) => (m.endsWith('[1m]') ? m.slice(0, -4) : m[m.length - 9] === '@' && digits(m.slice(-8)) ? m.slice(0, -9) : m)
+const modelOk = (m: string): boolean => {
+  if (['haiku', 'sonnet', 'opus', 'fable'].includes(m.endsWith('[1m]') ? m.slice(0, -4) : m) || (aliasOf(m).startsWith('claude-') && wordy(aliasOf(m).slice(7)))) return true
+  const [id = '', n, ...rest] = m.split(':')
+  return !rest.length && (n === undefined || digits(n)) && [...id.slice(0, 2)].every(c => c >= 'a' && c <= 'z') && id.slice(2, 20) === '.anthropic.claude-' && wordy(id.slice(20))   // a Bedrock id
+}
 export function modelIssues(c: Config): string[] {
   const cells: [string, unknown][] = []
   for (const [r, v] of Object.entries(c.roles) as [string, any][]) {
@@ -24,15 +31,14 @@ export function modelIssues(c: Config): string[] {
   cells.push(['lessons.model', c.lessons?.model])
   for (const [n, s] of Object.entries(roleSpecs())) cells.push([`profile roles.${n}.model`, s.model])   // a role of the profile names its own model: gated like any other
   for (const u of c.units ?? [] as any[]) for (const [r, x] of Object.entries(u?.routing ?? {}) as [string, any][]) cells.push([`units ${u.root}: routing.${r}.model`, x?.model])
-  return cells.filter(([, m]) => typeof m === 'string' && !MODEL_OK.test(m) && !c.models.allow.includes(m)).map(([k, m]) => unknownModel(k, String(m)))
+  return cells.filter(([, m]) => typeof m === 'string' && !modelOk(m) && !c.models.allow.includes(m)).map(([k, m]) => unknownModel(k, String(m)))
 }
 const unknownModel = (cell: string, m: string) => `${cell}: unknown model "${m}" (an alias, a claude-… id or a models.allow entry)`
 // a well-formed name the engine refuses at the spawn: the same line as the load gate, and the drive stops at once (core/spawner)
 export class ModelRefused extends Error {}
-export const modelRefusal = (e: unknown, cell: string, m: string) => (/issue with the selected model|\bmodel\b.{0,80}\b(?:not exist|invalid|unknown|not found|have access)\b/i.test(String(e)) ? new ModelRefused(unknownModel(cell, m)) : e)   // the engine's wording; a transient "overloaded" or "not available" is retryable, so it is not here
+export const modelRefusal = (e: unknown, cell: string, m: string) => (/issue with the selected model|\bmodel\b.{0,80}\b(?:not exist|invalid|unknown|not found|have access)\b/i.test(String(e)) ? new ModelRefused(unknownModel(cell, m)) : e)   // engine-text-exception: agent.spawn rejects with a message only. The engine's wording; a transient "overloaded" or "not available" is retryable, so it is not here
 
 export const providerOf = (env: Record<string, string | undefined>) => (env.CLAUDE_CODE_USE_BEDROCK ? 'bedrock' : env.CLAUDE_CODE_USE_VERTEX ? 'vertex' : 'anthropic')
-const aliasOf = (m: string) => m.replace(/\[1m\]$|@\d{8}$/, '')
 // the limit a run of `model` is held to: its model key, else its provider key, else the task count (by 'default', which counts tasks only)
 export function limitOf(c: Config['concurrency'], model: string, provider: string): { by: 'model' | 'provider' | 'default'; n: number } {
   const m = c.models[model] ?? c.models[aliasOf(model)], p = c.providers[provider]
