@@ -5,12 +5,12 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
-const root = new URL('../../', import.meta.url).pathname, ts = d => readdirSync(join(root, d), { recursive: true }).filter(f => f.endsWith('.ts') && !f.includes('vendor')).map(f => join(root, d, f))
-const SITES = [/raise\(h, [^,]+, '([a-z_-]+)'/g, /blockTask\([^)]*?, '([a-z_-]+)', \{/g, /flag: '([a-z_-]+):?'/g, /flag\([a-z.]+, [^,]+, '([a-z_-]+)'\)/g, /flags\.includes\('([a-z_-]+)'\)/g]
+const root = new URL('../../', import.meta.url).pathname, ts = (d, ext = '.ts') => readdirSync(join(root, d), { recursive: true }).filter(f => f.endsWith(ext) && !f.includes('vendor')).map(f => join(root, d, f))
+const SITES = [/raise\(h, [^,]+, '([a-z_-]+)'/g, /blockTask\([^)]*?, '([a-z_-]+)', \{/g, /flag: '([a-z_-]+):?'/g, /flag\([a-z.]+, [^,]+, '([a-z_-]+)'\)/g, /flags\.includes\('([a-z_-]+)'\)/g, /\bflag\([a-z.]+, '([a-z_-]+)'\)/g]   // the last: a module's flag op (modules/sync.mjs; core/syncrun applies it)
 
 test('every raised flag kind has a row; every row names a kind that is raised or new in 2.0', async () => {
   const { flags } = await import('../../profiles/default.ts'), seen = new Set()
-  for (const f of [...ts('core'), ...ts('task-management'), ...ts('tools')]) { const src = readFileSync(f, 'utf8'); for (const re of SITES) for (const m of src.matchAll(re)) seen.add(m[1]) }
+  for (const f of [...ts('core'), ...ts('task-management'), ...ts('tools'), ...ts('modules', '.mjs')]) { const src = readFileSync(f, 'utf8'); for (const re of SITES) for (const m of src.matchAll(re)) seen.add(m[1]) }
   seen.delete('limit')   // a drive stop's cause, never a task flag
   const missing = [...seen].filter(k => !flags[k]); assert.deepEqual(missing, [])
   assert.ok(['red', 'conflict', 'spec_change', 'shape', 'stopped', 'lost-epic', 'integration-failed', 'locked-dirty', 'attempts', 'edited', 'report-unvalidated'].every(k => seen.has(k)), [...seen].join(' '))   // the scan finds the known sites

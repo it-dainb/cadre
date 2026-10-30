@@ -9,7 +9,7 @@ export const ELSEWHERE: Record<string, [string, string]> = {
   'roles.testerView': ['tests/admission.test.ts', "d.cfg.roles.testerView = 'full'"], 'roles.tdd.author': ['tests/admission.test.ts', "d.cfg.roles.tdd.author = 'same'"],
   'milestone.epicPlanner': ['tests/planner.test.ts', "cfg.milestone.epicPlanner = 'main'"], 'planner.maxRounds': ['tests/planner.test.ts', 'cfg.planner.maxRounds = 2'],
   units: ['tests/admission.test.ts', "d.cfg = { ...d.cfg, units: [{ root: '.', kind: 'service'"],
-  adapters: ['tests/protocol/protocol.test.mjs', 'const config = { ...cfgDefaults(), adapters, sync }'], sync: ['tests/protocol/protocol.test.mjs', 'const config = { ...cfgDefaults(), adapters, sync }'],
+  adapters: ['tests/modules/sync.test.mjs', 'const config = { ...defaults(), adapters, sync }'], sync: ['tests/modules/sync.test.mjs', 'const config = { ...defaults(), adapters, sync }'],
   'lessons.model': ['tests/lessons.test.ts', 'settings: lessons.model'], 'lessons.passesPerDay': ['tests/lessons.test.ts', 'settings: lessons.passesPerDay'], 'lessons.repeats': ['tests/lessons.test.ts', 'settings: lessons.repeats'], 'lessons.repos': ['tests/lessons.test.ts', 'settings: lessons.repos'],
   'lessons.decayDays': ['tests/lessons.test.ts', 'settings: lessons.decayDays'], 'lessons.maxAgeDays': ['tests/lessons.test.ts', 'settings: lessons.maxAgeDays'], 'lessons.perBrief': ['tests/lessons.test.ts', 'settings: lessons.perBrief'],
   'roles.specifier.enabled': ['tests/specifier.test.ts', 'settings: roles.specifier.enabled'],

@@ -196,16 +196,16 @@ describe('compaction (8.3, S49) and rehydrate (8.2, 13.4)', () => {
     expect(await rehydrate(f)).toBe(false); expect(logs).toEqual([])
   })
   test('ring rebuilt from the journal (transitions) + at-stamped records (phases), fresh seqs; adapters reset; records-only without a journal', async () => {
-    const one = await mk({ journal: true, cfg: c => { c.adapters = { pm: {} } } })
+    const one = await mk({ journal: true, cfg: c => { c.adapters = { pm: { grants: ['events'] } } } })
     await one.store.setMeta(one.a, { 'cadre.rec.report': `[cadre:report v1] ${one.a} @5000 by worker\ncommit: abc` }, 'me')
     await turn(one.h, { reason: 'answer' })
-    const f = await cleared(one.h); await f.store.set('deliver:pm', { acked: 40, init: true })
+    const f = await cleared(one.h); await f.store.set('mod:sync:events:pm', { acked: 40, init: true })
     await rehydrate(f)
     const evs = (await f.events.read()).epics[one.epic]
     expect(evs.map((e: any) => e.seq)).toEqual(evs.map((_: any, i: number) => i + 1))
     expect(evs.filter((e: any) => e.type === 'task.transitioned' && e.taskId === one.a).map((e: any) => `${e.data.from}>${e.data.to}`)).toEqual(['draft>todo', 'todo>active'])
     expect(evs.find((e: any) => e.type === 'task.phase_changed')).toMatchObject({ at: 5000, data: { taskId: one.a, from: 'worker', to: 'reviewer' } })
-    expect(await f.store.get('deliver:pm')).toEqual({ acked: 40, init: false })
+    expect(await f.store.get('mod:sync:events:pm')).toBeUndefined()   // the events module starts over with reset:true
     const two = await mk()
     await two.store.setMeta(two.a, { 'cadre.rec.report': `[cadre:report v1] ${two.a} @5000 by worker` }, 'me')
     await turn(two.h, { reason: 'answer' }); const g = await cleared(two.h); await rehydrate(g)

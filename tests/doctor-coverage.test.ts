@@ -63,7 +63,15 @@ doctorHost('pane could not open', {}, async h => { await h.ui.update(u => ({ ...
 doctorHost('refused setting and effort override', { files: { [`${HOME}/.claude/cadre.json`]: '{"drive":{"mode":"fast"}}' }, env: { CLAUDE_CODE_EFFORT_LEVEL: 'low' } })
 doctorHost('older task store', { repo: true }, h => { const st = h.stat; Object.assign(h, { stat: async (p: string) => (p === '/repo/.beads' ? { kind: 'dir' } : st(p)) }) })
 doctorHost('older store folder', { repo: true }, h => { const st = h.stat; Object.assign(h, { stat: async (p: string) => (p === '/repo/.cadre/store' ? { kind: 'dir' } : st(p)) }) })
-doctorHost('sync target does not answer', { repo: true }, h => { const c = defaults() as any; c.sync = { tracker: { adapter: 'nope' } }; Object.assign(h, { config: async () => c }) })
+doctorHost('sync target has no result yet', { repo: true }, h => { const c = defaults() as any; c.sync = { tracker: { adapter: 'nope' } }; Object.assign(h, { config: async () => c }) })
+// B22: the sync rows come from the module's last result (`sync.rt:<unit>`), the credential row from set/missing only; the fixture's adapter would show up in h.run if Doctor started it
+const SYNC = (rt?: object, set = false) => async (h: Host) => {
+  const c = defaults() as any; c.adapters = { trk: { command: ['trk-adapter'], credentialEnv: 'TRK_KEY', grants: ['sync'] } }; c.sync = { t: { adapter: 'trk' } }; Object.assign(h, { config: async () => c })
+  if (rt) await h.store.set('sync.rt:t', rt)
+  const run = h.run; Object.assign(h, { run: async (a: string[], i?: any) => (a[0] === 'trk-adapter' ? Promise.reject(new Error('Doctor started the adapter')) : a[0] === 'printenv' && set ? { exitCode: 0, stdout: 'SECRET-VALUE', stderr: '' } : run(a, i)) })
+}
+doctorHost('sync result ok', { repo: true }, SYNC({ state: 'ok', at: 1 }, true)); doctorHost('sync result offline', { repo: true }, SYNC({ state: 'offline', at: 1, message: 'adapter trk: exit 3' }))
+doctorHost('sync result old', { repo: true }, SYNC({ state: 'ok', at: -700_000 })); doctorHost('sync ops stale', { repo: true }, SYNC({ state: 'ok', at: 1, stale: 2 }, true)); doctorHost('sync credential missing', { repo: true }, SYNC({ state: 'ok', at: 1 }))
 doctorHost('task store probe fails', { repo: true }, h => { Object.assign(h, { taskStore: async () => ({ probe: async () => ({ ok: false, journal: false, version: 'file', detail: 'hard links fail' }) }) }) })
 doctorHost('task store unreachable', { repo: true }, h => { Object.assign(h, { taskStore: async () => { throw new Error('boom') } }) })
 doctorHost('task store journal off', { repo: true }, h => { Object.assign(h, { taskStore: async () => ({ probe: async () => ({ ok: true, journal: false, version: 'file', detail: '' }), list: async () => [] }) }) })
@@ -110,7 +118,7 @@ test('the healthy machine is all ok; the table has fails and warns for tools, ja
 })
 test('the hosts for the less common rows do produce them', async () => {
   const lines = (await all()).map(([, r]) => r[1])
-  for (const re of [/^worktree root .* is not writable/, /^Claude Code version unreadable/, /^\.cadre\/store: a task store/, /^sync tracker: /]) expect(lines.some(l => re.test(l))).toBe(true)
+  for (const re of [/^worktree root .* is not writable/, /^Claude Code version unreadable/, /^\.cadre\/store: a task store/, /^sync tracker: /, /^sync t credential TRK_KEY: missing/]) expect(lines.some(l => re.test(l))).toBe(true)
 })
 test('D15/D16: Doctor reads the stored probe and probes nothing: rows for yes, no, stale, unprobed and none; no test argv or $CADRE_JUNIT reaches h.run', async () => {
   const rs = async (n: string) => (await all()).filter(([m, r]) => m === n && /test check/.test(r[1])).map(([, r]) => r)
@@ -119,4 +127,12 @@ test('D15/D16: Doctor reads the stored probe and probes nothing: rows for yes, n
   expect(await rs('junit probe: not probed')).toEqual([['warn', 'test check writes JUnit: not probed on this machine: rerun /cadre init', undefined]]); expect(await rs('no test check')).toEqual([['ok', 'test check: none: the first feature/bug task sets one up', undefined]])
   const h = mk({ repo: true }), c = U({ test: ['probe-me', '$CADRE_JUNIT'] }), calls: string[][] = [], run = h.run; Object.assign(h, { config: async () => c, run: async (a: string[]) => { calls.push(a); return run(a) } })
   await doctor(h); expect(calls.some(a => a.join(' ').includes('probe-me') || a.join(' ').includes('CADRE_JUNIT') || a[0] === 'stat')).toBe(false)
+})
+
+test('B22: Doctor reads the module result and its age, never calls the adapter, and prints a credential as set or missing only', async () => {
+  const rows = (await all()).filter(([n]) => n.startsWith('sync ')).map(([n, r]) => [n, r[0], r[1]])
+  expect(rows.find(([n, , t]) => n === 'sync result ok' && /^sync t: ok, \d s ago$/.test(t as string))).toBeDefined(); expect(rows).toContainEqual(['sync result ok', 'ok', 'sync t credential TRK_KEY: set'])
+  expect(rows).toContainEqual(['sync result offline', 'warn', 'sync t: adapter trk: exit 3']); expect(rows).toContainEqual(['sync result old', 'warn', 'sync t: no result for 12 min'])
+  expect(rows).toContainEqual(['sync ops stale', 'warn', 'sync t: 2 ops stale, retried next cycle']); expect(rows).toContainEqual(['sync credential missing', 'warn', 'sync t credential TRK_KEY: missing'])
+  expect(JSON.stringify(rows)).not.toContain('SECRET-VALUE')   // no row carries a value, and an adapter start would have thrown above
 })
