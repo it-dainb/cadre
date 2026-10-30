@@ -502,7 +502,7 @@ export async function resolveFlag(h: Host, id: string, key: string, args = '', o
 }
 ROUTES.resolve = async (h, c) => {
   const [a, b, f] = c.args
-  if (!a || !b) return { text: 'usage: /cadre resolve <taskId> <key> [ids] · /cadre resolve git <key> [flag]' }
+  if (!a || !b) return { text: 'usage: <taskId> <key> [ids] · git <key> [flag]' }
   if (a !== 'git') return resolveFlag(h, a, b, f)
   const open = Object.keys((await h.git.read()).flags ?? {}), flag = f ?? (open.length === 1 ? open[0] : '')
   return flag ? resolveFlag(h, '', b, '', { flag }) : { text: `name the flag: ${open.join(', ') || 'none open'}` }

@@ -28,6 +28,7 @@ export const flags: Record<string, FlagSpec> = {
   conflict: { ...SAME, holds: true, options: [ACCEPT, { key: 'r', label: 'Retry', needs: 'keys', effect: [{ do: 'retry', counter: 'rebase', more: 1 }, { do: 'clear', kinds: ['conflict', 'merge-red'] }, { do: 'rework', kind: 'conflict' }] }, KEEP, CANCEL] },
   'merge-red': SAME, holds: SAME, 'locked-dirty': SAME, edited: SAME, 'report-unvalidated': SAME,
   'lost-wip': { why: '', holds: true, yolo: 'human', options: [] },
+  reverted: { why: '', holds: false, yolo: 'human', options: [] },   // a mark on a reverted task, never a decision
   'lost-epic': { why: 'the epic branch is gone. Re-cut it from dev, or end the epic.', holds: true, yolo: 'human', target: 'plan', options: [{ key: 'r', label: 'Re-cut', effect: [{ do: 'recut' }] }, { key: 'x', label: 'End epic', effect: [{ do: 'cancel' }] }] },
   'integration-failed': { why: '{flag}: Keep accepts the state.', holds: true, yolo: 'human', target: 'plan', options: [KEEP] },
   stopped: { why: 'Retry: the epic goes on. The epics that wait on it start after it lands.', holds: false, yolo: 'human', target: 'epic', options: [{ key: 'r', label: 'Retry', effect: [{ do: 'resume' }] }] },

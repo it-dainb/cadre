@@ -16,7 +16,7 @@ An old subcommand word (`approve`, `status`, `open`, …) answers `that's answer
 |---|---|---|
 | `approve <id>` | dialog | approve the plan (or gate) answered in the dialog; refused if it changed while the dialog was open |
 | `reject <planId> <why>` | human | drop drafts |
-| `resolve <id> keep\|accept\|reject\|cancel` · `resolve git keep\|restore` | human | clear flags / quarantined git effects |
+| `resolve <id> <key> [ids]` · `resolve git <key> [flag]` | human | answer a flag by its option's key (`k` keep, `a` accept, `r` retry or restore, `x` cancel, `h` already holds with the scenario ids; the dialog shows each flag's keys) |
 | `release [x.y.z]` | human | cut a release |
 | `revert <id>` | typed or press opens the card; the two confirms: dialog | revert a landed task, epic or milestone to this point: a card with the changelog entry, summary, result, tests and a preview of what is lost (files, commits, later tasks that depend on it), then two confirms; the revert commits land through the same checks as an epic. An epic that never landed is abandoned instead: only the branches the store recorded are removed. Refused with a code: `revert-of-revert`, `already-reverted`, `not-landed`, `busy`, `pr-mode` (pull-request landing is not supported yet), `unknown` |
 | `setup [cancel]` | human | one-time machine setup, done by Claude, checked by cadre |
