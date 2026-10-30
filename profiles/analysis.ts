@@ -2,6 +2,7 @@
 // sends the work back once. Omitted sections come from the default profile; its flag rows are merged under the ones listed here.
 import type { ProfileLayer } from '../types/profile'
 import { modelText } from '../core/say'
+import { roles as base } from './default'
 
 const R = 'mcp__cadre__report', I = 'mcp__cadre__inspect'
 export const profile: ProfileLayer = {
@@ -15,6 +16,7 @@ export const profile: ProfileLayer = {
     land: { gate: 'integrate', expect: 'pass', on: 'review' },
   },
   roles: {
+    explorer: base.explorer,   // main's explore tool and the planners' questions run it whatever the profile
     scout: { description: 'reads what exists and reports what it found for one task', prompt: modelText('agent-file', 'You are a scout. You read what exists for one task, given in your brief, read-only. Cite the source of every fact. Finish with the report tool once: outcome "done" and a short summary.'),
       tools: ['Read', 'Grep', 'Glob', I, R], network: 'off', write: [], ttl: '5m', onSilent: 'nudge', nudge: modelText('nudge', 'You stopped without calling report; a hand-back message is not a report. Call the report tool now with role "scout", outcome "done" and a summary.'),
       report: { outcomes: ['done'], fields: { summary: { text: 800 } }, required: ['summary'] } },

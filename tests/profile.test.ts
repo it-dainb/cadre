@@ -28,7 +28,7 @@ describe('the built-in profiles', () => {
   })
   test('the default loads as the default; docs replaces the sections it names and keeps the default flag rows', async () => {
     const d = await loadProfile(host()); expect(d.bad).toBeUndefined(); expect(d.profile).toEqual(DEFAULT); expect(d.name).toBe('default')
-    const x = await loadProfile(host({ user: 'docs' })); expect(Object.keys(x.profile.types)).toEqual(['doc']); expect(Object.keys(x.profile.roles)).toEqual(['writer', 'critic']); expect(x.profile.flags).toEqual({ ...DEFAULT.flags, ...BUILTIN.docs.flags })
+    const x = await loadProfile(host({ user: 'docs' })); expect(Object.keys(x.profile.types)).toEqual(['doc']); expect(Object.keys(x.profile.roles)).toEqual(['explorer', 'writer', 'critic']); expect(x.profile.flags).toEqual({ ...DEFAULT.flags, ...BUILTIN.docs.flags })
     const a = await loadProfile(host({ user: 'analysis' })); expect(a.profile.types.analysis.pipeline).toEqual(['explore', 'work', 'verify', 'review', 'land']); expect(a.profile.checks.check.network).toBe(false)
     expect((await loadProfile(host({ user: 'nope' }))).user).toContain('no such built-in profile')   // the default stays, the refusal is shown
   })
@@ -154,7 +154,7 @@ describe('/cadre profile', () => {
     const present = ['/repo/.cadre/modules/note.mjs'], h = host({ present, user: 'docs', repo: LAYER({ roles: { scribe: WRITER }, hooks: { release: [{ run: ['node', '${MODULES}/note.mjs'] }] } }) })
     try {
       await bootProfile(h); const t = await show(h)
-      expect(t.split('\n')[0]).toBe('profile docs + .cadre/profile.json'); expect(t).toContain('roles: writer, critic (docs) · scribe (repo)'); expect(t).toContain('types: doc (docs)'); expect(t).toContain('hooks: release 1 · landing: direct')
+      expect(t.split('\n')[0]).toBe('profile docs + .cadre/profile.json'); expect(t).toContain('roles: explorer, writer, critic (docs) · scribe (repo)'); expect(t).toContain('types: doc (docs)'); expect(t).toContain('hooks: release 1 · landing: direct')
       expect(t).toContain('unrunnable: none'); present.length = 0   // the module goes away after the load: the next look says so
       expect(await show(h)).toContain('unrunnable: no module modules/note.mjs')
     } finally { setProfile(DEFAULT) }
