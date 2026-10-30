@@ -17,21 +17,21 @@ describe('units', () => {
     expect(repoSplit(cfg, ['lib/x.c', 'src/a.ts'])).toBe('metadata.paths: lib and the main repository are separate repositories; split this into one task per repository')
     expect([repoSplit(cfg, ['lib/x.c', 'lib/y.c']), repoSplit(cfg, ['src/a.ts']), repoSplit(cfg, undefined)]).toEqual([null, null, null])
   })
-  test('parse: every refusal names units[i].field; runner and concurrency are checked', () => {
+  test('parse: every refusal names units[i].field; unknown keys and concurrency are checked', () => {
     expect(parse([{ ...U[1], kind: 'lib' }], 'units')).toBe('units[0].kind: one of package, service, submodule, app')
     expect(parse([{ ...U[1], ownGit: 'yes' }], 'units')).toMatch(/^units\[0\]\.ownGit: /)
     expect(parse([{ ...U[1], routing: { worker: { effort: 'high' } } }], 'units')).toMatch(/^units\[0\]\.routing: /)
     expect(parse([{ root: '../x', checks: { t: ['x'] } }], 'units')).toMatch(/^units\[0\]\.root: /)
     expect(parse([U[0]])).toEqual([{ ...U[0], setup: [] }])
-    expect(parse([{ ...U[1], runner: 'text', concurrency: 2 }])).toEqual([{ ...U[1], runner: 'text', concurrency: 2, setup: [] }])
-    expect(parse([{ ...U[1], runner: 'xml' }])).toMatch(/^units\[0\]\.runner: junit or text/); expect(parse([{ ...U[1], concurrency: 0 }])).toMatch(/^units\[0\]\.concurrency: /)
+    expect(parse([{ ...U[1], concurrency: 2 }])).toEqual([{ ...U[1], concurrency: 2, setup: [] }])
+    expect(parse([{ ...U[1], runner: 'text' }])).toMatch(/^units\[0\]\.runner: unknown key/); expect(parse([{ ...U[1], concurrency: 0 }])).toMatch(/^units\[0\]\.concurrency: /)
   })
   test('unitsOf: the units themselves; `packages` is refused with "renamed: units" in any layer', () => {
     expect(unitsOf({ units: U })).toBe(U); expect(unitsOf({})).toEqual([])
     for (const trust of ['user', 'repo'] as const) expect(resolve([{ name: 'f', trust, value: { packages: [{ root: '.' }] } }]).diagnostics).toContain('f: packages: renamed: units')
   })
-  test('a unit with runner text reads its tests from the output: the report is not used', () => {
-    const ok = D.parse([{ root: '.', runner: 'text', tdd: { paths: ['t/**'], report: '/tmp/cadre/j.xml' }, checks: { test: ['x'] } }]); expect(typeof ok).toBe('object')
+  test('a unit names no report path (B14): core allocates $CADRE_JUNIT per run, so tdd.report is an unknown key', () => {
+    expect(D.parse([{ root: '.', tdd: { paths: ['t/**'], report: '/tmp/cadre/j.xml' }, checks: { test: ['x'] } }])).toMatch(/^units\[0\]\.tdd\.report: unknown key/)
   })
   test('ownerOf: the longest root a path lies under; "." owns the rest', () => {
     expect(ownerOf(U, 'svc/api/main.go')?.root).toBe('svc/api'); expect(ownerOf(U, 'svc/apix/a')?.root).toBe('.'); expect(ownerOf(U.slice(1), 'README.md')).toBeUndefined()

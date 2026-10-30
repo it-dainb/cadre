@@ -85,13 +85,13 @@ test('retry flagging: 3 failed semantic reports, the 4th is accepted unvalidated
 test('review.coverage.enforce: a pass with an untested or weak scenario is refused; past the retries it lands as changes, never pass; off: the reviewer decides', async () => {
   const review = async (w, id) => { await w.spawn(id); edit((await w.store.get(id)).meta['cadre.worktree']); await w.rep('ag1', { role: 'worker', outcome: 'done', summary: 's' }); await w.spawn(id) }
   let w = await world(), id = w.ids[0]; await review(w, id)
-  await w.store.setMeta(id, { 'cadre.specTests': JSON.stringify(['login works']) }, 'x')
+  await w.store.setMeta(id, { 'cadre.specTests': JSON.stringify([{ name: 'login works', ids: [] }]) }, 'x')
   assert.match(await w.rep('ag2', w.pass), /coverage: verdict pass is refused: scenario S1 has no test/)
-  await w.store.setMeta(id, { 'cadre.specTests': JSON.stringify(['S1 login works']) }, 'x')
+  await w.store.setMeta(id, { 'cadre.specTests': JSON.stringify([{ name: 'S1 login works', ids: ['S1'] }]) }, 'x')
   const weak = { ...w.pass, coverage: [{ scenario: 'S1', test: 'S1 login works', ok: false }] }
   assert.match(await w.rep('ag2', weak), /scenario S1 is not covered by a test that checks it/); assert.match(await w.rep('ag2', weak), /attempt 3\/3/)
   assert.match(await w.rep('ag2', weak), /verdict accepted: changes \(1\/3\)/); assert.equal((await w.store.get(id)).meta['cadre.review'], '')
-  w = await world(); id = w.ids[0]; w.dep.cfg.review.coverage.enforce = false; await review(w, id); await w.store.setMeta(id, { 'cadre.specTests': JSON.stringify(['login works']) }, 'x')
+  w = await world(); id = w.ids[0]; w.dep.cfg.review.coverage.enforce = false; await review(w, id); await w.store.setMeta(id, { 'cadre.specTests': JSON.stringify([{ name: 'login works', ids: [] }]) }, 'x')
   assert.match(await w.rep('ag2', { ...w.pass, coverage: [{ scenario: 'S1', ok: false }] }), /verdict accepted: pass/)
 })
 
@@ -269,7 +269,7 @@ test('refresh: a landed commit that breaks a held test blocks the running task w
     const w = await world(), id = w.ids[0], { h, dep, store, d } = w
     dep.cfg.units = [{ root: '.', verify: ['verify'], checks: { verify: ['true'], test: ['sh', '-c', 'test ! -f broken.flag'] }, tdd: { paths: ['test/**'], check: 'test', ...tdd } }]
     await w.spawn(id); const meta = (await store.get(id)).meta, wt = meta['cadre.worktree']
-    await store.setMeta(id, { 'cadre.holds': '["S1"]', 'cadre.specTests': '["S1 held"]' }, dep.actor)
+    await store.setMeta(id, { 'cadre.holds': '["S1"]', 'cadre.specTests': '[{"name":"S1 held","ids":["S1"]}]' }, dep.actor)
     const board = await h.board.read(); assert.deepEqual([board.tasks[0].state, board.tasks[0].step], ['active', 'worker'])
     sh(d, 'checkout', '-q', 'epic/p1-x'); writeFileSync(join(d, tipFile), 'x\n'); sh(d, 'add', '-A'); sh(d, 'commit', '-qm', 'another task landed'); const tip = sh(d, 'rev-parse', 'HEAD'); sh(d, 'checkout', '-q', 'main')
     await R.refresh(h, dep, tip, 'other')

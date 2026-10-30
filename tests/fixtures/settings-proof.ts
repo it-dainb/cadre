@@ -11,7 +11,6 @@ export const ELSEWHERE: Record<string, [string, string]> = {
   'roles.testerView': ['tests/admission.test.ts', "d.cfg.roles.testerView = 'full'"], 'roles.tdd.author': ['tests/admission.test.ts', "d.cfg.roles.tdd.author = 'same'"],
   'milestone.epicPlanner': ['tests/planner.test.ts', "cfg.milestone.epicPlanner = 'main'"], 'planner.maxRounds': ['tests/planner.test.ts', 'cfg.planner.maxRounds = 2'],
   'tdd.testerCommand.use': ['tests/git/tdd-red.test.mjs', 'settings: tdd.testerCommand.use off'], 'tdd.testerCommand.adopt': ['tests/git/tdd-red.test.mjs', 'settings: tdd.testerCommand.adopt off'],
-  'tdd.collectErrors': ['tests/git/tdd-red.test.mjs', 'settings: tdd.collectErrors'],
   units: ['tests/admission.test.ts', "d.cfg = { ...d.cfg, units: [{ root: '.', kind: 'service'"],
   'landing.mode': ['tests/git/landing-pr.test.mjs', "cfg.landing = { mode: 'pr'"], 'landing.review': ['tests/git/landing-pr.test.mjs', "review: !!o.review"], 'landing.remote': ['tests/git/landing-pr.test.mjs', "remote: 'origin' }"],
   adapters: ['tests/protocol/protocol.test.mjs', 'const config = { ...cfgDefaults(), adapters, sync }'], sync: ['tests/protocol/protocol.test.mjs', 'const config = { ...cfgDefaults(), adapters, sync }'],

@@ -88,13 +88,14 @@ describe('admission builds the briefs from the plan (notes.slice)', () => {
 
 describe('scenario coverage is a hard check (review.coverage.enforce)', () => {
   const acc = 'S1: Given a When b Then c\nS3: Given a When b Then c\nS30: Given a When b Then c'
-  test('a scenario counts as tested only when a test name carries its exact id', () => {
-    expect(untested(acc, ['S1: logs in', 'test_s3_rejects', 'S30 keeps'])).toEqual([]); expect(untested(acc, ['S1 a', 'S30 b'])).toEqual(['S3'])
-    expect(untested(acc, ['S10 x', 'xS1'])).toEqual(['S1', 'S3', 'S30']); expect(untested(acc, null)).toEqual([])   // no locked tests: nothing to check
+  const T = (...ids: string[][]) => ids.map((i, n) => ({ name: `t${n}`, ids: i }))
+  test('a scenario counts as tested only when a declared test lists its exact id (the name says nothing)', () => {
+    expect(untested(acc, T(['S1'], ['S3'], ['S30']))).toEqual([]); expect(untested(acc, T(['S1', 'S30']))).toEqual(['S3'])
+    expect(untested(acc, [{ name: 'S1 S3 S30', ids: [] }, { name: 'x', ids: ['S10'] }])).toEqual(['S1', 'S3', 'S30']); expect(untested(acc, null)).toEqual([])   // no locked tests: nothing to check
   })
   test('a pass is blocked by an untested scenario or a coverage entry not marked ok; off: nothing blocks', () => {
-    expect(coverageGaps(true, acc, ['S1', 'S3', 'S30'], [{ scenario: 'S1', ok: true }, { scenario: 'S3', test: 't', ok: false }, { scenario: 'S30', ok: 'weak' }])).toEqual(['scenario S3 is not covered by a test that checks it', 'scenario S30 is not covered by a test that checks it'])
-    expect(coverageGaps(true, acc, ['S1 a', 'S30 b'], [])).toEqual(['scenario S3 has no test']); expect(coverageGaps(false, acc, ['S1 a'], [{ scenario: 'S1', ok: false }])).toEqual([])
+    expect(coverageGaps(true, acc, T(['S1'], ['S3'], ['S30']), [{ scenario: 'S1', ok: true }, { scenario: 'S3', test: 't', ok: false }, { scenario: 'S30', ok: 'weak' }])).toEqual(['scenario S3 is not covered by a test that checks it', 'scenario S30 is not covered by a test that checks it'])
+    expect(coverageGaps(true, acc, T(['S1'], ['S30']), [])).toEqual(['scenario S3 has no test']); expect(coverageGaps(false, acc, T(['S1']), [{ scenario: 'S1', ok: false }])).toEqual([])
   })
   test('the reviewer brief says so in task language and names the untested scenarios; without the rule the section is absent', () => {
     const r = brief('reviewer', { id: 'a1', title: 't', type: 'feature', scenarios: acc, uncovered: ['S3'] })

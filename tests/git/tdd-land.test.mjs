@@ -83,23 +83,23 @@ test('spec_change accept while git is busy is the transient case: "answer again"
 const reTester = async (w, wt, files, names) => {
   const view = await V.buildView(w.h, w.d, await mkTask(w), wt)
   for (const [f, c] of Object.entries(files)) { mkdirSync(join(view, f, '..'), { recursive: true }); writeFileSync(join(view, f), c) }
-  return T.testerDone(w.h, w.d, await mkTask(w), wt, view, names.map(n => ({ path: 'test/s2.json', name: n })))
+  return T.testerDone(w.h, w.d, await mkTask(w), wt, view, names.map(n => ({ path: 'test/s2.json', name: n, ids: ['S1', 'S4'].filter(id => n.includes(id)) })))   // the tester declares the ids each test checks
 }
 // ---- the amended red: after a spec_change Accept only the tests named after the amended scenario must fail; the others must run and may pass ----
 const amended = async (files, names, wrote = { 'test/s.json': tc('S1 dep declared', 'failure') }) => {
-  const w = world({ acceptance: 'S1: Given a When b Then c\nS4: Given x When y Then z' }), { wt } = await tester(w, wrote, Object.values(wrote).map(c => JSON.parse(c).name)); w.meta['cadre.worktree'] = wt
+  const w = world({ acceptance: 'S1: Given a When b Then c\nS4: Given x When y Then z' }), { wt } = await tester(w, wrote, Object.values(wrote).map(c => ({ name: JSON.parse(c).name, ids: ['S1', 'S4'].filter(id => JSON.parse(c).name.includes(id)) }))); w.meta['cadre.worktree'] = wt
   await T.specChange(w.h, w.d, 'm-1', 'S4 was missing', 'S4: Given soon When parsed Then NaN'); await T.resolveSpec(w.h, 'm-1', 'accept'); assert.equal(w.meta['cadre.redOnly'], 'S4')
   return { w, wt, g: await reTester(w, wt, files, names) }
 }
 test('amended red: an unchanged test that passes and an amended S4 that fails is accepted, and the next red is strict again', async () => {
   const { w, g } = await amended({ 'test/s.json': tc('S1 dep declared', 'passed'), 'test/s2.json': tc('S4 soon is NaN', 'failure') }, ['S1 dep declared', 'S4 soon is NaN'])
   assert.ok(g.ok, g.why); assert.match(g.card, /red ✓ 1 failing/); assert.equal(w.meta['cadre.redOnly'], '')
-  const strict = world({ acceptance: 'S1: Given a When b Then c\nS4: Given x When y Then z' }), r = await tester(strict, { 'test/s.json': tc('S1 dep declared', 'passed'), 'test/s2.json': tc('S4 soon is NaN', 'failure') }, ['S1 dep declared', 'S4 soon is NaN'])
+  const strict = world({ acceptance: 'S1: Given a When b Then c\nS4: Given x When y Then z' }), r = await tester(strict, { 'test/s.json': tc('S1 dep declared', 'passed'), 'test/s2.json': tc('S4 soon is NaN', 'failure') }, [{ name: 'S1 dep declared', ids: ['S1'] }, { name: 'S4 soon is NaN', ids: ['S4'] }])
   assert.equal(r.res.ok, false); assert.match(r.res.why, /passed at red; it must fail/)   // no amended marker: every test must fail
 })
 test('a plan amendment flag (cadre.amended = 1) is not the amended scenario: the red stays strict', async () => {
   const w = world({ acceptance: 'S1: Given a When b Then c' }); w.meta['cadre.amended'] = '1'
-  const r = await tester(w, { 'test/s.json': tc('S1 dep declared', 'passed'), 'test/s2.json': tc('S4 soon', 'failure') }, ['S1 dep declared', 'S4 soon'])
+  const r = await tester(w, { 'test/s.json': tc('S1 dep declared', 'passed'), 'test/s2.json': tc('S4 soon', 'failure') }, [{ name: 'S1 dep declared', ids: ['S1'] }, { name: 'S4 soon', ids: ['S4'] }])
   assert.equal(r.res.ok, false); assert.match(r.res.why, /passed at red; it must fail/); assert.equal(w.meta['cadre.amended'], '1')   // untouched
 })
 test('an Accept without a valid scenario leaves the red strict and the tester\'s note without the "may pass" sentence', async () => {
@@ -111,13 +111,13 @@ test('amended red: the amended S4 test passing is refused', async () => {
   const { g } = await amended({ 'test/s.json': tc('S1 dep declared', 'failure'), 'test/s2.json': tc('S4 soon is NaN', 'passed') }, ['S1 dep declared', 'S4 soon is NaN'])
   assert.equal(g.ok, false); assert.match(g.why, /S4 soon is NaN" passed at red; it must fail/)
 })
-test('amended red: no test named after S4 is refused, naming S4', async () => {
+test('amended red: no test declaring S4 is refused, naming S4', async () => {
   const { g } = await amended({ 'test/s.json': tc('S1 dep declared', 'passed'), 'test/s2.json': tc('S2 other', 'failure') }, ['S1 dep declared', 'S2 other'])
-  assert.equal(g.ok, false); assert.match(g.why, /no test is named after S4, the scenario that was amended/)
+  assert.equal(g.ok, false); assert.match(g.why, /no test declares S4, the scenario that was amended/)
 })
 test('amended red: an unchanged test that errors is refused (it must still run)', async () => {
   const { g } = await amended({ 'test/s.json': tc('S1 dep declared', 'error', 'boom'), 'test/s2.json': tc('S4 soon is NaN', 'failure') }, ['S1 dep declared', 'S4 soon is NaN'])
-  assert.equal(g.ok, false); assert.match(g.why, /errors, not failures/)
+  assert.equal(g.ok, false); assert.match(g.why, /errored instead of failing: s\.S1 dep declared/)   // B1
 })
 test('spec_change accept: the worker commits are dropped, so the amended red is measured on the spec commit tree', async () => {
   const w = world(), { wt } = await tester(w, { 'test/s.json': tc('a', 'failure') }, ['a']), spec = w.meta['cadre.specCommit']; w.meta['cadre.worktree'] = wt
@@ -142,6 +142,6 @@ test('spec_change accept keeps a rework merge, drops the worker commit; a failed
 test('a refused red leaves no copy-in commit; the identical retry reaches the gate again', async () => {
   const w = world(), files = { 'test/s.json': tc('a', 'passed') }, { wt, view, res } = await tester(w, files, ['a']), pre = sh(wt, 'rev-parse', 'HEAD')
   assert.equal(res.ok, false); assert.match(res.why, /pass at the spec commit/); assert.equal(sh(wt, 'rev-parse', 'HEAD'), pre); assert.equal(existsSync(join(wt, 'test/s.json')), false); assert.equal(sh(wt, 'status', '--porcelain'), '')
-  const again = await T.testerDone(w.h, w.d, await mkTask(w), wt, view, [{ path: 'test/s.json', name: 'a' }])
+  const again = await T.testerDone(w.h, w.d, await mkTask(w), wt, view, [{ path: 'test/s.json', name: 'a', ids: [] }])
   assert.match(again.why, /pass at the spec commit/)   // not "identical to the base; nothing to lock"
 })
