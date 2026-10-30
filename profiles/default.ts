@@ -48,6 +48,7 @@ export const flags: Record<string, FlagSpec> = {
 // The work roles (plan 2.4). The prompts stay in agents/prompts.ts (the source of truth); planner and specifier are core planning roles outside this table (core/roles).
 // `report.fields` is the report form per role: caps are data (S0 gap G3), `requiredWith` and `ask` the outcome-conditional fields (G2); onSilent per S0 gap G1 (types/profile.ts).
 const R = 'mcp__cadre__report', C = 'mcp__cadre__run_check', I = 'mcp__cadre__inspect'
+const RUN_EG = modelText('brief', 'e.g. {"command":["node","--test","--test-reporter=junit","--test-reporter-destination=$CADRE_JUNIT","test/login.test.js"]} (pytest: --junitxml=$CADRE_JUNIT; jest: jest-junit)')   // the default profile's example for the tester's `run` (the brief section and the refusal)
 const STOP = 'You stopped without calling report; a hand-back message is not a report. Call the report tool now'
 const cell = (model: string, effort: string) => ({ model, effort })
 const text = (n: number) => ({ list: 5, of: { text: n } })
@@ -59,7 +60,7 @@ export const roles: Record<string, RoleSpec> = {
     routing: { light: cell('haiku', 'high'), standard: cell('haiku', 'high'), thorough: cell('haiku', 'high'), core: cell('haiku', 'high') } },
   tester: { description: 'writes black-box tests for one task from its scenarios', prompt: modelText('agent-file', PROMPTS.tester), tools: ['Read', 'Write', 'Edit', R], network: 'off', write: ['**'], ttl: '1h',
     onSilent: 'nudge', nudge: modelText('nudge', `${STOP} with role "tester", outcome "done", summary and tests.`),
-    report: { outcomes: ['done'], fields: { summary: { text: 800 }, tests: { list: 50, of: { object: { path: { text: 200 }, name: { text: 300 }, ids: { list: 10, of: { text: 20 } } }, required: ['path', 'name'] } }, run: 'command' }, required: ['summary'], requiredWith: { done: ['tests'] } },
+    report: { outcomes: ['done'], fields: { summary: { text: 800 }, tests: { list: 50, of: { object: { path: { text: 200 }, name: { text: 300 }, ids: { list: 10, of: { text: 20 } } }, required: ['path', 'name'] } }, run: 'command' }, required: ['summary'], requiredWith: { done: ['tests'] }, eg: { run: RUN_EG } },
     routing: { light: cell('haiku', 'high'), standard: cell('sonnet', 'medium'), thorough: cell('sonnet', 'medium'), core: cell('sonnet', 'medium') } },
   reviewer: { description: 'reviews one task commit against its scenarios', prompt: modelText('agent-file', PROMPTS.reviewer), tools: ['Read', I, C, R], network: 'off', write: [], ttl: '1h',
     onSilent: 'retry', nudge: modelText('nudge', `${STOP} with role "reviewer", verdict, summary, findings, coverage and contractStatus.`),

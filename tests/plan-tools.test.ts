@@ -17,7 +17,8 @@ import { setProfile } from '../core/pipeline'
 import { BUILTIN } from '../core/profile'
 import { profile as DEFAULT } from '../profiles/default'
 import { planRules } from '../core/plantools'
-import { validateFields, scenarioIds } from '../core/validate'
+import { validateFields, scenarioIds, liteFields, taskFields } from '../core/validate'
+import { PROMPTS } from '../agents/prompts'
 import { fieldsOf } from '../core/plantools'
 
 const MSP = { kind: 'plan', lane: 'milestone', reason: 'two features: export and import' }
@@ -134,6 +135,19 @@ describe('plan tools take acceptance [{id,text}] and the type list of the profil
       expect(planRules()).toContain('doc write>review>land'); expect(planRules()).not.toContain('bug'); expect(planRules()).toContain('Acceptance: doc: what the reader must be able to do')
     } finally { setProfile(DEFAULT) }
     expect(validateFields({ type: 'doc' })).toContain(`one of ${Object.keys(DEFAULT.types).join('|')}`); expect(planRules()).toContain('bug tester>red>worker')
+  })
+  test('S8: the task-fields line, the planner brief and the lite lane line come from profile.fields: the docs profile is told no changelog and no holds', () => {
+    const line = () => planRules().split('\n').find(l => l.startsWith('- Task fields:'))!
+    expect(line()).toContain('changelog {"category"'); expect(line()).toContain('holds? ["A2"]'); expect(line()).toContain('breaking?'); expect(liteFields()).toContain('a changelog')
+    expect(planRules()).not.toContain('- holds')
+    try {
+      setProfile(DOCS)
+      expect(line()).not.toContain('changelog'); expect(line()).not.toContain('holds'); expect(line()).toContain('acceptance [{"id","text"}]'); expect(line()).toContain('contract {"items"'); expect(liteFields()).toBe('')
+      expect(taskFields()).toBe(line().slice('- Task fields: '.length, -1))
+    } finally { setProfile(DEFAULT) }
+  })
+  test('S8: the planner prompt names risk and leaves the field list to its brief', () => {
+    expect(PROMPTS.planner).toContain('risk: light, standard, thorough or core'); expect(PROMPTS.planner).toContain('Task fields'); expect(PROMPTS.planner).not.toContain('changelog'); expect(PROMPTS.planner).not.toContain('holds')
   })
   test('the profile\'s fields are the allowed names: the docs profile declares none, so a changelog is an unknown field there', () => {
     expect(validateFields({ changelog: { none: true, reason: 'x' } })).toBeNull(); expect(validateFields({ holds: 'S1' })).toContain('metadata.holds')

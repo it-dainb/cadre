@@ -13,6 +13,10 @@ export const ARGS = ['kind', 'amend', 'type', 'acceptance', 'contract', 'lane', 
 // the task fields the profile declares, and the three the engine reads whatever the profile says (the unit a task builds in, the commit message)
 const CORE: Field[] = [{ name: 'package', store: 'meta', required: false }, { name: 'scope', store: 'meta', required: false }, { name: 'breaking', store: 'meta', required: false, kind: 'bool' }]
 const declared = (): Field[] => [...CORE.filter(c => !active().fields.some(f => f.name === c.name)), ...active().fields]
+// how a profile's task fields are written in a plan call: the plan rules, the planner's brief and the lite lane's line read these, so a profile is never told to send a field it refuses
+const FORM: Record<string, string> = { changelog: ' {"category":"Added","entry":"…"} or {"none":true,"reason":"…"}', holds: ' ["A2"] (acceptance ids that already hold)' }
+export const taskFields = (): string => ['type', 'package', 'acceptance [{"id","text"}]', ...declared().filter(f => !['package', 'lane', 'risk'].includes(f.name)).map(f => `${f.name}${f.required === true ? '' : '?'}${FORM[f.name] ?? (typeof f.kind === 'object' ? ` ${f.kind.enum.join('|')}` : '')}`), 'contract {"items":[{"name","status":"new|changed|unchanged"}]} or {"none":true,"reason":"…"}'].join(', ')
+export const liteFields = (): string => { const r = declared().filter(f => f.required === true).map(f => f.name === 'changelog' ? 'a changelog ({"none": true, "reason": "<why>"} when users would not notice the change)' : f.name); return r.length ? ` and ${r.join(', ')}` : '' }
 export const FIELDS = (): string[] => [...new Set([...ARGS, ...declared().map(f => f.name)])]
 export const CATEGORIES = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security']
 const str = (v: unknown): v is string => typeof v === 'string' && v.trim() !== ''
@@ -156,10 +160,9 @@ export async function capped(h: Host, key: string): Promise<boolean> { return ((
 // Report envelope (DESIGN 6.2): entry point for wave 3 (`tools/index`); semantic checks (6.3: files exist at sourceCommit...) are theirs to add.
 // Returns an example-bearing error or null.
 // the tester's test command (ADR 0023): an argv run without a shell, inside the offline sandbox like any check (task data run through the test slot, never host code)
-export function runShape(run: any): string | null {
-  const eg = 'e.g. {"command":["node","--test","--test-reporter=junit","--test-reporter-destination=$CADRE_JUNIT","test/login.test.js"]}'
-  if (!run || typeof run !== 'object' || !Array.isArray(run.command) || !run.command.length || run.command.length > 64 || !run.command.every((a: unknown) => typeof a === 'string' && a && a.length < 1000)) return `run.command: expected the argument list that runs only your tests, no shell, ${eg}`
-  if (Object.keys(run).some(k => k !== 'command' && k !== 'cwd')) return `run: only command and cwd (${eg}); the check that runs it is not yours to pick`   // argv only, never a check slot
+export function runShape(run: any, eg = ''): string | null {
+  if (!run || typeof run !== 'object' || !Array.isArray(run.command) || !run.command.length || run.command.length > 64 || !run.command.every((a: unknown) => typeof a === 'string' && a && a.length < 1000)) return `run.command: expected the argument list that runs only your tests, no shell${eg ? `, ${eg}` : ''}`
+  if (Object.keys(run).some(k => k !== 'command' && k !== 'cwd')) return `run: only command and cwd${eg ? ` (${eg})` : ''}; the check that runs it is not yours to pick`   // argv only, never a check slot
   if (run.cwd !== undefined && (typeof run.cwd !== 'string' || run.cwd.startsWith('/') || run.cwd.split('/').includes('..'))) return 'run.cwd: expected a folder relative to your test folder, e.g. "web"'
   return null
 }
@@ -192,7 +195,7 @@ export function validateReport(role: string, r: any): Coded | null {
   if (e) return shape(e.replace('call again', 'report again'))
   if (!s) return role === 'planner' && r.tasks === undefined ? sem('tasks: required; add it and report again') : null
   for (const k of [...s.report.required, ...(s.report.requiredWith?.[r[outKey(s)] as Outcome] ?? [])]) if (r[k] === undefined || (s.report.ask?.[k] && !str(r[k]))) return sem(`${k}: ${(s.report.ask?.[k] ?? 'required; add it and report again').replace('{outcome}', r[outKey(s)])}`)
-  for (const [k, v] of Object.entries(s.report.fields)) if (v === 'command' && r[k] !== undefined) { const x = runShape(r[k]); if (x) return shape(x) }
+  for (const [k, v] of Object.entries(s.report.fields)) if (v === 'command' && r[k] !== undefined) { const x = runShape(r[k], s.report.eg?.[k]); if (x) return shape(x) }
   return null
 }
 // the envelope (role, schemaVersion), then the role's own contract

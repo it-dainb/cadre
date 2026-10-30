@@ -114,7 +114,7 @@ async function workerDone(h: Host, d: Deps, t: SnapTask, b: Binding, r: any): Pr
   if (C === base) throw new Error('nothing changed since the task base; make the change, then report')
   let green: { ok: boolean; check: string; secs: number } | undefined
   if (pipeOf(t.type, t.lane).slice(pipeOf(t.type, t.lane).indexOf(t.step) + 1).some(s => gateAt(s) && gateAt(s) !== 'integrate' && gateAt(s) !== 'report')) {   // the step's own check gate after this one (the default profile's green)
-    const g = await tddGreen(h, d, task, wt); if (!g.ok) throw new Error(`green gate failed: ${g.why}\nFix it and report again`)
+    const g = await tddGreen(h, d, task, wt); if (!g.ok) throw new Error(`the checks failed: ${g.why}\nFix it and report again`)
     green = { ok: true, check: 'verify', secs: g.secs ?? 0 }
   }
   const st = await numstat(h, wt, `${base}..${C}`), p = pipeOf(t.type, t.lane), at = await h.now()
