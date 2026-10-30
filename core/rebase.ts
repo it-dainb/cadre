@@ -10,7 +10,7 @@ import { agentsOf } from './board'
 import { apply } from './machine'
 import { idsIn, pushDelta } from './briefs'
 import { mirror } from './dispatch'
-import { typeOf, typeOr } from './pipeline'
+import { makerOf, roleAt, typeOf, typeOr } from './pipeline'
 import { setup } from './admission'
 import { baseOf, taskBranch, wtPath } from './branches'
 import { decided } from './drive'
@@ -27,7 +27,7 @@ import { holdsRed } from './tdd'
 const num = (v?: string) => Number(v ?? 0) || 0
 const sha7 = (s: string) => s.slice(0, 7)
 const lines = (s: string) => s.split('\n').filter(Boolean)
-const worker = async (h: Host, id: string) => { const b = await h.bind.read(); return agentsOf(b, id).find(a => !a.startsWith('~') && b[a].role === 'worker') }
+const worker = async (h: Host, id: string) => { const b = await h.bind.read(), x = (await h.board.read()).tasks.find(t => t.id === id), r = x && roleAt(makerOf(x.type, x.lane)); return agentsOf(b, id).find(a => !a.startsWith('~') && b[a].role === r) }
 
 // trial merge without touching any tree: null = clean, [] / files = conflicting paths, undefined = this git has no merge-tree --write-tree (< 2.38)
 export async function trial(h: Host, root: string, a: string, b: string): Promise<string[] | null | undefined> {
@@ -50,16 +50,16 @@ export async function rework(h: Host, d: Deps, t: SnapTask, task: Task, tip: str
     for (const p of c.filter(p => locked.includes(p))) { await G.git(h.run, wt, ['checkout', '--ours', '--', p]); await G.git(h.run, wt, ['add', '--', p]) }   // a locked spec test keeps this task's version
     return c.filter(p => !locked.includes(p))
   })
-  const by = await landed(h, d.root, base, tip, conf), at = await h.now()
-  const m = await apply(h, { kind: 'rewind', id: t.id, at, actor: 'mod', on: 'worker' }); if (!m.ok) throw new Error(m.error)
+  const by = await landed(h, d.root, base, tip, conf), at = await h.now(), mk = makerOf(t.type, t.lane), r = roleAt(mk) ?? mk
+  const m = await apply(h, { kind: 'rewind', id: t.id, at, actor: 'mod', on: mk }); if (!m.ok) throw new Error(m.error)
   await d.store.resume(t.id, d.actor)
-  await charge(h, t.id, 'rebase'); await d.store.setMeta(t.id, { 'cadre.base': tip, 'cadre.review': '', 'cadre.step': 'worker' }, d.actor)
+  await charge(h, t.id, 'rebase'); await d.store.setMeta(t.id, { 'cadre.base': tip, 'cadre.review': '', 'cadre.step': mk }, d.actor)
   const text = modelText('nudge', [`The plan moved on while ${t.id} waited to merge${by.length ? `: ${by.join(', ')} landed` : ''}. Your branch now has the new plan tip merged in (round ${n}/${ROUNDS}).`,
     conf.length ? `Resolve the conflicts in: ${conf.join(', ')} (keep both changes where they do not contradict).` : `Its checks fail on the merged tree${detail ? `:\n${detail.slice(0, 800)}` : ''}.`,
     'Keep your change, keep every test green; locked tests stay as they are. Then report done again.'].join('\n'))
   const w = await worker(h, t.id); if (w) await step(h, w, { type: 'resume', text })
   await decided(h, 'rebase', `${t.id}: reworked onto the plan tip ${sha7(tip)} (${why}${by.length ? ` after ${by.join(', ')}` : ''}), round ${n}/${ROUNDS}`, t.id)
-  await h.board.update(s => ({ ...s, tasks: s.tasks.map(x => (x.id === t.id ? { ...x, card: card({ id: t.id, title: t.title, role: 'main', to: 'worker', flags: x.flags, next: w ? 'worker resumed: it updates its change onto the plan' : modOn(s) ? 'wait: the worker starts by itself' : `spawn TASK-${t.id} (worker)` }) } : x)) }))
+  await h.board.update(s => ({ ...s, tasks: s.tasks.map(x => (x.id === t.id ? { ...x, card: card({ id: t.id, title: t.title, role: 'main', to: r, flags: x.flags, next: w ? `${r} resumed: it updates its change onto the plan` : modOn(s) ? `wait: the ${r} starts by itself` : `spawn TASK-${t.id} (${r})` }) } : x)) }))
   return `${t.id} was not merged: the plan moved (${why === 'conflict' ? `conflicts in ${conf.join(', ') || 'its files'}` : 'its checks fail on the new tip'}). Its worker updates it (round ${n}/${ROUNDS}); it comes back for review. ${w ? 'Wait for it (status).' : modOn(await h.board.read()) ? 'A new worker starts by itself.' : `Spawn TASK-${t.id} again.`}`
 }
 // past the cap: the human sees both sides (auto: the dialog; yolo: the task stays blocked while the rest goes on, core/drive)
@@ -73,7 +73,7 @@ export async function capAsk(h: Host, d: Deps, t: SnapTask, task: Task, tip: str
 // a sibling that would conflict is told now and reworked at its own merge
 export async function refresh(h: Host, d: Deps, tip: string, from: string, only?: string): Promise<void> {
   const all = (await h.board.read()).tasks, ep = only ?? all.find(x => x.id === from)?.epic   // a milestone: only the same epic's workers (another epic's branch gets the milestone tip at its own landing)
-  for (const x of all.filter(x => x.id !== from && x.epic === ep && x.state === 'active' && x.step === 'worker')) {
+  for (const x of all.filter(x => x.id !== from && x.epic === ep && x.state === 'active' && x.step === makerOf(x.type, x.lane))) {
     const task = await d.store.get(x.id).catch(() => null), wt = task?.meta['cadre.worktree'], br = task?.meta['cadre.branch']
     if (!task || !wt || !br || !(await h.stat(wt))) continue
     const head = await G.tip(h.run, d.root, br), c = await trial(h, d.root, head, tip), w = await worker(h, x.id)
@@ -105,7 +105,7 @@ export async function refresh(h: Host, d: Deps, tip: string, from: string, only?
 // tick (every 60 s): a trial merge of every pair of running workers' trees (uncommitted edits included, via stash create); on a collision both are told once.
 // Without merge-tree (git < 2.38) the declared paths (metadata.paths) are compared instead.
 export async function watch(h: Host, d: Deps): Promise<void> {
-  const s = await h.board.read(), run = s.tasks.filter(x => x.state === 'active' && x.step === 'worker'), eps = (s.plan?.epics ?? []).filter(e => e.state === 'running'); if (run.length < 2 && eps.length < 2) return
+  const s = await h.board.read(), run = s.tasks.filter(x => x.state === 'active' && x.step === makerOf(x.type, x.lane)), eps = (s.plan?.epics ?? []).filter(e => e.state === 'running'); if (run.length < 2 && eps.length < 2) return
   const seen = ((await h.store.get(`cadre:${d.key}:collide`)) as string[] | undefined) ?? [], tips: Record<string, string> = {}, meta: Record<string, Task> = {}
   for (const x of run) {
     const task = await d.store.get(x.id).catch(() => null), wt = task?.meta['cadre.worktree']; if (!task || !wt || !(await h.stat(wt))) continue

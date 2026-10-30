@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { active, catOf, enter, gateAt, kindOf, locksAt, merges, next, onFail, pipeOf, producer, roleAt, setProfile, spent, typeOf, verdictAt, workspaceAt, covers, fill, sandboxEnv } from '../core/pipeline'
+import { makerOf, typeOr, firstType, active, catOf, enter, gateAt, kindOf, locksAt, merges, next, onFail, pipeOf, producer, roleAt, setProfile, spent, typeOf, verdictAt, workspaceAt, covers, fill, sandboxEnv } from '../core/pipeline'
 import { transition } from '../core/machine'
 import { profile as DEFAULT, types } from '../profiles/default'
+import { BUILTIN } from '../core/profile'
 import { task } from './support'
 import { emptySnapshot } from '../core/board'
 import type { Category } from '../types'
@@ -65,4 +66,16 @@ describe('the machine reads the profile: a docs-style profile moves a task write
       expect(transition({ ...B({}), tasks: [{ ...t, step: 'write', state: 'active' }] }, { kind: 'verdict', id: 'a', at: 1, verdict: 'pass' }).ok).toBe(false)   // not under review
     } finally { setProfile(DEFAULT) }
   })
+})
+
+// a moved plan sends a task back to the step that made its change, and cadre's own tasks take a type the profile has: never the default's names on another profile
+test('makerOf and typeOr follow the active profile: worker/feature on the default, write/doc on docs, work/analysis on analysis', () => {
+  for (const t of ['feature', 'bug', 'refactor', 'docs']) expect(makerOf(t)).toBe('worker')
+  expect(makerOf('feature', 'lite')).toBe('worker'); expect(typeOr('bug')).toBe('bug'); expect(firstType()).toBe('feature')
+  for (const [k, ty, step] of [['docs', 'doc', 'write'], ['analysis', 'analysis', 'work']] as const) {
+    try {
+      setProfile({ ...DEFAULT, ...BUILTIN[k] } as typeof DEFAULT)
+      expect(firstType()).toBe(ty); expect(typeOr('refactor')).toBe(ty); expect(typeOr('bug')).toBe(ty); expect(makerOf(ty)).toBe(step); expect(makerOf(ty, 'lite')).toBe(step)
+    } finally { setProfile(DEFAULT) }
+  }
 })

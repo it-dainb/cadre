@@ -26,6 +26,8 @@ export const verdictAt = (step: string): boolean => !!P.roles[roleAt(step) ?? ''
 export const catOf = (step: string): Category => (verdictAt(step) || gateAt(step) === 'integrate' ? 'review' : 'active')
 // the step that produced what step i judges: the nearest earlier role step whose role has no verdict (else the first step)
 export const producer = (p: readonly string[], i: number): string => [...p.slice(0, i)].reverse().find(s => roleAt(s) && !verdictAt(s)) ?? p[0]
+// the step whose change review judges (the default's worker, docs' write, analysis' work): where a moved plan sends a task back
+export const makerOf = (type: string, lane?: string): string => { const p = pipeOf(type, lane), i = p.findIndex(verdictAt); return producer(p, i < 0 ? p.length : i) }
 export const enter = (type: string, lane?: string): string | undefined => pipeOf(type, lane)[0]
 export const next = (type: string, lane: string | undefined, step: string): string | undefined => { const p = pipeOf(type, lane), i = p.indexOf(step); return i < 0 ? undefined : p[i + 1] }
 // a task works in a tree when one of its steps does (a tester's view is cut from that tree too); one with no such step only reads (an answer, no landing)
