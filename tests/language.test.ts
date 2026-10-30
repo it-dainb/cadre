@@ -6,7 +6,8 @@ import { NOT_NOW, answerDialog } from '../ui/index'
 import { TABLE, labels, pick, tr } from '../ui/tr'
 import { SAY } from '../core/say'
 import { decide } from '../commands/cadre'
-import { ask, flagDecision } from '../core/decide'
+import { ask } from '../core/decide'
+import { flagDecision } from '../core/flags'
 import { plan, world } from './fixtures/native/world'
 
 const D: Decision = { id: 'deploy:7', key: 'deploy', kind: 'deploy', title: 'deploy build 7 to staging?', lines: ['3 services restart'], hash: 'h', options: [{ key: 'd', label: 'Deploy', verb: 'approve', run: 'deploy now' }, { key: 'w', label: 'Wait', verb: 'change', run: 'deploy wait' }] }

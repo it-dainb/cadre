@@ -4,7 +4,8 @@ import type { CadreEvent, Host, Snapshot } from '../types'
 import { CFG, attention, read } from './model'
 import { clip } from './layout'
 import { needsOf } from './v2/facts'
-import { holds, yoloOn } from '../core/decide'
+import { yoloOn } from '../core/decide'
+import { holds } from '../core/flags'
 
 export type Level = 0 | 1 | 2 | 3   // silent . · band o · toast * · notify !
 // yolo: main answers blocked questions and the flags drive does not hold on, so those never reach the human (no toast, no "press 1")

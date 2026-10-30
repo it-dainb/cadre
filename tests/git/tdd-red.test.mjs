@@ -137,8 +137,8 @@ test('a package with no test check: red would run only "compile" and call it gre
   assert.equal(res.ok, false); assert.equal(res.setup, true); assert.match(res.why, /no test check/)
   await bindTester(w, wt, view)
   assert.match(await CL.report(w.h, w.d, 'ag1', rep), /waits for the user/)   // not thrown: the agent may end
-  const s = await w.h.board.read(); assert.equal(s.tasks[0].state, 'blocked'); assert.deepEqual(s.tasks[0].flags, ['red'])
-  assert.equal(s.decisions.length, 1); assert.equal(s.decisions[0].id, 'flag:m-1:red'); assert.match(s.decisions[0].lines.join('\n'), /no test check[\s\S]*compile/)
+  const s = await w.h.board.read(); assert.equal(s.tasks[0].state, 'blocked'); assert.deepEqual(s.tasks[0].flags, ['gate-error'])
+  assert.equal(s.decisions.length, 1); assert.equal(s.decisions[0].id, 'flag:m-1:gate-error'); assert.match(s.decisions[0].lines.join('\n'), /no test check[\s\S]*compile/)
 })
 
 test('settings: limits.testerRounds 2: the 2nd refused red blocks the task with one dialog naming the check; Retry sends it back to the tester with fresh rounds', async () => {

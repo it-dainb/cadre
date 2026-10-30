@@ -1,7 +1,7 @@
 // /cadre <sub> (DESIGN 5.3): parse text into a dispatcher command (core/dispatch is the only entry). Queue/state-by-CAS only: never submits or spawns (P4, G6).
 import type { Hook, Host } from '../types'
 import type { Command, Out } from '../core/dispatch'
-import { ROUTES, answer, cfgOf, dispatch, isHuman, registryOf, resolveEpic, restore, storeOf } from '../core/dispatch'
+import { ROUTES, answer, cfgOf, dispatch, isHuman, registryOf, restore, storeOf } from '../core/dispatch'
 import { changeLane, dropGoal, goal } from '../core/lanes'
 import { unfinished, wake, warm } from '../core/session'
 import { ask } from '../core/decide'
@@ -25,7 +25,6 @@ export async function route(h: Host, c: Command): Promise<Out> {   // every disp
   if (!['setup', 'doctor', 'init', 'open'].includes(c.cmd) && !(await wake(h))) return (c.cmd === 'goal' || c.cmd === 'yolo') && c.origin.kind === 'composer' ? onboard(h, a ?? '', c.cmd === 'yolo') : { text: await status(h) }   // per-repo opt-in: typing a goal here is the opt-in (ADR 0014)
   switch (c.cmd) {
     case 'open': await openPane(h, a ?? 'epic'); return { text: `Opened the cadre pane (${a ?? 'epic'}).` }
-    case 'resolve': if (a && a === (await h.board.read()).plan?.id) return resolveEpic(h, a, c.args[1] ?? ''); break
     case 'restore': return restore(h, a)
     case 'init': case 'setup': {   // Claude does the work (ADR 0010); the checklist and the containment confirm are decisions (ADR 0012)
       const conf = a === 'prefs' && c.args[1] === 'confirm' ? confirmPrefs : a === 'confirm' ? (c.cmd === 'init' ? initConfirm : confirmUser) : undefined

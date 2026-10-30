@@ -1,7 +1,7 @@
 // UI fixtures: the artifact's epic p3 (design/artifact/replay.js, 7 tasks) as human view + event ring. Times in minutes; `view` folds the ring up to `nowMin`.
 import type { CadreEvent, Decision, Snapshot, SnapTask } from '../../../types'
 import { emptySnapshot } from '../../../core/board'
-import { flagDecision } from '../../../core/decide'
+import { flagDecision } from '../../../core/flags'
 import { type Acts, type Cfg, CFG, type View, at } from '../../../ui/model'
 
 export const MIN = 60_000, BASE = 1_000_000

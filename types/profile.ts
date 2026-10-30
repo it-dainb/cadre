@@ -84,7 +84,7 @@ export type Field = {
 
 // flags (2.5): one table row per flag kind; effects are a closed set, run in order, no branching
 export type FlagSpec = { why: string /* modelText */; options: Option[]; holds: boolean; yolo: 'main' | 'human'; tab?: 'epic'; target?: 'task' | 'plan' | 'epic' | 'ref' }
-export type Option = { key: string; label: string; effect: Eff[] /* 1-6 */; needs?: 'ids' }
+export type Option = { key: string; label: string; effect: Eff[] /* 1-6 */; needs?: 'ids' /* offered only when the raised flag carries ids */ | 'keys' /* offered only when the raiser names it (a dialog that narrows the row: the rebase cap's Retry, a spec change that cannot be accepted) */ }
 export type EffDo = 'wait' | 'clear' | 'retry' | 'reset' | 'unblock' | 'rewind' | 'amend' | 'resume' | 'cancel' | 'adopt' | 'spec' | 'restore' | 'recut' | 'dropNeed' | 'endAgent' | 'rework'
 export type Eff = {
   do: EffDo

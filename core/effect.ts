@@ -160,7 +160,6 @@ export async function resolveGit(h: Host, flag: string, how: 'keep' | 'restore')
   }
   const refs = (await git(h, pol.repo, 'for-each-ref', '--format=%(objectname) %(refname)', 'refs/heads')).stdout
   await h.git.update(g => { const { [flag]: _d, ...flags } = g.flags ?? {}; return { ...g, flags, fp: { ...g.fp, refs } } })
-  await emit(h, 'flag.resolved', { taskId: '', flag })
   return { ok: true }
 }
 
