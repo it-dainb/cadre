@@ -3,13 +3,14 @@ import { MAIN_TOOLS, ROLES, TOOLS, TTL, allowlist, file, spec } from '../agents/
 import { defaults, resolve } from '../config/index'
 import { fixedRules, ROLES_DEFAULT, EXIT, PROMPT_CAP, agentSpec, customIssue, exitIssue, writes } from '../core/roles'
 import { routeOf } from '../core/admission'
+import { setProfile } from '../core/pipeline'
+import { BUILTIN } from '../core/profile'
 import { REPORTS, reportRefusal } from '../core/validate'
 import { cachePrefix, fence, guard, setPolicy, shelled } from '../policy/guards'
 import { fence as frozen } from './fixtures/fence-v0.15.0'
 import GOLD from './fixtures/roles-golden'
 import { fakeHost, task } from './support'
 import { roles as PROFILE_ROLES, profile as DEFAULT } from '../profiles/default'
-import { setProfile } from '../core/pipeline'
 import { check } from '../core/profile'
 import { SPECS } from '../tools/index'
 import type { Role } from '../types'
@@ -59,6 +60,14 @@ describe('roles as data: zero behaviour change', () => {
     const d = { cfg: defaults() } as any
     for (const r of ROLES) for (const t of ['light', 'standard', 'thorough', 'core'] as const) for (const n of [0, 1, 2]) for (const unit of [undefined, { root: 'u', routing: { [r]: { model: 'opus' } } }])
       expect(JSON.parse(JSON.stringify(routeOf(d, r, t, n, unit)))).toEqual(GOLD.routes[`${r}/${t}/${n}/${unit ? 'unit' : '-'}`])
+  })
+  test('docs profile: the writer runs on haiku at every risk, the critic on the reviewer\'s cells (opus on thorough)', async () => {
+    const d = { cfg: defaults() } as any, m = (r: string, t: any) => { const x = routeOf(d, r as any, t); return `${x.model}/${x.effort}` }
+    try {
+      setProfile({ ...DEFAULT, ...BUILTIN.docs, flags: { ...DEFAULT.flags, ...BUILTIN.docs.flags } } as any)
+      for (const t of ['light', 'standard', 'thorough', 'core']) expect(m('writer', t)).toBe('haiku/high')
+      expect(['light', 'standard', 'thorough', 'core'].map(t => m('critic', t))).toEqual(['sonnet/high', 'sonnet/high', 'opus/high', 'sonnet/high'])
+    } finally { setProfile(DEFAULT) }
   })
   test('golden: fixture configs resolve unchanged (B16: the profile took types, tdd, review, lanes, roles.custom and limits.testerRounds; profile and limits.specAccepts are new)', async () => {
     const L = (name: string, trust: 'user' | 'repo', value: unknown) => ({ name, trust, value })

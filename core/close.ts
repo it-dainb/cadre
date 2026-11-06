@@ -205,7 +205,7 @@ async function explorerDone(h: Host, d: Deps, t: SnapTask, agentId: string, r: a
   const more = roleAt((await h.board.read()).tasks.find(x => x.id === t.id)?.step ?? '')   // a profile may follow a read-only step with a role step: the task goes on to it, it is not done. Only the report gate may follow it (core/profile.cross), so no check is skipped here
   if (!more) { const m = await apply(h, { kind: 'close', id: t.id, at, actor: 'mod', cites: (r.citations ?? []).length }); if (!m.ok) throw new Error(m.error) }
   await record(h, d, t.id, 'answer', 'explorer', { citations: (r.citations ?? []).length }, { answer: r.answer ?? r.summary })
-  if (more) { await end(h, agentId, 'answer', 'done'); return 'recorded; the next step starts by itself. Stop.' }
+  if (more) { await d.store.setMeta(t.id, { 'cadre.report': reportMeta({ summary: r.answer ?? r.summary }) }, d.actor); await end(h, agentId, 'answer', 'done'); return 'recorded; the next step starts by itself. Stop.' }
   await d.store.close(t.id, { outcome: 'done', note: String(r.answer ?? '').slice(0, 500), session: d.session })
   const next = await lastNext(h, (await h.board.read()).plan?.id, 'read the answer (status)')
   await patch(h, t.id, x => ({ ...x, card: card({ id: t.id, title: t.title, role: 'explorer', to: 'done', flags: x.flags, next }) }))

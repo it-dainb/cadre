@@ -402,11 +402,12 @@ if (process.env.S) { const r = read(join(dir, 'effort.jsonl')).trim(); if (r) fa
     if (/usage/i.test(read(join(dir, 'dev-changelog')))) fail(o, 'the changelog has an entry for a doc task (this profile has no changelog)')
     if (runs(snaps.at(-1)?.s ?? {}) && Object.values(Object.assign({}, ...snaps.map(x => runs(x.s)), ...hist.map(runs))).some(r => ['tester', 'worker', 'reviewer'].includes(r.role))) fail(o, 'a run record of a default-profile role exists')
   }
-  if (o === 'profile-analysis') {   // the analysis profile: scout > analyst > verify (one failing JUnit case sends it back once) > examiner > landing; the briefs speak the profile's own words (read, no denylist)
+  if (o === 'profile-analysis') {   // the analysis profile: explorer > analyst > verify (one failing JUnit case sends it back once) > examiner > landing; the briefs speak the profile's own words (read, no denylist)
     const log = read(join(dir, 'dev-log')).split('\n').filter(Boolean), by = x => subs.filter(s => new RegExp(`${x} brief`).test(s.brief))
-    const an = by('Analyst'), ex = by('Examiner'), sc = by('Scout'), n = x => x.length
-    Object.assign(stats, { devLog: log, scouts: n(sc), analysts: n(an), examiners: n(ex), analystReports: an[0]?.uses.filter(u => /report$/.test(u.name)).length ?? 0 })
-    if (!n(sc) || n(an) !== 1 || !n(ex)) fail(o, `scout ${n(sc)}x, analyst ${n(an)}x, examiner ${n(ex)}x (want 1 analyst run, sent back once, and the others)`)
+    const an = by('Analyst'), ex = by('Examiner'), sc = by('Explorer'), n = x => x.length
+    Object.assign(stats, { devLog: log, explorers: n(sc), analysts: n(an), examiners: n(ex), analystReports: an[0]?.uses.filter(u => /report$/.test(u.name)).length ?? 0 })
+    if (an[0] && !an[0].brief.includes('the last report: The sample data')) fail(o, 'the analyst brief does not carry the explorer\'s answer')
+    if (!n(sc) || n(an) !== 1 || !n(ex)) fail(o, `explorer ${n(sc)}x, analyst ${n(an)}x, examiner ${n(ex)}x (want 1 analyst run, sent back once, and the others)`)
     else {   // sent back once: its first report is refused with the failing case, the second is accepted
       const sent = [...an[0].results.values()].filter(x => /states a conclusion/.test(x)).length, reps = an[0].uses.filter(u => /report$/.test(u.name)).length
       if (sent !== 1 || reps !== 2) fail(o, `the analyst reported ${reps}x and was refused with the failing case ${sent}x (want 2 and 1)`)
