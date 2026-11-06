@@ -90,6 +90,13 @@ describe('roadmap draft', () => {
     const ok = (await w.call('TaskCreate', { subject: 'T2', description: 'd', metadata: { type: 'feature', paths: ['src/a.ts'] } })).result.task.id
     expect(JSON.stringify(await w.call('TaskUpdate', { taskId: ok, metadata: { paths: ['src/a.ts', 'CHANGELOG.md'] } }))).toContain('CHANGELOG.md is protected')   // edit
   })
+  test('a task that names a file of the landed shared core in its paths is refused at plan time (create and edit)', async () => {
+    const w = await world(); await w.call('TaskCreate', { subject: 'Goal', description: 'g', metadata: { kind: 'plan', lane: 'full', reason: 'r' } })
+    await w.store.setMeta((await w.h.board.read()).epic!, { 'cadre.corePaths': JSON.stringify(['src/core.ts']) }, 'cadre')
+    expect(JSON.stringify(await w.call('TaskCreate', { subject: 'T', description: 'd', metadata: { type: 'feature', paths: ['src/a.ts', 'src/core.ts'] } }))).toContain('src/core.ts is shared code that already landed')
+    const ok = (await w.call('TaskCreate', { subject: 'T2', description: 'd', metadata: { type: 'feature', paths: ['src/a.ts'] } })).result.task.id
+    expect(JSON.stringify(await w.call('TaskUpdate', { taskId: ok, metadata: { paths: ['src/core.ts'] } }))).toContain('src/core.ts is shared code that already landed')
+  })
   test('the plan answer carries the roadmap rules; epics need goal, size, paths; overlap and core size go back to the planner', async () => {
     const w = await world(), p = await w.call('TaskCreate', { subject: 'User accounts', description: 'accounts', metadata: MSP }), m = p.result.task.id
     expect(p.context.join('\n')).toContain('Roadmap rules'); expect((await w.h.board.read()).plan!.epicBranch).toBe(`milestone/${m}-user-accounts`)

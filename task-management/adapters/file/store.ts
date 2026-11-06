@@ -77,6 +77,7 @@ export class FileStore implements TaskStore {
       else if (k === 'M' || k === 'N') mk.push(l.slice(1))
       else if (k === 'H') hd = Number(a)
     }
+    if (r.stdout && hd < 0) throw new StoreError('Unavailable', `the task store is too large to read (${(r.stdout.length / 2 ** 20).toFixed(1)} MiB read; the limit is 4 MiB): shrink the largest files under .cadre/state, then retry`)   // the scan always ends with H: a cut output (host stdout cap) lacks it
     if (bad) throw new StoreError('Unavailable', `the task store file .cadre/state/d/${bad} is damaged (not JSON): restore it or remove it, then retry`)   // never a race: docs land by mv
     if (full && (torn || mk[0] !== mk[1])) return again('the store kept moving under a scan')
     // the cache's identity: entry `seen` (printed again by the scan) must be the one this cache applied. A wiped dir (rm -rf, git clean) or one regrown

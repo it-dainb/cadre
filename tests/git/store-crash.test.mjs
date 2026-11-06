@@ -116,3 +116,12 @@ test('big docs: the journal stays under the host stdout cap, compaction keeps su
   const c = new FileStore(bad, fresh(), 'C'); await c.init({ types: reg, journal: true }); for (let i = 0; i < 300; i++) await c.setControl({ k: String(i) })
   assert.match(logs[0], /store compaction failed.*boom/)
 })
+
+// live docs over the host stdout cap: the cut scan names the size, not a damaged file or a moving store
+test('live docs over 4 MiB: the scan error names the size', async () => {
+  const dir = fresh(), cap = 4193619, logs = []
+  const capped = host({ log: t => logs.push(t), run: (argv, o) => new Promise(res => execFile(argv[0], argv.slice(1), { timeout: o.timeoutMs, maxBuffer: 1 << 28 }, (err, stdout, stderr) => res({ exitCode: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout: stdout.slice(0, cap), stderr }))) })
+  const a = new FileStore(capped, dir, 'A'); await a.init({ types: reg, journal: true })
+  await a.setControl({ k: 'x'.repeat(5 << 20) })
+  await assert.rejects(new FileStore(capped, dir, 'B').control(), /too large to read \(4\.0 MiB read; the limit is 4 MiB\)/)
+})

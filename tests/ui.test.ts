@@ -50,7 +50,7 @@ describe('replay: pure fold of the ring at the cursor', () => {
   })
   test('ring rebuilt from records + journal (after /clear) replays the DAG: states at past times', async () => {
     const m = 60_000, h = fakeHost({ t0: 100 * m }), rec = (k: string, min: number, x = '') => [`cadre.rec.${k}`, `${k} @${min * m} ${x}`]
-    const tk = (id: string, meta: string[][]) => ({ id, meta: Object.fromEntries(meta) })
+    const tk = (id: string, meta: string[][]) => ({ id, type: 'feature', meta: Object.fromEntries(meta) })
     const store: any = { list: async () => [tk('a1', [rec('red', 15), rec('report', 29), rec('review', 35, 'verdict: pass')]), tk('a2', [rec('red', 25)])],
       events: async () => ({ events: [['a1', 'todo', 1], ['a1', 'active', 10], ['a1', 'review', 30], ['a1', 'done', 40], ['a2', 'todo', 1], ['a2', 'active', 20]].map(([id, category, min]) => ({ id, category, at: (min as number) * m })) }) }
     await h.board.update(b => ({ ...b, epic: 'p3', tasks: ['a1', 'a2'].map(id => ({ id, title: id, type: 'feat', kind: 'code', merges: true, state: 'todo', step: '', phaseSince: 0, deps: [], flags: [] })) as any }))

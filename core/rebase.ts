@@ -129,13 +129,15 @@ export async function watch(h: Host, d: Deps): Promise<void> {
 }
 
 // the core task landed: its files are locked for every other task of the plan (write jail); a needed change comes back as a blocked report, then a core-patch task
+// the files of the plan's landed shared core (locked for every task)
+export const corePathsOf = async (store: Pick<Deps['store'], 'get'>, epic?: string | null): Promise<string[]> => (epic ? pathsOf({ meta: { 'cadre.paths': (await store.get(epic)).meta['cadre.corePaths'] ?? '' } }) : [])
 export async function coreLanded(h: Host, d: Deps, files: string[], contract?: string): Promise<void> {   // contract: the core task's interface, the plan block of every later brief (ADR 0022)
   const epic = (await h.board.read()).epic; if (!epic) return
-  const all = [...new Set([...pathsOf({ meta: { 'cadre.paths': (await d.store.get(epic)).meta['cadre.corePaths'] ?? '' } }), ...files])]
+  const all = [...new Set([...(await corePathsOf(d.store, epic)), ...files])]
   await d.store.setMeta(epic, { 'cadre.corePaths': JSON.stringify(all), ...(contract ? { 'cadre.coreContract': contract } : {}) }, d.actor); await lockCore(h, d)
 }
 export async function lockCore(h: Host, d: Deps, only?: string): Promise<void> {
-  const s = await h.board.read(), files = s.epic ? pathsOf({ meta: { 'cadre.paths': (await d.store.get(s.epic)).meta['cadre.corePaths'] ?? '' } }) : []; if (!files.length) return
+  const s = await h.board.read(), files = await corePathsOf(d.store, s.epic); if (!files.length) return
   const core = { ...(await policyOf(h)).core }
   for (const x of s.tasks.filter(x => (!only || x.id === only) && x.state !== 'done' && x.state !== 'cancelled')) { const wt = (await d.store.get(x.id).catch(() => null))?.meta['cadre.worktree']; if (wt) core[x.id] = files.map(f => `${wt}/${f}`) }
   await setPolicy(h, { core })

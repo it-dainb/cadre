@@ -15,7 +15,8 @@ import { epicOf, planEpic, stopEpic } from './milestone'
 import { itemSig } from './render'
 import { holdsGap, itemsOf, notesOf, pathsOf, sliceNotes, taskFields, validateFields } from './validate'
 import { fieldsOf } from './plantools'
-import { protectedIn } from './specview'
+import { lockedIn, protectedIn } from './specview'
+import { corePathsOf } from './rebase'
 import { limited } from './drive'
 
 const syms = (t: Task) => { const s = itemsOf(t.design).filter(x => x.status !== 'unchanged'); return s.length ? ` · contract ${s.map(itemSig).join('; ')}` : '' }
@@ -63,12 +64,13 @@ async function draft(h: Host, store: TaskStore, id: string, tasks: unknown): Pro
   await store.dropDrafts((await draftsOf(store, id)).map(t => t.id))
   const made: string[] = [], name = (x: string) => made.map((m, i) => [m, i] as const).sort((a, b) => b[0].length - a[0].length).reduce((s, [m, i]) => s.replaceAll(m, `task ${i + 1}`), x)
   const no = async (why: string) => { const w = name(why); await store.dropDrafts(made); await retouch(h, store); return w }
+  const locked = await corePathsOf(store, (await h.board.read()).epic)
   for (const [i, t] of tasks.entries()) {
     const at = `task ${i + 1}`, m = t?.metadata ?? {}
     if (typeof t?.subject !== 'string' || !t.subject.trim() || typeof t.description !== 'string') return no(`${at}: needs a subject and a description (strings)`)
     if (typeof m !== 'object' || Array.isArray(m)) return no(`${at}: metadata: expected an object`)
     const { epic, ...meta } = m; if (epic !== undefined && epic !== id) return no(`${at}: metadata.epic: omit it (every task is of ${id})`)
-    const err = validateFields(meta) ?? protectedIn(meta.paths) ?? (meta.holds ? holdsGap(meta.holds, fieldsOf(meta).patch.acceptance) : null) ?? (meta.kind !== undefined ? 'metadata.kind: omit it' : null); if (err) return no(`${at}: ${err}`)
+    const err = validateFields(meta) ?? protectedIn(meta.paths) ?? lockedIn(meta.paths, locked) ?? (meta.holds ? holdsGap(meta.holds, fieldsOf(meta).patch.acceptance) : null) ?? (meta.kind !== undefined ? 'metadata.kind: omit it' : null); if (err) return no(`${at}: ${err}`)
     const f = fieldsOf(meta)
     made.push((await store.createDraft({ title: t.subject, description: t.description, acceptance: f.patch.acceptance, design: f.patch.design, type: meta.type ?? firstType(), parent: id, meta: f.meta })).id)
   }

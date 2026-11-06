@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { makerOf, typeOr, firstType, active, catOf, enter, gateAt, kindOf, locksAt, merges, next, onFail, pipeOf, producer, roleAt, setProfile, spent, typeOf, verdictAt, workspaceAt, covers, fill, sandboxEnv } from '../core/pipeline'
 import { transition } from '../core/machine'
+import { fromRec } from '../core/events'
 import { profile as DEFAULT, types } from '../profiles/default'
 import { BUILTIN } from '../core/profile'
 import { task } from './support'
@@ -53,6 +54,15 @@ describe('the machine reads the profile: a docs-style profile moves a task write
     write: { role: 'writer', workspace: 'worktree' as const, brief: [] }, review: { role: 'critic', workspace: 'none' as const, brief: [] }, land: { gate: 'integrate', expect: 'pass' as const, on: 'review' } },
     roles: { writer: DEFAULT.roles.worker, critic: DEFAULT.roles.reviewer } }
   const B = (t: Parameters<typeof task>[1]) => ({ ...emptySnapshot('repo'), tasks: [task('a', { type: 'doc', ...t })] })
+  test('a rebuilt history after /clear names the task\'s own steps (write, review, land), not the default\'s; the default keeps worker/reviewer', () => {
+    const ph = (k: string, text = '', type = 'doc') => fromRec(k, 'a', 1, text, false, type).map(e => [e.data.from, e.data.to])
+    try {
+      setProfile(docs)
+      expect(ph('report')).toEqual([['write', 'review']]); expect(ph('review', 'verdict: pass')).toEqual([['review', 'land']]); expect(ph('review', 'verdict: changes')).toEqual([['review', 'write']])
+      expect(ph('report', '', 'nope')).toEqual([])   // a type the profile does not know: no phase
+    } finally { setProfile(DEFAULT) }
+    expect(ph('red', '', 'feature')).toEqual([['red', 'worker']]); expect(ph('review', 'verdict: pass', 'feature')).toEqual([['reviewer', 'merge']]); expect(ph('review', 'x', 'feature')).toEqual([['reviewer', 'worker']])
+  })
   test('claim enters the first step, advance goes to the review step (category review), a pass goes to the landing gate, a change goes back to the producing step, close needs the gate', () => {
     try {
       setProfile(docs)

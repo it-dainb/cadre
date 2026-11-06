@@ -33,6 +33,11 @@ export const protectedIn = (paths: unknown): string | null => {
   const ps = (Array.isArray(paths) ? paths.map(String) : []).filter(isProtected)
   return ps.length ? modelText('tool-result', `metadata.paths: ${ps.join(', ')} is protected: it is written for you, never by a task, so it is neither a path nor an acceptance item of one; drop it`) : null
 }
+// a task that names a file of the landed shared core in its paths can never finish (every task is jailed from it, core/close): refused at plan time
+export const lockedIn = (paths: unknown, locked: string[]): string | null => {
+  const ps = (Array.isArray(paths) ? paths.map(String) : []).filter(p => locked.includes(p))
+  return ps.length ? modelText('tool-result', `metadata.paths: ${ps.join(', ')} is shared code that already landed and is locked for every task: build on it without changing it; drop it`) : null
+}
 export const rootOf = (p?: Pkg) => (!p || p.root === '.' ? '' : p.root)
 // jail: off = run unsandboxed; auto = the sandbox when this machine has one; on = the sandbox or nothing (the check fails with the reason)
 export async function modeOf(h: Host, d: Pick<Deps, 'cfg'>): Promise<'overlay' | 'copy' | 'none'> {

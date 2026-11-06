@@ -4,6 +4,7 @@ import { ask, settle, yoloOn } from './decide'
 import { flagDecision, holds } from './flags'
 import type { Actor, CadreEvent, EventRing, EventType, Host, Severity } from '../types'
 import type { TaskStore } from '../task-management/store'
+import { makerOf, next, pipeOf, verdictAt } from './pipeline'
 
 export const CAP = 500
 type Row = [actor: Actor, severity: Severity, needsHuman: boolean, dataKeys: string[], optionalKeys?: string[]]
@@ -80,12 +81,15 @@ export async function rebuild(h: Host, epic: string, evs: { at: number; type: Ev
 }
 
 // ring rebuild (2.5): the journal gives at-stamped transitions; at-stamped records (cadre.rec.<kind>) give phases (and transitions without a journal). Fresh seqs.
-const fromRec = (kind: string, id: string, at: number, text: string, tr: boolean) => {
+// Phases are the steps of the task's own pipeline: its maker (worker, writer, ...) and its verdict step, never the default profile's names.
+export const fromRec = (kind: string, id: string, at: number, text: string, tr: boolean, type: string, lane?: string) => {
   const ev = (type: 'task.phase_changed' | 'task.transitioned', from: string, to: string) => ({ at, type, taskId: id, data: { taskId: id, from, to } })
   const T = (from: string, to: string) => (tr ? [ev('task.transitioned', from, to)] : [])
-  if (kind === 'red') return [ev('task.phase_changed', 'red', 'worker')]
-  if (kind === 'report') return [ev('task.phase_changed', 'worker', 'reviewer'), ...T('active', 'review')]
-  if (kind === 'review') return /verdict: pass/.test(text) ? [ev('task.phase_changed', 'reviewer', 'merge')] : [ev('task.phase_changed', 'reviewer', 'worker'), ...T('review', 'active')]
+  const P = (from?: string, to?: string) => (from && to ? [ev('task.phase_changed', from, to)] : [])   // a type the profile does not know has no steps: no phase
+  const mk = makerOf(type, lane), vd = pipeOf(type, lane).find(verdictAt), after = (s?: string) => s && next(type, lane, s)
+  if (kind === 'red') return P('red', after('red'))
+  if (kind === 'report') return [...P(mk, vd ?? after(mk)), ...T('active', 'review')]   // the maker hands to the step that judges it
+  if (kind === 'review') return /verdict: pass/.test(text) ? P(vd, after(vd)) : [...P(vd, mk), ...T('review', 'active')]
   return kind === 'close' ? T('review', 'done') : kind === 'blocked' ? T('active', 'blocked') : kind === 'answer' ? T('active', 'done') : []
 }
 export async function ring(h: Host, store: TaskStore, epic: string): Promise<number> {
@@ -95,7 +99,7 @@ export async function ring(h: Host, store: TaskStore, epic: string): Promise<num
     if (last[r.id] && last[r.id] !== r.category) evs.push({ at: r.at, type: 'task.transitioned', taskId: r.id, data: { taskId: r.id, from: last[r.id], to: r.category } })
     last[r.id] = r.category
   }
-  for (const t of tasks) for (const [k, v] of Object.entries(t.meta)) { const at = Number(/ @(\d+) /.exec(v)?.[1]); if (k.startsWith('cadre.rec.') && at) evs.push(...fromRec(k.slice(10), t.id, at, v, !j)) }
+  for (const t of tasks) for (const [k, v] of Object.entries(t.meta)) { const at = Number(/ @(\d+) /.exec(v)?.[1]); if (k.startsWith('cadre.rec.') && at) evs.push(...fromRec(k.slice(10), t.id, at, v, !j, t.type, t.meta['cadre.lane'] || undefined)) }
   if (!evs.length) return 0
   await rebuild(h, epic, evs); return evs.length
 }
